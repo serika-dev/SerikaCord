@@ -13,7 +13,7 @@ export const metadata = buildMetadata({
 export default async function QuickStartDoc() {
   const gt = await getGT();
   return (
-    <DocPage title={gt("Quick Start")} description={gt("Copy-paste examples in every major language. Use serika.js natively, or point any Discord-compatible library at SerikaCord with a one-line base-URL change.")}>
+    <DocPage title={gt("Quick Start")} description={gt("Copy-paste examples in every major language. serika.js is the supported SDK; the REST API also works from any HTTP client.")}>
       <Callout type="info" title={gt("Prerequisites")}>
         {gt("You need a bot token from the")}{" "}<Link2 href="/developers/applications">{gt("Developer Portal")}</Link2>.
         {gt("See")}{" "}<Link2 href="/developers/docs/getting-started">{gt("Getting Started")}</Link2> {gt("if you don't have one yet.")}
@@ -57,32 +57,33 @@ gw.onDispatch((event, data) => {
   }
 });`}</CodeBlock>
 
-      <H2 id="python">{gt("Python (discord.py — compatible)")}</H2>
-      <P>
-        {gt("Since SerikaCord is API-compatible with Discord, you can also use")}{" "}<InlineCode>discord.py</InlineCode> {gt("with a base-URL override:")}
-      </P>
-      <CodeBlock lang="bash">pip install discord.py</CodeBlock>
-      <CodeBlock lang="python">{`import os, discord
+      <H2 id="python">{gt("Python (REST with requests)")}</H2>
+      <Callout type="warning" title={gt("discord.py does not work yet")}>
+        {gt("discord.py parses every id as an integer and calls GET /oauth2/applications/@me while logging in, so it cannot connect to SerikaCord today. Call the REST API directly instead:")}
+      </Callout>
+      <CodeBlock lang="bash">pip install requests</CodeBlock>
+      <CodeBlock lang="python">{`import os
 
-# Point discord.py at SerikaCord
-discord.http.Route.BASE = "https://api.serika.chat/api/v10"
+import requests
 
-intents = discord.Intents.default()
-intents.message_content = True
-client = discord.Client(intents=intents)
+API = "https://api.serika.chat/api/v10"
+HEADERS = {"Authorization": "Bot " + os.environ["BOT_TOKEN"]}
 
-@client.event
-async def on_ready():
-    print(f"Logged in as {client.user}")
 
-@client.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    if message.content == "!ping":
-        await message.reply("Pong!")
+def send_message(channel_id: str, content: str) -> dict:
+    res = requests.post(
+        f"{API}/channels/{channel_id}/messages",
+        headers=HEADERS,
+        json={"content": content},
+        timeout=10,
+    )
+    res.raise_for_status()
+    return res.json()
 
-client.run(os.environ["BOT_TOKEN"])`}</CodeBlock>
+
+me = requests.get(f"{API}/users/@me", headers=HEADERS, timeout=10).json()
+print("Logged in as", me["username"])
+send_message("CHANNEL_ID", "Hello from Python!")`}</CodeBlock>
 
       <H2 id="raw-http">{gt("Raw HTTP / cURL")}</H2>
       <P>{gt("No library needed — the REST API speaks plain JSON:")}</P>

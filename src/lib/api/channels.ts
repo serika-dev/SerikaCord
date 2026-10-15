@@ -1947,6 +1947,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         resyncedIds.push(...toSync);
       }
     }
+    // Bot gateway audiences (who may see which channel) follow overwrites.
+    if (channel.serverId && updateData.permissionOverwrites !== undefined) {
+      void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(channel.serverId)).catch(() => {});
+    }
 
     // Publish update event
     const publisher = getPublisher();

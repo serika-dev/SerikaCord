@@ -7,6 +7,7 @@ import { storage } from '@/lib/services/storage';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { adjustServerMemberCount } from '@/lib/services/serverMembership';
 import { resolveRedirectUri, appendQuery, parsePermissionsParam, clampBotPermissions } from '@/lib/oauth/authorize';
+import { allowedPrivilegedIntents, INTENT, toStoredIntents } from '@/lib/gateway/intents';
 
 const VALID_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -144,7 +145,9 @@ function sanitizeApp(app: any) {
     termsOfServiceUrl: app.termsOfServiceUrl,
     privacyPolicyUrl: app.privacyPolicyUrl,
     flags: app.flags,
-    gatewayIntents: app.gatewayIntents,
+    // Effective privileged intents (grandfathered apps show them enabled); the
+    // internal "configured" marker never leaves the server.
+    gatewayIntents: allowedPrivilegedIntents(app),
     interactionsEndpointUrl: app.interactionsEndpointUrl ?? null,
     publicKey: app.publicKey ?? null,
     createdAt: app.createdAt,
@@ -314,6 +317,13 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
       updateData[key] = patch[key];
     }
   }
+  if (updateData.gatewayIntents !== undefined) {
+    // Only privileged bits are stored, plus the marker that ends grandfathering
+    // (src/lib/gateway/intents.ts).
+    const stored = toStoredIntents(updateData.gatewayIntents);
+    if (stored === null) { set.status = 400; return { error: 'gatewayIntents must be a non-negative integer' }; }
+    updateData.gatewayIntents = stored;
+  }
 
   await Application.updateById(app.id, updateData);
   const updated = await Application.findById(app.id);
@@ -343,6 +353,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   ]);
 
   await Application.deleteById(app.id);
+  void import('@/lib/services/botTokens').then((m) => m.invalidateBotTokenCache()).catch(() => {});
 
   // Recalculate active_developer / verified_bot_developer badges
   const { recalculateUserBadges } = await import('@/lib/services/badges');
@@ -366,6 +377,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   const newToken = generateBotToken(app.clientId);
   await Application.updateById(app.id, { botToken: newToken });
+  // The old token must stop authenticating (and stop skipping the IP rate limit) now.
+  void import('@/lib/services/botTokens').then((m) => m.invalidateBotTokenCache()).catch(() => {});
 
   // Ensure the bot User + keypair exist so the new token actually authenticates.
   const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
@@ -1579,6 +1592,8 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
 
         await adjustServerMemberCount(serverId, 1);
 
+        // The new bot must show up in this server's gateway audiences right away.
+        void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(serverId)).catch(() => {});
         const { emitGuildMemberAdd, emitGuildCreate } = await import('@/lib/services/gatewayEvents');
 
         const memberDto = {
@@ -1633,7 +1648,12 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
           rate_limit_per_user: c.rateLimitPerUser ?? 0,
         }));
 
-        const allServerMembers = await ServerMember.find({ serverId });
+        // Like Discord: the full member list only goes to apps with the
+        // privileged GUILD_MEMBERS intent; everyone else gets just the bot.
+        const canSeeMembers = (allowedPrivilegedIntents(app) & INTENT.GUILD_MEMBERS) !== 0;
+        const allServerMembers = canSeeMembers
+          ? await ServerMember.find({ serverId })
+          : await ServerMember.find({ serverId, userId: botUser.id });
         const allUserIds = allServerMembers.map(m => m.userId);
         const allUsers = await User.find({ id: { in: allUserIds } });
         const userMap = new Map(allUsers.map(u => [u.id, u]));
@@ -1664,7 +1684,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
           roles: mappedRoles,
           channels: mappedChannels,
           members: mappedMembers,
-          member_count: mappedMembers.length,
+          member_count: canSeeMembers ? mappedMembers.length : (targetServer.memberCount ?? mappedMembers.length),
           joined_at: new Date().toISOString(),
           large: false,
           unavailable: false,

@@ -13,6 +13,8 @@
 import { Application, User, ServerMember, Channel } from '@/lib/models';
 import { GATEWAY_CHANNEL, type GatewayDispatch } from '@/lib/services/gatewayEvents';
 import { config } from '@/lib/config';
+import { allowedPrivilegedIntents, disallowedIntents, intentApplicationFlags, CLOSE_DISALLOWED_INTENTS } from './intents';
+import { messagePayloadFor, routeDecision } from './routing';
 
 export const OP = {
   DISPATCH: 0,
@@ -92,8 +94,13 @@ function gwlog(...args: unknown[]) {
 }
 
 /** Registry of authenticated connections + Redis fan-out. */
+/** How long a closed session can be resumed (its intents and seq are kept). */
+const RESUME_WINDOW_MS = 5 * 60_000;
+
 export class GatewayHub {
   readonly connections = new Set<Conn>();
+  /** Closed sessions that may RESUME: sessionId -> what the new socket inherits. */
+  private readonly resumable = new Map<string, { botId: string; intents: number; seq: number; expiresAt: number }>();
 
   send(conn: Conn, op: number, d: unknown, extra?: { t?: string; s?: number }) {
     try {
@@ -157,6 +164,18 @@ export class GatewayHub {
 
   onClose(conn: Conn) {
     this.connections.delete(conn);
+    if (conn.data.authenticated && conn.data.botId) {
+      const now = Date.now();
+      for (const [id, r] of this.resumable) if (r.expiresAt < now) this.resumable.delete(id);
+      if (this.resumable.size < 10_000) {
+        this.resumable.set(conn.data.sessionId, {
+          botId: conn.data.botId,
+          intents: conn.data.intents,
+          seq: conn.data.seq,
+          expiresAt: now + RESUME_WINDOW_MS,
+        });
+      }
+    }
     // Mark the bot offline when its last connection drops. If the same bot has
     // another live connection, leave it online.
     const botId = conn.data.botId;
@@ -193,7 +212,7 @@ export class GatewayHub {
   private async identify(conn: Conn, d: Record<string, unknown>, opts?: { resumed?: boolean }) {
     const rawToken = String(d?.token ?? '');
     const token = rawToken.startsWith('Bot ') ? rawToken.slice(4) : rawToken;
-    const intents = Number(d?.intents) || 0;
+    let intents = Number(d?.intents) || 0;
 
     if (!token) {
       gwlog(conn.data.sessionId.slice(0, 8), 'identify rejected: missing token');
@@ -207,6 +226,33 @@ export class GatewayHub {
       gwlog(conn.data.sessionId.slice(0, 8), 'identify rejected: unknown token');
       this.send(conn, OP.INVALID_SESSION, false);
       conn.close(4004, 'Authentication failed');
+      return;
+    }
+
+    // RESUME carries no intents: inherit them (and seq) from the closed session.
+    // An unknown, expired or foreign session gets op 9 (not resumable), so the
+    // client re-IDENTIFYs instead of silently running with intents 0.
+    let resumedSeq = 0;
+    if (opts?.resumed) {
+      const sessionId = String(d?.session_id ?? '');
+      const prev = this.resumable.get(sessionId);
+      if (!prev || prev.expiresAt < Date.now() || prev.botId !== app.botId) {
+        gwlog(conn.data.sessionId.slice(0, 8), 'resume rejected: unknown session');
+        this.send(conn, OP.INVALID_SESSION, false);
+        return;
+      }
+      this.resumable.delete(sessionId);
+      intents = prev.intents;
+      resumedSeq = prev.seq;
+      conn.data.sessionId = sessionId;
+    }
+
+    // Privileged intents (GUILD_MEMBERS, GUILD_PRESENCES, MESSAGE_CONTENT) must
+    // be enabled for the app in the Developer Portal, like Discord (close 4014).
+    const allowedPrivileged = allowedPrivilegedIntents(app);
+    if (disallowedIntents(intents, allowedPrivileged) !== 0) {
+      gwlog(conn.data.sessionId.slice(0, 8), 'identify rejected: disallowed intents', intents);
+      conn.close(CLOSE_DISALLOWED_INTENTS, 'Disallowed intent(s)');
       return;
     }
 
@@ -228,6 +274,7 @@ export class GatewayHub {
     conn.data.botId = app.botId;
     conn.data.applicationId = app.id;
     conn.data.intents = intents;
+    if (opts?.resumed) conn.data.seq = resumedSeq;
     conn.data.guildIds = new Set(guildIds);
     conn.data.dmChannelIds = new Set(dmChannels.map((c: { id: string }) => c.id));
     conn.data.lastHeartbeat = Date.now();
@@ -260,38 +307,30 @@ export class GatewayHub {
       guilds: guildIds.map((id) => ({ id, unavailable: true })),
       session_id: conn.data.sessionId,
       resume_gateway_url: config.GATEWAY_URL,
-      application: { id: app.id, flags: app.flags ?? 0 },
+      application: { id: app.id, flags: (app.flags ?? 0) | intentApplicationFlags(allowedPrivileged) },
     }, { t: 'READY', s: ++conn.data.seq });
   }
 
+  /**
+   * Fan a dispatch out to the bot sessions allowed to see it (rules in
+   * ./routing.ts): targeted dispatches reach only their bot, guild events only
+   * bots in that guild (and, for channel events, only bots the emitter listed
+   * in `audience`), DM events only the DM's recipients (default-deny). Message
+   * payloads are blanked for bots without MESSAGE_CONTENT.
+   */
   routeDispatch(dispatch: GatewayDispatch) {
     for (const conn of this.connections) {
-      if (!conn.data.authenticated) continue;
-
-      // If targetBotId is specified, only deliver to that bot connection.
-      if (dispatch.targetBotId && conn.data.botId !== dispatch.targetBotId) continue;
-
-      if (dispatch.intent && (conn.data.intents & dispatch.intent) === 0) continue;
-
-      if (dispatch.guildId) {
-        // If this is a GUILD_CREATE for this bot, or a GUILD_MEMBER_ADD for this bot, add to guildIds
-        const isBotJoin = (dispatch.t === 'GUILD_MEMBER_ADD' && (dispatch.d as { user?: { id?: string } })?.user?.id === conn.data.botId) ||
-                          (dispatch.t === 'GUILD_CREATE' && dispatch.targetBotId === conn.data.botId);
-        if (isBotJoin) {
-          conn.data.guildIds.add(dispatch.guildId);
-        }
-
-        if (!conn.data.guildIds.has(dispatch.guildId)) continue;
-      } else {
-        const channelId = (dispatch.d as { channel_id?: string })?.channel_id;
-        if (channelId && conn.data.dmChannelIds.size && !conn.data.dmChannelIds.has(channelId)) continue;
+      if (!conn.data.authenticated || !conn.data.botId) continue;
+      const decision = routeDecision(conn.data, dispatch);
+      if (decision.addGuildId) conn.data.guildIds.add(decision.addGuildId);
+      if (decision.addDmChannelId) conn.data.dmChannelIds.add(decision.addDmChannelId);
+      if (decision.removeGuildId) {
+        const gone = decision.removeGuildId.toLowerCase();
+        for (const id of conn.data.guildIds) if (id.toLowerCase() === gone) conn.data.guildIds.delete(id);
       }
-
-      // Don't echo a bot's own message back to itself.
-      const authorId = (dispatch.d as { author?: { id?: string } })?.author?.id;
-      if (dispatch.t === 'MESSAGE_CREATE' && authorId && authorId === conn.data.botId) continue;
-
-      this.send(conn, OP.DISPATCH, dispatch.d, { t: dispatch.t, s: ++conn.data.seq });
+      if (!decision.deliver) continue;
+      const d = messagePayloadFor(dispatch.t, dispatch.d, conn.data.botId, conn.data.intents);
+      this.send(conn, OP.DISPATCH, d, { t: dispatch.t, s: ++conn.data.seq });
     }
   }
 }

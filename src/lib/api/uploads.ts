@@ -111,6 +111,62 @@ function tooLargeError(maxSize: number, premium: boolean): string {
 /** Blocked by Trust & Safety scanning → 403 (the message is safe to show); otherwise 500. */
 const uploadErrorStatus = (error: unknown) => (error instanceof ContentBlockedError ? 403 : 500);
 
+export interface StoredChatAttachment {
+  id: string;
+  filename: string;
+  contentType: string;
+  size: number;
+  url: string;
+  spoiler: boolean;
+}
+
+/**
+ * Store one chat attachment exactly like POST /upload/attachment does: the
+ * platform type whitelist, E2EE blob magic check, stored content type, the
+ * (premium) size limit, and StorageService.upload (image sniffing + Trust &
+ * Safety scanning before anything is written). The key is
+ * attachments/[<channelId>/]<uploaderId>/<file>, which validateMessageAttachments
+ * recognises as that uploader's. Used by the user route and the bot API's
+ * multipart message uploads.
+ */
+export async function storeChatAttachment(
+  file: File,
+  opts: { uploaderId: string; channelId?: string; ip?: string; isPremium?: boolean; spoiler?: boolean },
+): Promise<{ ok: true; attachment: StoredChatAttachment; warning?: string } | { ok: false; status: number; error: string; maxSize?: number }> {
+  const check = await attachmentCheck(file.name, file.type);
+  if (!check.allowed) return { ok: false, status: 400, error: check.error || 'File type not allowed' };
+  if (isE2eeBlobUpload(file.name, file.type) && !hasAttachmentMagic(new Uint8Array(await file.slice(0, 8).arrayBuffer()))) {
+    return { ok: false, status: 400, error: 'Not an encrypted attachment' };
+  }
+  const storedType = storedAttachmentType(file.type, config.ALLOWED_FILE_TYPES);
+  const maxSize = opts.isPremium ? config.MAX_FILE_SIZE_PREMIUM : config.MAX_FILE_SIZE;
+  if (file.size > maxSize) return { ok: false, status: 413, error: tooLargeError(maxSize, Boolean(opts.isPremium)), maxSize };
+  try {
+    const result = await storage.uploadFromFormData(file, 'attachments', {
+      ip: opts.ip,
+      userId: opts.uploaderId,
+      channelId: opts.channelId,
+      contentType: storedType,
+    });
+    return {
+      ok: true,
+      warning: check.warning,
+      attachment: {
+        id: result.hash.slice(0, 16),
+        filename: file.name,
+        contentType: storedType,
+        size: file.size,
+        url: result.url,
+        spoiler: Boolean(opts.spoiler),
+      },
+    };
+  } catch (error: unknown) {
+    const message = error instanceof Error ? error.message : 'Failed to upload attachment';
+    console.error('Attachment upload error:', error);
+    return { ok: false, status: uploadErrorStatus(error), error: message };
+  }
+}
+
 export const uploadRoutes = new Elysia({ prefix: '/upload' })
   // Upload avatar
   .post('/avatar', async ({ headers, cookie, body, request, set }) => {
@@ -563,54 +619,18 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    // The platform whitelist (admin settings) decides what can be attached:
-    // MIME types, file endings like ".7z.001", or "*". Page-like and unknown
-    // types are stored as plain downloads either way.
-    const check = await attachmentCheck(file.name, file.type);
-    if (!check.allowed) {
-      set.status = 400;
-      return { error: check.error };
+    const stored = await storeChatAttachment(file, {
+      uploaderId: user.id,
+      channelId,
+      ip,
+      isPremium: Boolean(user.isPremium),
+      spoiler: spoiler === 'true',
+    });
+    if (!stored.ok) {
+      set.status = stored.status;
+      return stored.maxSize !== undefined ? { error: stored.error, maxSize: stored.maxSize } : { error: stored.error };
     }
-    if (isE2eeBlobUpload(file.name, file.type) && !hasAttachmentMagic(new Uint8Array(await file.slice(0, 8).arrayBuffer()))) {
-      set.status = 400;
-      return { error: 'Not an encrypted attachment' };
-    }
-    const storedType = storedAttachmentType(file.type, config.ALLOWED_FILE_TYPES);
-    const warning = check.warning;
-
-    // Validate file size — premium users get higher limit
-    const maxSize = user.isPremium ? config.MAX_FILE_SIZE_PREMIUM : config.MAX_FILE_SIZE;
-    if (file.size > maxSize) {
-      set.status = 413;
-      return { error: tooLargeError(maxSize, Boolean(user.isPremium)), maxSize };
-    }
-
-    try {
-      const result = await storage.uploadFromFormData(file, 'attachments', {
-        ip: getClientIP(request),
-        userId: user.id,
-        channelId,
-        contentType: storedType,
-      });
-
-      return {
-        success: true,
-        warning,
-        attachment: {
-          id: result.hash.slice(0, 16),
-          filename: file.name,
-          contentType: storedType,
-          size: file.size,
-          url: result.url,
-          spoiler: spoiler === 'true',
-        },
-      };
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : 'Failed to upload attachment';
-      console.error('Attachment upload error:', error);
-      set.status = uploadErrorStatus(error);
-      return { error: message };
-    }
+    return { success: true, warning: stored.warning, attachment: stored.attachment };
   }, {
     body: t.Object({
       file: t.File(),

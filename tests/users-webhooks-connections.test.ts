@@ -112,14 +112,16 @@ describe("client IP and global rate-limit policy", () => {
     expect(pickClientIpFromHeaders(null, null)).toBe("unknown");
   });
 
-  test("exempts streams, polling, admin and bot traffic only", () => {
+  test("exempts streams, polling and admin only (bot tokens are validated by the plugin)", () => {
     expect(isGlobalRateLimitExempt("/api/channels/x/stream")).toBeTrue();
     expect(isGlobalRateLimitExempt("/api/users/@me/activity")).toBeTrue();
     expect(isGlobalRateLimitExempt("/api/users/activity/batch")).toBeTrue();
     expect(isGlobalRateLimitExempt("/api/voice/states")).toBeTrue();
     expect(isGlobalRateLimitExempt("/api/health")).toBeTrue();
     expect(isGlobalRateLimitExempt("/api/admin/users")).toBeTrue();
-    expect(isGlobalRateLimitExempt("/api/v10/channels/1/messages", "Bot abc.def")).toBeTrue();
+    // A "Bot ..." header alone no longer skips the per-IP limit (a fake token did).
+    expect(isGlobalRateLimitExempt("/api/v10/channels/1/messages", "Bot abc.def")).toBeFalse();
+    expect(isGlobalRateLimitExempt("/api/users/@me", "Bot abc.def")).toBeFalse();
 
     expect(isGlobalRateLimitExempt("/api/auth/login")).toBeFalse();
     expect(isGlobalRateLimitExempt("/api/tts/fish")).toBeFalse();

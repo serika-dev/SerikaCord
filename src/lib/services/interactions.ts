@@ -36,6 +36,34 @@ interface InteractionRef {
 const interactionStore = new Map<string, InteractionMeta>();
 const INTERACTION_TTL_MS = 15 * 60 * 1000;
 
+const sameId = (a: string | null | undefined, b: string | null | undefined) =>
+  !!a && !!b && a.toLowerCase() === b.toLowerCase();
+
+/** Recipient ids of a DM / group DM ([] for anything else). */
+async function dmRecipientIds(channelId: string): Promise<string[]> {
+  const channel = await Channel.findById(channelId).catch(() => null);
+  if (!channel || (channel.type !== 'dm' && channel.type !== 'group_dm')) return [];
+  return ((channel.recipientIds || []) as string[]).map(String);
+}
+
+/**
+ * May `botId` still post an interaction response into this channel? DMs: it
+ * must be a recipient. Servers: it must still be a member and the channel must
+ * belong to that server. Checked on every callback / follow-up, so a token
+ * can't be used after the bot left, nor point anywhere else.
+ */
+async function botMayRespond(botId: string, channelId: string, serverId: string | null): Promise<boolean> {
+  const channel = await Channel.findById(channelId).catch(() => null);
+  if (!channel) return false;
+  if (!serverId) {
+    if (channel.serverId) return false;
+    return ((channel.recipientIds || []) as string[]).some((r) => sameId(r, botId));
+  }
+  if (!sameId(channel.serverId, serverId)) return false;
+  const member = await ServerMember.findOne({ serverId, userId: botId }).catch(() => null);
+  return !!member;
+}
+
 function storeInteraction(token: string, meta: Omit<InteractionMeta, 'expiresAt'>) {
   interactionStore.set(token, { ...meta, expiresAt: Date.now() + INTERACTION_TTL_MS });
 }
@@ -289,13 +317,24 @@ export async function maybeDispatchSlashInteraction(
 
   let dispatchedAny = false;
 
+  // Outside a server, only bots that are recipients of this DM / group DM may
+  // receive the command (and get a token that lets them post here). Without
+  // this, every app with a global command of that name received the DM's
+  // channel id, the invoker and their arguments.
+  let dmRecipients: string[] | null = null;
+  if (!guildId) {
+    dmRecipients = await dmRecipientIds(message.channelId);
+    if (dmRecipients.length === 0) return false;
+  }
+
   await Promise.all(
     [...perApp.values()].map(async (cmd) => {
       const app = await Application.findById(cmd.applicationId);
       if (!app || !app.botId) return;
 
       // In a DM, restrict dispatch to the recipient bot only.
-      if (restrictToBotId && app.botId !== restrictToBotId) return;
+      if (restrictToBotId && !sameId(app.botId, restrictToBotId)) return;
+      if (dmRecipients && !dmRecipients.some((r) => sameId(r, app.botId))) return;
 
       // Only dispatch to bots actually present where the command was invoked, so
       // a global command from an unrelated server's bot doesn't fire here.
@@ -307,7 +346,9 @@ export async function maybeDispatchSlashInteraction(
       const declared = (cmd.options as AppCommandOption[]) ?? [];
       const optionValues = buildInteractionOptions(declared, tokens);
       // Token is unique per (message, app) so two bots' responses don't collide.
-      const interactionToken = `${message.id}.${app.botId}.${Math.random().toString(36).slice(2)}`;
+      // It is the only credential for the callback/follow-up routes, so the
+      // secret part comes from a CSPRNG (128 bits), not Math.random().
+      const interactionToken = `${message.id}.${app.botId}.${crypto.randomUUID().replace(/-/g, '')}`;
 
       const interaction = {
         id: crypto.randomUUID(),
@@ -338,7 +379,8 @@ export async function maybeDispatchSlashInteraction(
       if (app.interactionsEndpointUrl) {
         // HTTP interactions endpoint (Discord-style signed webhook).
         const result = await postSignedInteraction(app, interaction);
-        if (result && result.ok && result.body?.type === CB_CHANNEL_MESSAGE && result.body.data) {
+        if (result && result.ok && result.body?.type === CB_CHANNEL_MESSAGE && result.body.data
+          && await botMayRespond(app.botId, message.channelId, message.serverId ?? null)) {
           await sendBotResponse(app.botId, message.channelId, message.serverId ?? null, result.body.data, invokerId, interactionRef);
         }
         void CB_DEFERRED_CHANNEL_MESSAGE; // deferred: bot follows up via the callback endpoint
@@ -513,6 +555,8 @@ export async function handleInteractionCallback(
 ): Promise<{ ok: boolean; messageId?: string }> {
   const meta = getInteraction(interactionToken);
   if (!meta) return { ok: false };
+  // The token only lets its bot answer where it is still allowed to be.
+  if (!(await botMayRespond(meta.botId, meta.channelId, meta.serverId))) return { ok: false };
 
   const data = body.data;
   if (!data || (!data.content && !(data.embeds && data.embeds.length))) {

@@ -1,3 +1,4 @@
+import { BOT_LIMITS } from './botRateLimit';
 import { RateLimiterRedis, RateLimiterMemory, RateLimiterRes } from 'rate-limiter-flexible';
 import sanitizeHtml from 'sanitize-html';
 import xss from 'xss';
@@ -58,6 +59,9 @@ export const rateLimiters_config = {
 
   // Incoming channel webhooks, per webhook
   webhookExecute: { points: 30, duration: 10 },
+
+  // Bot API (/api/v10), per bot: see src/lib/security/botRateLimit.ts
+  ...BOT_LIMITS,
 
   // Fish Audio TTS proxy (paid API), per user
   ttsFish: { points: 30, duration: 60 },
@@ -139,7 +143,7 @@ export const rateLimiters_config = {
 export async function checkRateLimit(
   limiterKey: keyof typeof rateLimiters_config,
   identifier: string
-): Promise<{ success: boolean; retryAfter?: number; remaining?: number }> {
+): Promise<{ success: boolean; retryAfter?: number; remaining?: number; resetAfterMs?: number }> {
   const limiterConfig = rateLimiters_config[limiterKey];
   
   try {
@@ -147,14 +151,16 @@ export async function checkRateLimit(
     const result = await limiter.consume(identifier);
     return { 
       success: true, 
-      remaining: result.remainingPoints 
+      remaining: result.remainingPoints,
+      resetAfterMs: result.msBeforeNext,
     };
   } catch (error) {
     if (error instanceof RateLimiterRes) {
       return { 
         success: false, 
         retryAfter: Math.ceil(error.msBeforeNext / 1000),
-        remaining: 0 
+        remaining: 0,
+        resetAfterMs: error.msBeforeNext,
       };
     }
     
@@ -394,7 +400,11 @@ export function isGlobalRateLimitExempt(path: string, authorization?: string | n
   ) return true;
   if (p === '/admin' || p.startsWith('/admin/')) return true;
   if (p.startsWith('/internal/')) return true;
-  if (typeof authorization === 'string' && /^Bot\s+\S/i.test(authorization)) return true;
+  // Bot-token requests are NOT exempt here: the API's rate-limit plugin skips
+  // the per-IP budget only for /api/v10 (v9) requests whose bot token is valid
+  // (botApiTokenFromRequest + a token lookup), and the bot API applies its own
+  // per-bot limits. A made-up "Bot x" header no longer bypasses anything.
+  void authorization;
   return false;
 }
 

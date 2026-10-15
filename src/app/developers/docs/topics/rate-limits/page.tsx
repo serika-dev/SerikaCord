@@ -5,7 +5,7 @@ import { getGT } from "gt-next/server";
 export const metadata = buildMetadata({
   title: "Rate Limits",
   description:
-    "SerikaCord API rate limits: headers, buckets, global limits, 429 handling, Gateway limits, and best practices for avoiding rate limit errors.",
+    "SerikaCord bot API rate limits: per-bot buckets, X-RateLimit headers, the 429 response, and how to retry.",
   path: "/developers/docs/topics/rate-limits",
   keywords: ["SerikaCord rate limits", "API throttling", "429", "rate limit headers", "bucket"],
 });
@@ -13,128 +13,87 @@ export const metadata = buildMetadata({
 export default async function RateLimitsDoc() {
   const gt = await getGT();
   return (
-    <DocPage title={gt("Rate Limits")} description={gt("Understand and handle API rate limits to keep your bot running smoothly.")}>
+    <DocPage title={gt("Rate Limits")} description={gt("How the bot API rate limits requests, the headers it sends, and how to handle a 429.")}>
       <P>
-        {gt("SerikaCord enforces rate limits to protect the API. Rate limits are applied per-route and per-bot (or per-token for OAuth2). All rate limit information is communicated via HTTP headers on every response.")}
+        {gt("Every request made with a bot token counts against limits for that bot. Responses carry Discord-style rate limit headers, so libraries that pace themselves from them work unchanged.")}
       </P>
 
       <H2 id="headers">{gt("Rate Limit Headers")}</H2>
-      <P>{gt("Every API response includes these headers:")}</P>
       <Table headers={[gt("Header"), gt("Description")]} rows={[
-        ["X-RateLimit-Limit", gt("Maximum requests per window")],
-        ["X-RateLimit-Remaining", gt("Remaining requests in current window")],
-        ["X-RateLimit-Reset", gt("Epoch timestamp (seconds) when the window resets")],
-        ["X-RateLimit-Reset-After", gt("Seconds until window resets (relative)")],
-        ["X-RateLimit-Bucket", gt("Unique bucket identifier for this route")],
-        ["X-RateLimit-Global", gt("True if global rate limit was hit")],
-        ["Retry-After", gt("Seconds to wait before retrying (only on 429)")],
+        ["X-RateLimit-Limit", gt("Requests allowed in the bucket's window")],
+        ["X-RateLimit-Remaining", gt("Requests left in the current window")],
+        ["X-RateLimit-Reset", gt("Epoch time (seconds, with decimals) when the window resets")],
+        ["X-RateLimit-Reset-After", gt("Seconds until the window resets")],
+        ["X-RateLimit-Bucket", gt("Opaque id of the bucket this route uses")],
+        ["X-RateLimit-Scope", gt("On a 429: user, or global for the per-bot budget")],
+        ["Retry-After", gt("On a 429: seconds to wait (rounded up)")],
       ]} />
 
+      <H2 id="limits">{gt("Limits")}</H2>
+      <Table headers={[gt("Bucket"), gt("Limit"), gt("Per")]} rows={[
+        [gt("All requests"), "50 / 1s", gt("bot (global)")],
+        ["POST /channels/:id/messages", "5 / 5s", gt("bot and channel")],
+        [gt("Reactions (add / remove)"), "4 / 1s", gt("bot and channel")],
+        ["DELETE /channels/:id/messages/:id", "5 / 1s", gt("bot and channel")],
+        [gt("Other writes (POST, PUT, PATCH, DELETE)"), "30 / 10s", gt("bot, route and channel or server")],
+      ]} />
+      <P>
+        {gt("Discord-style limits on the bot API are new and may be tuned; always read the headers instead of hard-coding these numbers.")}
+      </P>
+
       <H2 id="rate-limited-response">{gt("Rate Limited Response")}</H2>
-      <P>{gt("When rate limited, the API returns")}{" "}<InlineCode>429 Too Many Requests</InlineCode>:</P>
+      <P>{gt("Over a limit the API answers")}{" "}<InlineCode>429 Too Many Requests</InlineCode>{" "}{gt("with this body:")}</P>
       <CodeBlock lang="json">{`{
   "message": "You are being rate limited.",
   "retry_after": 0.642,
-  "global": false
+  "global": false,
+  "code": 0
 }`}</CodeBlock>
+
+      <H2 id="other-requests">{gt("Other requests")}</H2>
       <P>
-        {gt("Wait")}{" "}<InlineCode>retry_after</InlineCode> {gt("seconds before retrying. The response also includes a")} <InlineCode>Retry-After</InlineCode> {gt("HTTP header.")}
+        {gt("Requests without a valid bot token (for example OAuth2 Bearer tokens, or a malformed Authorization header) share a per-IP limit of 1,200 requests per minute. Over it the API answers 429 with a Retry-After header and an error and retryAfter field in the body.")}
       </P>
-      <Table headers={[gt("Field"), gt("Type"), gt("Description")]} rows={[
-        ["message", "string", gt("Human-readable error message")],
-        ["retry_after", "float", gt("Seconds to wait before retrying")],
-        ["global", "boolean", gt("True if the global rate limit was hit (not per-route)")],
+
+      <H2 id="webhooks">{gt("Webhook execution")}</H2>
+      <P>
+        {gt("Executing a channel webhook is limited to 30 requests per 10 seconds per webhook. A 429 includes a Retry-After header and a retry_after field in the body.")}
+      </P>
+      <Table headers={[gt("Scope"), gt("Limit"), gt("On 429")]} rows={[
+        [gt("Bot token (Authorization: Bot ...)"), gt("See Limits above"), "Retry-After + { message, retry_after, global }"],
+        [gt("Other API requests, per IP"), "1,200 / 60s", "Retry-After + { error, retryAfter }"],
+        [gt("Webhook execution, per webhook"), "30 / 10s", "Retry-After + { error, retry_after }"],
       ]} />
 
-      <H2 id="bucket-types">{gt("Rate Limit Buckets")}</H2>
-      <P>
-        {gt("Routes are grouped into buckets. Requests to the same bucket share a rate limit. The bucket identifier is returned in the")}{" "}<InlineCode>X-RateLimit-Bucket</InlineCode> {gt("header.")}
-      </P>
-      <Table headers={[gt("Route pattern"), gt("Bucket type"), gt("Typical limit")]} rows={[
-        ["GET /channels/{id}/messages", gt("Per-channel"), "5/5s"],
-        ["POST /channels/{id}/messages", gt("Per-channel"), "5/5s"],
-        ["PUT /channels/{id}/messages/{id}/reactions/{emoji}/@me", gt("Per-channel"), "1/0.25s"],
-        ["DELETE /channels/{id}/messages/{id}", gt("Per-channel"), "3/1s"],
-        ["PATCH /guilds/{id}/members/{id}", gt("Per-guild"), "10/10s"],
-        ["GET /users/{id}", gt("Global"), gt("Per-bot")],
-        ["GET /gateway", gt("Global"), gt("Per-bot")],
-      ]} />
-      <Callout type="info" title={gt("Bucket hashing")}>
-        {gt("The")}{" "}<InlineCode>X-RateLimit-Bucket</InlineCode> {gt("header is a hash of the route template (with IDs removed). Two requests to different channels hit different buckets; two requests to the same channel share a bucket.")}
-      </Callout>
-
-      <H2 id="global-rate-limit">{gt("Global Rate Limit")}</H2>
-      <P>
-        {gt("There is a global rate limit of")}{" "}<Strong>{gt("50 requests per second")}</Strong> {gt("across all routes. If exceeded, you'll receive a")}{" "}<InlineCode>429</InlineCode> {gt("with")}{" "}
-        <InlineCode>global: true</InlineCode>. {gt("Global rate limits take precedence over per-route limits.")}
-      </P>
-
-      <H2 id="handling">{gt("Best Practices for Handling Rate Limits")}</H2>
+      <H2 id="handling">{gt("Handling 429s")}</H2>
       <UL>
-        <li>{gt("Track")}{" "}<InlineCode>X-RateLimit-Remaining</InlineCode> {gt("and slow down before hitting 0")}</li>
-        <li>{gt("Queue requests and process them sequentially per-bucket")}</li>
-        <li>{gt("Respect")}{" "}<InlineCode>retry_after</InlineCode> {gt("— don't retry immediately")}</li>
-        <li>{gt("Use exponential backoff for unexpected 429s")}</li>
+        <li>{gt("Track X-RateLimit-Remaining per bucket and slow down before it reaches 0")}</li>
+        <li>{gt("On any 429, wait retry_after seconds (or the Retry-After header) before retrying")}</li>
+        <li>{gt("Use exponential backoff when a 429 has no Retry-After")}</li>
+        <li>{gt("Queue requests per channel instead of sending bursts")}</li>
         <li>{gt("Cache responses where possible to reduce API calls")}</li>
-        <li>{gt("Use")}{" "}<InlineCode>GET</InlineCode> {gt("requests with")}{" "}<InlineCode>If-None-Match</InlineCode> {gt("for 304 caching")}</li>
-        <li>{gt("Avoid burst requests — spread them out evenly")}</li>
-        <li>{gt("Log rate limit headers to debug throttling issues")}</li>
       </UL>
 
-      <H3 id="rate-limit-queue">{gt("Rate limit queue example (Node.js)")}</H3>
-      <CodeBlock lang="javascript">{`class RateLimitQueue {
-  constructor() {
-    this.buckets = new Map(); // bucket -> { remaining, resetAfter }
-  }
-
-  async request(method, url, options) {
-    const res = await fetch(url, options);
-
-    // Update bucket info from headers
-    const bucket = res.headers.get("X-RateLimit-Bucket");
-    if (bucket) {
-      this.buckets.set(bucket, {
-        remaining: parseInt(res.headers.get("X-RateLimit-Remaining")),
-        resetAfter: parseFloat(res.headers.get("X-RateLimit-Reset-After")),
-      });
-    }
-
-    if (res.status === 429) {
-      const body = await res.json();
-      const wait = body.retry_after * 1000;
-      await new Promise(r => setTimeout(r, wait));
-      return this.request(method, url, options); // retry
-    }
-
-    return res;
-  }
+      <H3 id="retry-example">{gt("Retry example (Node.js)")}</H3>
+      <CodeBlock lang="javascript">{`async function request(url, options, attempt = 0) {
+  const res = await fetch(url, options);
+  if (res.status !== 429) return res;
+  const header = Number(res.headers.get("Retry-After"));
+  const waitSeconds = Number.isFinite(header) && header > 0 ? header : Math.min(2 ** attempt, 60);
+  await new Promise((r) => setTimeout(r, waitSeconds * 1000));
+  return request(url, options, attempt + 1);
 }`}</CodeBlock>
 
-      <Callout type="warning" title={gt("Cloudflare Bans")}>
-        {gt("Repeatedly hitting rate limits may result in temporary IP bans. Always handle 429 responses gracefully and back off when instructed.")}
+      <H2 id="gateway">{gt("Gateway")}</H2>
+      <P>
+        {gt("The gateway does not enforce a send rate or an identify rate yet, and GET /gateway/bot returns a fixed session_start_limit. A connection that misses heartbeats is closed with code")}{" "}<InlineCode>4009</InlineCode>{". "}
+        {gt("Requesting a privileged intent that is not enabled for your application closes the connection with code")}{" "}<InlineCode>4014</InlineCode>{". "}
+        <Link2 href="/developers/docs/topics/gateway">{gt("Gateway")}</Link2>
+      </P>
+
+      <Callout type="warning" title={gt("Be a good citizen")}>
+        <Strong>{gt("Back off when told to.")}</Strong>{" "}{gt("Bots that keep hitting 429s may be blocked.")}
       </Callout>
-
-      <H2 id="gateway-rate-limits">{gt("Gateway Rate Limits")}</H2>
-      <P>
-        {gt("The Gateway has its own rate limits separate from the REST API:")}
-      </P>
-      <Table headers={[gt("Limit"), gt("Value")]} rows={[
-        [gt("Max events sent per 60 seconds"), "120"],
-        [gt("Max identifies per 5 seconds"), "1"],
-        [gt("Max concurrent identifies per 24 hours"), "1,000"],
-      ]} />
-      <P>
-        {gt("Exceeding the identify limit will result in an")}{" "}<InlineCode>Invalid Session</InlineCode> {gt("(op 8). Exceeding the event send limit may result in a close with code")}{" "}<InlineCode>4008</InlineCode>.
-      </P>
-
-      <H2 id="exempt-routes">{gt("Exempt Routes")}</H2>
-      <P>
-        {gt("Some routes are not rate limited or have very high limits:")}
-      </P>
-      <UL>
-        <li><InlineCode>GET /gateway</InlineCode> — {gt("very high limit")}</li>
-        <li><InlineCode>{"POST /interactions/{id}/{token}/callback"}</InlineCode> — {gt("exempt (must respond within 3s)")}</li>
-      </UL>
     </DocPage>
   );
 }

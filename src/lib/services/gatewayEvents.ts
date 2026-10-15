@@ -3,6 +3,7 @@ import { config } from '@/lib/config';
 import { toDiscordPoll, type PollResultData, type StoredPoll } from '@/lib/chat/polls';
 import type { ForwardView } from '@/lib/chat/forward';
 import { toDiscordVoiceFields, type VoiceAttachmentMeta } from '@/lib/chat/voiceMessage';
+import { PERMISSION_BITS } from '@/lib/permissions/bits';
 
 /**
  * Central bus that feeds the standalone bot Gateway (scripts/gateway.ts).
@@ -18,6 +19,7 @@ export const GATEWAY_CHANNEL = 'gateway:dispatch';
 export const Intents = {
   GUILDS: 1 << 0,
   GUILD_MEMBERS: 1 << 1,
+  GUILD_PRESENCES: 1 << 8,
   GUILD_MODERATION: 1 << 2,
   GUILD_MESSAGES: 1 << 9,
   GUILD_SCHEDULED_EVENTS: 1 << 16,
@@ -40,6 +42,13 @@ export interface GatewayDispatch {
   d: unknown;
   /** Optional target bot ID to send this dispatch strictly to. */
   targetBotId?: string;
+  /**
+   * User ids allowed to receive this dispatch. Channel-scoped events set it:
+   * a DM's recipients, or the bots that can view the guild channel
+   * (./gatewayAudience.ts). The gateway delivers only to bots listed here, and
+   * a guild-less event without it reaches nobody (src/lib/gateway/routing.ts).
+   */
+  audience?: string[];
 }
 
 async function publish(dispatch: GatewayDispatch) {
@@ -48,6 +57,39 @@ async function publish(dispatch: GatewayDispatch) {
     if (pub) await pub.publish(GATEWAY_CHANNEL, JSON.stringify(dispatch));
   } catch {
     // Best-effort — the web app must never fail because the gateway bus is down.
+  }
+}
+
+/**
+ * Publish an event that belongs to one channel (messages, deletes, poll votes)
+ * only to the bots allowed to see that channel. Nothing is published when no
+ * bot may see it (or the channel is unknown): default-deny.
+ */
+async function publishChannelScoped(dispatch: Omit<GatewayDispatch, 'audience'>, channelId: string | null | undefined) {
+  if (!channelId) return;
+  try {
+    const { channelAudience } = await import('./gatewayAudience');
+    const audience = await channelAudience(channelId, dispatch.guildId);
+    if (audience.length === 0) return;
+    await publish({ ...dispatch, audience });
+  } catch {
+    // Best-effort, like publish().
+  }
+}
+
+/**
+ * Publish a guild-wide event only to the bot members whose server permissions
+ * include `bit` (e.g. VIEW_AUDIT_LOG for audit-log entries), like Discord.
+ */
+async function publishGuildPermissionScoped(dispatch: Omit<GatewayDispatch, 'audience'>, bit: bigint) {
+  if (!dispatch.guildId) return;
+  try {
+    const { guildPermissionBotAudience } = await import('./gatewayAudience');
+    const audience = await guildPermissionBotAudience(dispatch.guildId, bit);
+    if (audience.length === 0) return;
+    await publish({ ...dispatch, audience });
+  } catch {
+    // Best-effort, like publish().
   }
 }
 
@@ -135,6 +177,7 @@ export function toDiscordMessage(m: InternalMessage) {
       content_type: a.contentType,
       width: a.width,
       height: a.height,
+      ...(typeof a.description === 'string' ? { description: a.description } : {}),
       ...toDiscordVoiceFields(a as VoiceAttachmentMeta),
     })),
     embeds: [],
@@ -194,22 +237,22 @@ export function toDiscordMessage(m: InternalMessage) {
 
 export function emitMessageCreate(message: InternalMessage) {
   const isDM = !message.serverId;
-  return publish({
+  return publishChannelScoped({
     t: 'MESSAGE_CREATE',
     guildId: message.serverId ?? null,
     intent: isDM ? Intents.DIRECT_MESSAGES : Intents.GUILD_MESSAGES,
     d: toDiscordMessage(message),
-  });
+  }, message.channelId);
 }
 
 export function emitMessageUpdate(message: InternalMessage) {
   const isDM = !message.serverId;
-  return publish({
+  return publishChannelScoped({
     t: 'MESSAGE_UPDATE',
     guildId: message.serverId ?? null,
     intent: isDM ? Intents.DIRECT_MESSAGES : Intents.GUILD_MESSAGES,
     d: toDiscordMessage(message),
-  });
+  }, message.channelId);
 }
 
 /**
@@ -229,20 +272,20 @@ export async function emitPollVoteChanges(opts: {
   const intent = opts.guildId ? Intents.GUILD_MESSAGE_POLLS : Intents.DIRECT_MESSAGE_POLLS;
   const base = { user_id: opts.userId, channel_id: opts.channelId, message_id: opts.messageId, ...(opts.guildId ? { guild_id: opts.guildId } : {}) };
   for (const id of after) {
-    if (!before.has(id)) await publish({ t: 'MESSAGE_POLL_VOTE_ADD', guildId: opts.guildId, intent, d: { ...base, answer_id: id } });
+    if (!before.has(id)) await publishChannelScoped({ t: 'MESSAGE_POLL_VOTE_ADD', guildId: opts.guildId, intent, d: { ...base, answer_id: id } }, opts.channelId);
   }
   for (const id of before) {
-    if (!after.has(id)) await publish({ t: 'MESSAGE_POLL_VOTE_REMOVE', guildId: opts.guildId, intent, d: { ...base, answer_id: id } });
+    if (!after.has(id)) await publishChannelScoped({ t: 'MESSAGE_POLL_VOTE_REMOVE', guildId: opts.guildId, intent, d: { ...base, answer_id: id } }, opts.channelId);
   }
 }
 
 export function emitMessageDelete(opts: { id: string; channelId: string; guildId?: string | null }) {
-  return publish({
+  return publishChannelScoped({
     t: 'MESSAGE_DELETE',
     guildId: opts.guildId ?? null,
     intent: opts.guildId ? Intents.GUILD_MESSAGES : Intents.DIRECT_MESSAGES,
     d: { id: opts.id, channel_id: opts.channelId, guild_id: opts.guildId ?? null },
-  });
+  }, opts.channelId);
 }
 
 export function emitGuildMemberAdd(opts: { guildId: string; member: unknown }) {
@@ -261,6 +304,31 @@ export function emitGuildMemberRemove(opts: { guildId: string; user: unknown }) 
     intent: Intents.GUILD_MEMBERS,
     d: { guild_id: opts.guildId, user: opts.user },
   });
+}
+
+/**
+ * GUILD_DELETE: targeted at a bot that was kicked, banned or left (its session
+ * drops the guild), or untargeted when the server itself was deleted (every
+ * bot in it drops the guild). See routeDecision in src/lib/gateway/routing.ts.
+ */
+export function emitGuildDelete(opts: { guildId: string; targetBotId?: string }) {
+  return publish({
+    t: 'GUILD_DELETE',
+    guildId: opts.guildId,
+    intent: Intents.GUILDS,
+    ...(opts.targetBotId ? { targetBotId: opts.targetBotId } : {}),
+    d: { id: opts.guildId },
+  });
+}
+
+/** GUILD_AUDIT_LOG_ENTRY_CREATE: only bots with VIEW_AUDIT_LOG (Discord), and the GUILD_MODERATION intent. */
+export function emitAuditLogEntryCreate(guildId: string, entry: Record<string, unknown>) {
+  return publishGuildPermissionScoped({
+    t: 'GUILD_AUDIT_LOG_ENTRY_CREATE',
+    guildId,
+    intent: Intents.GUILD_MODERATION,
+    d: { guild_id: guildId, ...entry },
+  }, PERMISSION_BITS.VIEW_AUDIT_LOG);
 }
 
 export function emitGuildCreate(opts: { guildId: string; targetBotId: string; guild: unknown }) {
@@ -298,17 +366,22 @@ export function emitAutoModRuleEvent(
   guildId: string,
   rule: unknown,
 ) {
-  return publish({ t, guildId, intent: Intents.AUTO_MODERATION_CONFIGURATION, d: rule });
+  // Discord sends rule events only to bots with MANAGE_GUILD (Serika: Manage Server).
+  return publishGuildPermissionScoped({ t, guildId, intent: Intents.AUTO_MODERATION_CONFIGURATION, d: rule }, PERMISSION_BITS.MANAGE_SERVER);
 }
 
-/** AUTO_MODERATION_ACTION_EXECUTION: one per action AutoMod took. */
+/**
+ * AUTO_MODERATION_ACTION_EXECUTION: one per action AutoMod took. It carries the
+ * matched message content, so only bots with MANAGE_GUILD (Manage Server) get
+ * it, like Discord.
+ */
 export function emitAutoModActionExecution(guildId: string, d: Record<string, unknown>) {
-  return publish({
+  return publishGuildPermissionScoped({
     t: 'AUTO_MODERATION_ACTION_EXECUTION',
     guildId,
     intent: Intents.AUTO_MODERATION_EXECUTION,
     d: { guild_id: guildId, ...d },
-  });
+  }, PERMISSION_BITS.MANAGE_SERVER);
 }
 
 /** GUILD_SCHEDULED_EVENT_CREATE / _UPDATE / _DELETE / _USER_ADD / _USER_REMOVE. */

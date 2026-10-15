@@ -27,7 +27,8 @@
     "translate:keys": "node scripts/sync-translations.js keys",
     "release": "bun scripts/release.ts",
     "release:dry": "bun scripts/release.ts --dry-run",
-    "changelog": "bun scripts/changelog-add.ts"
+    "changelog": "bun scripts/changelog-add.ts",
+    "parity:discord": "bun scripts/discord-parity.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.986.0",

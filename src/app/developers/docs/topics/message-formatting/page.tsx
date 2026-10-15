@@ -111,8 +111,22 @@ export default async function MessageFormattingDoc() {
 
       <H2 id="attachments">{gt("Attachments")}</H2>
       <P>
-        {gt("Files can be attached using")}{" "}<InlineCode>multipart/form-data</InlineCode>. {gt("Reference them in the message content using")}{" "}<InlineCode>attachment://filename.ext</InlineCode>.
+        {gt("To attach files, send the request as")}{" "}<InlineCode>multipart/form-data</InlineCode>{": "}
+        {gt("each file in its own")}{" "}<InlineCode>files[n]</InlineCode>{" "}{gt("field and the JSON body in a")}{" "}<InlineCode>payload_json</InlineCode>{" "}{gt("field. This works for creating and editing messages.")}
       </P>
+      <CodeBlock lang="bash">{`curl -X POST "https://api.serika.chat/api/v10/channels/CHANNEL_ID/messages" \\
+  -H "Authorization: Bot YOUR_TOKEN" \\
+  -F 'payload_json={"content":"Here you go","attachments":[{"id":0,"description":"A sleepy cat"}]}' \\
+  -F 'files[0]=@cat.png'`}</CodeBlock>
+      <UL>
+        <li>{gt("Up to 10 files per message. Each file must be a type the platform allows and fit the upload size limit; images are scanned like any user upload.")}</li>
+        <li>{gt("In payload_json, an attachments entry whose id is n sets that file's filename (the extension must stay the same) and description (alt text).")}</li>
+        <li>{gt("A filename starting with SPOILER_ marks the file as a spoiler.")}</li>
+        <li>{gt("When editing, attachments lists the ids of the existing attachments to keep; new files are added. Leave attachments out to keep all of them.")}</li>
+        <li>{gt("The bot needs the Attach Files permission in the channel.")}</li>
+        <li>{gt("A JSON body may only list attachments that the bot itself uploaded; other URLs are rejected. Link external images with an embed instead.")}</li>
+        <li>{gt("attachment:// references in embeds are not supported yet.")}</li>
+      </UL>
 
       <H2 id="allowed-mentions">{gt("Allowed Mentions")}</H2>
       <P>

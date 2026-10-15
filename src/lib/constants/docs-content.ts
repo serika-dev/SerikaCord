@@ -18,7 +18,7 @@ export const DOCS_CONTENT_REGISTRY: Record<string, DocContentItem> = {
     description: "Build bots, apps, and integrations on SerikaCord — a 1:1-compatible mirror of the Discord API. If you can build a Discord bot, you can build a SerikaCord bot.",
     content: `# SerikaCord Developer Documentation
 
-SerikaCord speaks the same REST routes, gateway opcodes, OAuth2 flows, and data structures as Discord. The official serika.js SDK handles everything natively, or existing discord.js / discord.py bots run with a one-line base-URL change.
+SerikaCord follows Discord v10 for REST routes, gateway opcodes, OAuth2 flows and data structures, for the parts it implements. The official serika.js SDK handles everything natively. Discord libraries are not drop-in yet: ids are UUIDs rather than numeric snowflakes, so discord.py and other libraries that parse ids as integers cannot connect, and discord.js only partly works.
 
 ## Base URL & Endpoints
 Every request goes to the dedicated bot API host. The version lives in the path, just like Discord.
@@ -35,9 +35,9 @@ Authorization: Bot YOUR_BOT_TOKEN_HERE
 \`\`\`
 
 ## Key Concepts
-- 100% Discord API Wire Compatibility: Opcodes, payloads, event names, and status codes match Discord v10.
+- Discord v10 shapes: opcodes, payloads, event names and error codes follow Discord v10 where implemented (see the API reference for what exists).
 - Single Authorization Model: Both REST and WebSocket Gateway use the same Bot token.
-- Drop-in SDKs: Use serika.js natively or route discord.js/discord.py to SerikaCord endpoints.`,
+- SDK: use serika.js, or call the REST API and gateway directly.`,
     codeExamples: [
       {
         lang: "http",
@@ -134,24 +134,32 @@ client.on('messageCreate', msg => {
 client.login(process.env.BOT_TOKEN);
 \`\`\`
 
-## discord.py (Python with Custom Base URL)
+## Python (REST with requests)
+discord.py does not work against SerikaCord yet (it parses ids as integers and calls GET /oauth2/applications/@me while logging in). Call the REST API directly:
+
 \`\`\`python
-import discord
+import os
 
-class MyClient(discord.Client):
-    async on_ready(self):
-        print(f'Logged in as {self.user}')
+import requests
 
-    async on_message(self, message):
-        if message.author == self.user:
-            return
-        if message.content == 'ping':
-            await message.channel.send('pong')
+API = "${API.rest}"
+HEADERS = {"Authorization": "Bot " + os.environ["BOT_TOKEN"]}
 
-# Route discord.py to SerikaCord API host
-discord.http.Route.BASE = '${API.host}'
-client = MyClient(intents=discord.Intents.default())
-client.run('YOUR_BOT_TOKEN')
+
+def send_message(channel_id: str, content: str) -> dict:
+    res = requests.post(
+        f"{API}/channels/{channel_id}/messages",
+        headers=HEADERS,
+        json={"content": content},
+        timeout=10,
+    )
+    res.raise_for_status()
+    return res.json()
+
+
+me = requests.get(f"{API}/users/@me", headers=HEADERS, timeout=10).json()
+print("Logged in as", me["username"])
+send_message("CHANNEL_ID", "Hello from Python!")
 \`\`\`
 
 ## Raw cURL (REST API)
@@ -330,7 +338,11 @@ Intents allow your bot to subscribe to specific categories of gateway events to 
 - \`MESSAGE_CONTENT\` (1 << 15) - Privileged
 
 ## Privileged Intents
-To receive message content (\`MESSAGE_CONTENT\`) or full member lists (\`GUILD_MEMBERS\`), toggle Privileged Gateway Intents in Developer Portal -> Bot -> Privileged Intents.`,
+\`GUILD_MEMBERS\`, \`GUILD_PRESENCES\` (1 << 8) and \`MESSAGE_CONTENT\` are privileged: switch them on in Developer Portal -> Bot -> Privileged Gateway Intents.
+- IDENTIFY with a privileged intent that is not switched on closes the connection with code 4014.
+- Without \`MESSAGE_CONTENT\`, server messages arrive with empty content, embeds, attachments, components and poll (gateway and REST). Messages that mention the bot, the bot's own messages and DMs are unaffected.
+- Without \`GUILD_MEMBERS\`, \`GET /guilds/{guild.id}/members\` returns 403.
+- Applications created before 16 October 2026 keep all three until the owner changes the toggles for the first time.`,
   },
   "bots/slash-commands": {
     slug: "bots/slash-commands",
@@ -564,25 +576,17 @@ Permissions in SerikaCord are represented as 64-bit integer bitfields.
     slug: "topics/rate-limits",
     title: "Rate Limits",
     section: "Topics",
-    description: "Rate limit headers, bucket IDs, 429 Too Many Requests responses, and retry delays.",
+    description: "Per-bot rate limits, X-RateLimit headers, 429 responses, and retry delays.",
     content: `# Rate Limits
 
-All REST requests are subject to global and route-specific rate limits.
+Requests with a valid bot token count against per-bot limits, reported with Discord-style headers (\`X-RateLimit-Limit\`, \`X-RateLimit-Remaining\`, \`X-RateLimit-Reset\`, \`X-RateLimit-Reset-After\`, \`X-RateLimit-Bucket\`):
 
-## Rate Limit Response Headers
-- \`X-RateLimit-Limit\`: Total allowed requests per window
-- \`X-RateLimit-Remaining\`: Remaining requests in current window
-- \`X-RateLimit-Reset\`: Epoch timestamp (seconds) when window resets
-- \`X-RateLimit-Bucket\`: Rate limit bucket identifier
+- All requests: 50 per second per bot (global).
+- \`POST /channels/{id}/messages\`: 5 per 5 seconds per channel. Reactions: 4 per second per channel. Deleting a message: 5 per second per channel. Other writes: 30 per 10 seconds per route and channel/server.
+- A 429 has \`Retry-After\`, \`X-RateLimit-Scope\` and the body \`{ "message": "You are being rate limited.", "retry_after": 0.642, "global": false, "code": 0 }\`.
+- Requests without a valid bot token share a per-IP limit of 1,200 requests per minute (429 body \`{ "error", "retryAfter" }\`). Channel webhook execution: 30 requests per 10 seconds per webhook.
 
-## 429 Rate Limit Error Payload
-\`\`\`json
-{
-  "message": "You are being rate limited.",
-  "retry_after": 1.25,
-  "global": false
-}
-\`\`\``,
+Read the headers rather than hard-coding these numbers, and honour \`retry_after\` / \`Retry-After\` on any 429 (exponential backoff when it is missing).`,
   },
   "topics/threads": {
     slug: "topics/threads",

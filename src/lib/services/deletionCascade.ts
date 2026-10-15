@@ -36,6 +36,10 @@ export async function deleteServerCascade(serverId: string): Promise<void> {
     return ids;
   });
 
+  // Every bot session in the server drops it (GUILD_DELETE), and cached bot audiences go.
+  void import('@/lib/services/gatewayEvents').then((m) => m.emitGuildDelete({ guildId: id })).catch(() => {});
+  void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(id)).catch(() => {});
+
   // Accounts / domains the server owned (boot-created table, so best-effort).
   await import('@/lib/services/serverOwnedConnections')
     .then((s) => s.deleteAllServerOwnedConnections(id))

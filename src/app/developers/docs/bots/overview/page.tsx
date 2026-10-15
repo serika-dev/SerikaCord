@@ -96,9 +96,13 @@ export default async function BotsOverviewDoc() {
 
 // Guilds + guild messages + message content
 const intents = Intents.GUILDS | Intents.GUILD_MESSAGES | Intents.MESSAGE_CONTENT;`}</CodeBlock>
-      <Callout type="warning" title={gt("Privileged intents require verification")}>
-        {gt("Bots in 100+ servers must be")}{" "}
-        <Link2 href="/developers/docs/topics/bot-verification">{gt("verified")}</Link2> {gt("to use privileged intents. Enable them in the Developer Portal and justify why your bot needs them.")}
+      <Callout type="warning" title={gt("How privileged intents are enforced")}>
+        <UL>
+          <li>{gt("IDENTIFY with a privileged intent that is not switched on for your application closes the connection with code 4014 (Disallowed intents).")}</li>
+          <li>{gt("Without Message Content, server messages arrive with empty content, embeds, attachments, components and poll, over the gateway and REST. Messages that mention your bot, your bot's own messages and DMs are not affected.")}</li>
+          <li>{gt("Without Server Members, listing a server's members (GET /guilds/:id/members) returns 403.")}</li>
+          <li>{gt("Applications created before 16 October 2026 keep all three privileged intents until you change the toggles on the Bot tab for the first time.")}</li>
+        </UL>
       </Callout>
 
       <H2 id="permissions">{gt("Permissions")}</H2>
@@ -109,18 +113,7 @@ const intents = Intents.GUILDS | Intents.GUILD_MESSAGES | Intents.MESSAGE_CONTEN
 
       <H2 id="rate-limits">{gt("Rate Limits")}</H2>
       <P>
-        {gt("The API enforces per-route, per-bot rate limits. Responses include rate limit headers:")}
-      </P>
-      <Table headers={[gt("Header"), gt("Description")]} rows={[
-        ["X-RateLimit-Limit", gt("Maximum requests per bucket")],
-        ["X-RateLimit-Remaining", gt("Remaining requests in current window")],
-        ["X-RateLimit-Reset", gt("Unix timestamp when the bucket resets")],
-        ["X-RateLimit-Reset-After", gt("Seconds until reset")],
-        ["X-RateLimit-Bucket", gt("Bucket identifier")],
-      ]} />
-      <P>
-        {gt("When rate limited, the API returns")}{" "}<InlineCode>429 Too Many Requests</InlineCode> {gt("with a")}{" "}
-        <InlineCode>retry_after</InlineCode> {gt("field. See")}{" "}
+        {gt("Each bot has a global budget of 50 requests per second, and writes such as sending messages or reacting have per-channel buckets. Responses carry X-RateLimit-* headers; a 429 has a retry_after field and a Retry-After header. See")}{" "}
         <Link2 href="/developers/docs/topics/rate-limits">{gt("Rate Limits")}</Link2> {gt("for details.")}
       </P>
 

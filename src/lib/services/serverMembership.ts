@@ -24,6 +24,8 @@ export async function adjustServerMemberCount(serverId: string, delta: number): 
 
 async function afterMembershipChange(serverId: string): Promise<void> {
   invalidateServerMemberCache(serverId);
+  // Bot gateway audiences (who may see which channel) depend on membership.
+  void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(serverId)).catch(() => {});
   await cache.del(`server:${serverId}`).catch(() => { /* cache is best-effort */ });
 }
 
@@ -72,6 +74,12 @@ export async function removeServerMember(serverId: string, userId: string): Prom
   await adjustServerMemberCount(serverId, -deleted.length);
   await afterMembershipChange(serverId);
   requestUserChannelStreamRecheck(normalizeId(userId));
+  // A kicked / banned / departed bot's gateway session must stop receiving this
+  // server's events now, not at its next reconnect (targeted, so it only ever
+  // reaches a bot connection with that user id).
+  void import('@/lib/services/gatewayEvents')
+    .then((m) => m.emitGuildDelete({ guildId: normalizeId(serverId), targetBotId: normalizeId(userId) }))
+    .catch(() => {});
   return true;
 }
 

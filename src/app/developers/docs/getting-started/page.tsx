@@ -21,7 +21,7 @@ export default async function GettingStartedDoc() {
   return (
     <DocPage
       title={gt("Getting Started")}
-      description={gt("From zero to a running bot that replies in a channel. This walkthrough uses serika.js, the official SerikaCord SDK. Any Discord-compatible library also works with a base-URL change.")}
+      description={gt("From zero to a running bot that replies in a channel. This walkthrough uses serika.js, the official SerikaCord SDK.")}
     >
       <Callout type="info" title={gt("What you'll need")}>
         {gt("A SerikaCord account, Node.js 18+, and about five minutes. No prior Discord bot experience is required, but if you have built a Discord bot before, the process is identical — only the base URL changes.")}
@@ -156,29 +156,9 @@ node bot.js`}</CodeBlock>
 
       <H2 id="python">{gt("Prefer Python or another library?")}</H2>
       <P>
-        {gt("SerikaCord is API-compatible with Discord, so")}{" "}<InlineCode>discord.py</InlineCode> {gt("works with a base-URL override:")}
+        {gt("Discord libraries are not drop-in yet: ids are UUIDs rather than numeric snowflakes, so discord.py and other libraries that parse ids as integers cannot connect, and discord.js only partly works.")}{" "}
+        {gt("From Python, call the REST API directly; the")}{" "}<Link2 href="/developers/docs/quick-start#python">{gt("Quick Start")}</Link2>{" "}{gt("has a requests example.")}
       </P>
-      <CodeBlock lang="python">{`import os, discord
-
-# Point discord.py at SerikaCord
-discord.http.Route.BASE = "https://api.serika.chat/api/v10"
-
-intents = discord.Intents.default()
-intents.message_content = True
-client = discord.Client(intents=intents)
-
-@client.event
-async def on_ready():
-    print(f"Logged in as {client.user}")
-
-@client.event
-async def on_message(message):
-    if message.author.bot:
-        return
-    if message.content == "!ping":
-        await message.reply("Pong! 🏓")
-
-client.run(os.environ["BOT_TOKEN"])`}</CodeBlock>
 
       <H2 id="raw-http">{gt("Raw HTTP / cURL")}</H2>
       <P>

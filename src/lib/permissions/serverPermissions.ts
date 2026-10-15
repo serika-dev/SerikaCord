@@ -44,6 +44,8 @@ export function primeRolePermissions(serverId: string, roleId: string, perms: st
 /** Drop cached permissions for one role, or for every role of a server. */
 export function invalidateRolePerms(serverId: string, roleId?: string): void {
   rolePermCache.invalidate(serverId, roleId);
+  // Bot gateway audiences are computed from role permissions too.
+  void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(serverId)).catch(() => {});
 }
 
 /**

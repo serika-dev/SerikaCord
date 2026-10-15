@@ -6,6 +6,7 @@ import { config } from '@/lib/config';
 import { connectDB, cache } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, isGlobalRateLimitExempt, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
+import { botApiTokenFromRequest } from '@/lib/security/botRateLimit';
 import { anonymizeIp } from '@/lib/security/ipPrivacy';
 import { User, type IUser, type IUserSettings, type IPendingFriendRequests, type IRole, AuthorizedApp, UserDeviceSession, UserConnection, ServerMember, Server, Role, ServerEmoji, ServerSticker, Channel, Message, BugReport } from '@/lib/models';
 import type { IAllowedFileType } from '@/lib/models/PlatformSettings';
@@ -435,7 +436,16 @@ async function resolveAutoIdle(userId: string, status: string | null | undefined
 // Checked in onBeforeHandle (not derive) so exempt paths never touch Redis.
 const rateLimitPlugin = new Elysia({ name: 'rateLimit' })
   .onBeforeHandle({ as: 'global' }, async ({ request, set, path }) => {
-    if (isGlobalRateLimitExempt(path, request.headers.get('authorization'))) return;
+    const authorization = request.headers.get('authorization');
+    if (isGlobalRateLimitExempt(path, authorization)) return;
+    // Bot API requests with a VALID bot token use the per-bot limits in
+    // botApi.ts instead of the per-IP budget; anything else (including a
+    // made-up "Bot x" header) counts against the IP.
+    const botToken = botApiTokenFromRequest(path, authorization);
+    if (botToken) {
+      const { resolveBotToken } = await import('@/lib/services/botTokens');
+      if (await resolveBotToken(botToken).catch(() => null)) return;
+    }
     const result = await checkRateLimit('api', getClientIP(request));
     if (!result.success) {
       set.status = 429;

@@ -1,0 +1,5843 @@
+{
+ "meta": {
+  "spec": {
+   "repo": "discord/discord-api-spec",
+   "sha": "ed014089afa986f2b532ae081c456a85de074d0c",
+   "date": "2026-10-14T02:32:41Z"
+  },
+  "docs": {
+   "repo": "discord/discord-api-docs",
+   "sha": "37148620d2324292b76047541d5f8331f81ea77a",
+   "date": "2026-10-09T18:05:18Z"
+  }
+ },
+ "rest": [
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}",
+   "operationId": "get_application",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "PrivateApplicationResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/applications/{application_id}",
+   "operationId": "update_application",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "cover_image",
+    "custom_install_url",
+    "description",
+    "event_webhooks_status",
+    "event_webhooks_types",
+    "event_webhooks_url",
+    "explicit_content_filter",
+    "flags",
+    "icon",
+    "install_params",
+    "integration_types_config",
+    "interactions_endpoint_url",
+    "max_participants",
+    "role_connections_verification_url",
+    "tags",
+    "team_id",
+    "type"
+   ],
+   "multipart": false,
+   "response": "PrivateApplicationResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/activity-instances/{instance_id}",
+   "operationId": "applications_get_activity_instance",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "EmbeddedActivityInstance"
+  },
+  {
+   "method": "POST",
+   "path": "/applications/{application_id}/attachment",
+   "operationId": "upload_application_attachment",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "(many)"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "file"
+   ],
+   "multipart": true,
+   "response": "ActivitiesAttachmentResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/commands",
+   "operationId": "list_application_commands",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [
+    "with_localizations"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationCommandResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/applications/{application_id}/commands",
+   "operationId": "create_application_command",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "contexts",
+    "default_member_permissions",
+    "description",
+    "description_localizations",
+    "dm_permission",
+    "handler",
+    "integration_types",
+    "name",
+    "name_localizations",
+    "options",
+    "type"
+   ],
+   "multipart": false,
+   "response": "ApplicationCommandResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/applications/{application_id}/commands",
+   "operationId": "bulk_set_application_commands",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationCommandResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/applications/{application_id}/commands/{command_id}",
+   "operationId": "delete_application_command",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/commands/{command_id}",
+   "operationId": "get_application_command",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationCommandResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/applications/{application_id}/commands/{command_id}",
+   "operationId": "update_application_command",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "contexts",
+    "default_member_permissions",
+    "description",
+    "description_localizations",
+    "dm_permission",
+    "handler",
+    "integration_types",
+    "name",
+    "name_localizations",
+    "options"
+   ],
+   "multipart": false,
+   "response": "ApplicationCommandResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/emojis",
+   "operationId": "list_application_emojis",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ListApplicationEmojisResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/applications/{application_id}/emojis",
+   "operationId": "create_application_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "image",
+    "name"
+   ],
+   "multipart": false,
+   "response": "EmojiResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/applications/{application_id}/emojis/{emoji_id}",
+   "operationId": "delete_application_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/emojis/{emoji_id}",
+   "operationId": "get_application_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "EmojiResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/applications/{application_id}/emojis/{emoji_id}",
+   "operationId": "update_application_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "name"
+   ],
+   "multipart": false,
+   "response": "EmojiResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/entitlements",
+   "operationId": "get_entitlements",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.entitlements"
+   ],
+   "deprecated": false,
+   "query": [
+    "user_id",
+    "sku_ids",
+    "guild_id",
+    "before",
+    "after",
+    "limit",
+    "exclude_ended",
+    "exclude_deleted",
+    "only_active"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "EntitlementResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/applications/{application_id}/entitlements",
+   "operationId": "create_entitlement",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "owner_id",
+    "owner_type",
+    "sku_id"
+   ],
+   "multipart": false,
+   "response": "EntitlementResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/applications/{application_id}/entitlements/{entitlement_id}",
+   "operationId": "delete_entitlement",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.entitlements"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/entitlements/{entitlement_id}",
+   "operationId": "get_entitlement",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.entitlements"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "EntitlementResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/applications/{application_id}/entitlements/{entitlement_id}/consume",
+   "operationId": "consume_entitlement",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.entitlements"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands",
+   "operationId": "list_guild_application_commands",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [
+    "with_localizations"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationCommandResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands",
+   "operationId": "create_guild_application_command",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "contexts",
+    "default_member_permissions",
+    "description",
+    "description_localizations",
+    "dm_permission",
+    "handler",
+    "integration_types",
+    "name",
+    "name_localizations",
+    "options",
+    "type"
+   ],
+   "multipart": false,
+   "response": "ApplicationCommandResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands",
+   "operationId": "bulk_set_guild_application_commands",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationCommandResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}",
+   "operationId": "delete_guild_application_command",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}",
+   "operationId": "get_guild_application_command",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationCommandResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}",
+   "operationId": "update_guild_application_command",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "contexts",
+    "default_member_permissions",
+    "description",
+    "description_localizations",
+    "dm_permission",
+    "handler",
+    "integration_types",
+    "name",
+    "name_localizations",
+    "options"
+   ],
+   "multipart": false,
+   "response": "ApplicationCommandResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions",
+   "operationId": "get_guild_application_command_permissions",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.permissions.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "CommandPermissionsResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions",
+   "operationId": "set_guild_application_command_permissions",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.permissions.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "permissions"
+   ],
+   "multipart": false,
+   "response": "CommandPermissionsResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands/permissions",
+   "operationId": "list_guild_application_command_permissions",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "applications.commands.permissions.update"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "CommandPermissionsResponse[]"
+  },
+  {
+   "method": "PUT",
+   "path": "/applications/{application_id}/guilds/{guild_id}/commands/permissions",
+   "operationId": "docs:/applications/{application_id}/guilds/{guild_id}/commands/permissions",
+   "source": "docs",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": null
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/role-connections/metadata",
+   "operationId": "get_application_role_connections_metadata",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationRoleConnectionsMetadataItemResponse[]"
+  },
+  {
+   "method": "PUT",
+   "path": "/applications/{application_id}/role-connections/metadata",
+   "operationId": "update_application_role_connections_metadata",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationRoleConnectionsMetadataItemResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/applications/{application_id}/skus",
+   "operationId": "docs:/applications/{application_id}/skus",
+   "source": "docs",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": null
+  },
+  {
+   "method": "GET",
+   "path": "/applications/@me",
+   "operationId": "get_my_application",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "PrivateApplicationResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/applications/@me",
+   "operationId": "update_my_application",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "cover_image",
+    "custom_install_url",
+    "description",
+    "event_webhooks_status",
+    "event_webhooks_types",
+    "event_webhooks_url",
+    "explicit_content_filter",
+    "flags",
+    "icon",
+    "install_params",
+    "integration_types_config",
+    "interactions_endpoint_url",
+    "max_participants",
+    "role_connections_verification_url",
+    "tags",
+    "team_id",
+    "type"
+   ],
+   "multipart": false,
+   "response": "PrivateApplicationResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}",
+   "operationId": "delete_channel",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildChannelResponse | PrivateChannelResponse | PrivateGroupChannelResponse | ThreadResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}",
+   "operationId": "get_channel",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildChannelResponse | PrivateChannelResponse | PrivateGroupChannelResponse | ThreadResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/channels/{channel_id}",
+   "operationId": "update_channel",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "applied_tags",
+    "archived",
+    "auto_archive_duration",
+    "available_tags",
+    "bitrate",
+    "default_auto_archive_duration",
+    "default_forum_layout",
+    "default_reaction_emoji",
+    "default_sort_order",
+    "default_tag_setting",
+    "default_thread_rate_limit_per_user",
+    "flags",
+    "icon",
+    "invitable",
+    "locked",
+    "name",
+    "nsfw",
+    "parent_id",
+    "permission_overwrites",
+    "position",
+    "rate_limit_per_user",
+    "rtc_region",
+    "topic",
+    "type",
+    "user_limit",
+    "video_quality_mode"
+   ],
+   "multipart": false,
+   "response": "GuildChannelResponse | PrivateChannelResponse | PrivateGroupChannelResponse | ThreadResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/followers",
+   "operationId": "follow_channel",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "webhook_channel_id"
+   ],
+   "multipart": false,
+   "response": "ChannelFollowerResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/invites",
+   "operationId": "list_channel_invites",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "FriendInviteResponse | GroupDMInviteResponse | GuildInviteResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/invites",
+   "operationId": "create_channel_invite",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "max_age",
+    "max_uses",
+    "role_ids",
+    "target_application_id",
+    "target_type",
+    "target_user_id",
+    "target_user_ids",
+    "temporary",
+    "unique"
+   ],
+   "multipart": true,
+   "response": "FriendInviteResponse | GroupDMInviteResponse | GuildInviteResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/messages",
+   "operationId": "list_messages",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "around",
+    "before",
+    "after",
+    "limit"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "MessageResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/messages",
+   "operationId": "create_message",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "allowed_mentions",
+    "attachments",
+    "components",
+    "content",
+    "embeds",
+    "enforce_nonce",
+    "flags",
+    "message_reference",
+    "nonce",
+    "poll",
+    "shared_client_theme",
+    "sticker_ids",
+    "tts"
+   ],
+   "multipart": true,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/messages/{message_id}",
+   "operationId": "delete_message",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/messages/{message_id}",
+   "operationId": "get_message",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/channels/{channel_id}/messages/{message_id}",
+   "operationId": "update_message",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "allowed_mentions",
+    "attachments",
+    "components",
+    "content",
+    "embeds",
+    "flags",
+    "sticker_ids"
+   ],
+   "multipart": true,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/messages/{message_id}/crosspost",
+   "operationId": "crosspost_message",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/messages/{message_id}/reactions",
+   "operationId": "delete_all_message_reactions",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}",
+   "operationId": "delete_all_message_reactions_by_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}",
+   "operationId": "list_message_reactions_by_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "after",
+    "limit",
+    "type"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "UserResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/{user_id}",
+   "operationId": "delete_user_message_reaction",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me",
+   "operationId": "delete_my_message_reaction",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me",
+   "operationId": "add_my_message_reaction",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/messages/{message_id}/threads",
+   "operationId": "create_thread_from_message",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "auto_archive_duration",
+    "name",
+    "rate_limit_per_user"
+   ],
+   "multipart": false,
+   "response": "ThreadResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/messages/bulk-delete",
+   "operationId": "bulk_delete_messages",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "messages"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/messages/pins",
+   "operationId": "list_pins",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "before",
+    "limit"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "PinnedMessagesResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/messages/pins/{message_id}",
+   "operationId": "delete_pin",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/channels/{channel_id}/messages/pins/{message_id}",
+   "operationId": "create_pin",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/permissions/{overwrite_id}",
+   "operationId": "delete_channel_permission_overwrite",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/channels/{channel_id}/permissions/{overwrite_id}",
+   "operationId": "set_channel_permission_overwrite",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "allow",
+    "deny",
+    "type"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/pins",
+   "operationId": "deprecated_list_pins",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": true,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "MessageResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/pins/{message_id}",
+   "operationId": "deprecated_delete_pin",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": true,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/channels/{channel_id}/pins/{message_id}",
+   "operationId": "deprecated_create_pin",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": true,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/polls/{message_id}/answers/{answer_id}",
+   "operationId": "get_answer_voters",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "after",
+    "limit"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "PollAnswerDetailsResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/polls/{message_id}/expire",
+   "operationId": "poll_expire",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/recipients/{user_id}",
+   "operationId": "delete_group_dm_user",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/channels/{channel_id}/recipients/{user_id}",
+   "operationId": "add_group_dm_user",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "access_token",
+    "nick"
+   ],
+   "multipart": false,
+   "response": "PrivateChannelResponse | PrivateGroupChannelResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/send-soundboard-sound",
+   "operationId": "send_soundboard_sound",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "sound_id",
+    "source_guild_id"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/thread-members",
+   "operationId": "list_thread_members",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_member",
+    "limit",
+    "after"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ThreadMemberResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/thread-members/{user_id}",
+   "operationId": "delete_thread_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/thread-members/{user_id}",
+   "operationId": "get_thread_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_member"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ThreadMemberResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/channels/{channel_id}/thread-members/{user_id}",
+   "operationId": "add_thread_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "DELETE",
+   "path": "/channels/{channel_id}/thread-members/@me",
+   "operationId": "leave_thread",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/channels/{channel_id}/thread-members/@me",
+   "operationId": "join_thread",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/threads",
+   "operationId": "create_thread",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "applied_tags",
+    "auto_archive_duration",
+    "invitable",
+    "message",
+    "name",
+    "rate_limit_per_user",
+    "type"
+   ],
+   "multipart": true,
+   "response": "CreatedThreadResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/threads/archived/private",
+   "operationId": "list_private_archived_threads",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "before",
+    "limit"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ThreadsResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/threads/archived/public",
+   "operationId": "list_public_archived_threads",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "before",
+    "limit"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ThreadsResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/threads/search",
+   "operationId": "thread_search",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "name",
+    "slop",
+    "min_id",
+    "max_id",
+    "tag",
+    "tag_setting",
+    "archived",
+    "sort_by",
+    "sort_order",
+    "limit",
+    "offset"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ThreadSearchResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/typing",
+   "operationId": "trigger_typing_indicator",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "TypingIndicatorResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/users/@me/threads/archived/private",
+   "operationId": "list_my_private_archived_threads",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "before",
+    "limit"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ThreadsResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/channels/{channel_id}/voice-status",
+   "operationId": "update_voice_channel_status",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "status"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/channels/{channel_id}/webhooks",
+   "operationId": "list_channel_webhooks",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationIncomingWebhookResponse | ChannelFollowerWebhookResponse | GuildIncomingWebhookResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/channels/{channel_id}/webhooks",
+   "operationId": "create_webhook",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "avatar",
+    "name"
+   ],
+   "multipart": false,
+   "response": "GuildIncomingWebhookResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/gateway",
+   "operationId": "get_gateway",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GatewayResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/gateway/bot",
+   "operationId": "get_bot_gateway",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GatewayBotResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}",
+   "operationId": "get_guild",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_counts"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "GuildWithCountsResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}",
+   "operationId": "update_guild",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "afk_channel_id",
+    "afk_timeout",
+    "banner",
+    "default_message_notifications",
+    "description",
+    "discovery_splash",
+    "explicit_content_filter",
+    "features",
+    "home_header",
+    "icon",
+    "name",
+    "preferred_locale",
+    "premium_progress_bar_enabled",
+    "public_updates_channel_id",
+    "region",
+    "rules_channel_id",
+    "safety_alerts_channel_id",
+    "splash",
+    "system_channel_flags",
+    "system_channel_id",
+    "verification_level"
+   ],
+   "multipart": false,
+   "response": "GuildResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/audit-logs",
+   "operationId": "list_guild_audit_log_entries",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "user_id",
+    "target_id",
+    "action_type",
+    "before",
+    "after",
+    "limit"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "GuildAuditLogResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/auto-moderation/rules",
+   "operationId": "list_auto_moderation_rules",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "DefaultKeywordRuleResponse | KeywordRuleResponse | MLSpamRuleResponse | MentionSpamRuleResponse | UserProfileRuleResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/auto-moderation/rules",
+   "operationId": "create_auto_moderation_rule",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "actions",
+    "enabled",
+    "event_type",
+    "exempt_channels",
+    "exempt_roles",
+    "name",
+    "trigger_metadata",
+    "trigger_type"
+   ],
+   "multipart": false,
+   "response": "DefaultKeywordRuleResponse | KeywordRuleResponse | MLSpamRuleResponse | MentionSpamRuleResponse | UserProfileRuleResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/auto-moderation/rules/{rule_id}",
+   "operationId": "delete_auto_moderation_rule",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/auto-moderation/rules/{rule_id}",
+   "operationId": "get_auto_moderation_rule",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "DefaultKeywordRuleResponse | KeywordRuleResponse | MLSpamRuleResponse | MentionSpamRuleResponse | UserProfileRuleResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/auto-moderation/rules/{rule_id}",
+   "operationId": "update_auto_moderation_rule",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "actions",
+    "enabled",
+    "event_type",
+    "exempt_channels",
+    "exempt_roles",
+    "name",
+    "trigger_metadata",
+    "trigger_type"
+   ],
+   "multipart": false,
+   "response": "DefaultKeywordRuleResponse | KeywordRuleResponse | MLSpamRuleResponse | MentionSpamRuleResponse | UserProfileRuleResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/bans",
+   "operationId": "list_guild_bans",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "limit",
+    "before",
+    "after"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "GuildBanResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/bans/{user_id}",
+   "operationId": "unban_user_from_guild",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/bans/{user_id}",
+   "operationId": "get_guild_ban",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildBanResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/guilds/{guild_id}/bans/{user_id}",
+   "operationId": "ban_user_from_guild",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "delete_message_days",
+    "delete_message_seconds"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/bulk-ban",
+   "operationId": "bulk_ban_users_from_guild",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "delete_message_seconds",
+    "user_ids"
+   ],
+   "multipart": false,
+   "response": "BulkBanUsersResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/channels",
+   "operationId": "list_guild_channels",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildChannelResponse | PrivateChannelResponse | PrivateGroupChannelResponse | ThreadResponse[]"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/channels",
+   "operationId": "bulk_update_guild_channels",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/channels",
+   "operationId": "create_guild_channel",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "available_tags",
+    "bitrate",
+    "default_auto_archive_duration",
+    "default_forum_layout",
+    "default_reaction_emoji",
+    "default_sort_order",
+    "default_tag_setting",
+    "default_thread_rate_limit_per_user",
+    "name",
+    "nsfw",
+    "parent_id",
+    "permission_overwrites",
+    "position",
+    "rate_limit_per_user",
+    "rtc_region",
+    "topic",
+    "type",
+    "user_limit",
+    "video_quality_mode"
+   ],
+   "multipart": false,
+   "response": "GuildChannelResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/emojis",
+   "operationId": "list_guild_emojis",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "EmojiResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/emojis",
+   "operationId": "create_guild_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "image",
+    "name",
+    "roles"
+   ],
+   "multipart": false,
+   "response": "EmojiResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/emojis/{emoji_id}",
+   "operationId": "delete_guild_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/emojis/{emoji_id}",
+   "operationId": "get_guild_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "EmojiResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/emojis/{emoji_id}",
+   "operationId": "update_guild_emoji",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "name",
+    "roles"
+   ],
+   "multipart": false,
+   "response": "EmojiResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/guilds/{guild_id}/incident-actions",
+   "operationId": "update_guild_incident_actions",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "dms_disabled_until",
+    "invites_disabled_until"
+   ],
+   "multipart": false,
+   "response": "GuildIncidentsDataResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/integrations",
+   "operationId": "list_guild_integrations",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "DiscordIntegrationResponse | ExternalConnectionIntegrationResponse | GuildSubscriptionIntegrationResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/integrations/{integration_id}",
+   "operationId": "delete_guild_integration",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/invites",
+   "operationId": "list_guild_invites",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "FriendInviteResponse | GroupDMInviteResponse | GuildInviteResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/members",
+   "operationId": "list_guild_members",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "limit",
+    "after"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "GuildMemberResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/members/{user_id}",
+   "operationId": "delete_guild_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/members/{user_id}",
+   "operationId": "get_guild_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildMemberResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/members/{user_id}",
+   "operationId": "update_guild_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "channel_id",
+    "communication_disabled_until",
+    "deaf",
+    "flags",
+    "mute",
+    "nick",
+    "roles"
+   ],
+   "multipart": false,
+   "response": "GuildMemberResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/guilds/{guild_id}/members/{user_id}",
+   "operationId": "add_guild_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "access_token",
+    "deaf",
+    "flags",
+    "mute",
+    "nick",
+    "roles"
+   ],
+   "multipart": false,
+   "response": "GuildMemberResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+   "operationId": "delete_guild_member_role",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/guilds/{guild_id}/members/{user_id}/roles/{role_id}",
+   "operationId": "add_guild_member_role",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/members/@me",
+   "operationId": "update_my_guild_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "avatar",
+    "banner",
+    "bio",
+    "nick"
+   ],
+   "multipart": false,
+   "response": "PrivateGuildMemberResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/members/@me/nick",
+   "operationId": "docs:/guilds/{guild_id}/members/@me/nick",
+   "source": "docs",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": true,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": null
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/members/search",
+   "operationId": "search_guild_members",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "limit",
+    "query"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "GuildMemberResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/messages/search",
+   "operationId": "guild_search",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "sort_by",
+    "sort_order",
+    "content",
+    "slop",
+    "author_id",
+    "author_type",
+    "mentions",
+    "mentions_role_id",
+    "replied_to_user_id",
+    "replied_to_message_id",
+    "mention_everyone",
+    "min_id",
+    "max_id",
+    "limit",
+    "offset",
+    "has",
+    "link_hostname",
+    "embed_provider",
+    "embed_type",
+    "attachment_extension",
+    "attachment_filename",
+    "pinned",
+    "include_nsfw",
+    "channel_id"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "GuildSearchResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/new-member-welcome",
+   "operationId": "get_guild_new_member_welcome",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildHomeSettingsResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/onboarding",
+   "operationId": "get_guilds_onboarding",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "UserGuildOnboardingResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/guilds/{guild_id}/onboarding",
+   "operationId": "put_guilds_onboarding",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "default_channel_ids",
+    "enabled",
+    "mode",
+    "prompts"
+   ],
+   "multipart": false,
+   "response": "GuildOnboardingResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/preview",
+   "operationId": "get_guild_preview",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildPreviewResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/prune",
+   "operationId": "preview_prune_guild",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "days",
+    "include_roles"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "GuildPruneResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/prune",
+   "operationId": "prune_guild",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "compute_prune_count",
+    "days",
+    "include_roles"
+   ],
+   "multipart": false,
+   "response": "GuildPruneResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/regions",
+   "operationId": "list_guild_voice_regions",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "VoiceRegionResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/requests",
+   "operationId": "get_guild_join_requests",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "status",
+    "limit",
+    "before",
+    "after"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "GuildJoinRequestsListResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/requests/{request_id}",
+   "operationId": "action_guild_join_request",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "action",
+    "rejection_reason"
+   ],
+   "multipart": false,
+   "response": "GuildJoinRequestResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/roles",
+   "operationId": "list_guild_roles",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildRoleResponse[]"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/roles",
+   "operationId": "bulk_update_guild_roles",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildRoleResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/roles",
+   "operationId": "create_guild_role",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "color",
+    "colors",
+    "hoist",
+    "icon",
+    "mentionable",
+    "name",
+    "permissions",
+    "unicode_emoji"
+   ],
+   "multipart": false,
+   "response": "GuildRoleResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/roles/{role_id}",
+   "operationId": "delete_guild_role",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/roles/{role_id}",
+   "operationId": "get_guild_role",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildRoleResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/roles/{role_id}",
+   "operationId": "update_guild_role",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "color",
+    "colors",
+    "hoist",
+    "icon",
+    "mentionable",
+    "name",
+    "permissions",
+    "unicode_emoji"
+   ],
+   "multipart": false,
+   "response": "GuildRoleResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/roles/member-counts",
+   "operationId": "guild_role_member_counts",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "inline"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/scheduled-events",
+   "operationId": "list_guild_scheduled_events",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_user_count"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ExternalScheduledEventResponse | StageScheduledEventResponse | VoiceScheduledEventResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/scheduled-events",
+   "operationId": "create_guild_scheduled_event",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "channel_id",
+    "description",
+    "entity_metadata",
+    "entity_type",
+    "image",
+    "name",
+    "privacy_level",
+    "recurrence_rule",
+    "scheduled_end_time",
+    "scheduled_start_time"
+   ],
+   "multipart": false,
+   "response": "ExternalScheduledEventResponse | StageScheduledEventResponse | VoiceScheduledEventResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}",
+   "operationId": "delete_guild_scheduled_event",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}",
+   "operationId": "get_guild_scheduled_event",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_user_count"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ExternalScheduledEventResponse | StageScheduledEventResponse | VoiceScheduledEventResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}",
+   "operationId": "update_guild_scheduled_event",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "channel_id",
+    "description",
+    "entity_metadata",
+    "entity_type",
+    "image",
+    "name",
+    "privacy_level",
+    "recurrence_rule",
+    "scheduled_end_time",
+    "scheduled_start_time",
+    "status"
+   ],
+   "multipart": false,
+   "response": "ExternalScheduledEventResponse | StageScheduledEventResponse | VoiceScheduledEventResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/{guild_scheduled_event_exception_id}/users",
+   "operationId": "list_guild_scheduled_event_exception_users",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_member",
+    "limit",
+    "before",
+    "after"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ScheduledEventUserResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions",
+   "operationId": "create_guild_scheduled_event_exception",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "is_canceled",
+    "original_scheduled_start_time",
+    "scheduled_end_time",
+    "scheduled_start_time"
+   ],
+   "multipart": false,
+   "response": "GuildScheduledEventExceptionResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}",
+   "operationId": "delete_guild_scheduled_event_exception",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}",
+   "operationId": "update_guild_scheduled_event_exception",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "is_canceled",
+    "scheduled_end_time",
+    "scheduled_start_time"
+   ],
+   "multipart": false,
+   "response": "GuildScheduledEventExceptionResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users",
+   "operationId": "list_guild_scheduled_event_users",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_member",
+    "limit",
+    "before",
+    "after"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ScheduledEventUserResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users/counts",
+   "operationId": "count_guild_scheduled_event_users",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "guild_scheduled_event_exception_ids"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "ScheduledEventUserCountResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/soundboard-sounds",
+   "operationId": "list_guild_soundboard_sounds",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ListGuildSoundboardSoundsResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/soundboard-sounds",
+   "operationId": "create_guild_soundboard_sound",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "emoji_id",
+    "emoji_name",
+    "name",
+    "sound",
+    "volume"
+   ],
+   "multipart": false,
+   "response": "SoundboardSoundResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/soundboard-sounds/{sound_id}",
+   "operationId": "delete_guild_soundboard_sound",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/soundboard-sounds/{sound_id}",
+   "operationId": "get_guild_soundboard_sound",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "SoundboardSoundResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/soundboard-sounds/{sound_id}",
+   "operationId": "update_guild_soundboard_sound",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "emoji_id",
+    "emoji_name",
+    "name",
+    "volume"
+   ],
+   "multipart": false,
+   "response": "SoundboardSoundResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/stickers",
+   "operationId": "list_guild_stickers",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildStickerResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/stickers",
+   "operationId": "create_guild_sticker",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "description",
+    "file",
+    "name",
+    "tags"
+   ],
+   "multipart": true,
+   "response": "GuildStickerResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/stickers/{sticker_id}",
+   "operationId": "delete_guild_sticker",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/stickers/{sticker_id}",
+   "operationId": "get_guild_sticker",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildStickerResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/stickers/{sticker_id}",
+   "operationId": "update_guild_sticker",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "description",
+    "name",
+    "tags"
+   ],
+   "multipart": false,
+   "response": "GuildStickerResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/templates",
+   "operationId": "list_guild_templates",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildTemplateResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/guilds/{guild_id}/templates",
+   "operationId": "create_guild_template",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "description",
+    "name"
+   ],
+   "multipart": false,
+   "response": "GuildTemplateResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/guilds/{guild_id}/templates/{code}",
+   "operationId": "delete_guild_template",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildTemplateResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/templates/{code}",
+   "operationId": "update_guild_template",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "description",
+    "name"
+   ],
+   "multipart": false,
+   "response": "GuildTemplateResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/guilds/{guild_id}/templates/{code}",
+   "operationId": "sync_guild_template",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildTemplateResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/threads/active",
+   "operationId": "get_active_guild_threads",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ThreadsResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/vanity-url",
+   "operationId": "get_guild_vanity_url",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "VanityURLResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/voice-states/{user_id}",
+   "operationId": "get_voice_state",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "VoiceStateResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/voice-states/{user_id}",
+   "operationId": "update_voice_state",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "channel_id",
+    "suppress"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/voice-states/@me",
+   "operationId": "get_self_voice_state",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "VoiceStateResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/voice-states/@me",
+   "operationId": "update_self_voice_state",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "channel_id",
+    "request_to_speak_timestamp",
+    "suppress"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/webhooks",
+   "operationId": "get_guild_webhooks",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationIncomingWebhookResponse | ChannelFollowerWebhookResponse | GuildIncomingWebhookResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/welcome-screen",
+   "operationId": "get_guild_welcome_screen",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildWelcomeScreenResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/welcome-screen",
+   "operationId": "update_guild_welcome_screen",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "description",
+    "enabled",
+    "welcome_channels"
+   ],
+   "multipart": false,
+   "response": "GuildWelcomeScreenResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/widget",
+   "operationId": "get_guild_widget_settings",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "WidgetSettingsResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/guilds/{guild_id}/widget",
+   "operationId": "update_guild_widget_settings",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "channel_id",
+    "enabled"
+   ],
+   "multipart": false,
+   "response": "WidgetSettingsResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/widget.json",
+   "operationId": "get_guild_widget",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "WidgetResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/{guild_id}/widget.png",
+   "operationId": "get_guild_widget_png",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "style"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "200 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/guilds/templates/{code}",
+   "operationId": "get_guild_template",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildTemplateResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/interactions/{interaction_id}/{interaction_token}/callback",
+   "operationId": "create_interaction_response",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_response"
+   ],
+   "body": [
+    "data",
+    "type"
+   ],
+   "multipart": true,
+   "response": "InteractionCallbackResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/invites/{code}",
+   "operationId": "invite_revoke",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "FriendInviteResponse | GroupDMInviteResponse | GuildInviteResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/invites/{code}",
+   "operationId": "invite_resolve",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "with_counts",
+    "guild_scheduled_event_id",
+    "target_channel_id",
+    "target_message_id"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "FriendInviteResponse | GroupDMInviteResponse | GuildInviteResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/invites/{code}/target-users",
+   "operationId": "get_invite_target_users",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "200 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/invites/{code}/target-users",
+   "operationId": "update_invite_target_users",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "target_users_file"
+   ],
+   "multipart": true,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "DELETE",
+   "path": "/invites/{code}/target-users/{user_id}",
+   "operationId": "remove_invite_target_user",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/invites/{code}/target-users/{user_id}",
+   "operationId": "add_invite_target_user",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/invites/{code}/target-users/bulk-add",
+   "operationId": "bulk_add_invite_target_users",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "user_ids"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/invites/{code}/target-users/bulk-delete",
+   "operationId": "bulk_remove_invite_target_users",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "user_ids"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/invites/{code}/target-users/job-status",
+   "operationId": "get_invite_target_users_job_status",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "TargetUsersJobStatusResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/lobbies",
+   "operationId": "create_lobby",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "flags",
+    "idle_timeout_seconds",
+    "members",
+    "metadata",
+    "override_event_webhooks_url"
+   ],
+   "multipart": false,
+   "response": "LobbyResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/lobbies",
+   "operationId": "create_or_join_lobby",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "flags",
+    "idle_timeout_seconds",
+    "lobby_metadata",
+    "member_metadata",
+    "secret"
+   ],
+   "multipart": false,
+   "response": "LobbyResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/lobbies/{lobby_id}",
+   "operationId": "delete_lobby",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/lobbies/{lobby_id}",
+   "operationId": "get_lobby",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "LobbyResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/lobbies/{lobby_id}",
+   "operationId": "edit_lobby",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "flags",
+    "idle_timeout_seconds",
+    "members",
+    "metadata",
+    "override_event_webhooks_url"
+   ],
+   "multipart": false,
+   "response": "LobbyResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/lobbies/{lobby_id}/channel-linking",
+   "operationId": "edit_lobby_channel_link",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "channel_id"
+   ],
+   "multipart": false,
+   "response": "LobbyResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/lobbies/{lobby_id}/members/{user_id}",
+   "operationId": "delete_lobby_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "PUT",
+   "path": "/lobbies/{lobby_id}/members/{user_id}",
+   "operationId": "add_lobby_member",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "additional_name",
+    "flags",
+    "metadata"
+   ],
+   "multipart": false,
+   "response": "LobbyMemberResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/lobbies/{lobby_id}/members/{user_id}/invites",
+   "operationId": "create_linked_lobby_guild_invite_for_user",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "LobbyGuildInviteResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/lobbies/{lobby_id}/members/@me",
+   "operationId": "leave_lobby",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/lobbies/{lobby_id}/members/@me/invites",
+   "operationId": "create_linked_lobby_guild_invite_for_self",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "LobbyGuildInviteResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/lobbies/{lobby_id}/members/bulk",
+   "operationId": "bulk_update_lobby_members",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "LobbyMemberResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/lobbies/{lobby_id}/messages",
+   "operationId": "get_lobby_messages",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "limit"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "LobbyMessageResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/lobbies/{lobby_id}/messages",
+   "operationId": "create_lobby_message",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "allowed_mentions",
+    "attachments",
+    "components",
+    "content",
+    "embeds",
+    "enforce_nonce",
+    "flags",
+    "message_reference",
+    "nonce",
+    "poll",
+    "shared_client_theme",
+    "sticker_ids",
+    "tts"
+   ],
+   "multipart": true,
+   "response": "LobbyMessageResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/lobbies/{lobby_id}/messages/{message_id}/moderation-metadata",
+   "operationId": "update_lobby_message_external_moderation_metadata",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": true,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/oauth2/@me",
+   "operationId": "get_my_oauth2_authorization",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "(many)"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "OAuth2GetAuthorizationResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/oauth2/applications/@me",
+   "operationId": "get_my_oauth2_application",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "PrivateApplicationResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/oauth2/authorize",
+   "operationId": "oauth2_authorize",
+   "source": "docs",
+   "auth": [
+    "public"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": null
+  },
+  {
+   "method": "GET",
+   "path": "/oauth2/keys",
+   "operationId": "get_public_keys",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "OAuth2GetKeys"
+  },
+  {
+   "method": "POST",
+   "path": "/oauth2/token",
+   "operationId": "oauth2_token",
+   "source": "docs",
+   "auth": [
+    "public"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": null
+  },
+  {
+   "method": "POST",
+   "path": "/oauth2/token/revoke",
+   "operationId": "oauth2_token_revoke",
+   "source": "docs",
+   "auth": [
+    "public"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": null
+  },
+  {
+   "method": "GET",
+   "path": "/oauth2/userinfo",
+   "operationId": "get_openid_connect_userinfo",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "openid"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "OAuth2GetOpenIDConnectUserInfoResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/partner-sdk/dms/{user_id_1}/{user_id_2}/messages/{message_id}/moderation-metadata",
+   "operationId": "update_user_message_external_moderation_metadata",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": true,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/partner-sdk/provisional-accounts/unmerge",
+   "operationId": "partner_sdk_unmerge_provisional_account",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "client_id",
+    "client_secret",
+    "external_auth_token",
+    "external_auth_type"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/partner-sdk/provisional-accounts/unmerge/bot",
+   "operationId": "bot_partner_sdk_unmerge_provisional_account",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "external_user_id"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "POST",
+   "path": "/partner-sdk/token",
+   "operationId": "partner_sdk_token",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "client_id",
+    "client_secret",
+    "external_auth_token",
+    "external_auth_type"
+   ],
+   "multipart": false,
+   "response": "ProvisionalTokenResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/partner-sdk/token/bot",
+   "operationId": "bot_partner_sdk_token",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "external_user_id",
+    "preferred_global_name",
+    "provisional_user_id"
+   ],
+   "multipart": false,
+   "response": "ProvisionalTokenResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/skus/{sku_id}/subscriptions",
+   "operationId": "get_sku_subscriptions",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "(many)"
+   ],
+   "deprecated": false,
+   "query": [
+    "before",
+    "after",
+    "limit",
+    "user_id"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "SubscriptionResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/skus/{sku_id}/subscriptions/{subscription_id}",
+   "operationId": "get_sku_subscription",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "(many)"
+   ],
+   "deprecated": false,
+   "query": [
+    "user_id"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "SubscriptionResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/soundboard-default-sounds",
+   "operationId": "get_soundboard_default_sounds",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "SoundboardSoundResponse[]"
+  },
+  {
+   "method": "POST",
+   "path": "/stage-instances",
+   "operationId": "create_stage_instance",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "channel_id",
+    "guild_scheduled_event_id",
+    "privacy_level",
+    "send_start_notification",
+    "topic"
+   ],
+   "multipart": false,
+   "response": "StageInstanceResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/stage-instances/{channel_id}",
+   "operationId": "delete_stage_instance",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/stage-instances/{channel_id}",
+   "operationId": "get_stage_instance",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "StageInstanceResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/stage-instances/{channel_id}",
+   "operationId": "update_stage_instance",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "privacy_level",
+    "topic"
+   ],
+   "multipart": false,
+   "response": "StageInstanceResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/sticker-packs",
+   "operationId": "list_sticker_packs",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "StickerPackCollectionResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/sticker-packs/{pack_id}",
+   "operationId": "get_sticker_pack",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "StickerPackResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/stickers/{sticker_id}",
+   "operationId": "get_sticker",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "GuildStickerResponse | StandardStickerResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/users/{user_id}",
+   "operationId": "get_user",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "UserResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/users/@me",
+   "operationId": "get_my_user",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "identify"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "UserPIIResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/users/@me",
+   "operationId": "update_my_user",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "avatar",
+    "banner",
+    "username"
+   ],
+   "multipart": false,
+   "response": "UserPIIResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/users/@me/applications/{application_id}/entitlements",
+   "operationId": "get_current_user_application_entitlements",
+   "source": "openapi",
+   "auth": [
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "(many)"
+   ],
+   "deprecated": false,
+   "query": [
+    "sku_ids",
+    "exclude_consumed"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "EntitlementResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/users/@me/applications/{application_id}/role-connection",
+   "operationId": "delete_application_user_role_connection",
+   "source": "openapi",
+   "auth": [
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "role_connections.write"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/users/@me/applications/{application_id}/role-connection",
+   "operationId": "get_application_user_role_connection",
+   "source": "openapi",
+   "auth": [
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "role_connections.write"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationUserRoleConnectionResponse"
+  },
+  {
+   "method": "PUT",
+   "path": "/users/@me/applications/{application_id}/role-connection",
+   "operationId": "update_application_user_role_connection",
+   "source": "openapi",
+   "auth": [
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "role_connections.write"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "metadata",
+    "platform_name",
+    "platform_username"
+   ],
+   "multipart": false,
+   "response": "ApplicationUserRoleConnectionResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/users/@me/channels",
+   "operationId": "create_dm",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "access_tokens",
+    "nicks",
+    "recipient_id"
+   ],
+   "multipart": false,
+   "response": "PrivateChannelResponse | PrivateGroupChannelResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/users/@me/connections",
+   "operationId": "list_my_connections",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "connections"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ConnectedAccountResponse[]"
+  },
+  {
+   "method": "GET",
+   "path": "/users/@me/guilds",
+   "operationId": "list_my_guilds",
+   "source": "openapi",
+   "auth": [
+    "bot",
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "guilds"
+   ],
+   "deprecated": false,
+   "query": [
+    "before",
+    "after",
+    "limit",
+    "shard",
+    "with_counts"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "MyGuildResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/users/@me/guilds/{guild_id}",
+   "operationId": "leave_guild",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/users/@me/guilds/{guild_id}/member",
+   "operationId": "get_my_guild_member",
+   "source": "openapi",
+   "auth": [
+    "oauth2"
+   ],
+   "oauth2Scopes": [
+    "guilds.members.read"
+   ],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "PrivateGuildMemberResponse"
+  },
+  {
+   "method": "GET",
+   "path": "/voice/regions",
+   "operationId": "list_voice_regions",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "VoiceRegionResponse[]"
+  },
+  {
+   "method": "DELETE",
+   "path": "/webhooks/{webhook_id}",
+   "operationId": "delete_webhook",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/webhooks/{webhook_id}",
+   "operationId": "get_webhook",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationIncomingWebhookResponse | ChannelFollowerWebhookResponse | GuildIncomingWebhookResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/webhooks/{webhook_id}",
+   "operationId": "update_webhook",
+   "source": "openapi",
+   "auth": [
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "avatar",
+    "channel_id",
+    "name"
+   ],
+   "multipart": false,
+   "response": "ApplicationIncomingWebhookResponse | ChannelFollowerWebhookResponse | GuildIncomingWebhookResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/webhooks/{webhook_id}/{webhook_token}",
+   "operationId": "delete_webhook_by_token",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/webhooks/{webhook_id}/{webhook_token}",
+   "operationId": "get_webhook_by_token",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [],
+   "multipart": false,
+   "response": "ApplicationIncomingWebhookResponse | ChannelFollowerWebhookResponse | GuildIncomingWebhookResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/webhooks/{webhook_id}/{webhook_token}",
+   "operationId": "update_webhook_by_token",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [],
+   "body": [
+    "avatar",
+    "name"
+   ],
+   "multipart": false,
+   "response": "ApplicationIncomingWebhookResponse | ChannelFollowerWebhookResponse | GuildIncomingWebhookResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/webhooks/{webhook_id}/{webhook_token}",
+   "operationId": "execute_webhook",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "wait",
+    "thread_id",
+    "with_components"
+   ],
+   "body": [
+    "allowed_mentions",
+    "applied_tags",
+    "attachments",
+    "avatar_url",
+    "components",
+    "content",
+    "embeds",
+    "flags",
+    "poll",
+    "thread_name",
+    "tts",
+    "username"
+   ],
+   "multipart": true,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/webhooks/{webhook_id}/{webhook_token}/github",
+   "operationId": "execute_github_compatible_webhook",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "wait",
+    "thread_id"
+   ],
+   "body": [
+    "action",
+    "answer",
+    "check_run",
+    "check_suite",
+    "comment",
+    "commits",
+    "compare",
+    "discussion",
+    "forced",
+    "forkee",
+    "head_commit",
+    "issue",
+    "member",
+    "pull_request",
+    "ref",
+    "ref_type",
+    "release",
+    "repository",
+    "review",
+    "sender"
+   ],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "DELETE",
+   "path": "/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}",
+   "operationId": "delete_webhook_message",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "thread_id"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}",
+   "operationId": "get_webhook_message",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "thread_id"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}",
+   "operationId": "update_webhook_message",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "thread_id",
+    "with_components"
+   ],
+   "body": [
+    "allowed_mentions",
+    "attachments",
+    "components",
+    "content",
+    "embeds",
+    "flags",
+    "poll"
+   ],
+   "multipart": true,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "DELETE",
+   "path": "/webhooks/{webhook_id}/{webhook_token}/messages/@original",
+   "operationId": "delete_original_webhook_message",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "thread_id"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "204 (empty)"
+  },
+  {
+   "method": "GET",
+   "path": "/webhooks/{webhook_id}/{webhook_token}/messages/@original",
+   "operationId": "get_original_webhook_message",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "thread_id"
+   ],
+   "body": [],
+   "multipart": false,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "PATCH",
+   "path": "/webhooks/{webhook_id}/{webhook_token}/messages/@original",
+   "operationId": "update_original_webhook_message",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "thread_id",
+    "with_components"
+   ],
+   "body": [
+    "allowed_mentions",
+    "attachments",
+    "components",
+    "content",
+    "embeds",
+    "flags",
+    "poll"
+   ],
+   "multipart": true,
+   "response": "MessageResponse"
+  },
+  {
+   "method": "POST",
+   "path": "/webhooks/{webhook_id}/{webhook_token}/slack",
+   "operationId": "execute_slack_compatible_webhook",
+   "source": "openapi",
+   "auth": [
+    "public",
+    "bot"
+   ],
+   "oauth2Scopes": [],
+   "deprecated": false,
+   "query": [
+    "wait",
+    "thread_id"
+   ],
+   "body": [
+    "attachments",
+    "icon_url",
+    "text",
+    "username"
+   ],
+   "multipart": true,
+   "response": "inline"
+  }
+ ],
+ "objects": {
+  "UserResponse": [
+   "accent_color",
+   "avatar",
+   "avatar_decoration_data",
+   "banner",
+   "bot",
+   "collectibles",
+   "discriminator",
+   "flags",
+   "global_name",
+   "id",
+   "primary_guild",
+   "public_flags",
+   "system",
+   "username"
+  ],
+  "UserPIIResponse": [
+   "accent_color",
+   "avatar",
+   "avatar_decoration_data",
+   "banner",
+   "bot",
+   "collectibles",
+   "discriminator",
+   "email",
+   "flags",
+   "global_name",
+   "id",
+   "locale",
+   "mfa_enabled",
+   "premium_type",
+   "primary_guild",
+   "public_flags",
+   "system",
+   "username",
+   "verified"
+  ],
+  "MessageResponse": [
+   "activity",
+   "actor",
+   "application",
+   "application_id",
+   "attachments",
+   "author",
+   "call",
+   "channel_id",
+   "components",
+   "content",
+   "edited_timestamp",
+   "embeds",
+   "flags",
+   "id",
+   "interaction",
+   "interaction_metadata",
+   "lobby_member",
+   "mention_channels",
+   "mention_everyone",
+   "mention_roles",
+   "mentions",
+   "message_reference",
+   "message_snapshots",
+   "nonce",
+   "pinned",
+   "poll",
+   "position",
+   "purchase_notification",
+   "reactions",
+   "referenced_message",
+   "resolved",
+   "role_subscription_data",
+   "shared_client_theme",
+   "sticker_items",
+   "stickers",
+   "thread",
+   "timestamp",
+   "tts",
+   "type",
+   "webhook_id"
+  ],
+  "GuildResponse": [
+   "afk_channel_id",
+   "afk_timeout",
+   "application_id",
+   "banner",
+   "default_message_notifications",
+   "description",
+   "discovery_splash",
+   "emojis",
+   "explicit_content_filter",
+   "features",
+   "home_header",
+   "icon",
+   "id",
+   "incidents_data",
+   "max_members",
+   "max_presences",
+   "max_stage_video_channel_users",
+   "max_video_channel_users",
+   "mfa_level",
+   "name",
+   "nsfw",
+   "nsfw_level",
+   "owner_id",
+   "preferred_locale",
+   "premium_progress_bar_enabled",
+   "premium_progress_bar_enabled_user_updated_at",
+   "premium_subscription_count",
+   "premium_tier",
+   "public_updates_channel_id",
+   "region",
+   "roles",
+   "rules_channel_id",
+   "safety_alerts_channel_id",
+   "splash",
+   "stickers",
+   "system_channel_flags",
+   "system_channel_id",
+   "vanity_url_code",
+   "verification_level",
+   "widget_channel_id",
+   "widget_enabled"
+  ],
+  "GuildWithCountsResponse": [
+   "afk_channel_id",
+   "afk_timeout",
+   "application_id",
+   "approximate_member_count",
+   "approximate_presence_count",
+   "banner",
+   "default_message_notifications",
+   "description",
+   "discovery_splash",
+   "emojis",
+   "explicit_content_filter",
+   "features",
+   "home_header",
+   "icon",
+   "id",
+   "incidents_data",
+   "max_members",
+   "max_presences",
+   "max_stage_video_channel_users",
+   "max_video_channel_users",
+   "mfa_level",
+   "name",
+   "nsfw",
+   "nsfw_level",
+   "owner_id",
+   "preferred_locale",
+   "premium_progress_bar_enabled",
+   "premium_progress_bar_enabled_user_updated_at",
+   "premium_subscription_count",
+   "premium_tier",
+   "public_updates_channel_id",
+   "region",
+   "roles",
+   "rules_channel_id",
+   "safety_alerts_channel_id",
+   "splash",
+   "stickers",
+   "system_channel_flags",
+   "system_channel_id",
+   "vanity_url_code",
+   "verification_level",
+   "widget_channel_id",
+   "widget_enabled"
+  ],
+  "GuildChannelResponse": [
+   "available_tags",
+   "bitrate",
+   "default_auto_archive_duration",
+   "default_forum_layout",
+   "default_reaction_emoji",
+   "default_sort_order",
+   "default_tag_setting",
+   "default_thread_rate_limit_per_user",
+   "flags",
+   "guild_id",
+   "id",
+   "last_message_id",
+   "last_pin_timestamp",
+   "name",
+   "nsfw",
+   "parent_id",
+   "permission_overwrites",
+   "permissions",
+   "position",
+   "rate_limit_per_user",
+   "rtc_region",
+   "topic",
+   "type",
+   "user_limit",
+   "video_quality_mode"
+  ],
+  "PrivateChannelResponse": [
+   "flags",
+   "id",
+   "last_message_id",
+   "last_pin_timestamp",
+   "recipients",
+   "type"
+  ],
+  "ThreadResponse": [
+   "applied_tags",
+   "bitrate",
+   "flags",
+   "guild_id",
+   "id",
+   "last_message_id",
+   "last_pin_timestamp",
+   "member",
+   "member_count",
+   "message_count",
+   "name",
+   "owner_id",
+   "parent_id",
+   "permissions",
+   "rate_limit_per_user",
+   "rtc_region",
+   "thread_metadata",
+   "total_message_sent",
+   "type",
+   "user_limit",
+   "video_quality_mode"
+  ],
+  "GuildRoleResponse": [
+   "color",
+   "colors",
+   "flags",
+   "hoist",
+   "icon",
+   "id",
+   "managed",
+   "mentionable",
+   "name",
+   "permissions",
+   "position",
+   "tags",
+   "unicode_emoji"
+  ],
+  "GuildMemberResponse": [
+   "avatar",
+   "avatar_decoration_data",
+   "banner",
+   "collectibles",
+   "communication_disabled_until",
+   "deaf",
+   "flags",
+   "joined_at",
+   "mute",
+   "nick",
+   "pending",
+   "premium_since",
+   "roles",
+   "user"
+  ],
+  "GuildInviteResponse": [
+   "approximate_member_count",
+   "approximate_presence_count",
+   "channel",
+   "code",
+   "created_at",
+   "expires_at",
+   "flags",
+   "guild",
+   "guild_id",
+   "guild_scheduled_event",
+   "inviter",
+   "is_contact",
+   "is_nickname_changeable",
+   "max_age",
+   "max_uses",
+   "roles",
+   "target_application",
+   "target_channel_id",
+   "target_message_id",
+   "target_type",
+   "target_user",
+   "temporary",
+   "type",
+   "uses"
+  ],
+  "EmojiResponse": [
+   "animated",
+   "available",
+   "id",
+   "managed",
+   "name",
+   "require_colons",
+   "roles",
+   "user"
+  ],
+  "GuildIncomingWebhookResponse": [
+   "application_id",
+   "avatar",
+   "channel_id",
+   "guild_id",
+   "id",
+   "name",
+   "token",
+   "type",
+   "url",
+   "user"
+  ],
+  "PrivateApplicationResponse": [
+   "approximate_guild_count",
+   "approximate_user_authorization_count",
+   "approximate_user_install_count",
+   "bot",
+   "bot_public",
+   "bot_require_code_grant",
+   "conjure_project_id",
+   "cover_image",
+   "custom_install_url",
+   "description",
+   "eligible_oauth2_scopes",
+   "event_webhooks_status",
+   "event_webhooks_types",
+   "event_webhooks_url",
+   "explicit_content_filter",
+   "flags",
+   "flags_new",
+   "guild_id",
+   "icon",
+   "id",
+   "install_params",
+   "integration_types_config",
+   "interactions_endpoint_url",
+   "max_participants",
+   "name",
+   "owner",
+   "primary_sku_id",
+   "privacy_policy_url",
+   "redirect_uris",
+   "role_connections_verification_url",
+   "rpc_origins",
+   "slug",
+   "tags",
+   "team",
+   "terms_of_service_url",
+   "type",
+   "verify_key",
+   "vibegrations_project_id"
+  ],
+  "ApplicationCommandResponse": [
+   "application_id",
+   "contexts",
+   "default_member_permissions",
+   "description",
+   "description_localizations",
+   "description_localized",
+   "dm_permission",
+   "guild_id",
+   "handler",
+   "id",
+   "integration_types",
+   "name",
+   "name_localizations",
+   "name_localized",
+   "nsfw",
+   "options",
+   "type",
+   "version"
+  ],
+  "GatewayBotResponse": [
+   "session_start_limit",
+   "shards",
+   "url"
+  ],
+  "GuildStickerResponse": [
+   "available",
+   "description",
+   "format_type",
+   "guild_id",
+   "id",
+   "name",
+   "tags",
+   "type",
+   "user"
+  ],
+  "MessageAttachmentResponse": [
+   "application",
+   "clip_created_at",
+   "clip_participants",
+   "content_type",
+   "description",
+   "duration_secs",
+   "ephemeral",
+   "filename",
+   "flags",
+   "height",
+   "id",
+   "placeholder",
+   "placeholder_version",
+   "proxy_url",
+   "size",
+   "title",
+   "url",
+   "waveform",
+   "width"
+  ],
+  "MessageReactionResponse": [
+   "burst_colors",
+   "count",
+   "count_details",
+   "emoji",
+   "me",
+   "me_burst"
+  ]
+ },
+ "gateway": {
+  "opcodes": [
+   {
+    "code": 0,
+    "name": "Dispatch",
+    "action": "Receive"
+   },
+   {
+    "code": 1,
+    "name": "Heartbeat",
+    "action": "Send/Receive"
+   },
+   {
+    "code": 2,
+    "name": "Identify",
+    "action": "Send"
+   },
+   {
+    "code": 3,
+    "name": "Presence Update",
+    "action": "Send"
+   },
+   {
+    "code": 4,
+    "name": "Voice State Update",
+    "action": "Send"
+   },
+   {
+    "code": 6,
+    "name": "Resume",
+    "action": "Send"
+   },
+   {
+    "code": 7,
+    "name": "Reconnect",
+    "action": "Receive"
+   },
+   {
+    "code": 8,
+    "name": "Request Guild Members",
+    "action": "Send"
+   },
+   {
+    "code": 9,
+    "name": "Invalid Session",
+    "action": "Receive"
+   },
+   {
+    "code": 10,
+    "name": "Hello",
+    "action": "Receive"
+   },
+   {
+    "code": 11,
+    "name": "Heartbeat ACK",
+    "action": "Receive"
+   },
+   {
+    "code": 31,
+    "name": "Request Soundboard Sounds",
+    "action": "Send"
+   },
+   {
+    "code": 43,
+    "name": "Request Channel Info",
+    "action": "Send"
+   }
+  ],
+  "closeCodes": [
+   {
+    "code": 4000,
+    "description": "Unknown error"
+   },
+   {
+    "code": 4001,
+    "description": "Unknown opcode"
+   },
+   {
+    "code": 4002,
+    "description": "Decode error"
+   },
+   {
+    "code": 4003,
+    "description": "Not authenticated"
+   },
+   {
+    "code": 4004,
+    "description": "Authentication failed"
+   },
+   {
+    "code": 4005,
+    "description": "Already authenticated"
+   },
+   {
+    "code": 4007,
+    "description": "Invalid seq"
+   },
+   {
+    "code": 4008,
+    "description": "Rate limited"
+   },
+   {
+    "code": 4009,
+    "description": "Session timed out"
+   },
+   {
+    "code": 4010,
+    "description": "Invalid shard"
+   },
+   {
+    "code": 4011,
+    "description": "Sharding required"
+   },
+   {
+    "code": 4012,
+    "description": "Invalid API version"
+   },
+   {
+    "code": 4013,
+    "description": "Invalid intent(s)"
+   },
+   {
+    "code": 4014,
+    "description": "Disallowed intent(s)"
+   }
+  ],
+  "sendEvents": [
+   "IDENTIFY",
+   "RESUME",
+   "HEARTBEAT",
+   "REQUEST_GUILD_MEMBERS",
+   "REQUEST_SOUNDBOARD_SOUNDS",
+   "REQUEST_CHANNEL_INFO",
+   "UPDATE_VOICE_STATE",
+   "UPDATE_PRESENCE"
+  ],
+  "receiveEvents": [
+   "HELLO",
+   "READY",
+   "RESUMED",
+   "RECONNECT",
+   "RATE_LIMITED",
+   "INVALID_SESSION",
+   "APPLICATION_COMMAND_PERMISSIONS_UPDATE",
+   "AUTO_MODERATION_RULE_CREATE",
+   "AUTO_MODERATION_RULE_UPDATE",
+   "AUTO_MODERATION_RULE_DELETE",
+   "AUTO_MODERATION_ACTION_EXECUTION",
+   "CHANNEL_CREATE",
+   "CHANNEL_UPDATE",
+   "CHANNEL_DELETE",
+   "CHANNEL_INFO",
+   "CHANNEL_PINS_UPDATE",
+   "THREAD_CREATE",
+   "THREAD_UPDATE",
+   "THREAD_DELETE",
+   "THREAD_LIST_SYNC",
+   "THREAD_MEMBER_UPDATE",
+   "THREAD_MEMBERS_UPDATE",
+   "ENTITLEMENT_CREATE",
+   "ENTITLEMENT_UPDATE",
+   "ENTITLEMENT_DELETE",
+   "GUILD_CREATE",
+   "GUILD_UPDATE",
+   "GUILD_DELETE",
+   "GUILD_AUDIT_LOG_ENTRY_CREATE",
+   "GUILD_BAN_ADD",
+   "GUILD_BAN_REMOVE",
+   "GUILD_EMOJIS_UPDATE",
+   "GUILD_STICKERS_UPDATE",
+   "GUILD_INTEGRATIONS_UPDATE",
+   "GUILD_MEMBER_ADD",
+   "GUILD_MEMBER_REMOVE",
+   "GUILD_MEMBER_UPDATE",
+   "GUILD_MEMBERS_CHUNK",
+   "GUILD_ROLE_CREATE",
+   "GUILD_ROLE_UPDATE",
+   "GUILD_ROLE_DELETE",
+   "GUILD_SCHEDULED_EVENT_CREATE",
+   "GUILD_SCHEDULED_EVENT_UPDATE",
+   "GUILD_SCHEDULED_EVENT_DELETE",
+   "GUILD_SCHEDULED_EVENT_USER_ADD",
+   "GUILD_SCHEDULED_EVENT_USER_REMOVE",
+   "GUILD_SOUNDBOARD_SOUND_CREATE",
+   "GUILD_SOUNDBOARD_SOUND_UPDATE",
+   "GUILD_SOUNDBOARD_SOUND_DELETE",
+   "GUILD_SOUNDBOARD_SOUNDS_UPDATE",
+   "SOUNDBOARD_SOUNDS",
+   "INTEGRATION_CREATE",
+   "INTEGRATION_UPDATE",
+   "INTEGRATION_DELETE",
+   "INTERACTION_CREATE",
+   "INVITE_CREATE",
+   "INVITE_DELETE",
+   "MESSAGE_CREATE",
+   "MESSAGE_UPDATE",
+   "MESSAGE_DELETE",
+   "MESSAGE_DELETE_BULK",
+   "MESSAGE_REACTION_ADD",
+   "MESSAGE_REACTION_REMOVE",
+   "MESSAGE_REACTION_REMOVE_ALL",
+   "MESSAGE_REACTION_REMOVE_EMOJI",
+   "PRESENCE_UPDATE",
+   "STAGE_INSTANCE_CREATE",
+   "STAGE_INSTANCE_UPDATE",
+   "STAGE_INSTANCE_DELETE",
+   "SUBSCRIPTION_CREATE",
+   "SUBSCRIPTION_UPDATE",
+   "SUBSCRIPTION_DELETE",
+   "TYPING_START",
+   "USER_UPDATE",
+   "VOICE_CHANNEL_EFFECT_SEND",
+   "VOICE_CHANNEL_START_TIME_UPDATE",
+   "VOICE_CHANNEL_STATUS_UPDATE",
+   "VOICE_STATE_UPDATE",
+   "VOICE_SERVER_UPDATE",
+   "WEBHOOKS_UPDATE",
+   "MESSAGE_POLL_VOTE_ADD",
+   "MESSAGE_POLL_VOTE_REMOVE"
+  ],
+  "intents": [
+   {
+    "name": "GUILDS",
+    "bit": 0,
+    "privileged": false,
+    "events": [
+     "GUILD_CREATE",
+     "GUILD_UPDATE",
+     "GUILD_DELETE",
+     "GUILD_ROLE_CREATE",
+     "GUILD_ROLE_UPDATE",
+     "GUILD_ROLE_DELETE",
+     "CHANNEL_CREATE",
+     "CHANNEL_UPDATE",
+     "CHANNEL_DELETE",
+     "CHANNEL_PINS_UPDATE",
+     "THREAD_CREATE",
+     "THREAD_UPDATE",
+     "THREAD_DELETE",
+     "THREAD_LIST_SYNC",
+     "THREAD_MEMBER_UPDATE",
+     "THREAD_MEMBERS_UPDATE",
+     "STAGE_INSTANCE_CREATE",
+     "STAGE_INSTANCE_UPDATE",
+     "STAGE_INSTANCE_DELETE",
+     "VOICE_CHANNEL_STATUS_UPDATE",
+     "VOICE_CHANNEL_START_TIME_UPDATE"
+    ]
+   },
+   {
+    "name": "GUILD_MEMBERS",
+    "bit": 1,
+    "privileged": true,
+    "events": [
+     "GUILD_MEMBER_ADD",
+     "GUILD_MEMBER_UPDATE",
+     "GUILD_MEMBER_REMOVE",
+     "THREAD_MEMBERS_UPDATE"
+    ]
+   },
+   {
+    "name": "GUILD_MODERATION",
+    "bit": 2,
+    "privileged": false,
+    "events": [
+     "GUILD_AUDIT_LOG_ENTRY_CREATE",
+     "GUILD_BAN_ADD",
+     "GUILD_BAN_REMOVE"
+    ]
+   },
+   {
+    "name": "GUILD_EXPRESSIONS",
+    "bit": 3,
+    "privileged": false,
+    "events": [
+     "GUILD_EMOJIS_UPDATE",
+     "GUILD_STICKERS_UPDATE",
+     "GUILD_SOUNDBOARD_SOUND_CREATE",
+     "GUILD_SOUNDBOARD_SOUND_UPDATE",
+     "GUILD_SOUNDBOARD_SOUND_DELETE",
+     "GUILD_SOUNDBOARD_SOUNDS_UPDATE"
+    ]
+   },
+   {
+    "name": "GUILD_INTEGRATIONS",
+    "bit": 4,
+    "privileged": false,
+    "events": [
+     "GUILD_INTEGRATIONS_UPDATE",
+     "INTEGRATION_CREATE",
+     "INTEGRATION_UPDATE",
+     "INTEGRATION_DELETE"
+    ]
+   },
+   {
+    "name": "GUILD_WEBHOOKS",
+    "bit": 5,
+    "privileged": false,
+    "events": [
+     "WEBHOOKS_UPDATE"
+    ]
+   },
+   {
+    "name": "GUILD_INVITES",
+    "bit": 6,
+    "privileged": false,
+    "events": [
+     "INVITE_CREATE",
+     "INVITE_DELETE"
+    ]
+   },
+   {
+    "name": "GUILD_VOICE_STATES",
+    "bit": 7,
+    "privileged": false,
+    "events": [
+     "VOICE_CHANNEL_EFFECT_SEND",
+     "VOICE_STATE_UPDATE"
+    ]
+   },
+   {
+    "name": "GUILD_PRESENCES",
+    "bit": 8,
+    "privileged": true,
+    "events": [
+     "PRESENCE_UPDATE"
+    ]
+   },
+   {
+    "name": "GUILD_MESSAGES",
+    "bit": 9,
+    "privileged": false,
+    "events": [
+     "MESSAGE_CREATE",
+     "MESSAGE_UPDATE",
+     "MESSAGE_DELETE",
+     "MESSAGE_DELETE_BULK"
+    ]
+   },
+   {
+    "name": "GUILD_MESSAGE_REACTIONS",
+    "bit": 10,
+    "privileged": false,
+    "events": [
+     "MESSAGE_REACTION_ADD",
+     "MESSAGE_REACTION_REMOVE",
+     "MESSAGE_REACTION_REMOVE_ALL",
+     "MESSAGE_REACTION_REMOVE_EMOJI"
+    ]
+   },
+   {
+    "name": "GUILD_MESSAGE_TYPING",
+    "bit": 11,
+    "privileged": false,
+    "events": [
+     "TYPING_START"
+    ]
+   },
+   {
+    "name": "DIRECT_MESSAGES",
+    "bit": 12,
+    "privileged": false,
+    "events": [
+     "MESSAGE_CREATE",
+     "MESSAGE_UPDATE",
+     "MESSAGE_DELETE",
+     "CHANNEL_PINS_UPDATE"
+    ]
+   },
+   {
+    "name": "DIRECT_MESSAGE_REACTIONS",
+    "bit": 13,
+    "privileged": false,
+    "events": [
+     "MESSAGE_REACTION_ADD",
+     "MESSAGE_REACTION_REMOVE",
+     "MESSAGE_REACTION_REMOVE_ALL",
+     "MESSAGE_REACTION_REMOVE_EMOJI"
+    ]
+   },
+   {
+    "name": "DIRECT_MESSAGE_TYPING",
+    "bit": 14,
+    "privileged": false,
+    "events": [
+     "TYPING_START"
+    ]
+   },
+   {
+    "name": "MESSAGE_CONTENT",
+    "bit": 15,
+    "privileged": true,
+    "events": []
+   },
+   {
+    "name": "GUILD_SCHEDULED_EVENTS",
+    "bit": 16,
+    "privileged": false,
+    "events": [
+     "GUILD_SCHEDULED_EVENT_CREATE",
+     "GUILD_SCHEDULED_EVENT_UPDATE",
+     "GUILD_SCHEDULED_EVENT_DELETE",
+     "GUILD_SCHEDULED_EVENT_USER_ADD",
+     "GUILD_SCHEDULED_EVENT_USER_REMOVE"
+    ]
+   },
+   {
+    "name": "AUTO_MODERATION_CONFIGURATION",
+    "bit": 20,
+    "privileged": false,
+    "events": [
+     "AUTO_MODERATION_RULE_CREATE",
+     "AUTO_MODERATION_RULE_UPDATE",
+     "AUTO_MODERATION_RULE_DELETE"
+    ]
+   },
+   {
+    "name": "AUTO_MODERATION_EXECUTION",
+    "bit": 21,
+    "privileged": false,
+    "events": [
+     "AUTO_MODERATION_ACTION_EXECUTION"
+    ]
+   },
+   {
+    "name": "GUILD_MESSAGE_POLLS",
+    "bit": 24,
+    "privileged": false,
+    "events": [
+     "MESSAGE_POLL_VOTE_ADD",
+     "MESSAGE_POLL_VOTE_REMOVE"
+    ]
+   },
+   {
+    "name": "DIRECT_MESSAGE_POLLS",
+    "bit": 25,
+    "privileged": false,
+    "events": [
+     "MESSAGE_POLL_VOTE_ADD",
+     "MESSAGE_POLL_VOTE_REMOVE"
+    ]
+   }
+  ],
+  "structures": {
+   "Payload Structure": [
+    "op",
+    "d",
+    "s",
+    "t"
+   ],
+   "Identify Structure": [
+    "token",
+    "properties",
+    "compress",
+    "large_threshold",
+    "shard",
+    "presence",
+    "intents",
+    "capabilities"
+   ],
+   "Resume Structure": [
+    "token",
+    "session_id",
+    "seq"
+   ],
+   "Request Guild Members Structure": [
+    "guild_id",
+    "query",
+    "limit",
+    "presences",
+    "user_ids",
+    "nonce"
+   ],
+   "Request Soundboard Sounds Structure": [
+    "guild_ids"
+   ],
+   "Request Channel Info Structure": [
+    "guild_id",
+    "fields"
+   ],
+   "Gateway Voice State Update Structure": [
+    "guild_id",
+    "channel_id",
+    "self_mute",
+    "self_deaf"
+   ],
+   "Gateway Presence Update Structure": [
+    "since",
+    "activities",
+    "status",
+    "afk"
+   ],
+   "Hello Structure": [
+    "heartbeat_interval"
+   ],
+   "Ready Event Fields": [
+    "v",
+    "user",
+    "guilds",
+    "session_id",
+    "resume_gateway_url",
+    "shard",
+    "application"
+   ],
+   "Auto Moderation Action Execution Event Fields": [
+    "guild_id",
+    "action",
+    "rule_id",
+    "rule_trigger_type",
+    "user_id",
+    "channel_id",
+    "message_id",
+    "alert_system_message_id",
+    "content",
+    "matched_keyword",
+    "matched_content"
+   ],
+   "Channel Info Structure": [
+    "guild_id",
+    "channels"
+   ],
+   "Channel Info Channel Structure": [
+    "id",
+    "status",
+    "voice_start_time"
+   ],
+   "Thread List Sync Event Fields": [
+    "guild_id",
+    "channel_ids",
+    "threads",
+    "members"
+   ],
+   "Thread Member Update Event Extra Fields": [
+    "guild_id"
+   ],
+   "Thread Members Update Event Fields": [
+    "id",
+    "guild_id",
+    "member_count",
+    "added_members",
+    "removed_member_ids"
+   ],
+   "Channel Pins Update Event Fields": [
+    "guild_id",
+    "channel_id",
+    "last_pin_timestamp"
+   ],
+   "Guild Create Extra Fields": [
+    "joined_at",
+    "large",
+    "unavailable",
+    "member_count",
+    "voice_states",
+    "members",
+    "channels",
+    "threads",
+    "presences",
+    "stage_instances",
+    "guild_scheduled_events",
+    "soundboard_sounds"
+   ],
+   "Guild Audit Log Entry Create Event Extra Fields": [
+    "guild_id"
+   ],
+   "Guild Ban Add Event Fields": [
+    "guild_id",
+    "user"
+   ],
+   "Guild Ban Remove Event Fields": [
+    "guild_id",
+    "user"
+   ],
+   "Guild Emojis Update Event Fields": [
+    "guild_id",
+    "emojis"
+   ],
+   "Guild Stickers Update Event Fields": [
+    "guild_id",
+    "stickers"
+   ],
+   "Guild Integrations Update Event Fields": [
+    "guild_id"
+   ],
+   "Guild Member Add Extra Fields": [
+    "guild_id"
+   ],
+   "Guild Member Remove Event Fields": [
+    "guild_id",
+    "user"
+   ],
+   "Guild Member Update Event Fields": [
+    "guild_id",
+    "roles",
+    "user",
+    "nick",
+    "avatar",
+    "banner",
+    "joined_at",
+    "premium_since",
+    "deaf",
+    "mute",
+    "pending",
+    "communication_disabled_until",
+    "avatar_decoration_data",
+    "collectibles"
+   ],
+   "Guild Members Chunk Event Fields": [
+    "guild_id",
+    "members",
+    "chunk_index",
+    "chunk_count",
+    "not_found",
+    "presences",
+    "nonce"
+   ],
+   "Guild Role Create Event Fields": [
+    "guild_id",
+    "role"
+   ],
+   "Guild Role Update Event Fields": [
+    "guild_id",
+    "role"
+   ],
+   "Guild Role Delete Event Fields": [
+    "guild_id",
+    "role_id"
+   ],
+   "Guild Scheduled Event User Add Event Fields": [
+    "guild_scheduled_event_id",
+    "user_id",
+    "guild_id"
+   ],
+   "Guild Scheduled Event User Remove Event Fields": [
+    "guild_scheduled_event_id",
+    "user_id",
+    "guild_id"
+   ],
+   "Guild Soundboard Sound Delete Event Fields": [
+    "sound_id",
+    "guild_id"
+   ],
+   "Guild Soundboard Sounds Update Event Fields": [
+    "soundboard_sounds",
+    "guild_id"
+   ],
+   "Soundboard Sounds Event Fields": [
+    "soundboard_sounds",
+    "guild_id"
+   ],
+   "Integration Create Event Additional Fields": [
+    "guild_id"
+   ],
+   "Integration Update Event Additional Fields": [
+    "guild_id"
+   ],
+   "Integration Delete Event Fields": [
+    "id",
+    "guild_id",
+    "application_id"
+   ],
+   "Invite Create Event Fields": [
+    "channel_id",
+    "code",
+    "created_at",
+    "guild_id",
+    "inviter",
+    "max_age",
+    "max_uses",
+    "target_type",
+    "target_user",
+    "target_application",
+    "temporary",
+    "uses",
+    "expires_at",
+    "role_ids"
+   ],
+   "Invite Delete Event Fields": [
+    "channel_id",
+    "guild_id",
+    "code"
+   ],
+   "Message Create Extra Fields": [
+    "guild_id",
+    "member",
+    "mentions",
+    "channel_type"
+   ],
+   "Message Delete Event Fields": [
+    "id",
+    "channel_id",
+    "guild_id"
+   ],
+   "Message Delete Bulk Event Fields": [
+    "ids",
+    "channel_id",
+    "guild_id"
+   ],
+   "Message Reaction Add Event Fields": [
+    "user_id",
+    "channel_id",
+    "message_id",
+    "guild_id",
+    "member",
+    "emoji",
+    "message_author_id",
+    "burst",
+    "burst_colors",
+    "type"
+   ],
+   "Message Reaction Remove Event Fields": [
+    "user_id",
+    "channel_id",
+    "message_id",
+    "guild_id",
+    "emoji",
+    "burst",
+    "type"
+   ],
+   "Message Reaction Remove All Event Fields": [
+    "channel_id",
+    "message_id",
+    "guild_id"
+   ],
+   "Message Reaction Remove Emoji Event Fields": [
+    "channel_id",
+    "guild_id",
+    "message_id",
+    "emoji"
+   ],
+   "Presence Update Event Fields": [
+    "user",
+    "guild_id",
+    "status",
+    "activities",
+    "client_status"
+   ],
+   "Activity Structure": [
+    "name",
+    "type",
+    "url",
+    "created_at",
+    "timestamps",
+    "application_id",
+    "status_display_type",
+    "details",
+    "details_url",
+    "state",
+    "state_url",
+    "emoji",
+    "party",
+    "assets",
+    "secrets",
+    "instance",
+    "flags",
+    "buttons"
+   ],
+   "Typing Start Event Fields": [
+    "channel_id",
+    "guild_id",
+    "user_id",
+    "timestamp",
+    "member"
+   ],
+   "Voice Channel Effect Send Event Fields": [
+    "channel_id",
+    "guild_id",
+    "user_id",
+    "emoji",
+    "animation_type",
+    "animation_id",
+    "sound_id",
+    "sound_volume"
+   ],
+   "Voice Server Update Event Fields": [
+    "token",
+    "guild_id",
+    "endpoint"
+   ],
+   "Webhooks Update Event Fields": [
+    "guild_id",
+    "channel_id"
+   ],
+   "Message Poll Vote Add Fields": [
+    "user_id",
+    "channel_id",
+    "message_id",
+    "guild_id",
+    "answer_id"
+   ],
+   "Message Poll Vote Remove Fields": [
+    "user_id",
+    "channel_id",
+    "message_id",
+    "guild_id",
+    "answer_id"
+   ],
+   "Rate Limited Fields": [
+    "opcode",
+    "retry_after",
+    "meta"
+   ],
+   "Rate Limit Metadata for Opcode Structure": [
+    "8"
+   ],
+   "Request Guild Member Rate Limit Metadata Structure": [
+    "guild_id",
+    "nonce"
+   ]
+  }
+ }
+}

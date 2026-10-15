@@ -15,6 +15,9 @@
 ### Performance
 
 ### Security
+- **Bots can no longer see conversations they aren't part of** — bot gateway events from DMs, group DMs and private channels now only reach bots that are actually in that conversation or can view that channel. Slash commands typed in a DM only reach bots in that DM, audit-log and AutoMod events need the matching permission, and a bot that is kicked stops receiving the server's events right away.
+- Bots now follow channel permission overwrites and timeouts like members do, need Manage Messages to remove other people's reactions, can only attach files they uploaded, and get message content only with the Message Content intent (existing apps keep it until their owner changes it).
+- Discord-style rate limits for bots (with X-RateLimit headers), and bots can upload files with multipart/form-data like on Discord.
 
 ### Removed
 

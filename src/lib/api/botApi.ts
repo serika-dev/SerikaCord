@@ -1,13 +1,12 @@
 import { Elysia, t } from 'elysia';
 import { buildPollView, fromDiscordPollRequest, normalizePollInput, parseStoredPoll, toDiscordPoll, type StoredPoll } from '@/lib/chat/polls';
 import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
-import { Application, ChannelWebhook } from '@/lib/models';
+import { ChannelWebhook, type IApplication } from '@/lib/models';
 import { addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage, type IChannel } from '@/lib/models';
 import { AppCommand, type IAppCommand } from '@/lib/models/AppCommand';
 import * as crypto from 'crypto';
 import { config } from '@/lib/config';
-import { isValidObjectId } from '@/lib/security';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 import { PERMISSION_BITS as P } from '@/lib/permissions/bits';
@@ -17,9 +16,19 @@ import {
 } from '@/lib/permissions/botGuild';
 import type { IServer, IRole } from '@/lib/models';
 import { isSilentMessage, MESSAGE_FLAGS, sendFlags } from '@/lib/chat/messageFlags';
-import { fromDiscordVoiceAttachment, normalizeVoiceMessage, toDiscordVoiceFields } from '@/lib/chat/voiceMessage';
+import { normalizeVoiceMessage, toDiscordVoiceFields } from '@/lib/chat/voiceMessage';
 import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent, auditReason } from '@/lib/audit/auditLog';
+import { applyTimeout, botCan, DM_BOT_PERMISSIONS, type BotChannelAction } from '@/lib/permissions/botChannel';
+import { allowedPrivilegedIntents, appHasMessageContent, INTENT } from '@/lib/gateway/intents';
+import { redactMessageContent, shouldRedactContent } from '@/lib/gateway/routing';
+import { normalizeBotAttachments, type IncomingAttachment } from '@/lib/chat/attachmentPolicy';
+import {
+  MAX_BOT_FILES, effectiveFilename, imageDimensions, isSpoilerFilename, parseBotMessageBody, planAttachments,
+  type AttachmentMeta, type FileLike,
+} from '@/lib/chat/botMultipart';
+import { checkRateLimit, decryptFromStorage, getClientIP, isValidObjectId } from '@/lib/security';
+import { botRequestBuckets, rateLimitedResponse, rateLimitHeaders } from '@/lib/security/botRateLimit';
 
 /** Audit-log a bot's moderation action (reason from X-Audit-Log-Reason, like Discord). */
 function botAudit(
@@ -35,54 +44,172 @@ function botAudit(
 
 // ─── Bot Auth Helper ───────────────────────────────────────
 
-async function authenticateBot(headers: Record<string, string | undefined>) {
-  const authHeader = headers.authorization;
-  if (!authHeader) return null;
+type BotAuth = { app: IApplication; botUser: NonNullable<Awaited<ReturnType<typeof User.findById>>> };
 
-  // Support both "Bot <token>" and "<token>" formats
-  const token = authHeader.startsWith('Bot ') ? authHeader.slice(4) : authHeader;
-  if (!token) return null;
+// One lookup per request: the rate-limit hook, the access guard and the route
+// all authenticate, and Elysia hands them the same headers object.
+const authMemo = new WeakMap<object, Promise<BotAuth | null>>();
 
-  const app = await Application.findOne({ botToken: token });
-  if (!app || !app.botId) return null;
+function authenticateBot(headers: Record<string, string | undefined>): Promise<BotAuth | null> {
+  const memo = authMemo.get(headers);
+  if (memo) return memo;
+  const p = (async () => {
+    const authHeader = headers.authorization;
+    if (!authHeader) return null;
 
-  // Get the bot user
-  const botUser = await User.findById(app.botId);
-  if (!botUser) return null;
+    // Support both "Bot <token>" and "<token>" formats
+    const token = authHeader.startsWith('Bot ') ? authHeader.slice(4) : authHeader;
+    if (!token) return null;
 
-  return { app, botUser };
+    const { resolveBotToken } = await import('@/lib/services/botTokens');
+    const app = await resolveBotToken(token);
+    if (!app || !app.botId) return null;
+
+    // Get the bot user
+    const botUser = await User.findById(app.botId);
+    if (!botUser) return null;
+
+    return { app, botUser };
+  })();
+  authMemo.set(headers, p);
+  return p;
 }
 
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
 }
 
-// Permission bits (mirrors @/lib/permissions/bits).
-const BOT_PERM_ADMINISTRATOR = 1n << 3n;
-const BOT_PERM_MANAGE_MESSAGES = 1n << 13n;
-const BOT_PERM_PIN_MESSAGES = 1n << 51n;
+// ─── Channel permissions (same resolution as users) ────────
+
+const isThreadChannel = (c: { type?: string | null }) => c.type === 'public_thread' || c.type === 'private_thread';
 
 /**
- * Resolve a bot's effective permission bitfield within a server by OR-ing the
- * permissions of every role on its member record. Server owner gets everything.
+ * The bot's permission bitfield in a channel, resolved exactly like a user's
+ * (getMemberChannelPermissions: @everyone + roles, then @everyone / role /
+ * member overwrites; threads use their parent's; owner and ADMINISTRATOR get
+ * everything), then reduced while the bot is timed out. DMs and group DMs:
+ * DM_BOT_PERMISSIONS when the bot is a recipient, nothing otherwise.
  */
-async function getBotServerPermissions(serverId: string | null | undefined, botId: string): Promise<bigint> {
-  if (!serverId) return 0n;
-  const server = await Server.findById(serverId);
-  if (server && compareIds(server.ownerId, botId)) return ~0n;
-  const member = await ServerMember.findOne({ serverId, userId: botId });
-  const roleIds = (member?.roles || []) as string[];
-  if (roleIds.length === 0) return 0n;
-  const roles = await Role.find({ id: { in: roleIds }, serverId });
-  let bitfield = 0n;
-  for (const role of roles) bitfield |= BigInt((role as { permissions?: string }).permissions || '0');
-  return bitfield;
+async function botChannelPermissions(botId: string, channel: IChannel): Promise<bigint> {
+  if (!channel.serverId) {
+    const inDm = ((channel.recipientIds || []) as string[]).some((r) => compareIds(r, botId));
+    return inDm ? DM_BOT_PERMISSIONS : 0n;
+  }
+  const membership = await ServerMember.findOne({ serverId: channel.serverId, userId: botId });
+  const { getMemberChannelPermissions } = await import('@/lib/api/channels');
+  const perms = await getMemberChannelPermissions(botId, channel as IChannel & { serverId: string }, membership ?? null);
+  return applyTimeout(perms, membership?.communicationDisabledUntil ?? null);
 }
 
-/** True if `bitfield` grants `permission` (ADMINISTRATOR implies all). */
-function botHasPermission(bitfield: bigint, permission: bigint): boolean {
-  if ((bitfield & BOT_PERM_ADMINISTRATOR) === BOT_PERM_ADMINISTRATOR) return true;
-  return (bitfield & permission) === permission;
+type ChannelGuardResult =
+  | { ok: true; channel: IChannel; perms: bigint }
+  | { ok: false; status: number; body: { code: number; message: string } };
+
+/** Load `channelId` and require the bot to be allowed `action` in it. */
+async function requireChannelAction(channelId: string, botId: string, action: BotChannelAction): Promise<ChannelGuardResult> {
+  if (!isValidObjectId(channelId)) return { ok: false, status: 404, body: { code: 10003, message: 'Unknown Channel' } };
+  const channel = await Channel.findById(channelId);
+  if (!channel) return { ok: false, status: 404, body: { code: 10003, message: 'Unknown Channel' } };
+  const perms = await botChannelPermissions(botId, channel);
+  if (!botCan(perms, action, { isThread: isThreadChannel(channel) })) {
+    return { ok: false, status: 403, body: { code: 50013, message: 'Missing Permissions' } };
+  }
+  return { ok: true, channel, perms };
+}
+
+/** A live (not soft-deleted) message that belongs to `channelId`, or null. */
+async function loadChannelMessage(channelId: string, messageId: string): Promise<IMessage | null> {
+  if (!isValidObjectId(messageId)) return null;
+  const msg = await Message.findById(messageId);
+  if (!msg || msg.isDeleted || !compareIds(msg.channelId, channelId)) return null;
+  return msg;
+}
+
+const UNKNOWN_MESSAGE = { code: 10008, message: 'Unknown Message' };
+
+/**
+ * Store multipart `files[n]` for a bot message through the same upload path
+ * users get (storeChatAttachment: type whitelist, size limit, image sniffing,
+ * Trust & Safety scanning), keyed under the bot's id, and build the stored
+ * attachment objects (with `attachments[n]` filename/description and image
+ * dimensions).
+ */
+async function uploadBotFiles(opts: {
+  files: Array<{ index: number; file: FileLike }>;
+  meta: Map<number, AttachmentMeta>;
+  botId: string;
+  channelId: string;
+  ip?: string;
+  isPremium?: boolean;
+}): Promise<{ ok: true; attachments: IncomingAttachment[] } | { ok: false; status: number; body: { code: number; message: string } }> {
+  const { storeChatAttachment } = await import('@/lib/api/uploads');
+  const out: IncomingAttachment[] = [];
+  for (const { index, file } of opts.files) {
+    const m = opts.meta.get(index) ?? {};
+    const filename = effectiveFilename(file.name || `file${index}`, m.filename);
+    if (!filename) {
+      return { ok: false, status: 400, body: { code: 50035, message: `Invalid Form Body: attachments[${index}].filename may not change the file extension` } };
+    }
+    const stored = await storeChatAttachment(file as unknown as File, {
+      uploaderId: opts.botId,
+      channelId: opts.channelId,
+      ip: opts.ip,
+      isPremium: opts.isPremium,
+      spoiler: isSpoilerFilename(filename),
+    });
+    if (!stored.ok) {
+      const code = stored.status === 413 ? 40005 : stored.status === 403 ? 20009 : 50035;
+      return { ok: false, status: stored.status, body: { code, message: `files[${index}]: ${stored.error}` } };
+    }
+    let dims: { width: number; height: number } | null = null;
+    if (stored.attachment.contentType.startsWith('image/')) {
+      dims = imageDimensions(new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer()));
+    }
+    out.push({
+      ...stored.attachment,
+      filename,
+      ...(dims ?? {}),
+      ...(m.description !== undefined ? { description: m.description } : {}),
+      ...(m.durationSecs !== undefined ? { durationSecs: m.durationSecs } : {}),
+      ...(m.waveform !== undefined ? { waveform: m.waveform } : {}),
+    });
+  }
+  return { ok: true, attachments: out };
+}
+
+// ─── Message presentation (decryption + MESSAGE_CONTENT) ───
+
+interface BotViewer { botId: string; hasMessageContent: boolean }
+
+function viewerOf(auth: { app: { gatewayIntents?: number | null; createdAt?: Date | null }; botUser: { id: string } }): BotViewer {
+  return { botId: auth.botUser.id, hasMessageContent: appHasMessageContent(auth.app) };
+}
+
+/**
+ * A stored message as the bot may see it: content decrypted from storage, and
+ * content/embeds/attachments/components/poll blanked when the app lacks the
+ * MESSAGE_CONTENT intent (except DMs, the bot's own messages and mentions).
+ */
+async function presentMessage(msg: IMessage, author: unknown, viewer: BotViewer) {
+  let content = '';
+  if (msg.content) {
+    try { content = await decryptFromStorage(msg.content); } catch { content = ''; }
+  }
+  const formatted = formatMessage({ ...msg, content, authorId: author || msg.authorId }, viewer.botId);
+  const redact = shouldRedactContent(
+    { guildId: msg.serverId, authorId: msg.authorId, mentionedUserIds: (msg.mentionedUserIds ?? []) as string[] },
+    viewer.botId,
+    viewer.hasMessageContent,
+  );
+  return redact ? redactMessageContent(formatted, viewer.botId) : formatted;
+}
+
+/** presentMessage for a list, with one batched author lookup. */
+async function presentMessages(messages: IMessage[], viewer: BotViewer) {
+  const authorIds = [...new Set(messages.map((m) => m.authorId).filter(Boolean))] as string[];
+  const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
+  const authorMap = new Map(authors.map((u: { id: string }) => [u.id, u]));
+  return Promise.all(messages.map((m) => presentMessage(m, authorMap.get(m.authorId) || m.authorId, viewer)));
 }
 
 // ─── Guild permission guard ────────────────────────────────
@@ -104,7 +231,10 @@ async function loadBotGuild(serverId: string | null | undefined, botId: string):
   const member = await ServerMember.findOne({ serverId, userId: botId });
   if (!member && !isOwner) return { ok: false, status: 403, body: MISSING_ACCESS };
   const roles = await Role.find({ serverId });
-  return { ok: true, server, roles, standing: computeGuildStanding(roles, (member?.roles || []) as string[], isOwner) };
+  const standing = computeGuildStanding(roles, (member?.roles || []) as string[], isOwner);
+  // A timed-out bot keeps only view + history, for guild actions too (owner can't be timed out).
+  if (!isOwner) standing.perms = applyTimeout(standing.perms, member?.communicationDisabledUntil ?? null);
+  return { ok: true, server, roles, standing };
 }
 
 /** Like loadBotGuild, but also requires the bot to hold `perm` server-wide. */
@@ -169,7 +299,7 @@ function formatChannel(channel: any) {
   };
 }
 
-function formatMessage(msg: any) {
+function formatMessage(msg: any, viewerId?: string) {
   const author = msg.authorId && typeof msg.authorId === 'object' && msg.authorId.id
     ? formatUser(msg.authorId)
     : msg.authorId
@@ -196,13 +326,14 @@ function formatMessage(msg: any) {
       proxy_url: a.proxyUrl ?? a.url,
       width: a.width,
       height: a.height,
+      ...(typeof a.description === 'string' ? { description: a.description } : {}),
       ...toDiscordVoiceFields(a),
     })),
     embeds: msg.embeds ?? [],
     reactions: (msg.reactions ?? []).map((r: { emoji: { name: string; id?: string }; count: number; userIds: string[] }) => ({
       emoji: r.emoji,
       count: r.count,
-      me: r.userIds?.some((uid: string) => uid === (author as { id?: string } | undefined)?.id) ?? false,
+      me: viewerId ? (r.userIds?.some((uid: string) => compareIds(uid, viewerId)) ?? false) : false,
     })),
     pinned: msg.pinned ?? false,
     type: msg.type === 'poll_result' ? 46 : 0,
@@ -322,6 +453,29 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       console.error('Bot API error:', (error as Error)?.message ?? error);
       return { code: 0, message: '500: Internal Server Error' };
   }
+})
+
+// ─── Per-bot rate limits ───────────────────────────────────
+// Every request counts against the bot's global budget; writes also against a
+// per-route bucket (src/lib/security/botRateLimit.ts). Discord-style
+// X-RateLimit-* headers on every limited response, a Discord-shaped 429 body.
+.onBeforeHandle(async ({ headers, request, route, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) return;
+  const buckets = botRequestBuckets(auth.botUser.id, request.method, String(route ?? ''), params as Record<string, string | undefined>);
+  let shown: Record<string, string> | null = null;
+  for (const b of buckets) {
+    const r = await checkRateLimit(b.limiter, b.key);
+    const resetAfterSeconds = (r.resetAfterMs ?? (r.retryAfter ?? 1) * 1000) / 1000;
+    if (!r.success) {
+      const limited = rateLimitedResponse({ retryAfterSeconds: resetAfterSeconds, global: b.limiter === 'botGlobal' });
+      Object.assign(set.headers, rateLimitHeaders({ limit: b.limit, remaining: 0, resetAfterSeconds, bucket: b.bucket }), limited.headers);
+      set.status = 429;
+      return limited.body;
+    }
+    if (!shown) shown = rateLimitHeaders({ limit: b.limit, remaining: r.remaining ?? 0, resetAfterSeconds, bucket: b.bucket });
+  }
+  if (shown) Object.assign(set.headers, shown);
 })
 
 // ─── Access guard ──────────────────────────────────────────
@@ -468,9 +622,12 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  // Listing members needs the privileged GUILD_MEMBERS intent enabled for the app (Discord).
+  if ((allowedPrivilegedIntents(auth.app) & INTENT.GUILD_MEMBERS) === 0) { set.status = 403; return MISSING_ACCESS; }
   const limit = Math.min(parseInt(query.limit as string) || 100, 1000);
-  const members = await ServerMember.find({ serverId: params.guildId });
-  const sliced = members.slice(0, limit);
+  const after = typeof query.after === 'string' && isValidObjectId(query.after) ? query.after : null;
+  // One page in SQL (ordered by user id, honouring `after`) instead of loading every member.
+  const sliced = await ServerMember.listPage(params.guildId, { limit, afterUserId: after });
   const userIds = sliced.map((m: any) => m.userId);
   const users = userIds.length > 0 ? await User.find({ id: { in: userIds } }) : [];
   const userMap = new Map(users.map((u: any) => [u.id, u]));
@@ -511,6 +668,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  // Ban lists (and their reasons) are moderator data: BAN_MEMBERS, like Discord.
+  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.BAN_MEMBERS);
+  if (!g.ok) { set.status = g.status; return g.body; }
   const bans = await ServerBan.find({ serverId: params.guildId });
   return bans.map((b: any) => ({
     reason: b.reason ?? null,
@@ -522,6 +682,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  // Discord: MANAGE_GUILD (Serika: Manage Server).
+  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MANAGE_SERVER);
+  if (!g.ok) { set.status = g.status; return g.body; }
   const invites = await Invite.find({ serverId: params.guildId });
   return invites.map(formatInvite);
 })
@@ -540,12 +703,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  const channel = await Channel.findById(params.channelId);
-  if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+  // MANAGE_CHANNELS in this channel (overwrites apply). DMs are never editable here.
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_channel');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  const channel = c.channel;
   if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
-  const g = await requireBotPerm(channel.serverId, auth.botUser.id, P.MANAGE_CHANNELS);
-  if (!g.ok) { set.status = g.status; return g.body; }
 
   const patch = body as Record<string, unknown>;
   const updates: Record<string, unknown> = {};
@@ -560,13 +722,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  const channel = await Channel.findById(params.channelId);
-  if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_channel');
+  if (!c.ok) { set.status = c.status; return c.body; }
   // DMs and group DMs are never deleted through the bot API.
-  if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
-  const g = await requireBotPerm(channel.serverId, auth.botUser.id, P.MANAGE_CHANNELS);
-  if (!g.ok) { set.status = g.status; return g.body; }
+  if (!c.channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
   await Channel.deleteById(params.channelId);
   return formatChannel({ id: params.channelId });
 })
@@ -576,33 +735,57 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+  // Discord: VIEW_CHANNEL + READ_MESSAGE_HISTORY (overwrites apply).
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'read_history');
+  if (!c.ok) { set.status = c.status; return c.body; }
   const limit = Math.min(parseInt(query.limit as string) || 50, 100);
-  const messages = await Message.find({ channelId: params.channelId, _limit: limit });
-  const authorIds = [...new Set(messages.map((m: any) => m.authorId).filter(Boolean))] as string[];
-  const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
-  const authorMap = new Map(authors.map((u: any) => [u.id, u]));
-  return messages.map((m: any) => formatMessage({ ...m, authorId: authorMap.get(m.authorId) || m.authorId }));
+  const messages = await Message.find({ channelId: params.channelId, isDeleted: false, _limit: limit });
+  return presentMessages(messages as IMessage[], viewerOf(auth));
 })
 .get('/channels/:channelId/messages/:messageId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'read_history');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
   const author = msg.authorId ? await User.findById(msg.authorId) : null;
-  return formatMessage({ ...msg, authorId: author || msg.authorId });
+  return presentMessage(msg, author || msg.authorId, viewerOf(auth));
 })
-.post('/channels/:channelId/messages', async ({ headers, params, body, set }) => {
+.post('/channels/:channelId/messages', async ({ headers, params, body, request, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  const channel = await Channel.findById(params.channelId);
-  if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+  // SEND_MESSAGES (SEND_MESSAGES_IN_THREADS in threads) after overwrites; a
+  // timed-out bot can't send. DMs: only a DM the bot is in.
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'send');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  const channel = c.channel;
 
-  const { content, embeds, tts, attachments, allowed_mentions, sticker_ids, components, flags, poll: pollRequest } = body as { content?: string; embeds?: unknown[]; tts?: boolean; attachments?: unknown[]; allowed_mentions?: unknown; sticker_ids?: unknown[]; components?: unknown[]; flags?: number; poll?: unknown };
+  // JSON, or Discord multipart: files[n] + payload_json (attachments[] = per-file metadata).
+  const parsedBody = parseBotMessageBody(body);
+  if (!parsedBody.ok) { set.status = 400; return { code: parsedBody.code, message: parsedBody.error }; }
+  const { content, embeds, tts, attachments: rawAttachments, allowed_mentions, sticker_ids, components, flags, poll: pollRequest } = parsedBody.payload as { content?: string; embeds?: unknown[]; tts?: boolean; attachments?: unknown; allowed_mentions?: unknown; sticker_ids?: unknown[]; components?: unknown[]; flags?: number; poll?: unknown };
+  void tts; void allowed_mentions; void components;
+  if (content !== undefined && content !== null && typeof content !== 'string') { set.status = 400; return { code: 50035, message: 'Invalid Form Body: content must be a string' }; }
+  let attachments: IncomingAttachment[] = [];
+  let attachmentPlan: Map<number, AttachmentMeta> = new Map();
+  if (parsedBody.files.length > 0) {
+    const plan = planAttachments({ payloadAttachments: rawAttachments, fileIndexes: parsedBody.files.map((f) => f.index), mode: 'create' });
+    if (!plan.ok) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${plan.error}` }; }
+    attachmentPlan = plan.meta;
+  } else {
+    // JSON attachments must be real uploads owned by this bot (same CDN
+    // ownership rule as users); arbitrary URLs would render as native file cards.
+    const normalized = normalizeBotAttachments(rawAttachments, { cdnUrl: config.CDN_URL, botId: auth.botUser.id });
+    if ('error' in normalized) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${normalized.error}` }; }
+    attachments = normalized.attachments;
+  }
+  const attachmentCount = parsedBody.files.length + attachments.length;
+  if (attachmentCount > 0 && !botCan(c.perms, 'attach', { isThread: isThreadChannel(channel) })) {
+    set.status = 403; return MISSING_PERMISSIONS;
+  }
   // Discord-style polls: `poll` { question: { text }, answers: [{ poll_media }], duration, allow_multiselect }.
   let poll: StoredPoll | null = null;
   if (pollRequest !== undefined && pollRequest !== null) {
@@ -611,8 +794,20 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     if ('error' in parsed) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${parsed.error}` }; }
     poll = parsed.poll;
   }
-  if (!content && !embeds?.length && !attachments?.length && !sticker_ids?.length && !poll) {
+  if (!content && !embeds?.length && !attachmentCount && !sticker_ids?.length && !poll) {
     set.status = 400; return { code: 50006, message: 'Cannot send an empty message' };
+  }
+  if (parsedBody.files.length > 0) {
+    const uploaded = await uploadBotFiles({
+      files: parsedBody.files,
+      meta: attachmentPlan,
+      botId: auth.botUser.id,
+      channelId: params.channelId,
+      ip: getClientIP(request),
+      isPremium: Boolean(auth.botUser.isPremium),
+    });
+    if (!uploaded.ok) { set.status = uploaded.status; return uploaded.body; }
+    attachments = uploaded.attachments;
   }
 
   const { extractUserMentionIds, signalChannelMessage, signalDmMessage } = await import('@/lib/services/messageSignals');
@@ -624,10 +819,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     requestedFlags: flags,
     content,
     hasSticker: Boolean(sticker_ids?.length),
-    attachments: ((attachments ?? []) as Array<Record<string, unknown>>).map((a) => {
-      const att = fromDiscordVoiceAttachment(a ?? {});
-      return { ...att, contentType: typeof att.contentType === 'string' ? att.contentType : '' };
-    }),
+    attachments,
   });
   if ('error' in voice) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${voice.error}` }; }
   const msgFlags = sendFlags(flags, false) | voice.flag;
@@ -638,7 +830,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     authorId: auth.botUser.id,
     content: content || '',
     embeds: embeds ?? [],
-    attachments: voice.flag ? voice.attachments : (attachments ?? []),
+    attachments: voice.flag ? voice.attachments : attachments,
     type: 'default',
     pinned: false,
     edited: false,
@@ -656,7 +848,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
   const populated = await Message.findById(msg.id);
   const author = populated?.authorId ? await User.findById(populated.authorId) : null;
-  const formattedMsg = populated ? formatMessage({ ...populated, authorId: author || populated.authorId }) : null;
+  const formattedMsg = populated ? await presentMessage(populated, author || populated.authorId, viewerOf(auth)) : null;
 
   // Deliver to the web client SSE streams and the bot gateway.
   // The SSE client expects internal format (createdAt, authorId, channelId)
@@ -705,7 +897,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       authorName: botName,
       authorAvatar: author?.avatar ?? null,
       content: content || '',
-      hasAttachments: Boolean(attachments?.length),
+      hasAttachments: attachments.length > 0,
       createdAt: msg.createdAt,
       silent,
     });
@@ -722,9 +914,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       silent,
     });
   }
-  try {
-    const { emitMessageCreate } = await import('@/lib/services/gatewayEvents');
-    await emitMessageCreate({
+  // Gateway fan-out is fire-and-forget (it resolves which bots may see the channel).
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitMessageCreate }) => emitMessageCreate({
       id: msg.id,
       content: msg.content ?? '',
       channelId: params.channelId,
@@ -739,49 +931,80 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
         isSystem: author.isSystem ?? undefined,
       } : null,
       attachments: (msg.attachments ?? []) as Array<Record<string, unknown>>,
+      mentionedUserIds,
       ...(poll ? { poll } : {}),
-    });
-  } catch {}
+    }))
+    .catch(() => {});
 
   return formattedMsg;
 })
-.patch('/channels/:channelId/messages/:messageId', async ({ headers, params, body, set }) => {
+.patch('/channels/:channelId/messages/:messageId', async ({ headers, params, body, request, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
 
   // Only the author can edit
   if (!compareIds(msg.authorId, auth.botUser.id)) {
-    set.status = 403; return { code: 50003, message: 'Cannot edit a message authored by another user' };
+    set.status = 403; return { code: 50005, message: 'Cannot edit a message authored by another user' };
   }
 
-  const { content, embeds } = body as { content?: string; embeds?: unknown[] };
+  const parsedBody = parseBotMessageBody(body);
+  if (!parsedBody.ok) { set.status = 400; return { code: parsedBody.code, message: parsedBody.error }; }
+  const { content, embeds, attachments: rawAttachments } = parsedBody.payload as { content?: string; embeds?: unknown[]; attachments?: unknown };
+  if (content !== undefined && content !== null && typeof content !== 'string') { set.status = 400; return { code: 50035, message: 'Invalid Form Body: content must be a string' }; }
   const updates: Record<string, unknown> = { edited: true };
   if (content !== undefined) updates.content = content;
   if (embeds !== undefined) updates.embeds = embeds;
+  // Attachments on edit (Discord): `attachments` lists the ones to keep (by id)
+  // plus metadata for new files[n]; new files are appended.
+  if (parsedBody.files.length > 0 || rawAttachments !== undefined) {
+    const existing = ((msg.attachments ?? []) as IncomingAttachment[]);
+    const plan = planAttachments({
+      payloadAttachments: rawAttachments,
+      fileIndexes: parsedBody.files.map((f) => f.index),
+      existingIds: existing.map((a) => String(a.id)),
+      mode: 'edit',
+    });
+    if (!plan.ok) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${plan.error}` }; }
+    const kept = plan.keepExistingIds === null ? existing : existing.filter((a) => plan.keepExistingIds!.includes(String(a.id)));
+    let added: IncomingAttachment[] = [];
+    if (parsedBody.files.length > 0) {
+      const c = await requireChannelAction(params.channelId, auth.botUser.id, 'attach');
+      if (!c.ok) { set.status = c.status; return c.body; }
+      if (kept.length + parsedBody.files.length > MAX_BOT_FILES) {
+        set.status = 400; return { code: 50035, message: `Invalid Form Body: at most ${MAX_BOT_FILES} attachments per message` };
+      }
+      const uploaded = await uploadBotFiles({
+        files: parsedBody.files,
+        meta: plan.meta,
+        botId: auth.botUser.id,
+        channelId: params.channelId,
+        ip: getClientIP(request),
+        isPremium: Boolean(auth.botUser.isPremium),
+      });
+      if (!uploaded.ok) { set.status = uploaded.status; return uploaded.body; }
+      added = uploaded.attachments;
+    }
+    updates.attachments = [...kept, ...added];
+  }
   const updated = await Message.updateById(params.messageId, updates);
   const author = updated?.authorId ? await User.findById(updated.authorId) : null;
-  return formatMessage({ ...(updated || msg), authorId: author || (updated || msg).authorId });
+  return presentMessage(updated || msg, author || (updated || msg).authorId, viewerOf(auth));
 })
 .delete('/channels/:channelId/messages/:messageId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
 
-  // Author or manage messages permission
-  const isAuthor = compareIds(msg.authorId, auth.botUser.id);
-  if (!isAuthor) {
-    const channel = await Channel.findById(params.channelId);
-    const perms = await getBotServerPermissions(channel?.serverId, auth.botUser.id);
-    if (!botHasPermission(perms, BOT_PERM_MANAGE_MESSAGES)) {
-      set.status = 403; return { code: 50013, message: 'Missing Permissions' };
-    }
+  // Own messages always; anyone else's needs MANAGE_MESSAGES in this channel
+  // (overwrites apply; never in DMs).
+  if (!compareIds(msg.authorId, auth.botUser.id)) {
+    const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_messages');
+    if (!c.ok) { set.status = c.status; return c.body; }
   }
 
   await Message.deleteById(params.messageId);
@@ -797,15 +1020,12 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     set.status = 400; return { code: 50016, message: 'Invalid number of messages (2-100)' };
   }
 
-  // Bulk delete always requires MANAGE_MESSAGES.
-  const bulkChannel = await Channel.findById(params.channelId);
-  const bulkPerms = await getBotServerPermissions(bulkChannel?.serverId, auth.botUser.id);
-  if (!botHasPermission(bulkPerms, BOT_PERM_MANAGE_MESSAGES)) {
-    set.status = 403; return { code: 50013, message: 'Missing Permissions' };
-  }
+  // Bulk delete always requires MANAGE_MESSAGES in this channel.
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_messages');
+  if (!c.ok) { set.status = c.status; return c.body; }
 
   // Only messages that are actually in this channel.
-  const found = await Message.find({ id: { in: messages.filter((id) => isValidObjectId(id)) } });
+  const found = await Message.find({ id: { in: messages.filter((id) => typeof id === 'string' && isValidObjectId(id)) } });
   const deletable = found
     .filter((m: { channelId: string }) => compareIds(m.channelId, params.channelId))
     .map((m: { id: string }) => m.id);
@@ -820,31 +1040,26 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'read_history');
+  if (!c.ok) { set.status = c.status; return c.body; }
   const pinned = await Message.find({ channelId: params.channelId, pinned: true, isDeleted: false });
-  const formatted = await Promise.all((pinned as IMessage[]).map(async (msg) => {
-    const author = msg.authorId ? await User.findById(msg.authorId) : null;
-    return formatMessage({ ...msg, authorId: author || msg.authorId });
-  }));
-  return formatted;
+  return presentMessages(pinned as IMessage[], viewerOf(auth));
 })
 .put('/channels/:channelId/pins/:messageId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg || msg.channelId !== params.channelId) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-
-  const channel = await Channel.findById(params.channelId);
-  const perms = await getBotServerPermissions(channel?.serverId, auth.botUser.id);
-  if (!botHasPermission(perms, BOT_PERM_PIN_MESSAGES) && !botHasPermission(perms, BOT_PERM_MANAGE_MESSAGES)) {
-    set.status = 403; return { code: 50013, message: 'Missing Permissions' };
-  }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'pin');
+  if (!c.ok) { set.status = c.status; return c.body; }
 
   await Message.updateById(params.messageId, { pinned: true });
   try {
-    const { publishToChannel } = await import('@/lib/api/channels');
-    publishToChannel(params.channelId, { type: 'pin_update', messageId: params.messageId, pinned: true, updatedBy: auth.botUser.id });
+    const publish = c.channel.serverId
+      ? (await import('@/lib/api/channels')).publishToChannel
+      : (await import('@/lib/api/dms')).publishToDm;
+    publish(params.channelId, { type: 'pin_update', messageId: params.messageId, pinned: true, updatedBy: auth.botUser.id });
   } catch {}
   set.status = 204;
   return '';
@@ -853,20 +1068,17 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg || msg.channelId !== params.channelId) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-
-  const channel = await Channel.findById(params.channelId);
-  const perms = await getBotServerPermissions(channel?.serverId, auth.botUser.id);
-  if (!botHasPermission(perms, BOT_PERM_PIN_MESSAGES) && !botHasPermission(perms, BOT_PERM_MANAGE_MESSAGES)) {
-    set.status = 403; return { code: 50013, message: 'Missing Permissions' };
-  }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'pin');
+  if (!c.ok) { set.status = c.status; return c.body; }
 
   await Message.updateById(params.messageId, { pinned: false });
   try {
-    const { publishToChannel } = await import('@/lib/api/channels');
-    publishToChannel(params.channelId, { type: 'pin_update', messageId: params.messageId, pinned: false, updatedBy: auth.botUser.id });
+    const publish = c.channel.serverId
+      ? (await import('@/lib/api/channels')).publishToChannel
+      : (await import('@/lib/api/dms')).publishToDm;
+    publish(params.channelId, { type: 'pin_update', messageId: params.messageId, pinned: false, updatedBy: auth.botUser.id });
   } catch {}
   set.status = 204;
   return '';
@@ -877,12 +1089,16 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
 
   const emojiKey = params.emoji;
   const matchKey = (r: StoredReaction) => r.emoji?.name === emojiKey || r.emoji?.id === emojiKey;
+  // Joining an existing reaction needs VIEW_CHANNEL + READ_MESSAGE_HISTORY;
+  // adding a new emoji also needs ADD_REACTIONS (Discord).
+  const exists = ((msg.reactions as StoredReaction[] | null) ?? []).some(matchKey);
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, exists ? 'react_existing' : 'react_new');
+  if (!c.ok) { set.status = c.status; return c.body; }
   // Row-locked so concurrent reactions can't overwrite each other.
   await Message.mutateReactions<StoredReaction>(params.messageId, (current) =>
     addReaction(current, matchKey, { name: emojiKey }, auth.botUser.id).reactions,
@@ -894,9 +1110,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'react_existing');
+  if (!c.ok) { set.status = c.status; return c.body; }
 
   const emojiKey = params.emoji;
   const matchKey = (r: StoredReaction) => r.emoji?.name === emojiKey || r.emoji?.id === emojiKey;
@@ -911,14 +1128,18 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
+  // Removing someone else's reaction needs MANAGE_MESSAGES in this channel
+  // (never in DMs); the bot's own id behaves like @me.
+  const own = compareIds(params.userId, auth.botUser.id);
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, own ? 'react_existing' : 'manage_messages');
+  if (!c.ok) { set.status = c.status; return c.body; }
 
   const emojiKey = params.emoji;
   const matchKey = (r: StoredReaction) => r.emoji?.name === emojiKey || r.emoji?.id === emojiKey;
   await Message.mutateReactions<StoredReaction>(params.messageId, (current) => {
-    const result = removeReaction(current, matchKey, params.userId);
+    const result = removeReaction(current, matchKey, own ? auth.botUser.id : params.userId);
     return result.changed ? result.reactions : null;
   });
   set.status = 204;
@@ -928,9 +1149,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  const msg = await Message.findById(params.messageId);
-  if (!msg) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'read_history');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
 
   const emojiKey = params.emoji;
   const reaction = ((msg.reactions as Array<{ emoji: { name: string; id?: string }; count: number; userIds: string[] }> | undefined) || []).find((r: { emoji: { name: string; id?: string }; count: number; userIds: string[] }) => r.emoji.name === emojiKey || r.emoji.id === emojiKey);
@@ -945,8 +1167,12 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.messageId)) { set.status = 404; return { code: 10008, message: 'Unknown Message' }; }
-  await Message.updateById(params.messageId, { reactions: [] });
+  const msg = await loadChannelMessage(params.channelId, params.messageId);
+  if (!msg) { set.status = 404; return UNKNOWN_MESSAGE; }
+  // Wiping every reaction needs MANAGE_MESSAGES in this channel (Discord).
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_messages');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  await Message.mutateReactions<StoredReaction>(params.messageId, (current) => (current.length ? [] : null));
   set.status = 204;
   return '';
 })
@@ -955,6 +1181,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 .post('/channels/:channelId/typing', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'typing');
+  if (!c.ok) { set.status = c.status; return c.body; }
   set.status = 204;
   return '';
 })
@@ -1096,10 +1324,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  const channel = await Channel.findById(params.channelId);
-  if (!channel || !channel.serverId || !compareIds(channel.serverId, params.guildId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MANAGE_CHANNELS);
-  if (!g.ok) { set.status = g.status; return g.body; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_channel');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  const channel = c.channel;
+  if (!channel.serverId || !compareIds(channel.serverId, params.guildId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
 
   const patch = body as Record<string, unknown>;
   const updates: Record<string, unknown> = {};
@@ -1125,10 +1353,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  const channel = isValidObjectId(params.channelId) ? await Channel.findById(params.channelId) : null;
-  if (!channel || !channel.serverId || !compareIds(channel.serverId, params.guildId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MANAGE_CHANNELS);
-  if (!g.ok) { set.status = g.status; return g.body; }
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_channel');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  if (!c.channel.serverId || !compareIds(c.channel.serverId, params.guildId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
   await Channel.deleteById(params.channelId);
   set.status = 204;
   return '';
@@ -1349,6 +1576,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
+  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.BAN_MEMBERS);
+  if (!g.ok) { set.status = g.status; return g.body; }
+  if (!isValidObjectId(params.userId)) { set.status = 404; return { code: 10026, message: 'Unknown Ban' }; }
   const ban = await ServerBan.findOne({ serverId: params.guildId, userId: params.userId });
   if (!ban) { set.status = 404; return { code: 10026, message: 'Unknown Ban' }; }
   return { reason: ban.reason ?? null, user: { id: ban.userId } };
@@ -1483,7 +1713,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
   if (!isValidObjectId(params.stickerId)) { set.status = 404; return { code: 10011, message: 'Unknown Sticker' }; }
   const sticker = await ServerSticker.findById(params.stickerId);
-  if (!sticker) { set.status = 404; return { code: 10011, message: 'Unknown Sticker' }; }
+  // Only stickers of this guild (the guard checked membership of :guildId, not of the sticker's guild).
+  if (!sticker || !compareIds(sticker.serverId, params.guildId)) { set.status = 404; return { code: 10060, message: 'Unknown Sticker' }; }
   return {
     id: sticker.id,
     name: sticker.name,
@@ -1521,12 +1752,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  const channel = await Channel.findById(params.channelId);
-  if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+  // MANAGE_WEBHOOKS in this channel (overwrites apply); never in DMs.
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_webhooks');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  const channel = c.channel;
   if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
-  const g = await requireBotPerm(channel.serverId, auth.botUser.id, P.MANAGE_WEBHOOKS);
-  if (!g.ok) { set.status = g.status; return g.body; }
   const webhooks = await ChannelWebhook.find({ channelId: params.channelId });
   return webhooks.map((w: any) => ({
     id: w.id,
@@ -1543,12 +1773,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  if (!isValidObjectId(params.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  const channel = await Channel.findById(params.channelId);
-  if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
+  // MANAGE_WEBHOOKS in this channel (overwrites apply); never in DMs.
+  const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_webhooks');
+  if (!c.ok) { set.status = c.status; return c.body; }
+  const channel = c.channel;
   if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
-  const g = await requireBotPerm(channel.serverId, auth.botUser.id, P.MANAGE_WEBHOOKS);
-  if (!g.ok) { set.status = g.status; return g.body; }
 
   const { name, avatar } = body as { name?: string; avatar?: string };
   if (!name) { set.status = 400; return { code: 50035, message: 'Name is required' }; }
@@ -1667,13 +1896,12 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  const allChannels = await Channel.find({});
-  const dmChannels = allChannels.filter((c: IChannel) =>
-    (c.type === 'dm' || c.type === 'group_dm') &&
-    Array.isArray(c.recipientIds) &&
-    c.recipientIds.includes(auth.botUser.id)
-  );
-  return dmChannels.map(formatChannel);
+  // Filtered in SQL (type + recipient array containment); both keys are in the
+  // Channel.find whitelist, so the filter can't be silently dropped.
+  const dmChannels = await Channel.find({ type: { in: ['dm', 'group_dm'] }, recipientId: auth.botUser.id });
+  return dmChannels
+    .filter((c: IChannel) => ((c.recipientIds || []) as string[]).some((r) => compareIds(r, auth.botUser.id)))
+    .map(formatChannel);
 })
 .post('/users/@me/channels', async ({ headers, body, set }) => {
   const auth = await authenticateBot(headers);
@@ -1684,14 +1912,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     set.status = 400; return { code: 50035, message: 'Invalid recipient_id' };
   }
 
-  // Check if DM channel already exists
-  const allChannels = await Channel.find({});
-  let dm = allChannels.find((c: IChannel) =>
-    c.type === 'dm' &&
-    Array.isArray(c.recipientIds) &&
-    c.recipientIds.includes(auth.botUser.id) &&
-    c.recipientIds.includes(recipient_id)
-  );
+  // Existing 1:1 DM between the two (type + recipientIds are whitelisted filter keys).
+  let dm: IChannel | null = await Channel.findOne({ type: 'dm', recipientIds: [auth.botUser.id, recipient_id] });
+  if (dm && !((dm.recipientIds || []) as string[]).some((r) => compareIds(r, recipient_id))) dm = null;
 
   if (!dm) {
     // A bot may only open a DM with someone who shares a server with it, has

@@ -17,6 +17,8 @@ export interface IncomingAttachment {
   width?: number;
   height?: number;
   spoiler?: boolean;
+  /** Alt text (bot API `attachments[].description`). */
+  description?: string;
   /** Voice messages only (see lib/chat/voiceMessage). */
   durationSecs?: number;
   waveform?: string;
@@ -78,4 +80,47 @@ export function validateMessageAttachments(
     }
   }
   return null;
+}
+
+/**
+ * Bot API (`POST /api/v10/channels/:id/messages`): turn Discord-shaped
+ * `attachments` (`{ url, filename, content_type, size, ... }`) into stored
+ * attachments, accepting only files the bot itself uploaded to our CDN — the
+ * same ownership rule users get. A bot can no longer make an arbitrary URL
+ * render as a native file card; external media belongs in an embed.
+ */
+export function normalizeBotAttachments(
+  raw: unknown,
+  opts: { cdnUrl: string; botId: string },
+): { attachments: IncomingAttachment[] } | { error: string } {
+  if (raw === undefined || raw === null) return { attachments: [] };
+  if (!Array.isArray(raw)) return { error: 'attachments must be an array' };
+  const attachments: IncomingAttachment[] = raw.map((item, i) => {
+    const a = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+    const num = (v: unknown) => (typeof v === 'number' && Number.isFinite(v) ? v : undefined);
+    const str = (v: unknown) => (typeof v === 'string' ? v : undefined);
+    const durationSecs = num(a.durationSecs) ?? num(a.duration_secs);
+    const waveform = str(a.waveform);
+    return {
+      id: str(a.id) ?? String(i),
+      filename: str(a.filename) ?? '',
+      contentType: str(a.contentType) ?? str(a.content_type) ?? '',
+      url: str(a.url) as string,
+      ...(num(a.size) !== undefined ? { size: num(a.size) } : {}),
+      ...(num(a.width) !== undefined ? { width: num(a.width) } : {}),
+      ...(num(a.height) !== undefined ? { height: num(a.height) } : {}),
+      ...(a.spoiler === true ? { spoiler: true } : {}),
+      ...(durationSecs !== undefined ? { durationSecs } : {}),
+      ...(waveform !== undefined ? { waveform } : {}),
+    };
+  });
+  const error = validateMessageAttachments(attachments, { cdnUrl: opts.cdnUrl, userId: opts.botId });
+  if (error) {
+    return {
+      error: error === 'Attachments must be uploaded to SerikaCord first'
+        ? 'attachments must be files this bot uploaded to SerikaCord; link external media with an embed instead'
+        : error,
+    };
+  }
+  return { attachments };
 }

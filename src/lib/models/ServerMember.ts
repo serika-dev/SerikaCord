@@ -1,4 +1,4 @@
-import { eq, and, type SQL } from 'drizzle-orm';
+import { eq, and, gt, asc, type SQL } from 'drizzle-orm';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
@@ -45,6 +45,28 @@ export const ServerMember = {
       query = query.where(and(...conditions)) as typeof query;
     }
     return query;
+  },
+
+  /** User ids of the bot accounts that are members of a server (one indexed query, no full member scan). */
+  async findBotUserIds(serverId: string): Promise<string[]> {
+    const rows = await db
+      .select({ userId: schema.serverMembers.userId })
+      .from(schema.serverMembers)
+      .innerJoin(schema.users, eq(schema.users.id, schema.serverMembers.userId))
+      .where(and(eq(schema.serverMembers.serverId, normalizeId(serverId)), eq(schema.users.isBot, true)));
+    return rows.map((r) => r.userId);
+  },
+
+  /** One page of a server's members ordered by user id (Discord's `after` + `limit`). */
+  async listPage(serverId: string, opts: { limit: number; afterUserId?: string | null }) {
+    const conditions: SQL[] = [eq(schema.serverMembers.serverId, normalizeId(serverId))];
+    if (opts.afterUserId) conditions.push(gt(schema.serverMembers.userId, normalizeId(opts.afterUserId)));
+    return db
+      .select()
+      .from(schema.serverMembers)
+      .where(and(...conditions))
+      .orderBy(asc(schema.serverMembers.userId))
+      .limit(Math.max(1, Math.min(1000, Math.floor(opts.limit) || 1)));
   },
 
   async create(data: typeof schema.serverMembers.$inferInsert) {

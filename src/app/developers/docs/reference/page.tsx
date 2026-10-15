@@ -46,8 +46,9 @@ export default async function ReferenceDoc() {
 
       <H2 id="request-format">{gt("Request Format")}</H2>
       <P>
-        {gt("All request bodies use")}{" "}<InlineCode>application/json</InlineCode> {gt("unless otherwise noted. File uploads (emoji creation, sticker creation, message attachments) use")}{" "}
-        <InlineCode>multipart/form-data</InlineCode>.
+        {gt("All request bodies use")}{" "}<InlineCode>application/json</InlineCode>{". "}{gt("Creating or editing a message with files uses")}{" "}
+        <InlineCode>multipart/form-data</InlineCode>{" "}{gt("(files[n] plus payload_json). Emoji images are sent in JSON as a base64 data URI.")}{" "}
+        <Link2 href="/developers/docs/topics/message-formatting#attachments">{gt("Attachments")}</Link2>
       </P>
 
       <H2 id="response-format">{gt("Response Format")}</H2>
@@ -156,8 +157,8 @@ export default async function ReferenceDoc() {
 
       <H2 id="discord-compat">{gt("Discord Compatibility")}</H2>
       <Callout type="info" title={gt("Discord API Compatibility")}>
-        {gt("SerikaCord implements the Discord v10 bot API. The official")}{" "}<InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively, or existing")}{" "}<InlineCode>discord.js</InlineCode> /{" "}
-        <InlineCode>discord.py</InlineCode> {gt("bots run with a one-line base-URL change. Response shapes for users, channels, messages, guilds, roles, members, and invites are formatted to match Discord's JSON structure exactly.")}
+        {gt("SerikaCord implements part of the Discord v10 bot API. The official")}{" "}<InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively.")}{" "}
+        {gt("Discord libraries are not drop-in yet: ids are UUIDs rather than numeric snowflakes, so discord.py and other libraries that parse ids as integers cannot connect, and discord.js only partly works.")}
       </Callout>
       <P>
         {gt("The following Discord features are")}{" "}<Strong>{gt("implemented")}</Strong> {gt("in the SerikaCord bot API:")}

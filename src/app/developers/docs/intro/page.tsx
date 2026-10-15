@@ -23,10 +23,10 @@ export default async function IntroDoc() {
   return (
     <DocPage
       title={gt("SerikaCord Developer Docs")}
-      description={gt("Build bots, apps, and integrations on SerikaCord — a 1:1-compatible mirror of the Discord API. If you can build a Discord bot, you can build a SerikaCord bot.")}
+      description={gt("Build bots, apps, and integrations on SerikaCord, whose bot API follows Discord v10. If you have built a Discord bot, most concepts carry over.")}
     >
       <Callout type="info" title={gt("Discord API Compatibility")}>
-        {gt("SerikaCord speaks the same REST routes, gateway opcodes, OAuth2 flows, and data structures as Discord. The official")} <InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively, or existing")} <InlineCode>discord.js</InlineCode> / <InlineCode>discord.py</InlineCode> {gt("bots run with a one-line base-URL change.")}
+        {gt("SerikaCord follows Discord v10 for REST routes, gateway opcodes, OAuth2 flows and data structures, for the parts it implements. The official")} <InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively.")} {gt("Discord libraries are not drop-in yet: ids are UUIDs rather than numeric snowflakes, so discord.py and other libraries that parse ids as integers cannot connect, and discord.js only partly works.")}
       </Callout>
 
       <H2 id="start-here">{gt("Start here")}</H2>
@@ -38,7 +38,7 @@ export default async function IntroDoc() {
           {gt("What a bot is on SerikaCord, how it authenticates, and how it receives events.")}
         </Card>
         <Card href="/developers/docs/quick-start" title={gt("Quick Start")} icon={<TerminalSquare className="size-4" />}>
-          {gt("Drop-in code for serika.js, discord.py, and raw HTTP.")}
+          {gt("Copy-paste code for serika.js, Python and raw HTTP.")}
         </Card>
         <Card href="/developers/docs/reference" title={gt("API Reference")} icon={<Cable className="size-4" />}>
           {gt("Every REST endpoint, versioned like Discord under")} <InlineCode>/v10</InlineCode>.

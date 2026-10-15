@@ -5,7 +5,6 @@
 // logged and never fails the action that triggered it.
 import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
-import { getPublisher } from '@/lib/db';
 import { normalizeId } from '@/lib/db/normalizeId';
 import {
   legacyAdminLogToAudit,
@@ -98,21 +97,11 @@ export async function recordAudit(input: AuditRecordInput): Promise<AuditEntrySh
     }).returning();
     if (!row) return null;
     const entry = rowToEntry(row);
-    // Bots with GUILD_MODERATION hear about it (Discord sends this only to
-    // bots with VIEW_AUDIT_LOG; the gateway filters by intent).
-    try {
-      const pub = getPublisher();
-      if (pub) {
-        await pub.publish('gateway:dispatch', JSON.stringify({
-          t: 'GUILD_AUDIT_LOG_ENTRY_CREATE',
-          guildId: serverId,
-          intent: 1 << 2,
-          d: { guild_id: serverId, ...toDiscordEntry(entry) },
-        }));
-      }
-    } catch {
-      /* best-effort */
-    }
+    // Bots with the GUILD_MODERATION intent AND VIEW_AUDIT_LOG hear about it,
+    // like Discord (the same permission GET /audit-logs requires).
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitAuditLogEntryCreate }) => emitAuditLogEntryCreate(serverId, toDiscordEntry(entry) as Record<string, unknown>))
+      .catch(() => { /* best-effort */ });
     return entry;
   } catch (err) {
     console.error('[audit] Failed to record audit log entry:', (err as Error)?.message ?? err);

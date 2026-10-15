@@ -96,7 +96,7 @@ export default async function WebhooksDoc() {
         ["tts", gt("No"), gt("If true, message is sent as text-to-speech")],
         ["allowed_mentions", gt("No"), gt("Control which mentions are parsed")],
         ["components", gt("No"), gt("Message components (buttons, select menus)")],
-        ["files", gt("No"), gt("Attachments (multipart/form-data)")],
+        ["files", gt("No"), gt("Not supported yet for webhooks")],
       ]} />
       <P>{gt("Optional query parameters:")}</P>
       <Table headers={[gt("Parameter"), gt("Description")]} rows={[
