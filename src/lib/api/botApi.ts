@@ -892,7 +892,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   const { parseBotUserPatch } = await import('@/lib/botapi/users');
-  const parsed = parseBotUserPatch(body);
+  const { username: rawUsername, avatar: rawAvatar, banner: rawBanner } = (body ?? {}) as Record<string, unknown>;
+  const parsed = parseBotUserPatch({ username: rawUsername, avatar: rawAvatar, banner: rawBanner });
   if (!parsed.ok) { set.status = 400; return invalidFormBodyAt(parsed.errors); }
   const { username, avatar, banner } = parsed.patch;
   const { updateBotProfile } = await import('@/lib/services/botProfile');
@@ -3174,6 +3175,15 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   set.status = 404;
   return UNKNOWN_ENTITLEMENT;
+})
+.get('/users/@me/applications/:appId/entitlements', async ({ headers, params, query, set }) => {
+  // OAuth2 (applications.entitlements): the user's entitlements for the app.
+  const bearer = await requireBearerScope(headers, 'applications.entitlements');
+  if (!bearer.ok) { set.status = bearer.status; return bearer.body; }
+  if (!compareIds(params.appId, bearer.auth.app.id) && params.appId !== bearer.auth.app.clientId) { set.status = 403; return MISSING_ACCESS; }
+  const { sku_ids, exclude_ended } = query as Record<string, string | undefined>;
+  void sku_ids; void exclude_ended;
+  return [];
 })
 .get('/skus/:skuId/subscriptions', async ({ headers, query, set }) => {
   const auth = await authenticateBot(headers);

@@ -8,6 +8,8 @@ export const API = {
   gateway: "wss://api.serika.chat/api/v10/gateway",
   /** OAuth2 authorize endpoint. */
   authorize: "https://api.serika.chat/api/oauth2/authorize",
+  /** Discord-shaped CDN paths (discord.js rest.cdn, discord.py Asset.BASE). */
+  cdn: "https://api.serika.chat/cdn-compat",
 } as const;
 
 export interface DocNavItem {
@@ -28,6 +30,8 @@ export const docNav: DocNavSection[] = [
       { label: "Introduction", slug: "intro" },
       { label: "Getting Started", slug: "getting-started" },
       { label: "Quick Start", slug: "quick-start" },
+      { label: "Differences from Discord", slug: "topics/differences", badge: "NEW" },
+      { label: "Discord Compatibility", slug: "topics/compatibility", badge: "NEW" },
       { label: "MCP Server", slug: "mcp", badge: "NEW" },
       { label: "Reference", slug: "reference" },
     ],

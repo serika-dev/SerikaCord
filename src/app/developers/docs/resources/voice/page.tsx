@@ -1,4 +1,4 @@
-import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Endpoint, Table } from "../../DocPage";
+import { DocPage, P, H2, CodeBlock, Callout, InlineCode, Endpoint } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
 import { getGT } from "gt-next/server";
 
@@ -35,28 +35,19 @@ export default async function VoiceDoc() {
       <Endpoint method="PATCH" path="/guilds/{guild.id}/voice-states/{user.id}">{gt("Update another user's voice state (requires")}{" "}<InlineCode>MUTE_MEMBERS</InlineCode> {gt("/")}{" "}<InlineCode>MOVE_MEMBERS</InlineCode>{")."}</Endpoint>
       <Endpoint method="GET" path="/voice/regions">{gt("List available voice regions.")}</Endpoint>
 
+      <Endpoint method="GET" path="/guilds/{guild.id}/regions">{gt("List the voice regions of a guild.")}</Endpoint>
+      <P>{gt("GET voice-states/@me always answers 10065 (Unknown voice state): bots never join Serika voice. Both PATCH routes answer 50024 for members in voice, because Serika has no stage channels yet.")}</P>
+
       <H2 id="voice-regions">{gt("Voice Regions")}</H2>
-      <CodeBlock lang="json">{`{
-  "id": "us-west",
-  "name": "US West",
-  "optimal": false,
-  "deprecated": false,
-  "custom": false
-}`}</CodeBlock>
+      <P>{gt("Serika voice is a peer-to-peer mesh, so there is a single region:")}</P>
+      <CodeBlock lang="json">{`[{ "id": "serika", "name": "SerikaCord (peer-to-peer)", "optimal": true, "deprecated": false, "custom": false }]`}</CodeBlock>
+
+      <H2 id="events">{gt("Voice state events")}</H2>
+      <P>{gt("With the GUILD_VOICE_STATES intent, bots receive VOICE_STATE_UPDATE when members join, leave, mute, deafen, turn on their camera or share their screen, and when a moderator mutes, deafens or disconnects them. GUILD_CREATE carries voice_states.")}</P>
 
       <H2 id="connecting">{gt("Connecting to Voice")}</H2>
-      <P>{gt("Voice connections require a separate WebSocket connection:")}</P>
-      <UL>
-        <li>{gt("1. Send")}{" "}<InlineCode>VOICE_STATE_UPDATE</InlineCode> {gt("via main Gateway")}</li>
-        <li>{gt("2. Receive")}{" "}<InlineCode>VOICE_STATE_UPDATE</InlineCode> {gt("with session_id and")}{" "}<InlineCode>VOICE_SERVER_UPDATE</InlineCode> {gt("with endpoint + token")}</li>
-        <li>{gt("3. Connect to the voice WebSocket at")}{" "}<InlineCode>wss://VOICE_ENDPOINT/?v=8</InlineCode></li>
-        <li>{gt("4. Identify with server_id, user_id, session_id, and token")}</li>
-        <li>{gt("5. Select a voice protocol and encrypt audio")}</li>
-      </UL>
-
-      <Callout type="warning" title={gt("Voice Complexity")}>
-        {gt("Voice connections are complex and require UDP for audio transport. Use a library like")}{" "}
-        <InlineCode>serika.js/voice</InlineCode> {gt("or")}{" "}<InlineCode>serika.py/voice</InlineCode> {gt("for easier implementation.")}
+      <Callout type="warning" title={gt("Bots can't send or receive audio yet")}>
+        {gt("Discord's voice protocol (voice WebSocket, UDP, Opus) isn't available. When a bot sends op 4 to join a channel, the gateway answers with the bot's voice state and VOICE_SERVER_UPDATE with endpoint null, which libraries treat as no voice server available, so the join stops instead of hanging.")}
       </Callout>
     </DocPage>
   );

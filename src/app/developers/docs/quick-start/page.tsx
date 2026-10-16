@@ -1,13 +1,13 @@
-import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Table } from "../DocPage";
+import { DocPage, P, H2, UL, CodeBlock, Callout, InlineCode, Link2, Table } from "../DocPage";
 import { buildMetadata } from "@/lib/seo";
 import { getGT } from "gt-next/server";
 
 export const metadata = buildMetadata({
   title: "Quick Start",
   description:
-    "Copy-paste quick start guides for SerikaCord bots in Node.js, Python, Go, and raw HTTP. Get running in any language.",
+    "Copy-paste quick start guides for SerikaCord bots with discord.js, discord.py, serika.js, Go and raw HTTP.",
   path: "/developers/docs/quick-start",
-  keywords: ["SerikaCord quick start", "bot tutorial", "serika.js", "API examples"],
+  keywords: ["SerikaCord quick start", "bot tutorial", "serika.js", "discord.js", "discord.py", "API examples"],
 });
 
 export default async function QuickStartDoc() {
@@ -25,6 +25,7 @@ export default async function QuickStartDoc() {
         ["Gateway WebSocket", "wss://api.serika.chat/api/v10/gateway"],
         ["OAuth2 Authorize", "https://api.serika.chat/api/oauth2/authorize"],
         ["OAuth2 Token", "https://api.serika.chat/api/oauth2/token"],
+        ["CDN (Discord paths)", "https://api.serika.chat/cdn-compat"],
         [gt("Auth header"), "Authorization: Bot YOUR_TOKEN"],
       ]} />
 
@@ -57,10 +58,103 @@ gw.onDispatch((event, data) => {
   }
 });`}</CodeBlock>
 
-      <H2 id="python">{gt("Python (REST with requests)")}</H2>
-      <Callout type="warning" title={gt("discord.py does not work yet")}>
-        {gt("discord.py parses every id as an integer and calls GET /oauth2/applications/@me while logging in, so it cannot connect to SerikaCord today. Call the REST API directly instead:")}
+      <H2 id="discordjs">{gt("Node.js (discord.js v14)")}</H2>
+      <P>
+        {gt("discord.js works unmodified. Point its REST client at SerikaCord; the gateway URL comes from GET /gateway/bot, so it follows automatically. The cdn option makes avatar, icon and emoji URLs resolve.")}
+      </P>
+      <CodeBlock lang="bash">npm install discord.js</CodeBlock>
+      <CodeBlock lang="javascript">{`import { Client, Events, GatewayIntentBits } from "discord.js";
+
+const client = new Client({
+  intents: [
+    GatewayIntentBits.Guilds,
+    GatewayIntentBits.GuildMessages,
+    GatewayIntentBits.MessageContent, // privileged: enable it in the Developer Portal
+  ],
+  rest: {
+    api: "https://api.serika.chat/api",        // discord.js adds /v10 itself
+    cdn: "https://api.serika.chat/cdn-compat", // displayAvatarURL(), iconURL(), emoji URLs
+  },
+});
+
+client.once(Events.ClientReady, (c) => {
+  console.log(\`Logged in as \${c.user.tag} in \${c.guilds.cache.size} servers\`);
+});
+
+client.on(Events.MessageCreate, async (message) => {
+  if (message.author.bot) return;
+  if (message.content === "!ping") await message.reply("Pong!");
+});
+
+client.login(process.env.BOT_TOKEN);`}</CodeBlock>
+      <P>{gt("Deploying slash commands with the standalone REST client works the same way:")}</P>
+      <CodeBlock lang="javascript">{`import { REST, Routes } from "discord.js";
+
+const rest = new REST({ api: "https://api.serika.chat/api" }).setToken(process.env.BOT_TOKEN);
+await rest.put(Routes.applicationCommands(process.env.CLIENT_ID), {
+  body: [{ name: "ping", description: "Replies with Pong!" }],
+});`}</CodeBlock>
+
+      <H2 id="python">{gt("Python (discord.py 2.x)")}</H2>
+      <P>
+        {gt("discord.py needs three overrides before the client starts: the REST base, the gateway URL and the CDN base.")}
+      </P>
+      <Callout type="danger" title={gt("Always set DEFAULT_GATEWAY")}>
+        {gt("An unsharded discord.py client never asks SerikaCord for the gateway URL. Without the DiscordWebSocket.DEFAULT_GATEWAY line it connects to Discord's own gateway and sends your SerikaCord bot token there.")}
       </Callout>
+      <CodeBlock lang="bash">{`pip install -U "discord.py>=2.4,<3"`}</CodeBlock>
+      <CodeBlock lang="python">{`import os
+
+import discord
+import yarl
+from discord.asset import Asset
+from discord.gateway import DiscordWebSocket
+from discord.http import Route
+
+# 1. REST API
+Route.BASE = "https://api.serika.chat/api/v10"
+# 2. Gateway (required, see the warning above)
+DiscordWebSocket.DEFAULT_GATEWAY = yarl.URL("wss://api.serika.chat/api/v10/gateway")
+# 3. CDN: avatar / icon / emoji URLs
+Asset.BASE = "https://api.serika.chat/cdn-compat"
+
+intents = discord.Intents.default()
+intents.message_content = True  # privileged: enable it in the Developer Portal
+
+client = discord.Client(intents=intents)
+
+
+@client.event
+async def on_ready():
+    print(f"Logged in as {client.user} in {len(client.guilds)} servers")
+
+
+@client.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+    if message.content == "!ping":
+        await message.reply("Pong!")
+
+
+client.run(os.environ["BOT_TOKEN"])`}</CodeBlock>
+      <P>
+        {gt("The same three lines work with commands.Bot and app_commands. Put them at the top of your entry file, before any client is created.")}
+      </P>
+
+      <H2 id="other-libraries">{gt("Other libraries (not tested yet)")}</H2>
+      <P>{gt("These libraries parse ids as 64-bit integers, which works for applications that use Discord-style ids (the default for new applications). We have not run them against SerikaCord yet.")}</P>
+      <Table headers={[gt("Library"), gt("REST base"), gt("Gateway"), gt("CDN")]} rows={[
+        ["JDA (Java)", "JDABuilder.setRestConfig(new RestConfig().setBaseUrl(\"https://api.serika.chat/api/v10/\"))", gt("From GET /gateway/bot"), gt("No override: image URLs point at Discord")],
+        ["Serenity (Rust)", "HttpBuilder::new(token).proxy(\"https://api.serika.chat\")", gt("From GET /gateway/bot"), gt("No override")],
+        ["DSharpPlus (C#)", gt("No documented base-URL option found; a reverse proxy in front of the HTTP client is the fallback"), gt("From GET /gateway/bot"), gt("No override")],
+      ]} />
+      <Callout type="info" title={gt("Differences from Discord")}>
+        {gt("Voice media, monetization and a few other areas behave differently. See")}{" "}<Link2 href="/developers/docs/topics/differences">{gt("Differences from Discord")}</Link2> {gt("and the")}{" "}<Link2 href="/developers/docs/topics/compatibility">{gt("compatibility table")}</Link2>.
+      </Callout>
+
+      <H2 id="python-requests">{gt("Python (plain HTTP)")}</H2>
+      <P>{gt("No library needed for simple scripts:")}</P>
       <CodeBlock lang="bash">pip install requests</CodeBlock>
       <CodeBlock lang="python">{`import os
 
@@ -157,6 +251,9 @@ ws.on("close", (code, reason) => {
 });`}</CodeBlock>
 
       <H2 id="go">{gt("Go (discordgo)")}</H2>
+      <Callout type="warning" title={gt("Not tested yet")}>
+        {gt("discordgo builds most endpoint URLs when it loads, so changing the base later may not reach every route. Check the requests your bot sends before relying on it.")}
+      </Callout>
       <P>
         {gt("Using")}{" "}<InlineCode>discordgo</InlineCode> {gt("with SerikaCord:")}
       </P>

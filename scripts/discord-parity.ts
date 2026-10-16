@@ -18,6 +18,7 @@
  *   bun scripts/discord-parity.ts --refresh    re-download the spec + docs from GitHub and rebuild that cache
  *   bun scripts/discord-parity.ts --stdout     print the summary, write nothing
  *   bun scripts/discord-parity.ts --check      exit 1 if any coverage number dropped below the committed JSON
+ *   bun scripts/discord-parity.ts --compat-module   rewrite src/lib/constants/discordCompat.generated.ts from the committed JSON
  *   PARITY_DUMP=/tmp/x.json bun scripts/discord-parity.ts --stdout   also dump the full JSON somewhere else
  *
  * Nothing here touches a database, Redis or the network (except --refresh,
@@ -49,6 +50,8 @@ const ROOT = join(import.meta.dir, '..');
 const CACHE = join(ROOT, 'scripts/discord-spec/discord-api.json');
 const OUT_JSON = join(ROOT, 'docs/architecture/discord-parity.json');
 const OUT_MD = join(ROOT, 'docs/architecture/discord-parity.md');
+/** Compact copy for the developer docs' compatibility page (no runtime FS reads). */
+const OUT_COMPAT = join(ROOT, 'src/lib/constants/discordCompat.generated.ts');
 const MARK_START = '<!-- parity:generated:start (bun scripts/discord-parity.ts rewrites this block) -->';
 const MARK_END = '<!-- parity:generated:end -->';
 
@@ -683,7 +686,8 @@ const KNOWN_GAPS: Record<string, string[]> = {
   'PATCH /webhooks/{webhook_id}': ['avatar takes an https URL, not image data'],
   'PATCH /webhooks/{webhook_id}/{webhook_token}': ['avatar takes an https URL, not image data'],
   'GET /invites/{code}': ['guild/channel are id-only stubs; approximate counts always 0; with_counts ignored'],
-  'GET /voice/regions': ['static list'],
+  'PATCH /users/@me': ['username follows Serika handle rules (2-32 of a-z 0-9 _ .), not Discord display names'],
+  'GET /guilds/{guild_id}/soundboard-sounds': ['always empty: Serika soundboard sounds have no Discord sound ids'],
 };
 
 /** Events that are emitted, but only from some of the places that should emit them. */
@@ -701,9 +705,9 @@ const FEATURES: Feature[] = [
   { id: 'errors.tree', wp: 'WP0', title: 'Validation errors are 400 + code 50035 with an `errors` tree', files: BOTAPI, re: /_errors|errors:\s*\{/ },
   { id: 'ratelimit.headers', wp: 'WP0', title: 'X-RateLimit-Limit/Remaining/Reset/Reset-After/Bucket headers on bot routes', files: [...BOTAPI, 'src/lib/api/index.ts', 'src/lib/security/', 'server.ts'], re: /X-RateLimit-Bucket/i },
   { id: 'ratelimit.body', wp: 'WP0', title: '429 body is { message, retry_after, global } (+ X-RateLimit-Scope)', files: [...BOTAPI, 'src/lib/api/index.ts', 'src/lib/security/botRateLimit.ts'], re: /retry_after[\s\S]{0,120}global|X-RateLimit-Scope/i },
-  { id: 'auth.bearer', wp: 'WP6', title: 'OAuth2 Bearer tokens accepted on /api/v10 (users/@me, guilds, connections)', files: BOTAPI, re: /['"`]Bearer /i },
+  { id: 'auth.bearer', wp: 'WP6', title: 'OAuth2 Bearer tokens accepted on /api/v10 (users/@me, guilds, connections)', files: BOTAPI, re: /['"`]Bearer |requireBearerScope\(/i },
   { id: 'perm.overwrites', wp: 'WP0', title: 'Channel permission overwrites applied to bot actions (reuse computeChannelPermissions from src/lib/permissions/channelOverwrites.ts)', files: BOTAPI, re: /computeChannelPermissions|applyChannelOverwrites|getMemberChannelPermissions/ },
-  { id: 'cdn.compat', wp: 'WP6', title: 'Discord CDN path compatibility (/avatars/{user_id}/{hash}.png, /icons/, /emojis/{id}.png, /embed/avatars/)', files: [...BOTAPI, 'server.ts', 'src/lib/api/index.ts'], re: /['"`]\/(avatars|icons|emojis|embed\/avatars)\// },
+  { id: 'cdn.compat', wp: 'WP6', title: 'Discord CDN path compatibility (/avatars/{user_id}/{hash}.png, /icons/, /emojis/{id}.png, /embed/avatars/)', files: [...BOTAPI, 'server.ts', 'src/lib/api/index.ts'], re: /['"`]\/(avatars|icons|emojis|embed\/avatars)\/|handleCdnCompat\(/ },
   { id: 'gw.guild_create', wp: 'WP1', title: 'GUILD_CREATE sent for every guild after READY', files: GW, re: /t:\s*['"]GUILD_CREATE['"]|dispatchTo\(conn,\s*'GUILD_CREATE'/ },
   { id: 'gw.zlib', wp: 'WP1', title: 'compress=zlib-stream transport compression', files: GW, re: /zlib-stream|createDeflate|deflateRaw|Deflate\(/ },
   { id: 'gw.zstd', wp: 'WP1', title: 'compress=zstd-stream transport compression', files: GW, re: /zstd/i },
@@ -755,9 +759,9 @@ const FEATURES: Feature[] = [
   { id: 'wh.wait', wp: 'WP6', title: 'Webhook execute ?wait=true returns the message', files: [...BOTAPI, 'src/lib/api/index.ts', 'src/lib/services/channelWebhooks.ts'], re: /query\??\.wait|wait\s*===\s*['"]true/ },
   { id: 'wh.thread', wp: 'WP6', title: 'Webhook execute thread_id / thread_name (forum posts)', files: [...BOTAPI, 'src/lib/api/index.ts', 'src/lib/services/channelWebhooks.ts'], re: /thread_name/ },
   { id: 'oauth.bot_install', wp: 'WP6', title: 'OAuth2 bot install (scope=bot&permissions=…) creates the managed role and sends GUILD_CREATE', files: ['src/lib/api/developers.ts'], re: /emitGuildCreate\(/ },
-  { id: 'oauth.client_credentials', wp: 'WP6', title: 'client_credentials grant', files: ['src/lib/api/developers.ts'], re: /client_credentials/ },
+  { id: 'oauth.client_credentials', wp: 'WP6', title: 'client_credentials grant', files: ['src/lib/api/developers.ts', 'src/lib/services/oauth2Tokens.ts'], re: /client_credentials/ },
   { id: 'app.intent_flags', wp: 'WP6', title: 'Application flags expose GATEWAY_* intent approvals (1<<12…1<<19) and gate privileged intents', files: [...BOTAPI, 'src/lib/api/developers.ts', 'src/lib/gateway/'], re: /GATEWAY_MESSAGE_CONTENT|GATEWAY_GUILD_MEMBERS/ },
-  { id: 'voice.gateway', wp: 'WP7', title: 'Voice gateway for bots (VOICE_SERVER_UPDATE + voice WS v8 / UDP RTP Opus / DAVE)', files: ['src/lib/', 'server.ts'], re: /VOICE_SERVER_UPDATE/, exclude: ['src/lib/discord/', 'src/lib/constants/'] },
+  { id: 'voice.gateway', wp: 'WP7', title: 'Voice gateway for bots (VOICE_SERVER_UPDATE + voice WS v8 / UDP RTP Opus / DAVE)', files: ['src/lib/', 'server.ts'], re: /aead_(aes256_gcm|xchacha20_poly1305)_rtpsize/, exclude: ['src/lib/discord/', 'src/lib/constants/'] },
   { id: 'dx.discordpy_example', wp: 'WP8', title: 'discord.py quick-start example in the docs is valid Python', files: ['src/lib/constants/docs-content.ts'], re: /^\s*async on_\w+\(/m, invert: true },
   // The docs describe X-RateLimit-* headers; they are truthful only while the bot API really sends them.
   { id: 'dx.ratelimit_docs_truthful', wp: 'WP8', title: 'Docs only promise rate-limit headers the API actually sends', files: [...BOTAPI, 'src/lib/security/botRateLimit.ts'], re: /X-RateLimit-Bucket/ },
@@ -1162,6 +1166,7 @@ async function main() {
   if (args.has("--stdout")) { if (process.env.PARITY_DUMP) writeFileSync(process.env.PARITY_DUMP, JSON.stringify(json, null, 1)); return; }
 
   writeFileSync(OUT_JSON, `${JSON.stringify(json, null, 1)}\n`);
+  writeCompatModule(json as unknown as Parameters<typeof writeCompatModule>[0]);
   const block = renderMarkdown(cache, a, s);
   const existing = existsSync(OUT_MD) ? read(OUT_MD) : DEFAULT_MD_HEAD + MARK_START + '\n' + MARK_END + '\n';
   const start = existing.indexOf(MARK_START);
@@ -1173,4 +1178,34 @@ async function main() {
   console.log(`\nWrote ${relative(ROOT, OUT_JSON)} and the generated block of ${relative(ROOT, OUT_MD)}`);
 }
 
-await main();
+/**
+ * Write src/lib/constants/discordCompat.generated.ts from a parity JSON: the
+ * per-route status table, event status and feature list the developer docs
+ * render on /developers/docs/topics/compatibility.
+ */
+function writeCompatModule(json: { sources: unknown; summary: { rest_all: unknown; rest_bot: unknown; areas: Array<{ id: string; title: string }> }; rest: Array<{ method: string; path: string; area: string; status: string; notes?: string[]; deprecated?: boolean }>; gateway: { receive_events: Array<{ event: string; status: string; note?: string | null }> }; features: Array<{ id: string; title: string; status: string }> }) {
+  const data = {
+    sources: json.sources,
+    restAll: json.summary.rest_all,
+    restBot: json.summary.rest_bot,
+    areas: json.summary.areas,
+    routes: json.rest.filter((r) => !r.deprecated).map((r) => ({ m: r.method, p: r.path, a: r.area, s: r.status, n: (r.notes ?? []).join('; ') })),
+    events: json.gateway.receive_events.map((e) => ({ e: e.event, s: e.status, n: e.note ?? '' })),
+    features: json.features.map((f) => ({ id: f.id, t: f.title, s: f.status })),
+  };
+  const body = `// Generated by scripts/discord-parity.ts from docs/architecture/discord-parity.json. Do not edit by hand.\n` +
+    `/* eslint-disable */\n` +
+    `export const DISCORD_COMPAT = ${JSON.stringify(data)} as const;\n`;
+  writeFileSync(OUT_COMPAT, body);
+}
+
+if (process.argv.includes('--compat-module')) {
+  // Only (re)write the docs module from the committed JSON; touches nothing else.
+  // `--compat-module <file>` reads another parity JSON (e.g. a PARITY_DUMP from --stdout).
+  const i = process.argv.indexOf('--compat-module');
+  const from = process.argv[i + 1] && !process.argv[i + 1].startsWith('--') ? process.argv[i + 1] : OUT_JSON;
+  writeCompatModule(JSON.parse(readFileSync(from, 'utf8')));
+  console.log(`Wrote ${relative(ROOT, OUT_COMPAT)}`);
+} else {
+  await main();
+}

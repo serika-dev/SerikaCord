@@ -138,14 +138,14 @@ client.login(process.env.BOT_TOKEN);
 \`\`\`
 
 ## discord.js (v14)
-Point the REST client at SerikaCord. The gateway URL comes from GET /gateway/bot.
+Point the REST client at SerikaCord. The gateway URL comes from GET /gateway/bot. \`cdn\` makes avatar / icon / emoji URLs resolve.
 
 \`\`\`javascript
 const { Client, GatewayIntentBits } = require('discord.js');
 
 const client = new Client({
   intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
-  rest: { api: '${API.rest.replace(/\/v10$/, '')}' },
+  rest: { api: '${API.rest.replace(/\/v10$/, '')}', cdn: '${API.cdn}' },
 });
 
 client.on('messageCreate', (msg) => {
@@ -156,7 +156,7 @@ client.login(process.env.BOT_TOKEN);
 \`\`\`
 
 ## discord.py (2.x)
-Set both the REST base and the gateway URL **before** creating the client. discord.py does not ask GET /gateway/bot for its gateway unless it is sharded, so without the second line it sends your SerikaCord token to Discord's gateway.
+Set the REST base, the gateway URL and the CDN base **before** creating the client. discord.py does not ask GET /gateway/bot for its gateway unless it is sharded, so without the DEFAULT_GATEWAY line it sends your SerikaCord token to Discord's gateway.
 
 \`\`\`python
 import os
@@ -166,6 +166,7 @@ import yarl
 
 discord.http.Route.BASE = "${API.rest}"
 discord.gateway.DiscordWebSocket.DEFAULT_GATEWAY = yarl.URL("${API.gateway}")
+discord.asset.Asset.BASE = "${API.cdn}"
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -182,6 +183,8 @@ client.run(os.environ["BOT_TOKEN"])
 \`\`\`
 
 Message Content and Server Members are privileged intents: switch them on in the Developer Portal (Bot tab) first, or the gateway closes with 4014.
+
+JDA (\`RestConfig.setBaseUrl\`), Serenity (\`HttpBuilder::proxy\`) and DSharpPlus are not tested yet. See topics/differences for what behaves differently from Discord.
 
 ## Python (REST with requests)
 Without a library, call the REST API directly:
@@ -1011,8 +1014,14 @@ Custom illustrated sticker assets attached to server channels.
 Represents a SerikaCord user account or bot user.
 
 ## Endpoints
-- \`GET /users/@me\` - Get current authenticated user
-- \`GET /users/{user_id}\` - Get public user profile`,
+- \`GET /users/@me\` - Current user (bot token, or OAuth2 Bearer with \`identify\`; \`email\` adds email)
+- \`PATCH /users/@me\` - Bots: change username (Serika handle rules, 2 per hour), avatar / banner (image data URI); sends USER_UPDATE
+- \`GET /users/{user_id}\` - Public user object
+- \`GET /users/@me/guilds\` - Partial guilds (before / after / limit 1-200 / with_counts); Bearer needs \`guilds\`
+- \`GET /users/@me/guilds/{guild_id}/member\` - Own member object; Bearer needs \`guilds.members.read\`
+- \`DELETE /users/@me/guilds/{guild_id}\` - Bot leaves the server
+- \`GET /users/@me/connections\` - Bearer only, \`connections\` scope
+- \`POST /users/@me/channels\` - Open a DM (\`recipient_id\`): only with users who share a server or already have a DM with the bot, who haven't blocked it and accept DMs; never with other bots (50007). Group DM creation is not supported.`,
   },
   "resources/voice": {
     slug: "resources/voice",
@@ -1023,9 +1032,32 @@ Represents a SerikaCord user account or bot user.
 
 Represents voice channel connectivity and WebRTC audio session state.
 
+Bots can see voice state but cannot carry audio yet: op 4 is answered with VOICE_SERVER_UPDATE \`endpoint: null\`.
+
 ## Endpoints
-- \`GET /voice/regions\` - List available voice server regions
-- \`GET /users/@me/voice-state\` - Get current user voice state`,
+- \`GET /voice/regions\`, \`GET /guilds/{guild_id}/regions\` - One region, \`serika\`
+- \`GET /guilds/{guild_id}/voice-states/{user_id}\` - A member's voice state (10065 when not in voice); \`@me\` is always 10065
+- \`PATCH /guilds/{guild_id}/voice-states/{user_id}\` - Needs MUTE_MEMBERS; answers 50024 (no stage channels yet)
+- \`GET /soundboard-default-sounds\`, \`GET /guilds/{guild_id}/soundboard-sounds\` - Empty
+
+## Events
+- \`VOICE_STATE_UPDATE\` (GUILD_VOICE_STATES intent) on join, leave, mute, deafen, camera, screen share and moderator mute / deafen / disconnect
+- \`voice_states\` in GUILD_CREATE`,
+  },
+  "topics/differences": {
+    slug: "topics/differences",
+    title: "Differences from Discord",
+    section: "Topics",
+    description: "Where the SerikaCord bot API behaves differently from Discord API v10.",
+    content: `# Differences from Discord
+
+- **Ids**: new apps see snowflakes and image hashes; apps created earlier see UUIDs and full URLs until switched in the portal.
+- **CDN**: set the library CDN base to ${API.cdn} (discord.js \`rest.cdn\`, discord.py \`Asset.BASE\`); Discord CDN paths redirect to cdn.serika.chat. Images hosted elsewhere come back as null.
+- **Voice**: no audio for bots; voice states and VOICE_STATE_UPDATE work; op 4 gets VOICE_SERVER_UPDATE endpoint null.
+- **Presence**: op 3 activities show on the bot's profile; PRESENCE_UPDATE for bots with GUILD_PRESENCES.
+- **OAuth2**: Bearer tokens on users/@me, users/@me/guilds, .../member, connections, oauth2/@me and command routes only; no OpenID Connect, linked roles or gdm.join.
+- **Monetization**: no payments; lists are empty, lookups 404.
+- **Usernames**: unique lower-case handles (2-32 of a-z 0-9 _ .).`,
   },
   "resources/webhook": {
     slug: "resources/webhook",

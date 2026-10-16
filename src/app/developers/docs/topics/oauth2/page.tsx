@@ -169,11 +169,28 @@ grant_type=client_credentials
       <CodeBlock lang="json">{`{
   "access_token": "YOUR_ACCESS_TOKEN",
   "token_type": "Bearer",
-  "expires_in": 3600,
-  "scope": "identify"
+  "expires_in": 604800,
+  "scope": "identify applications.commands.update"
 }`}</CodeBlock>
       <Callout type="warning" title={gt("Limited scopes")}>
-        {gt("The client credentials flow only supports scopes that don't require user context (e.g.,")} <InlineCode>identify</InlineCode>{gt(",")} <InlineCode>applications.commands</InlineCode>{gt("). User-specific scopes like")} <InlineCode>email</InlineCode> {gt("or")} <InlineCode>guilds</InlineCode> {gt("are not available.")}
+        {gt("Like on Discord, a client credentials token acts as the application's owner. It can't use bot, guilds.join, webhook.incoming or the DM and message scopes, and there is no refresh token. Its usual use is applications.commands.update, to deploy slash commands without a bot token.")}
+      </Callout>
+
+      <H2 id="bearer-routes">{gt("Where access tokens work")}</H2>
+      <P>{gt("Send the token as Authorization: Bearer YOUR_ACCESS_TOKEN. The Discord-compatible API accepts it only on these routes, and only with the listed scope; everything else needs a bot token.")}</P>
+      <Table headers={[gt("Route"), gt("Scope")]} rows={[
+        ["GET /api/v10/users/@me", "identify (email: email)"],
+        ["GET /api/v10/users/@me/guilds", "guilds"],
+        ["GET /api/v10/users/@me/guilds/{guild.id}/member", "guilds.members.read"],
+        ["GET /api/v10/users/@me/connections", "connections"],
+        ["GET /api/v10/oauth2/@me", gt("any")],
+        ["GET/POST/PUT/PATCH/DELETE /api/v10/applications/{app.id}/commands…", "applications.commands.update"],
+        ["PUT …/guilds/{guild.id}/commands/{command.id}/permissions", "applications.commands.permissions.update"],
+        ["PUT /api/v10/guilds/{guild.id}/members/{user.id} (access_token in the body)", "guilds.join"],
+      ]} />
+      <P>{gt("A missing scope answers 403 with code 50026; an unknown, expired or revoked token answers 401. The token endpoints also exist under /api/v10/oauth2/token and /api/v10/oauth2/token/revoke, and accept client credentials in the body or as HTTP Basic auth.")}</P>
+      <Callout type="info" title={gt("Codes are single-use")}>
+        {gt("An authorization code works once, for 10 minutes, and only with the redirect_uri it was issued for. Refresh tokens rotate: each refresh returns a new pair and the old refresh token stops working. Removing the app under User Settings -> Authorized Apps revokes its tokens.")}
       </Callout>
 
       <H2 id="token-revocation">{gt("Token Revocation")}</H2>
