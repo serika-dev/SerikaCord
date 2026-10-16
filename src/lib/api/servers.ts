@@ -2056,7 +2056,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const isOwner = server.ownerId === user.id;
     if (isOwner) {
       // Owner implicitly has every permission.
-      return { isOwner: true, permissions: (~0n & ((1n << 48n) - 1n)).toString() };
+      return { isOwner: true, permissions: ALL_PERMISSIONS.toString() };
     }
 
     const member = await ServerMember.findOne({ serverId: server.id, userId: user.id });
