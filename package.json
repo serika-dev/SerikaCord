@@ -1,6 +1,6 @@
 {
   "name": "serikacord",
-  "version": "2.1.18",
+  "version": "2.1.19",
   "private": true,
   "packageManager": "bun@1.3.2",
   "scripts": {

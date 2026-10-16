@@ -359,6 +359,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
       await ServerMember.updateById(member.id, { avatar: result.url });
       cleanupOldMedia(member.avatar, result.url, `avatars/${params.serverId}/${user.id}/`);
+      void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberUpdate(params.serverId, user.id)).catch(() => {});
 
       return {
         success: true,
@@ -427,6 +428,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
       await ServerMember.updateById(member.id, { banner: result.url });
       cleanupOldMedia(member.banner, result.url, `banners/${params.serverId}/${user.id}/`);
+      void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberUpdate(params.serverId, user.id)).catch(() => {});
 
       return {
         success: true,
@@ -503,6 +505,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       // Update server
       await Server.updateById(server.id, { icon: result.url });
       cleanupOldMedia(server.icon, result.url, `server-icons/${params.serverId}/`);
+      void import('@/lib/services/guildGatewayEvents').then((m) => m.emitGuildUpdate(server.id)).catch(() => {});
 
       return {
         success: true,
@@ -577,6 +580,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
 
       await Server.updateById(server.id, { banner: result.url });
       cleanupOldMedia(server.banner, result.url, `server-banners/${params.serverId}/`);
+      void import('@/lib/services/guildGatewayEvents').then((m) => m.emitGuildUpdate(server.id)).catch(() => {});
 
       return {
         success: true,

@@ -113,7 +113,7 @@ function isMember(channel: { recipientIds?: string[] | null }, userId: string) {
 }
 
 /** Remove `targetId` from the group as `actor` (themselves = leaving). */
-async function removeMember(
+export async function removeGroupDmMember(
   channelId: string,
   actor: NonNullable<Awaited<ReturnType<typeof getAuth>>['user']>,
   targetId: string,
@@ -360,7 +360,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 429;
       return { error: 'Slow down', retryAfter: limit.retryAfter };
     }
-    const reply = await removeMember(params.channelId, user, params.userId);
+    const reply = await removeGroupDmMember(params.channelId, user, params.userId);
     set.status = reply.status;
     return reply.body;
   }, { params: t.Object({ channelId: t.String(), userId: t.String() }) })
@@ -371,7 +371,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
-    const reply = await removeMember(params.channelId, user, user.id);
+    const reply = await removeGroupDmMember(params.channelId, user, user.id);
     set.status = reply.status;
     return reply.body;
   }, { params: t.Object({ channelId: t.String() }) })

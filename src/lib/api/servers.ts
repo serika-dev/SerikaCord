@@ -19,7 +19,7 @@ import { publicServerSettings, verifyDiscordGuildControl } from '@/lib/services/
 import { getRolePermissions, getActorRoleContext, hasServerPermission, invalidateRolePerms, primeRolePermissions } from '@/lib/permissions/serverPermissions';
 import { canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
-import { insertServerMember, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
+import { insertServerMember, removeServerBan, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 import { copyPermissionOverwrites, ensureSoundboardIds, sameId, validateChannelReorder } from '@/lib/servers/guards';
 import { audit, listAuditLogs } from '@/lib/services/auditLog';
 import { AuditLogEvent, GUILD_AUDIT_KEYS, ROLE_AUDIT_KEYS, auditReason, diffChanges, diffMemberRoles, isAuditLogEventType, snapshotChanges } from '@/lib/audit/auditLog';
@@ -30,6 +30,8 @@ import { fanoutToUsers } from '@/lib/api/activity';
 import { VERIFICATION_ACTIONS, VERIFICATION_MAX_MINUTES, normalizeVerificationOptions, type VerificationAction } from '@/lib/servers/verification';
 import { normalizeOverwrites } from '@/lib/permissions/overwriteEditor';
 import { normalizeRoleIconInput, pickIconRole } from '@/lib/roles/roleIcon';
+// Bot gateway events for guild resources (GUILD_UPDATE, CHANNEL_*, GUILD_ROLE_*, GUILD_MEMBER_UPDATE, INVITE_*).
+import * as guildEvents from '@/lib/services/guildGatewayEvents';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -717,6 +719,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       options: { channel_name: channel.name, channel_type: channel.type },
       reason: auditReason(headers['x-audit-log-reason']),
     });
+    void guildEvents.emitChannelCreate(channel);
 
     return {
       success: true,
@@ -781,6 +784,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       if (update.parentId !== undefined) updates.parentId = update.parentId || null;
       await Channel.updateById(update.id, updates);
     }
+
+    // Positions / parents only (overwrites are copied, not inherited), so nobody's view changes.
+    void guildEvents.emitChannelUpdates(server.id, channelUpdates.map((u) => u.id));
 
     // Fetch fresh channel list
     const updatedChannels = await Channel.find({ serverId: server.id });
@@ -1057,6 +1063,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     await cache.del(`server:${server.id}`);
     await cache.del(`server:safety:${server.id}`);
     await invalidateServerGate(server.id);
+    void guildEvents.emitGuildUpdate(server.id);
     const settingsChanges = diffChanges(beforeSettings as Record<string, unknown>, server as Record<string, unknown>, GUILD_AUDIT_KEYS);
     if (settingsChanges.length > 0) {
       audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: settingsChanges, reason: auditReason(headers['x-audit-log-reason']) });
@@ -1438,6 +1445,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     await cache.del(`server:${server.id}`);
     await cache.del(`server:safety:${server.id}`);
     await invalidateServerGate(server.id);
+    void guildEvents.emitGuildUpdate(server.id);
     const bulkChanges = diffChanges(beforeBulk as Record<string, unknown>, server as Record<string, unknown>, GUILD_AUDIT_KEYS);
     if (bulkChanges.length > 0) {
       audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: bulkChanges, reason: auditReason(headers['x-audit-log-reason']) });
@@ -1555,6 +1563,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     if (serverChanges.length > 0) {
       audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: serverChanges, reason: auditReason(headers['x-audit-log-reason']) });
     }
+    void guildEvents.emitGuildUpdate(server.id);
 
     return { success: true, server: { ...server, settings: publicServerSettings(server.settings) } };
   }, {
@@ -1776,6 +1785,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     await ServerMember.updateById(member.id, { roles: requestedWithEveryone });
+    void guildEvents.emitMemberUpdate(params.serverId, params.memberUserId);
 
     // Manual populate
     const populatedUser = member.userId ? await User.findById(member.userId) : null;
@@ -1857,6 +1867,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
     const n = body.nickname ? sanitizeInput(body.nickname).trim() : '';
     const row = await ServerMember.updateById(member.id, { nickname: n || null });
+    void guildEvents.emitMemberUpdate(params.serverId, params.memberUserId);
     return { success: true, nickname: row ? row.nickname ?? null : n || null };
   }, {
     params: t.Object({
@@ -1966,6 +1977,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     if (avatar !== undefined) updates.avatar = avatar || null;
     if (banner !== undefined) updates.banner = banner || null;
     const row = await ServerMember.updateById(member.id, updates);
+    void guildEvents.emitMemberUpdate(params.serverId, user.id);
     if (updates.nickname !== undefined && (updates.nickname ?? null) !== (member.nickname ?? null)) {
       const change: { key: string; old?: unknown; new?: unknown } = { key: 'nick' };
       if (member.nickname) change.old = member.nickname;
@@ -2182,6 +2194,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       ],
       options: { channel_name: channel.name },
     });
+    void guildEvents.emitInviteCreate(invite);
 
     return {
       success: true,
@@ -2480,6 +2493,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       options: { role_name: role.name },
       reason: auditReason(headers['x-audit-log-reason']),
     });
+    void guildEvents.emitRoleCreate(params.serverId, role.id);
 
     return { role: createdRole || normalizeRoleDto(role as unknown as PopulatedRole) };
   }, {
@@ -2579,6 +2593,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
     await Role.updateById(role.id, updates);
     if (permissions !== undefined) invalidateRolePerms(params.serverId, role.id);
+    void guildEvents.emitRoleUpdate(params.serverId, role.id);
 
     const roles = await getNormalizedRoles(params.serverId);
     const updatedRole = roles.find((item) => item.id === role.id);
@@ -2691,6 +2706,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         Role.updateById(roleId, { position: highestPosition - index })
       )
     );
+    void guildEvents.emitRolesUpdate(params.serverId, uniqueRoleIds);
 
     const roles = await getNormalizedRoles(params.serverId);
     return { roles };
@@ -2756,6 +2772,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     await Role.deleteById(role.id);
     invalidateRolePerms(params.serverId, role.id);
+    void guildEvents.emitRoleDelete(params.serverId, role.id);
     audit({
       serverId: params.serverId,
       userId: user.id,
@@ -3667,6 +3684,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       await Server.updateById(server.id, { vanityUrlCode: null });
       if (server.vanityUrlCode) {
         audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: [{ key: 'vanity_url_code', old: server.vanityUrlCode }] });
+        void guildEvents.emitGuildUpdate(server.id);
       }
       return { code: null, uses: server.vanityUrlUses ?? 0, lockToVanity: false };
     }
@@ -3703,6 +3721,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       targetId: server.id,
       changes: [server.vanityUrlCode ? { key: 'vanity_url_code', old: server.vanityUrlCode, new: code } : { key: 'vanity_url_code', new: code }],
     });
+    void guildEvents.emitGuildUpdate(server.id);
 
     return { code, uses: 0, lockToVanity: Boolean((server.settings as IServerSettings | undefined)?.invites?.lockToVanity) };
   }, {
@@ -3853,6 +3872,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const inviteToDelete = await Invite.findOne({ code: params.code, serverId: params.serverId });
     if (inviteToDelete) {
       await Invite.deleteById(inviteToDelete.id);
+      void guildEvents.emitInviteDelete(inviteToDelete);
       audit({
         serverId: params.serverId,
         userId: user.id,
@@ -3865,9 +3885,6 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         ],
         reason: auditReason(headers['x-audit-log-reason']),
       });
-      void import('@/lib/services/gatewayEvents')
-        .then((m) => m.emitInviteDelete({ guildId: params.serverId, channelId: inviteToDelete.channelId, code: inviteToDelete.code }))
-        .catch(() => {});
     }
     return { success: true };
   }, {
@@ -4113,6 +4130,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const rawDuration = Number(body.durationMs) || 0;
     if (rawDuration <= 0) {
       await ServerMember.updateById(targetMember.id, { communicationDisabledUntil: null });
+      void guildEvents.emitMemberUpdate(params.serverId, params.userId);
       const previousUntil = targetMember.communicationDisabledUntil ? new Date(targetMember.communicationDisabledUntil).toISOString() : null;
       audit({
         serverId: params.serverId,
@@ -4128,6 +4146,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const durationMs = Math.min(Math.max(rawDuration, 1000), 28 * 24 * 60 * 60 * 1000);
     const until = new Date(Date.now() + durationMs);
     await ServerMember.updateById(targetMember.id, { communicationDisabledUntil: until });
+    void guildEvents.emitMemberUpdate(params.serverId, params.userId);
 
     audit({
       serverId: params.serverId,
@@ -4171,7 +4190,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     const banToDelete = await ServerBan.findOne({ serverId: params.serverId, userId: params.userId });
     if (banToDelete) {
-      await ServerBan.deleteById(banToDelete.id);
+      // Shared with the bot API; sends GUILD_BAN_REMOVE.
+      await removeServerBan(params.serverId, params.userId);
     }
 
     if (banToDelete) {

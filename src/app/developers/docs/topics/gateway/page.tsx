@@ -140,7 +140,7 @@ export default async function GatewayDoc() {
       <H2 id="intents">{gt("Gateway Intents")}</H2>
       <P>{gt("Intents are bitwise flags that determine which events your bot receives:")}</P>
       <Table headers={[gt("Bit"), gt("Intent"), gt("Events")]} rows={[
-        ["1 << 0", "GUILDS", "GUILD_CREATE, GUILD_UPDATE, GUILD_DELETE"],
+        ["1 << 0", "GUILDS", "GUILD_CREATE, GUILD_UPDATE, GUILD_DELETE, GUILD_ROLE_CREATE / UPDATE / DELETE, CHANNEL_CREATE / UPDATE / DELETE"],
         ["1 << 1", "GUILD_MEMBERS", "GUILD_MEMBER_ADD, UPDATE, REMOVE (privileged)"],
         ["1 << 2", "GUILD_MODERATION", "GUILD_BAN_ADD, GUILD_BAN_REMOVE"],
         ["1 << 3", "GUILD_EMOJIS_AND_STICKERS", "GUILD_EMOJIS_UPDATE, STICKERS_UPDATE"],

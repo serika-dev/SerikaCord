@@ -657,21 +657,11 @@ const KNOWN_GAPS: Record<string, string[]> = {
   'PUT /channels/{channel_id}/messages/pins/{message_id}': ['no system "pinned a message" (type 6) message is posted'],
   'PUT /channels/{channel_id}/pins/{message_id}': ['deprecated route; no system "pinned a message" (type 6) message is posted'],
   'PUT /channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me': ['custom emoji ids must be Serika ids until the snowflake layer resolves `name:<snowflake>` path segments'],
-  'PATCH /channels/{channel_id}': ['only name/topic/nsfw/rate_limit_per_user; position, parent_id, permission_overwrites, bitrate, user_limit, flags, tags ignored', 'no CHANNEL_UPDATE / client refresh'],
-  'DELETE /channels/{channel_id}': ['no CHANNEL_DELETE / client refresh; threads + messages not cascaded through the shared deletion service'],
   'GET /channels/{channel_id}': ['DM recipients are bare ids'],
-  'POST /guilds/{guild_id}/channels': ['permission_overwrites ignored; no CHANNEL_CREATE / client refresh'],
-  'GET /guilds/{guild_id}': ['with_counts ignored; many GuildResponse fields missing (see Objects)'],
-  'PATCH /guilds/{guild_id}': ['icon/banner stored as given (no image data URI handling); no GUILD_UPDATE'],
-  'GET /guilds/{guild_id}/members': ['Discord default limit is 1, Serika defaults to 100'],
-  'PATCH /guilds/{guild_id}/members/{user_id}': ['no GUILD_MEMBER_UPDATE / client refresh'],
-  'DELETE /guilds/{guild_id}/members/{user_id}': ['no GUILD_MEMBER_REMOVE'],
-  'PUT /guilds/{guild_id}/bans/{user_id}': ['no GUILD_BAN_ADD; delete_message_seconds handling unverified'],
-  'DELETE /guilds/{guild_id}/bans/{user_id}': ['no GUILD_BAN_REMOVE'],
-  'GET /guilds/{guild_id}/bans': ['user objects are bare ids; before/after/limit ignored'],
-  'POST /guilds/{guild_id}/roles': ['no GUILD_ROLE_CREATE / client refresh'],
-  'PATCH /guilds/{guild_id}/roles/{role_id}': ['no GUILD_ROLE_UPDATE / client refresh'],
-  'DELETE /guilds/{guild_id}/roles/{role_id}': ['no GUILD_ROLE_DELETE / client refresh'],
+  'PATCH /guilds/{guild_id}/members/{user_id}': ['channel_id (voice move / disconnect) not supported: answers 40032'],
+  'PUT /guilds/{guild_id}/members/{user_id}': ['needs an OAuth2 guilds.join access token, which SerikaCord does not issue yet: 403 50025 unless already a member'],
+  'PUT /channels/{channel_id}/recipients/{user_id}': ['needs an OAuth2 gdm.join access token, which SerikaCord does not issue yet: 403 50025'],
+  'GET /guilds/{guild_id}/widget.json': ['channels and members lists are empty; instant_invite only for partnered vanity links'],
   'GET /guilds/{guild_id}/audit-logs': ['application_commands / guild_scheduled_events arrays stay empty (Serika logs neither change)'],
   // WP5 threads + forums
   'POST /channels/{channel_id}/threads': ['forum posts send their first message through POST /channels/{id}/messages, so the bot also needs SEND_MESSAGES_IN_THREADS'],
@@ -698,7 +688,6 @@ const KNOWN_GAPS: Record<string, string[]> = {
 
 /** Events that are emitted, but only from some of the places that should emit them. */
 const EVENT_GAPS: Record<string, string> = {
-  GUILD_MEMBER_ADD: 'only for the bot itself on install; human joins do not emit',
   RESUMED: 'replay buffer is per process: a RESUME that lands on another instance (or after a restart) gets op 9',
   THREAD_LIST_SYNC: 'sent by the instance that made the access change, and only when it held a recent audience snapshot of the guild',
   THREAD_MEMBER_UPDATE: 'only when the bot itself joins a thread (Serika has no per-member thread flags)',

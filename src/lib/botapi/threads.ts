@@ -383,6 +383,9 @@ export async function deleteBotThread(botId: string, channelId: string, headers:
   if (!thread) return null;
   const perms = await botPerms(botId, thread);
   if (!can(perms, P.MANAGE_THREADS)) return { status: 403, body: MISSING_PERMISSIONS };
+  // Who could see it, for THREAD_DELETE once the row is gone.
+  const { captureChannelViewers } = await import('@/lib/services/guildGatewayEvents');
+  const viewersBefore = thread.serverId ? await captureChannelViewers(thread.serverId, [thread.id]) : undefined;
   await db.update(schema.messages).set({ isDeleted: true, deletedAt: new Date() }).where(eq(schema.messages.channelId, thread.id));
   await Channel.deleteById(thread.id);
   const { releaseThreadMessages, broadcastThreadUpdate, notifyThreadMembership } = await import('@/lib/services/threads');
@@ -394,7 +397,7 @@ export async function deleteBotThread(botId: string, channelId: string, headers:
   const publisher = getPublisher();
   if (publisher) await publisher.publish('channel:delete', JSON.stringify({ channelId: thread.id, serverId: thread.serverId })).catch(() => {});
   const { emitThreadDelete } = await import('@/lib/services/gatewayEvents');
-  void emitThreadDelete(thread);
+  void emitThreadDelete(thread, viewersBefore);
   if (thread.serverId) {
     audit({
       serverId: thread.serverId,

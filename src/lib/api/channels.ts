@@ -1943,6 +1943,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
+    // Bot gateway: who could see this channel (and a category's children) before
+    // the change, so overwrite / parent edits reach bots as CHANNEL_CREATE / _DELETE.
+    const { captureChannelViewers, emitChannelUpdates } = await import('@/lib/services/guildGatewayEvents');
+    const viewChange = !isThread && !!channel.serverId && (updateData.permissionOverwrites !== undefined || updateData.parentId !== undefined);
+    const viewerIds = viewChange
+      ? [channel.id, ...(channel.type === 'category' ? (await Channel.find({ serverId: channel.serverId, parentId: channel.id })).map((c) => c.id) : [])]
+      : [];
+    const viewersBefore = viewChange ? await captureChannelViewers(channel.serverId, viewerIds) : undefined;
+
     await Channel.updateById(channel.id, updateData);
     if (threadArchiveChange) {
       await setThreadArchived(channel.id, threadArchiveChange.archived, threadArchiveChange.locked);
@@ -1973,6 +1982,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Bot gateway audiences (who may see which channel) follow overwrites.
     if (channel.serverId && updateData.permissionOverwrites !== undefined) {
       void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(channel.serverId)).catch(() => {});
+    }
+    // CHANNEL_UPDATE (or CREATE / DELETE when a bot gained or lost view). Threads: thread routes.
+    if (!isThread && channel.serverId) {
+      void emitChannelUpdates(channel.serverId, [...new Set([channel.id, ...resyncedIds, ...viewerIds])], viewersBefore);
     }
 
     // Publish update event
@@ -2097,6 +2110,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
+    // Bot gateway: the bots that could see it get CHANNEL_DELETE (threads: thread routes).
+    const { captureChannelViewers, emitChannelDelete, emitChannelUpdates } = await import('@/lib/services/guildGatewayEvents');
+    const viewersBefore = !deletingThread && channel.serverId ? await captureChannelViewers(channel.serverId, [channel.id]) : null;
+    // Threads: who could see it, for THREAD_DELETE once the row is gone.
+    const threadViewersBefore = deletingThread && channel.serverId ? await captureChannelViewers(channel.serverId, [channel.id]) : undefined;
+
     // Soft delete messages
     const messages = await Message.find({ channelId: channel.id });
     await Promise.all(messages.map(m => Message.updateById(m.id, { isDeleted: true, deletedAt: new Date() })));
@@ -2114,7 +2133,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (deletingThread && channel.parentId) {
       await releaseThreadMessages(channel.id, channel.parentId).catch(() => {});
       void broadcastThreadUpdate(channel, { deleted: true }).catch(() => null);
-      void import('@/lib/services/gatewayEvents').then(({ emitThreadDelete }) => emitThreadDelete(channel)).catch(() => {});
+      void import('@/lib/services/gatewayEvents').then(({ emitThreadDelete }) => emitThreadDelete(channel, threadViewersBefore)).catch(() => {});
       notifyThreadMembership(channel.serverId, channel.id, (channel.threadMemberIds || []) as string[]);
     }
 
@@ -2133,6 +2152,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         channelId: params.channelId,
         serverId: channel.serverId,
       }));
+    }
+    if (viewersBefore) {
+      void emitChannelDelete(channel, viewersBefore);
+      if (orphaned.length > 0) void emitChannelUpdates(channel.serverId, orphaned.map((c) => c.id));
     }
 
     if (channel.serverId) {

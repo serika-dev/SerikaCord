@@ -599,16 +599,20 @@ export function emitThreadUpdate(thread: ChannelRowLike) {
 }
 
 /**
- * THREAD_DELETE. The thread row is gone by now, so the audience is the
- * parent's viewers, narrowed for private threads to the members / owner and
- * the bots with MANAGE_THREADS (who could see it).
+ * THREAD_DELETE to the bots that could see the thread: `before` (viewers
+ * captured before the delete, guildGatewayEvents.captureChannelViewers) when
+ * given; otherwise the parent's viewers, narrowed for private threads to the
+ * members / owner and the bots with MANAGE_THREADS.
  */
-export async function emitThreadDelete(thread: ChannelRowLike) {
+export async function emitThreadDelete(thread: ChannelRowLike, before?: Map<string, Set<string>>) {
   if (!thread.serverId || !thread.parentId) return;
   try {
     const { channelAudience, guildPermissionBotAudience } = await import('./gatewayAudience');
-    let audience = await channelAudience(thread.parentId, thread.serverId);
-    if (thread.type === 'private_thread') {
+    const tid = thread.id.toLowerCase();
+    let audience = before
+      ? [...before].filter(([, ids]) => ids.has(tid)).map(([bot]) => bot)
+      : await channelAudience(thread.parentId, thread.serverId);
+    if (!before && thread.type === 'private_thread') {
       const allowed = new Set([...(thread.threadMemberIds ?? []), thread.ownerId ?? ''].map((id) => String(id).toLowerCase()));
       for (const id of await guildPermissionBotAudience(thread.serverId, PERMISSION_BITS.MANAGE_THREADS)) allowed.add(id.toLowerCase());
       audience = audience.filter((id) => allowed.has(id.toLowerCase()));
@@ -743,49 +747,22 @@ export async function emitGuildStickersUpdate(guildId: string) {
 }
 
 /**
- * INVITE_DELETE (GUILD_INVITES intent). Discord sends invite events only to
- * bots that can manage the channel's invites; Serika scopes them to the bots
- * with MANAGE_SERVER or MANAGE_CHANNELS in the guild.
- */
-export async function emitInviteDelete(opts: { guildId: string; channelId: string; code: string }) {
-  try {
-    const { guildPermissionBotAudience } = await import('./gatewayAudience');
-    const [a, b] = await Promise.all([
-      guildPermissionBotAudience(opts.guildId, PERMISSION_BITS.MANAGE_SERVER),
-      guildPermissionBotAudience(opts.guildId, PERMISSION_BITS.MANAGE_CHANNELS),
-    ]);
-    const audience = [...new Set([...a, ...b])];
-    if (audience.length === 0) return;
-    await publish({
-      t: 'INVITE_DELETE',
-      guildId: opts.guildId,
-      intent: Intents.GUILD_INVITES,
-      audience,
-      d: { channel_id: opts.channelId, guild_id: opts.guildId, code: opts.code },
-    });
-  } catch {
-    // Best-effort, like publish().
-  }
-}
-
-/**
  * A bot integration was removed from a guild: INTEGRATION_DELETE to the bots
- * that may manage the guild, then GUILD_INTEGRATIONS_UPDATE (GUILD_INTEGRATIONS intent).
+ * that may manage the guild (GUILD_INTEGRATIONS intent). GUILD_INTEGRATIONS_UPDATE
+ * comes with the bot's GUILD_MEMBER_REMOVE (guildGatewayEvents.emitMemberRemove).
  */
 export async function emitIntegrationDelete(opts: { guildId: string; integrationId: string; applicationId: string }) {
   try {
     const { guildPermissionBotAudience } = await import('./gatewayAudience');
     const audience = await guildPermissionBotAudience(opts.guildId, PERMISSION_BITS.MANAGE_SERVER);
-    if (audience.length > 0) {
-      await publish({
-        t: 'INTEGRATION_DELETE',
-        guildId: opts.guildId,
-        intent: Intents.GUILD_INTEGRATIONS,
-        audience,
-        d: { id: opts.integrationId, guild_id: opts.guildId, application_id: opts.applicationId },
-      });
-    }
-    await publish({ t: 'GUILD_INTEGRATIONS_UPDATE', guildId: opts.guildId, intent: Intents.GUILD_INTEGRATIONS, d: { guild_id: opts.guildId } });
+    if (audience.length === 0) return;
+    await publish({
+      t: 'INTEGRATION_DELETE',
+      guildId: opts.guildId,
+      intent: Intents.GUILD_INTEGRATIONS,
+      audience,
+      d: { id: opts.integrationId, guild_id: opts.guildId, application_id: opts.applicationId },
+    });
   } catch {
     // Best-effort, like publish().
   }

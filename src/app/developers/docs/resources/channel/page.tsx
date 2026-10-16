@@ -60,6 +60,12 @@ export default async function ChannelDoc() {
       <Endpoint method="DELETE" path="/channels/{channel.id}/pins/{message.id}">{gt("Unpin a message.")}</Endpoint>
       <Endpoint method="GET" path="/channels/{channel.id}/pins">{gt("List pinned messages.")}</Endpoint>
       <Endpoint method="POST" path="/channels/{channel.id}/typing">{gt("Trigger typing indicator.")}</Endpoint>
+      <Endpoint method="PUT" path="/channels/{channel.id}/permissions/{overwrite.id}">{gt("Create or edit a permission overwrite (needs Manage Roles).")}</Endpoint>
+      <Endpoint method="DELETE" path="/channels/{channel.id}/permissions/{overwrite.id}">{gt("Delete a permission overwrite.")}</Endpoint>
+      <Endpoint method="GET" path="/channels/{channel.id}/invites">{gt("List the channel's invites (needs Manage Channels).")}</Endpoint>
+      <Endpoint method="POST" path="/channels/{channel.id}/invites">{gt("Create an invite (needs Create Invite).")}</Endpoint>
+      <Endpoint method="POST" path="/channels/{channel.id}/followers">{gt("Follow an announcement channel into another channel (needs Manage Webhooks there).")}</Endpoint>
+      <Endpoint method="DELETE" path="/channels/{channel.id}/recipients/{user.id}">{gt("Remove someone from a group DM the bot owns.")}</Endpoint>
 
       <H2 id="permission-overwrites">{gt("Permission Overwrites")}</H2>
       <CodeBlock lang="json">{`{
@@ -68,6 +74,8 @@ export default async function ChannelDoc() {
   "allow": "1024",
   "deny": "0"
 }`}</CodeBlock>
+
+      <P>{gt("A bot can only allow or deny permissions it has in the channel itself. The guild id as an overwrite id means the @everyone role. When an edit gives a bot access to a channel or takes it away, that bot receives CHANNEL_CREATE or CHANNEL_DELETE instead of CHANNEL_UPDATE.")}</P>
 
       <Callout type="info" title={gt("Slow Mode")}>
         <InlineCode>rate_limit_per_user</InlineCode> {gt("sets slow mode (0-21600 seconds). Users must wait this long between messages.")}

@@ -125,8 +125,7 @@ export async function deleteInviteByCode(code: string, botId: string, headers: R
     ],
     reason: auditReason(headers['x-audit-log-reason']),
   });
-  void import('@/lib/services/gatewayEvents')
-    .then((m) => m.emitInviteDelete({ guildId: inv.serverId, channelId: inv.channelId, code: inv.code }))
-    .catch(() => {});
+  // INVITE_DELETE to the bots with MANAGE_CHANNELS on that channel (WP4a's emitter).
+  void import('@/lib/services/guildGatewayEvents').then((m) => m.emitInviteDelete(inv)).catch(() => {});
   return { status: 200, body };
 }
