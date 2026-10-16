@@ -29,6 +29,10 @@ Bun.serve<SocketData>({
   async fetch(req, server) {
     const { pathname } = new URL(req.url);
     if (pathname === GATEWAY_PATH) return gateway.upgrade(req, server);
+    if (pathname.startsWith('/cdn-compat/')) {
+      const { handleCdnCompat } = await import('../../src/lib/botapi/cdnCompat');
+      return handleCdnCompat(req);
+    }
     if (pathname === '/api' || pathname.startsWith('/api/')) {
       try {
         return await api.handle(req);

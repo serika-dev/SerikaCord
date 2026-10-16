@@ -600,6 +600,28 @@ export const authorizedApps = pgTable('authorized_apps', {
   userNameIdx: index('authorized_apps_user_id_name_idx').on(t.userId, t.name),
 }));
 
+// OAuth2 access / refresh tokens for the Discord-compatible API (`Bearer`
+// on /api/v10). Only SHA-256 hashes of the tokens are stored. Added at boot by
+// ensureOAuth2TokenSchema() (drizzle/manual_oauth2_tokens.sql).
+export const oauth2Tokens = pgTable('oauth2_tokens', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  applicationId: uuid('application_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  scopes: text('scopes').array().notNull().default([]),
+  grantType: text('grant_type').notNull(),
+  accessTokenHash: text('access_token_hash').notNull(),
+  refreshTokenHash: text('refresh_token_hash'),
+  expiresAt: timestamp('expires_at').notNull(),
+  refreshExpiresAt: timestamp('refresh_expires_at'),
+  revokedAt: timestamp('revoked_at'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  accessUnique: uniqueIndex('oauth2_tokens_access_token_hash_unique').on(t.accessTokenHash),
+  refreshUnique: uniqueIndex('oauth2_tokens_refresh_token_hash_unique').on(t.refreshTokenHash),
+  appUserIdx: index('oauth2_tokens_application_id_user_id_idx').on(t.applicationId, t.userId),
+}));
+
 export const userDeviceSessions = pgTable('user_device_sessions', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   userId: uuid('user_id').notNull(),

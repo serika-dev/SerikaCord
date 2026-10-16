@@ -8,7 +8,8 @@
  *
  * Protocol (Discord v10): HELLO -> IDENTIFY -> READY + one GUILD_CREATE per
  * guild; HEARTBEAT/ACK; RESUME with a per-session replay buffer; op 3
- * presence; op 8 Request Guild Members -> GUILD_MEMBERS_CHUNK; op 31
+ * presence (PRESENCE_UPDATE to bots with GUILD_PRESENCES); op 4 voice
+ * (VOICE_SERVER_UPDATE endpoint null); op 8 -> GUILD_MEMBERS_CHUNK; op 31
  * soundboard (empty); op 7 RECONNECT on shutdown; Discord close codes
  * (./session.ts). Ids: payloads are built with internal UUIDs and translated
  * per connection for snowflake-format apps (src/lib/botapi/boundary.ts).
@@ -94,6 +95,10 @@ export interface Session {
   opChain?: Promise<void>;
   /** Last full member-list op 8 per guild (ms), for the 30 s throttle. */
   memberListAt?: Map<string, number>;
+  /** Op 3 set a custom status (activity type 4) this session (cleared on last disconnect). */
+  customStatusSet?: boolean;
+  /** When the bot's activity rows were last extended (ms). */
+  activityRefreshAt?: number;
 }
 
 export interface Conn {
@@ -294,7 +299,10 @@ export class GatewayHub {
         this.send(conn, OP.HEARTBEAT_ACK, null);
         gwlog(conn.data.sessionId.slice(0, 8), 'heartbeat', conn.data.botId ?? '(unauth)');
         // Keep the bot's presence fresh so it doesn't go stale/offline.
-        if (conn.data.botId) void this.setBotPresence(conn.data.botId, true, conn.data.presence?.status);
+        if (conn.data.botId) {
+          void this.setBotPresence(conn.data.botId, true, conn.data.presence?.status);
+          this.refreshActivities(conn.data);
+        }
         return;
       case OP.IDENTIFY:
         if (conn.data.authenticated) { conn.close(CLOSE.ALREADY_AUTHENTICATED, 'Already authenticated.'); return; }
@@ -336,7 +344,10 @@ export class GatewayHub {
         await run;
       }
       else if (op === OP.REQUEST_SOUNDBOARD_SOUNDS) await this.requestSoundboardSounds(conn, (frame.d ?? {}) as Record<string, unknown>);
-      // op 4 (voice): bots can't join Serika voice yet (WP7); accepted and ignored.
+      // Op 4: bots can't carry voice media yet (WP7). Answer like Discord with
+      // the bot's voice state and VOICE_SERVER_UPDATE endpoint null ("no
+      // voice server available"), so library joins stop instead of hanging.
+      else if (op === OP.VOICE_STATE_UPDATE) await this.voiceStateRequest(conn, (frame.d ?? {}) as Record<string, unknown>);
     } catch (err) {
       console.error(`Gateway: op ${op} failed`, err);
     }
@@ -363,6 +374,7 @@ export class GatewayHub {
     const botId = conn.data.botId;
     if (botId && !this.botHasOtherConnection(conn, botId)) {
       void this.setBotPresence(botId, false);
+      void this.publishBotOffline(botId, conn.data.customStatusSet === true);
     }
   }
 
@@ -431,8 +443,63 @@ export class GatewayHub {
     const p = (d && typeof d === 'object' ? d : {}) as Record<string, unknown>;
     const status = presenceStatus(p.status) ?? 'online';
     const activities = Array.isArray(p.activities) ? p.activities.slice(0, 5) : [];
+    const prev = conn.data.presence;
     conn.data.presence = { status, activities, since: typeof p.since === 'number' ? p.since : null, afk: p.afk === true };
-    if (conn.data.botId) void this.setBotPresence(conn.data.botId, true, status);
+    if (conn.data.botId) {
+      void this.setBotPresence(conn.data.botId, true, status);
+      void this.publishBotPresence(conn.data, prev);
+    }
+  }
+
+  /**
+   * A bot's presence changed: show its activities in the web UI (rich
+   * presence rows, custom status) and send PRESENCE_UPDATE to bots with
+   * GUILD_PRESENCES in shared guilds (src/lib/services/botPresence.ts).
+   */
+  private async publishBotPresence(session: Session, prev: Session['presence']) {
+    const botId = session.botId;
+    const p = session.presence;
+    if (!this.persistPresence || !botId || !p) return;
+    const same = prev && prev.status === p.status && JSON.stringify(prev.activities) === JSON.stringify(p.activities);
+    if (same) return;
+    try {
+      const { setBotActivities, customStatusOf, sanitizeActivities } = await import('@/lib/services/botPresence');
+      const visible = p.status !== 'invisible';
+      const custom = visible ? customStatusOf(p.activities) : null;
+      const prevCustom = prev && prev.status !== 'invisible' ? customStatusOf(prev.activities) : null;
+      await setBotActivities(botId, visible ? p.activities : [], { customStatusChanged: custom !== prevCustom || (!prev && session.customStatusSet === true) });
+      if (custom) session.customStatusSet = true;
+      session.activityRefreshAt = Date.now();
+      const { emitPresenceUpdate } = await import('@/lib/services/gatewayEvents');
+      await emitPresenceUpdate(botId, { status: visible ? p.status : 'offline', activities: visible ? sanitizeActivities(p.activities) : [] });
+    } catch (err) {
+      gwlog('presence publish failed for', botId, (err as Error)?.message);
+    }
+  }
+
+  /** Extend the bot's activity rows every few minutes while it heartbeats. */
+  private refreshActivities(session: Session) {
+    if (!this.persistPresence || !session.botId || !session.presence?.activities.length) return;
+    const now = Date.now();
+    if (session.activityRefreshAt && now - session.activityRefreshAt < 4 * 60_000) return;
+    session.activityRefreshAt = now;
+    const botId = session.botId;
+    void import('@/lib/services/botPresence')
+      .then(({ refreshBotActivities }) => refreshBotActivities(botId))
+      .catch(() => {});
+  }
+
+  /** The bot's last connection closed: offline everywhere, activities cleared. */
+  private async publishBotOffline(botId: string, customStatus: boolean) {
+    if (!this.persistPresence) return;
+    try {
+      const { clearBotActivities } = await import('@/lib/services/botPresence');
+      await clearBotActivities(botId, { customStatus });
+      const { emitPresenceUpdate } = await import('@/lib/services/gatewayEvents');
+      await emitPresenceUpdate(botId, { status: 'offline', activities: [] });
+    } catch (err) {
+      gwlog('offline presence failed for', botId, (err as Error)?.message);
+    }
   }
 
   // ─── IDENTIFY / READY ────────────────────────────────────
@@ -532,6 +599,10 @@ export class GatewayHub {
 
     // Reflect the connection into presence so the bot shows online.
     void this.setBotPresence(app.botId, true, conn.data.presence?.status);
+    if (!parsed.value.presence && !this.botHasOtherConnection(conn, app.botId)) {
+      conn.data.presence = { status: 'online', activities: [], since: null, afk: false };
+      void this.publishBotPresence(conn.data, null);
+    }
 
     const user = {
       id: botUser.id,
@@ -694,6 +765,36 @@ export class GatewayHub {
     }
   }
 
+  private async voiceStateRequest(conn: Conn, d: Record<string, unknown>) {
+    const { translateInbound } = await import('@/lib/botapi/boundary');
+    const body = { guild_id: d.guild_id, channel_id: d.channel_id ?? null };
+    const res = await translateInbound({ body });
+    const t = (res.body ?? body) as { guild_id?: unknown; channel_id?: unknown };
+    const guildId = typeof t.guild_id === 'string' ? t.guild_id : '';
+    const known = [...conn.data.guildIds].find((g) => g.toLowerCase() === guildId.toLowerCase());
+    if (!known || !conn.data.botId) return; // not in this guild / shard: ignored, like Discord
+    let channelId: string | null = null;
+    if (t.channel_id !== null && t.channel_id !== undefined) {
+      if (typeof t.channel_id !== 'string' || !/^[0-9a-f-]{36}$/i.test(t.channel_id)) return;
+      const channel = await Channel.findById(t.channel_id).catch(() => null);
+      if (!channel || (channel.serverId ?? '').toLowerCase() !== known.toLowerCase()) return;
+      if (channel.type !== 'voice' && channel.type !== 'stage') return;
+      channelId = channel.id;
+    }
+    const { botVoiceState } = await import('@/lib/services/voiceStates');
+    await this.dispatchTo(conn, 'VOICE_STATE_UPDATE', botVoiceState({
+      guildId: known,
+      channelId,
+      botId: conn.data.botId,
+      sessionId: conn.data.sessionId,
+      selfMute: d.self_mute === true,
+      selfDeaf: d.self_deaf === true,
+    }));
+    if (channelId) {
+      await this.dispatchTo(conn, 'VOICE_SERVER_UPDATE', { token: conn.data.sessionId.slice(0, 16), guild_id: known, endpoint: null });
+    }
+  }
+
   private async requestSoundboardSounds(conn: Conn, d: Record<string, unknown>) {
     const ids = Array.isArray(d.guild_ids) ? d.guild_ids.slice(0, MAX_REQUEST_IDS).map(String) : [];
     const { translateInbound } = await import('@/lib/botapi/boundary');
@@ -754,16 +855,20 @@ export class GatewayHub {
         session.guildIds.add(joined);
       }
       const variant = messagePayloadFor(dispatch.t, dispatch.d, session.botId!, session.intents);
-      const sf = session.idFormat === 'snowflake' ? await lookup() : null;
+      const snowflake = session.idFormat === 'snowflake';
+      const sf = snowflake ? await lookup() : null;
       const { rewriteOutbound } = await import('@/lib/botapi/idTranslate');
+      // Snowflake-format apps also get Discord image hashes instead of CDN URLs.
+      const { toPublicMedia } = await import('@/lib/botapi/boundary');
+      const publicView = () => toPublicMedia(sf ? rewriteOutbound(variant, sf) : variant);
       if (!session.ready) {
-        session.pending.push({ t: dispatch.t, d: sf ? rewriteOutbound(variant, sf) : variant });
+        session.pending.push({ t: dispatch.t, d: snowflake ? publicView() : variant });
         return;
       }
       const entry = cache.get(variant) ?? {};
       cache.set(variant, entry);
-      const json = sf
-        ? (entry.sf ??= JSON.stringify(rewriteOutbound(variant, sf)))
+      const json = snowflake
+        ? (entry.sf ??= JSON.stringify(publicView()))
         : (entry.uuid ??= JSON.stringify(variant));
       // Live socket now (it may have closed or resumed since): else just buffer.
       this.emit(session, this.sessionConn.get(session) ?? null, dispatch.t, json);

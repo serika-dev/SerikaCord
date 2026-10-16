@@ -23,6 +23,7 @@ import { api, initializeAPI } from '@/lib/api';
 import { authenticateRequest } from '@/lib/services/auth';
 import { GatewayHub, subscribeHubToRedis, GATEWAY_PATH } from '@/lib/gateway/core';
 import { createBunGatewayTransport, type GatewaySocketData } from '@/lib/gateway/bunTransport';
+import { handleCdnCompat } from '@/lib/botapi/cdnCompat';
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const dev = process.env.NODE_ENV !== 'production';
@@ -164,6 +165,14 @@ async function main() {
       }
       if (pathname === '/api/users/@me/activity') {
         return handleActivitySSE(req);
+      }
+
+      // ─── Discord CDN compatibility for bots (WP6) ─────────────
+      // /cdn-compat/avatars/{id}/{hash}.png etc. 302 to our own CDN only
+      // (src/lib/botapi/cdnCompat.ts). Point discord.js `rest.cdn` /
+      // discord.py `Asset.BASE` at <host>/cdn-compat.
+      if (pathname.startsWith('/cdn-compat/')) {
+        return handleCdnCompat(req);
       }
 
       // ─── REST API straight to Elysia ─────────────────────────

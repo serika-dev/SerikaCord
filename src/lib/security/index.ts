@@ -72,6 +72,14 @@ export const rateLimiters_config = {
   interactionApp: { points: 50, duration: 1 },
   // Saving an interactions endpoint sends a signed PING, per user.
   interactionsEndpointVerify: { points: 10, duration: 600 },
+  // OAuth2 token + revoke endpoints, per IP (client secrets are guessed here).
+  oauthToken: { points: 30, duration: 60 },
+  // Bot profile edits (PATCH /users/@me): Discord allows 2 username changes
+  // per hour; avatar / banner changes get a slightly larger budget.
+  botUsernameChange: { points: 2, duration: 3600 },
+  botProfileImage: { points: 10, duration: 3600 },
+  // /cdn-compat lookups that miss the hash cache (DB reads), per IP.
+  cdnCompat: { points: 300, duration: 60 },
 
   // Bot API (/api/v10), per bot: see src/lib/security/botRateLimit.ts
   ...BOT_LIMITS,

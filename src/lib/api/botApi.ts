@@ -91,6 +91,92 @@ function authenticateBot(headers: Record<string, string | undefined>): Promise<B
   return p;
 }
 
+// ─── OAuth2 Bearer auth (WP6) ──────────────────────────────
+// `Authorization: Bearer <access token>` from the OAuth2 flows
+// (src/lib/services/oauth2Tokens.ts) is accepted only where Discord accepts
+// it: users/@me (identify), users/@me/guilds (guilds), users/@me/guilds/{id}/member
+// (guilds.members.read), users/@me/connections (connections), oauth2/@me and
+// the application command routes (applications.commands.update /
+// applications.commands.permissions.update). Never on anything else.
+
+type BearerAuth = { grant: import('@/lib/services/oauth2Tokens').OAuthGrant; user: NonNullable<Awaited<ReturnType<typeof User.findById>>>; app: IApplication };
+const bearerMemo = new WeakMap<object, Promise<BearerAuth | null>>();
+
+function authenticateBearer(headers: Record<string, string | undefined>): Promise<BearerAuth | null> {
+  const memo = bearerMemo.get(headers);
+  if (memo) return memo;
+  const p = (async () => {
+    const { parseBearer } = await import('@/lib/oauth/scopes');
+    const token = parseBearer(headers.authorization);
+    if (!token) return null;
+    const { resolveBearerToken } = await import('@/lib/services/oauth2Tokens');
+    const grant = await resolveBearerToken(token);
+    if (!grant) return null;
+    const { Application } = await import('@/lib/models');
+    const [user, app] = await Promise.all([User.findById(grant.userId), Application.findById(grant.applicationId)]);
+    if (!user || !app || user.isBanned) return null;
+    return { grant, user, app };
+  })();
+  bearerMemo.set(headers, p);
+  return p;
+}
+
+/** A Bearer caller with `scope`, or the Discord error to answer (401 no/invalid token, 403 missing scope). */
+async function requireBearerScope(headers: Record<string, string | undefined>, scope: string): Promise<{ ok: true; auth: BearerAuth } | { ok: false; status: number; body: { code: number; message: string } }> {
+  const auth = await authenticateBearer(headers);
+  if (!auth) return { ok: false, status: 401, body: { code: 0, message: '401: Unauthorized' } };
+  if (!auth.grant.scopes.includes(scope)) return { ok: false, status: 403, body: { code: 50026, message: 'Missing required OAuth2 scope' } };
+  return { ok: true, auth };
+}
+
+/** The user object an OAuth2 app sees (`email` only with the email scope). */
+function formatOAuthUser(user: Parameters<typeof formatUser>[0], scopes: readonly string[]) {
+  const out = { ...formatUser(user), locale: 'en-US' } as Record<string, unknown>;
+  delete out.created_at;
+  if (scopes.includes('email')) {
+    out.email = user.email ?? null;
+    out.verified = user.isVerified ?? false;
+  } else {
+    delete out.email;
+    delete out.verified;
+  }
+  return out;
+}
+
+/**
+ * Who may call an application command route: the app's own bot, or a Bearer
+ * token granted to that app with applications.commands.update (permissions
+ * writes: applications.commands.permissions.update). Returns the app.
+ */
+async function authenticateCommandsCaller(
+  headers: Record<string, string | undefined>,
+  mode: 'read' | 'write' | 'permissions',
+): Promise<{ app: IApplication; bearer: BearerAuth | null } | null> {
+  const bot = await authenticateBot(headers);
+  if (bot) return { app: bot.app, bearer: null };
+  const bearer = await authenticateBearer(headers);
+  if (!bearer) return null;
+  const { commandsScopeOk } = await import('@/lib/oauth/scopes');
+  if (!commandsScopeOk(bearer.grant.scopes, mode === 'read' ? 'write' : mode)) return null;
+  return { app: bearer.app, bearer };
+}
+
+/**
+ * Guild command routes with a Bearer token (the access guard only covers bot
+ * tokens): the app's bot must be in the guild, and permission writes need a
+ * user who can manage the guild and its roles (Discord).
+ */
+async function bearerGuildCommandsCheck(caller: { app: IApplication; bearer: BearerAuth | null }, guildId: string, mode: 'read' | 'write' | 'permissions'): Promise<{ status: number; body: ApiError } | null> {
+  if (!caller.bearer) return null;
+  if (!isValidObjectId(guildId)) return { status: 404, body: { code: 10004, message: 'Unknown Guild' } };
+  if (!caller.app.botId || !(await ServerMember.findOne({ serverId: guildId, userId: caller.app.botId }))) return { status: 403, body: MISSING_ACCESS };
+  if (mode !== 'permissions') return null;
+  const g = await loadBotGuild(guildId, caller.bearer.user.id);
+  if (!g.ok) return { status: g.status, body: g.body };
+  if (!standingHas(g.standing, P.MANAGE_SERVER | P.MANAGE_ROLES)) return { status: 403, body: MISSING_PERMISSIONS };
+  return null;
+}
+
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
 }
@@ -649,6 +735,35 @@ async function patchOwnApplication(auth: BotAuth, body: unknown, set: { status?:
   return discordApplication(fresh, auth.botUser);
 }
 
+// ─── Voice / monetization helpers (WP7) ────────────────────
+
+/** Serika voice is one peer-to-peer mesh: a single, always-optimal region. */
+const VOICE_REGIONS = [{ id: 'serika', name: 'SerikaCord (peer-to-peer)', optimal: true, deprecated: false, custom: false }];
+const UNKNOWN_VOICE_STATE = { code: 10065, message: 'Unknown voice state' };
+const UNKNOWN_ENTITLEMENT = { code: 10029, message: 'Unknown entitlement' };
+
+/** The voice state of `userId` in a guild's voice channels (with member), or null. */
+async function findVoiceState(guildId: string, userId: string) {
+  if (!isValidObjectId(guildId) || !isValidObjectId(userId)) return null;
+  const { listGuildVoiceStates } = await import('@/lib/services/voiceStates');
+  const state = (await listGuildVoiceStates(guildId)).find((v) => compareIds(v.user_id, userId));
+  if (!state) return null;
+  const member = await ServerMember.findOne({ serverId: guildId, userId });
+  const user = member ? await User.findById(userId) : null;
+  return { ...state, guild_id: guildId, ...(member ? { member: formatMember(member, user) } : {}) };
+}
+
+/** Type checks of a voice state PATCH body (Discord 50035 tree), or null. */
+function voiceStatePatchError(b: { channel_id?: unknown; suppress?: unknown; request_to_speak_timestamp?: unknown }) {
+  const errs: Array<{ path: string; code: string; message: string }> = [];
+  if (b.channel_id !== undefined && b.channel_id !== null && typeof b.channel_id !== 'string') errs.push({ path: 'channel_id', code: 'NUMBER_TYPE_COERCE', message: 'Value is not snowflake.' });
+  if (b.suppress !== undefined && typeof b.suppress !== 'boolean') errs.push({ path: 'suppress', code: 'BOOLEAN_TYPE_COERCE', message: 'Must be either true or false.' });
+  if (b.request_to_speak_timestamp !== undefined && b.request_to_speak_timestamp !== null && (typeof b.request_to_speak_timestamp !== 'string' || Number.isNaN(Date.parse(b.request_to_speak_timestamp)))) {
+    errs.push({ path: 'request_to_speak_timestamp', code: 'DATE_TYPE_PARSE', message: 'Could not parse the date.' });
+  }
+  return errs.length > 0 ? invalidFormBodyAt(errs) : null;
+}
+
 // ─── Bot API Routes (Discord v10 compatible) ───────────────
 
 export const botApiRoutes = new Elysia({ prefix: '/v10' })
@@ -764,8 +879,65 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 // ─── Users ─────────────────────────────────────────────────
 .get('/users/@me', async ({ headers, set }) => {
   const auth = await authenticateBot(headers);
+  if (auth) return formatUser(auth.botUser);
+  // OAuth2: Bearer with the identify scope (email needs the email scope).
+  const bearer = await requireBearerScope(headers, 'identify');
+  if (!bearer.ok) { set.status = bearer.status; return bearer.body; }
+  return formatOAuthUser(bearer.auth.user, bearer.auth.grant.scopes);
+})
+// ─── Current user (WP1/WP6): bot profile, guild list, connections ─
+// Bots edit their own username / avatar / banner (Discord's limits, the
+// regular upload pipeline with Trust & Safety scanning) and get USER_UPDATE.
+.patch('/users/@me', async ({ headers, body, request, set }) => {
+  const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  return formatUser(auth.botUser);
+  const { parseBotUserPatch } = await import('@/lib/botapi/users');
+  const parsed = parseBotUserPatch(body);
+  if (!parsed.ok) { set.status = 400; return invalidFormBodyAt(parsed.errors); }
+  const { username, avatar, banner } = parsed.patch;
+  const { updateBotProfile } = await import('@/lib/services/botProfile');
+  const r = await updateBotProfile(auth.botUser, { username, avatar, banner }, { ip: getClientIP(request), ownerId: auth.app.ownerId });
+  if (!r.ok) { set.status = r.status; if (r.headers) Object.assign(set.headers, r.headers); return r.body; }
+  return formatUser(r.user);
+})
+.get('/users/@me/guilds', async ({ headers, query, set }) => {
+  const auth = await authenticateBot(headers);
+  let userId: string;
+  if (auth) userId = auth.botUser.id;
+  else {
+    const bearer = await requireBearerScope(headers, 'guilds');
+    if (!bearer.ok) { set.status = bearer.status; return bearer.body; }
+    userId = bearer.auth.user.id;
+  }
+  const { parseGuildPageQuery, listCurrentUserGuilds } = await import('@/lib/botapi/users');
+  const q = parseGuildPageQuery({ before: query.before, after: query.after, limit: query.limit, with_counts: query.with_counts });
+  if ('error' in q) {
+    set.status = 400;
+    return invalidFormBodyAt([{ path: q.error, code: q.error === 'limit' ? 'NUMBER_TYPE_MAX' : 'NUMBER_TYPE_COERCE', message: q.error === 'limit' ? 'int value should be between 1 and 200.' : 'Value is not snowflake.' }]);
+  }
+  return listCurrentUserGuilds(userId, q);
+})
+.get('/users/@me/guilds/:guildId/member', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  let userId: string;
+  if (auth) userId = auth.botUser.id; // the access guard already required membership
+  else {
+    const bearer = await requireBearerScope(headers, 'guilds.members.read');
+    if (!bearer.ok) { set.status = bearer.status; return bearer.body; }
+    userId = bearer.auth.user.id;
+  }
+  if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  const member = await ServerMember.findOne({ serverId: params.guildId, userId });
+  if (!member) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  const user = await User.findById(userId);
+  return formatMember(member, user);
+})
+.get('/users/@me/connections', async ({ headers, set }) => {
+  // Bearer only (Discord): a bot has no connections.
+  const bearer = await requireBearerScope(headers, 'connections');
+  if (!bearer.ok) { set.status = bearer.status; return bearer.body; }
+  const { listConnections } = await import('@/lib/botapi/users');
+  return listConnections(bearer.auth.user.id);
 })
 .get('/users/:userId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -774,7 +946,45 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.userId)) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
   const user = await User.findById(params.userId);
   if (!user) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
-  return formatUser(user);
+  // Another user's object never carries account-private fields (Discord).
+  const out = formatUser(user) as Record<string, unknown>;
+  if (!compareIds(user.id, auth.botUser.id)) { delete out.email; delete out.verified; delete out.mfa_enabled; delete out.premium_type; delete out.created_at; }
+  return out;
+})
+
+// ─── OAuth2 (WP6): /api/v10 aliases of /api/oauth2/* + /oauth2/@me ─
+// Same handlers as the unversioned routes (src/lib/api/developers.ts):
+// authorization codes are one-time, tokens are stored hashed, refresh
+// tokens rotate, client_credentials acts as the app owner.
+.get('/oauth2/authorize', async ({ query, headers, set }) => {
+  const { oauthAuthorizeInfo } = await import('@/lib/api/developers');
+  return oauthAuthorizeInfo(query as Record<string, unknown>, headers, set);
+})
+.post('/oauth2/token', async ({ body, headers, request, set }) => {
+  const { oauthTokenEndpoint } = await import('@/lib/api/developers');
+  const { grant_type, code, redirect_uri, refresh_token, scope, client_id, client_secret } = (body ?? {}) as Record<string, unknown>;
+  return oauthTokenEndpoint({ grant_type, code, redirect_uri, refresh_token, scope, client_id, client_secret }, headers, set, getClientIP(request));
+})
+.post('/oauth2/token/revoke', async ({ body, headers, request, set }) => {
+  const { oauthRevokeEndpoint } = await import('@/lib/api/developers');
+  const { token, token_type_hint, client_id, client_secret } = (body ?? {}) as Record<string, unknown>;
+  return oauthRevokeEndpoint({ token, token_type_hint, client_id, client_secret }, headers, set, getClientIP(request));
+})
+.get('/oauth2/@me', async ({ headers, set }) => {
+  const auth = await authenticateBearer(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  // Discord's partial application here: public fields only.
+  const full = toDiscordApplication(auth.app, {});
+  const application = {
+    id: full.id, name: full.name, icon: full.icon, description: full.description, summary: full.summary, type: full.type,
+    hook: full.hook, bot_public: full.bot_public, bot_require_code_grant: full.bot_require_code_grant, verify_key: full.verify_key, flags: full.flags,
+  };
+  return {
+    application,
+    scopes: auth.grant.scopes,
+    expires: auth.grant.expiresAt.toISOString(),
+    ...(auth.grant.scopes.includes('identify') ? { user: formatOAuthUser(auth.user, auth.grant.scopes) } : {}),
+  };
 })
 
 // ─── Applications (WP6: the calling bot's own application) ─
@@ -1902,28 +2112,28 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 // PUT diffs instead of delete + recreate so ids stay stable, validation errors
 // are 50035 trees. `:appId` is the application id (its client id also works).
 .get('/applications/:appId/commands', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'read');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const { listCommands, serializeCommand } = await import('@/lib/services/appCommands');
   return (await listCommands(auth.app.id, null)).map((c) => serializeCommand(c, auth.app.id));
 })
 .put('/applications/:appId/commands', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'write');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const { bulkOverwriteCommands } = await import('@/lib/services/appCommands');
   return respond(set, await bulkOverwriteCommands(auth.app.id, null, body));
 })
 .post('/applications/:appId/commands', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'write');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const { upsertCommand } = await import('@/lib/services/appCommands');
   return respond(set, await upsertCommand(auth.app.id, null, body));
 })
 .get('/applications/:appId/commands/:commandId', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'read');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
@@ -1931,7 +2141,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   return respond(set, await getCommand(auth.app.id, null, params.commandId));
 })
 .patch('/applications/:appId/commands/:commandId', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'write');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
@@ -1939,7 +2149,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   return respond(set, await patchCommand(auth.app.id, null, params.commandId, body));
 })
 .delete('/applications/:appId/commands/:commandId', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'write');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
@@ -1947,63 +2157,79 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   return respond(set, await deleteCommand(auth.app.id, null, params.commandId));
 })
 .get('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'read');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'read');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const { listCommands, serializeCommand } = await import('@/lib/services/appCommands');
   return (await listCommands(auth.app.id, params.guildId)).map((c) => serializeCommand(c, auth.app.id));
 })
 .put('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'write');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'write');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const { bulkOverwriteCommands } = await import('@/lib/services/appCommands');
   return respond(set, await bulkOverwriteCommands(auth.app.id, params.guildId, body));
 })
 .post('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'write');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'write');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const { upsertCommand } = await import('@/lib/services/appCommands');
   return respond(set, await upsertCommand(auth.app.id, params.guildId, body));
 })
 // Permissions v2. Discord only lets a Bearer token with
-// applications.commands.permissions.update write these; SerikaCord also lets
-// the app's own bot write them (there is no OAuth flow for that scope yet).
+// applications.commands.permissions.update (of a user who can manage the
+// guild and its roles) write these; SerikaCord also lets the app's own bot.
 .get('/applications/:appId/guilds/:guildId/commands/permissions', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'read');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'read');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const { listGuildCommandPermissions } = await import('@/lib/services/appCommands');
   return listGuildCommandPermissions(auth.app.id, params.guildId);
 })
 .get('/applications/:appId/guilds/:guildId/commands/:commandId', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'read');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'read');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
   const { getCommand } = await import('@/lib/services/appCommands');
   return respond(set, await getCommand(auth.app.id, params.guildId, params.commandId));
 })
 .patch('/applications/:appId/guilds/:guildId/commands/:commandId', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'write');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'write');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
   const { patchCommand } = await import('@/lib/services/appCommands');
   return respond(set, await patchCommand(auth.app.id, params.guildId, params.commandId, body));
 })
 .delete('/applications/:appId/guilds/:guildId/commands/:commandId', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'write');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'write');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
   const { deleteCommand } = await import('@/lib/services/appCommands');
   return respond(set, await deleteCommand(auth.app.id, params.guildId, params.commandId));
 })
 .get('/applications/:appId/guilds/:guildId/commands/:commandId/permissions', async ({ headers, params, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'read');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'read');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const commandId = ownsApp(auth, params.commandId) ? auth.app.id : params.commandId;
   if (!isValidObjectId(commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
@@ -2011,8 +2237,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   return respond(set, await getCommandPermissions(auth.app.id, params.guildId, commandId));
 })
 .put('/applications/:appId/guilds/:guildId/commands/:commandId/permissions', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
+  const auth = await authenticateCommandsCaller(headers, 'permissions');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'permissions');
+  if (gc) { set.status = gc.status; return gc.body; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   const commandId = ownsApp(auth, params.commandId) ? auth.app.id : params.commandId;
   if (!isValidObjectId(commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
@@ -2763,10 +2991,18 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
-  const { recipient_id } = body as { recipient_id?: string };
-  if (!recipient_id || !isValidObjectId(recipient_id)) {
-    set.status = 400; return { code: 50035, message: 'Invalid recipient_id' };
+  const { recipient_id, access_tokens, nicks } = (body ?? {}) as { recipient_id?: string; access_tokens?: unknown; nicks?: unknown };
+  // Group DM create (access_tokens + nicks, the gdm.join scope): Discord's
+  // deprecated GameBridge flow. Serika has no gdm.join grant, so it is refused.
+  if (access_tokens !== undefined || nicks !== undefined) {
+    set.status = 400;
+    return invalidFormBodyAt([{ path: 'access_tokens', code: 'GROUP_DM_CREATE_UNSUPPORTED', message: 'Bots cannot create group DMs on SerikaCord.' }]);
   }
+  if (!recipient_id || !isValidObjectId(recipient_id)) {
+    set.status = 400;
+    return invalidFormBodyAt([{ path: 'recipient_id', code: recipient_id ? 'NUMBER_TYPE_COERCE' : 'BASE_TYPE_REQUIRED', message: recipient_id ? 'Value is not snowflake.' : 'This field is required' }]);
+  }
+  if (compareIds(recipient_id, auth.botUser.id)) { set.status = 400; return { code: 50007, message: 'Cannot send messages to this user' }; }
 
   // Existing 1:1 DM between the two (type + recipientIds are whitelisted filter keys).
   let dm: IChannel | null = await Channel.findOne({ type: 'dm', recipientIds: [auth.botUser.id, recipient_id] });
@@ -2777,6 +3013,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     // not blocked it, and accepts DMs from non-friends.
     const recipient = await User.findById(recipient_id);
     if (!recipient) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
+    // Bots can't DM other bots (Discord 50007).
+    if (recipient.isBot) { set.status = 400; return { code: 50007, message: 'Cannot send messages to this user' }; }
     const blocked = ((recipient.blockedUsers as string[] | undefined) ?? []).includes(auth.botUser.id);
     const [botMemberships, recipientMemberships] = await Promise.all([
       ServerMember.find({ userId: auth.botUser.id }),
@@ -2813,16 +3051,140 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   return '';
 })
 
-// ─── Voice Regions ─────────────────────────────────────────
+// ─── Voice (WP7) ───────────────────────────────────────────
+// Bots see voice state (who is in which voice channel, mute / deafen) from
+// the voice room mirror; they cannot join voice themselves (op 4 answers
+// VOICE_SERVER_UPDATE endpoint null). Serika voice has one peer-to-peer
+// "region"; stage channels have no speaker / suppress model yet.
 .get('/voice/regions', async ({ headers, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  return [
-    { id: 'us-west', name: 'US West', optimal: false, deprecated: false, custom: false },
-    { id: 'us-east', name: 'US East', optimal: false, deprecated: false, custom: false },
-    { id: 'eu-central', name: 'EU Central', optimal: false, deprecated: false, custom: false },
-    { id: 'eu-west', name: 'EU West', optimal: false, deprecated: false, custom: false },
-    { id: 'japan', name: 'Japan', optimal: false, deprecated: false, custom: false },
-    { id: 'singapore', name: 'Singapore', optimal: false, deprecated: false, custom: false },
-  ];
+  return VOICE_REGIONS;
+})
+.get('/guilds/:guildId/regions', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  return VOICE_REGIONS; // the access guard already required membership
+})
+.get('/guilds/:guildId/voice-states/@me', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  set.status = 404;
+  return UNKNOWN_VOICE_STATE; // bots never join Serika voice
+})
+.get('/guilds/:guildId/voice-states/:userId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const state = await findVoiceState(params.guildId, params.userId);
+  if (!state) { set.status = 404; return UNKNOWN_VOICE_STATE; }
+  return state;
+})
+.patch('/guilds/:guildId/voice-states/@me', async ({ headers, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { channel_id, suppress, request_to_speak_timestamp } = (body ?? {}) as { channel_id?: unknown; suppress?: unknown; request_to_speak_timestamp?: unknown };
+  const bad = voiceStatePatchError({ channel_id, suppress, request_to_speak_timestamp });
+  if (bad) { set.status = 400; return bad; }
+  set.status = 404;
+  return UNKNOWN_VOICE_STATE; // the bot is never in a stage channel
+})
+.patch('/guilds/:guildId/voice-states/:userId', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { channel_id, suppress } = (body ?? {}) as { channel_id?: unknown; suppress?: unknown };
+  const bad = voiceStatePatchError({ channel_id, suppress });
+  if (bad) { set.status = 400; return bad; }
+  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MUTE_MEMBERS);
+  if (!g.ok) { set.status = g.status; return g.body; }
+  const state = await findVoiceState(params.guildId, params.userId);
+  if (!state) { set.status = 404; return UNKNOWN_VOICE_STATE; }
+  // Serika voice channels are not stage channels: there is nothing to suppress.
+  set.status = 400;
+  return { code: 50024, message: 'Cannot execute action on this channel type' };
+})
+
+// ─── Soundboard (WP7) ──────────────────────────────────────
+// Serika's soundboard sounds are URLs without Discord sound ids, so bots see
+// none (op 31 answers the same).
+.get('/soundboard-default-sounds', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  return [];
+})
+.get('/guilds/:guildId/soundboard-sounds', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  return { items: [] };
+})
+.get('/guilds/:guildId/soundboard-sounds/:soundId', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  set.status = 404;
+  return { code: 10097, message: 'Unknown sound' };
+})
+
+// ─── Monetization (WP7 stubs) ──────────────────────────────
+// SerikaCord has no app payments: no SKUs, entitlements or subscriptions.
+// Libraries' monetization helpers get empty lists instead of 404s.
+.get('/applications/:appId/skus', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  return [];
+})
+.get('/applications/:appId/entitlements', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { user_id, sku_ids, before, after, limit, guild_id, exclude_ended, exclude_deleted } = query as Record<string, string | undefined>;
+  if (limit !== undefined && !(Number.isInteger(Number(limit)) && Number(limit) >= 1 && Number(limit) <= 100)) {
+    set.status = 400;
+    return invalidFormBodyAt([{ path: 'limit', code: 'NUMBER_TYPE_MAX', message: 'int value should be between 1 and 100.' }]);
+  }
+  void user_id; void sku_ids; void before; void after; void guild_id; void exclude_ended; void exclude_deleted;
+  return [];
+})
+.get('/applications/:appId/entitlements/:entitlementId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  set.status = 404;
+  return UNKNOWN_ENTITLEMENT;
+})
+.post('/applications/:appId/entitlements', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  // Test entitlements need a SKU; there are none.
+  const { sku_id, owner_id, owner_type } = (body ?? {}) as { sku_id?: unknown; owner_id?: unknown; owner_type?: unknown };
+  void owner_id; void owner_type;
+  set.status = 404;
+  return sku_id === undefined ? invalidFormBodyAt([{ path: 'sku_id', code: 'BASE_TYPE_REQUIRED', message: 'This field is required' }]) : { code: 10027, message: 'Unknown SKU' };
+})
+.delete('/applications/:appId/entitlements/:entitlementId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  set.status = 404;
+  return UNKNOWN_ENTITLEMENT;
+})
+.post('/applications/:appId/entitlements/:entitlementId/consume', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  set.status = 404;
+  return UNKNOWN_ENTITLEMENT;
+})
+.get('/skus/:skuId/subscriptions', async ({ headers, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { before, after, limit, user_id } = query as Record<string, string | undefined>;
+  void before; void after; void limit; void user_id;
+  return [];
+})
+.get('/skus/:skuId/subscriptions/:subscriptionId', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  set.status = 404;
+  return { code: 10027, message: 'Unknown SKU' };
 });

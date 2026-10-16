@@ -12,7 +12,7 @@ import { allowedPrivilegedIntents, INTENT, toStoredIntents } from '@/lib/gateway
 const VALID_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
 // All supported OAuth2 scopes
-const VALID_OAUTH_SCOPES = new Set([
+export const VALID_OAUTH_SCOPES: ReadonlySet<string> = new Set([
   'identify',
   'email',
   'connections',
@@ -101,10 +101,6 @@ function isHttpUrl(value: string): boolean {
   } catch {
     return false;
   }
-}
-
-function generateToken(prefix: string): string {
-  return `${prefix}${crypto.randomBytes(24).toString('hex')}`;
 }
 
 function generateClientId(): string {
@@ -1333,113 +1329,88 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     }] : [] };
   });
 
-export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
-  .post('/token', async ({ body, set }) => {
-    const formData = body as { grant_type?: string; client_id?: string; client_secret?: string; refresh_token?: string; code?: string; redirect_uri?: string };
-
-    const grantType = formData.grant_type;
-    const clientId = formData.client_id;
-    const clientSecret = formData.client_secret;
-    const { Application } = await import('@/lib/models');
-    const app = await Application.findOne({ clientId });
-    if (!app) { set.status = 400; return { error: 'invalid_client' }; }
-
-    if (app.clientSecret !== clientSecret) {
-      set.status = 400; return { error: 'invalid_client' };
+/**
+ * GET /oauth2/authorize for API callers (JSON: the app, scopes and validated
+ * redirect URI for the consent page); browsers are sent to the consent page.
+ * Shared by /api/oauth2/authorize and its /api/v10 alias.
+ */
+export async function oauthAuthorizeInfo(
+  query: Record<string, unknown>,
+  headers: Record<string, string | undefined>,
+  set: { status?: number | string },
+) {
+  const accept = headers['accept'] || '';
+  if (accept.includes('text/html')) {
+    const searchParams = new URLSearchParams();
+    for (const [key, val] of Object.entries(query)) {
+      if (val !== undefined) searchParams.append(key, String(val));
     }
+    return new Response(null, { status: 302, headers: { Location: `/oauth2/authorize?${searchParams.toString()}` } });
+  }
 
-    if (grantType === 'authorization_code') {
-      const accessToken = generateToken('sc_');
-      const refreshToken = generateToken('sc_r_');
+  const clientId = typeof query.client_id === 'string' ? query.client_id : '';
+  const { Application } = await import('@/lib/models');
+  let app = clientId ? await Application.findOne({ clientId }) : null;
+  if (!app) {
+    set.status = 404;
+    return { error: 'Unknown application' };
+  }
 
-      return {
-        access_token: accessToken,
-        token_type: 'Bearer',
-        expires_in: 604800,
-        refresh_token: refreshToken,
-        scope: (app.scopes || []).join(' '),
-      };
-    }
-
-    if (grantType === 'refresh_token') {
-      const refreshToken = formData.refresh_token;
-      if (!refreshToken) { set.status = 400; return { error: 'invalid_request' }; }
-
-      const newAccessToken = generateToken('sc_');
-      return {
-        access_token: newAccessToken,
-        token_type: 'Bearer',
-        expires_in: 604800,
-        refresh_token: generateToken('sc_r_'),
-        scope: (app.scopes || []).join(' '),
-      };
-    }
-
-    if (grantType === 'client_credentials') {
-      const accessToken = generateToken('sc_');
-      return {
-        access_token: accessToken,
-        token_type: 'Bearer',
-        expires_in: 3600,
-        scope: (app.scopes || []).join(' '),
-      };
-    }
-
+  // Only ever hand back a redirect URI the app registered (and that uses a
+  // safe scheme), so the consent page can never be turned into an open
+  // redirect or a javascript: URL.
+  const redirect = resolveRedirectUri(query.redirect_uri as string | undefined, app.redirectUris);
+  if (!redirect.ok) {
     set.status = 400;
-    return { error: 'unsupported_grant_type' };
-  })
+    return { error: 'invalid_redirect_uri', message: 'redirect_uri is not registered for this application' };
+  }
 
-  .get('/authorize', async ({ query, set, headers }) => {
-    const accept = headers['accept'] || '';
-    if (accept.includes('text/html')) {
-      const searchParams = new URLSearchParams();
-      for (const [key, val] of Object.entries(query)) {
-        if (val !== undefined) searchParams.append(key, String(val));
-      }
-      return Response.redirect(`/oauth2/authorize?${searchParams.toString()}`, 302);
-    }
+  const scopes = (typeof query.scope === 'string' ? query.scope : '').split(' ').filter(Boolean);
+  if (scopes.includes('bot') && (!app.botId || !app.botToken)) {
+    const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+    app = await ensureBotProvisioned(app);
+  }
 
-    const clientId = query.client_id as string;
-    const { Application } = await import('@/lib/models');
-    let app = await Application.findOne({ clientId });
-    if (!app) {
-      set.status = 404;
-      return { error: 'Unknown application' };
-    }
+  return {
+    application: {
+      id: app.id,
+      name: app.name,
+      icon: app.icon || null,
+      description: app.description,
+    },
+    scopes,
+    redirect_uri: redirect.uri,
+  };
+}
 
-    // Only ever hand back a redirect URI the app registered (and that uses a
-    // safe scheme), so the consent page can never be turned into an open
-    // redirect or a javascript: URL.
-    const redirect = resolveRedirectUri(query.redirect_uri as string | undefined, app.redirectUris);
-    if (!redirect.ok) {
-      set.status = 400;
-      return { error: 'invalid_redirect_uri', message: 'redirect_uri is not registered for this application' };
-    }
+// Token and revoke endpoints: real grants backed by src/lib/services/oauth2Tokens.ts
+// (one-time codes, hashed tokens, refresh rotation, client_credentials for
+// the app owner). Clients authenticate with client_id/client_secret in the
+// body or HTTP Basic, like Discord.
+export async function oauthTokenEndpoint(body: unknown, headers: Record<string, string | undefined>, set: { status?: number | string }, ip: string) {
+  const limited = await checkRateLimit('oauthToken', ip);
+  if (!limited.success) { set.status = 429; return { error: 'rate_limited', retry_after: limited.retryAfter ?? 1 }; }
+  const { handleTokenRequest } = await import('@/lib/services/oauth2Tokens');
+  const r = await handleTokenRequest(body, headers.authorization, VALID_OAUTH_SCOPES);
+  set.status = r.status;
+  return r.body;
+}
 
-    const scopes = (query.scope as string || '').split(' ').filter(Boolean);
-    if (scopes.includes('bot') && (!app.botId || !app.botToken)) {
-      const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
-      app = await ensureBotProvisioned(app);
-    }
+export async function oauthRevokeEndpoint(body: unknown, headers: Record<string, string | undefined>, set: { status?: number | string }, ip: string) {
+  const limited = await checkRateLimit('oauthToken', ip);
+  if (!limited.success) { set.status = 429; return { error: 'rate_limited', retry_after: limited.retryAfter ?? 1 }; }
+  const { handleRevokeRequest } = await import('@/lib/services/oauth2Tokens');
+  const r = await handleRevokeRequest(body, headers.authorization);
+  set.status = r.status;
+  return r.body;
+}
 
-    return {
-      application: {
-        id: app.id,
-        name: app.name,
-        icon: app.icon || null,
-        description: app.description,
-      },
-      scopes,
-      redirect_uri: redirect.uri,
-    };
-  })
+export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
+  .post('/token', async ({ body, headers, set, request }) => oauthTokenEndpoint(body, headers, set, getClientIP(request)))
 
-  .post('/token/revoke', async ({ body, set }) => {
-    const formData = body as { token?: string };
-    const token = formData.token;
-    if (!token) { set.status = 400; return { error: 'invalid_request' }; }
-    return {};
-  })
+  .get('/authorize', async ({ query, set, headers }) => oauthAuthorizeInfo(query as Record<string, unknown>, headers, set))
+
+  .post('/token/revoke', async ({ body, headers, set, request }) => oauthRevokeEndpoint(body, headers, set, getClientIP(request)))
 
   .post('/authorize', async ({ headers, cookie, query, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -1656,16 +1627,28 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     }
 
     if (redirectUri) {
+      // Real grants (src/lib/services/oauth2Tokens.ts): the code is one-time,
+      // bound to this app, user, scope set and redirect URI; the implicit
+      // token is stored hashed and works as a Bearer token on /api/v10.
+      const { issueAuthorizationCode, mintToken } = await import('@/lib/services/oauth2Tokens');
+      const grantScopes = requestedScopes.filter((s) => s !== 'bot' && s !== 'webhook.incoming');
       let callbackUrl = redirectUri;
-      if (responseType === 'token') {
-        const accessToken = generateToken('sc_');
-        callbackUrl += `#access_token=${accessToken}&token_type=Bearer&expires_in=604800&scope=${encodeURIComponent(requestedScopes.join(' '))}`;
-        if (state) callbackUrl += `&state=${encodeURIComponent(state)}`;
-      } else {
-        const code = generateToken('sc_code_');
-        const params: Record<string, string> = { code };
-        if (state) params.state = state;
-        callbackUrl = appendQuery(redirectUri, params);
+      try {
+        if (responseType === 'token') {
+          const issued = await mintToken({ applicationId: app.id, userId: user.id, scopes: grantScopes, grantType: 'implicit', withRefresh: false });
+          const frag = new URLSearchParams({ access_token: issued.access_token, token_type: 'Bearer', expires_in: String(issued.expires_in), scope: issued.scope });
+          if (state) frag.set('state', state);
+          callbackUrl = `${redirectUri.split('#')[0]}#${frag.toString()}`;
+        } else {
+          const code = await issueAuthorizationCode({ applicationId: app.id, userId: user.id, scopes: grantScopes, redirectUri: requestedRedirectUri ? redirectUri : null });
+          const params: Record<string, string> = { code };
+          if (state) params.state = state;
+          callbackUrl = appendQuery(redirectUri, params);
+        }
+      } catch (err) {
+        console.error('[oauth2] grant failed:', (err as Error)?.message ?? err);
+        set.status = 503;
+        return { error: 'temporarily_unavailable' };
       }
       return { redirect: callbackUrl };
     }

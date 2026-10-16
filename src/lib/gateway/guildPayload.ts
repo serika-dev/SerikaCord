@@ -17,6 +17,8 @@ import { computeChannelPermissions, type ChannelOverwrite } from '@/lib/permissi
 import { PERMISSION_BITS } from '@/lib/permissions/bits';
 
 export const DEFAULT_LARGE_THRESHOLD = 50;
+/** GUILD_VOICE_STATES intent (voice_states in GUILD_CREATE). */
+const GUILD_VOICE_STATES = 1 << 7;
 export const MAX_LARGE_THRESHOLD = 250;
 /** Members per GUILD_MEMBERS_CHUNK (Discord: 1000). */
 export const MEMBERS_PER_CHUNK = 1000;
@@ -162,6 +164,31 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
     .map((c) => ({ ...toDiscordChannel({ ...c, ownerId: c.ownerId ?? server.ownerId }) }));
   const guildChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'group_dm' && !isThreadChannelType(c.type));
 
+  // WP7: who is in voice (GUILD_VOICE_STATES), WP1: presences of the members
+  // sent here (GUILD_PRESENCES, privileged), online members only.
+  let voiceStates: unknown[] = [];
+  if ((opts.intents & GUILD_VOICE_STATES) !== 0) {
+    try {
+      const { listGuildVoiceStates } = await import('@/lib/services/voiceStates');
+      voiceStates = await listGuildVoiceStates(sid);
+    } catch { /* voice mirror unavailable (standalone gateway) */ }
+  }
+  let presences: unknown[] = [];
+  if ((opts.intents & INTENT.GUILD_PRESENCES) !== 0 && users.size > 0) {
+    try {
+      const { buildPresences } = await import('@/lib/services/botPresence');
+      const rich = await db.select().from(schema.richPresence)
+        .where(and(inArray(schema.richPresence.userId, [...users.keys()]), gt(schema.richPresence.expiresAt, new Date())));
+      const richByUser = new Map<string, typeof rich>();
+      for (const r of rich) {
+        const list = richByUser.get(r.userId);
+        if (list) list.push(r);
+        else richByUser.set(r.userId, [r]);
+      }
+      presences = buildPresences(users.values(), richByUser);
+    } catch { /* presences are best-effort */ }
+  }
+
   return {
     ...toDiscordGuildBase(server),
     joined_at: (botMember.joinedAt ?? new Date()).toISOString(),
@@ -169,11 +196,11 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
     unavailable: false,
     member_count: memberCount,
     approximate_member_count: memberCount,
-    voice_states: [],
+    voice_states: voiceStates,
     members: members.map((m) => toDiscordGuildMember(m, users.get(m.userId) ?? { id: m.userId }, everyone)),
     channels: guildChannels.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map((c) => toDiscordChannel(c)),
     threads,
-    presences: [],
+    presences,
     stage_instances: [],
     guild_scheduled_events: events,
     soundboard_sounds: [],

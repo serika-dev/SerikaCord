@@ -252,6 +252,12 @@ function sortActivitiesByPriority<T extends { type?: string | null }>(activities
 const activeFriendStreamConnections = new Map<string, Set<ReadableStreamDefaultController>>();
 
 function emitFriendEvent(userIds: string[], payload: Record<string, unknown>) {
+  // Every human presence change passes here once (on the instance where it
+  // happened): bots with GUILD_PRESENCES in shared servers get PRESENCE_UPDATE.
+  if (payload.type === 'presence:update' && typeof payload.userId === 'string') {
+    const subject = payload.userId;
+    void import('@/lib/services/gatewayEvents').then((m) => m.emitPresenceUpdate(subject)).catch(() => {});
+  }
   const encoded = sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
   for (const userId of userIds) {
     const streams = activeFriendStreamConnections.get(userId);
@@ -2074,11 +2080,18 @@ const userRoutes = new Elysia({ prefix: '/users' })
     }
 
     // Scoped to the caller: another user's row id must not be deletable.
+    const row = isValidObjectId(normalizeId(params.appId)) ? await AuthorizedApp.findById(params.appId) : null;
     const deleted = isValidObjectId(normalizeId(params.appId))
       && await AuthorizedApp.deleteByIdForUser(params.appId, authUser.id);
     if (!deleted) {
       set.status = 404;
       return { error: 'Authorized app not found' };
+    }
+    // Its OAuth2 access / refresh tokens stop working too.
+    if (row?.name) {
+      void import('@/lib/services/oauth2Tokens')
+        .then((m) => m.revokeTokensForAuthorizedApp(authUser.id, row.name))
+        .catch((err) => console.error('[oauth2] revoke on deauthorize failed:', (err as Error)?.message ?? err));
     }
     return { success: true };
   }, {

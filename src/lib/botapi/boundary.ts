@@ -28,6 +28,7 @@ import {
 } from './idTranslate';
 import { isPublicSnowflake as isSnowflake } from './snowflake';
 import { invalidFormBody, type DiscordError } from './errors';
+import { toCdnHashes } from './cdnCompat';
 import {
   applicationByClientId, cachedSnowflakeOf, everyoneRoleOf, isCachedEveryoneRole, snowflakesForUuids, SF_KIND,
   uuidsForSnowflakes,
@@ -68,10 +69,25 @@ export async function resolveOutbound(payload: unknown, opts?: { timeoutMs?: num
   }
 }
 
-/** `payload` with its UUID ids replaced by snowflakes. */
+/**
+ * `payload` as a snowflake-format app sees it: UUID ids replaced by
+ * snowflakes and CDN URLs by Discord image hashes (./cdn.ts; served by
+ * /cdn-compat). Legacy UUID-format apps never pass through here, so they keep
+ * full URLs.
+ */
 export async function toSnowflakes<T>(payload: T): Promise<T> {
   const lookup = await resolveOutbound(payload);
-  return lookup ? rewriteOutbound(payload, lookup) : payload;
+  return toPublicMedia(lookup ? rewriteOutbound(payload, lookup) : payload);
+}
+
+/** CDN URL fields -> Discord image hashes (the snowflake-format hook of WP6 CDN compatibility). */
+export function toPublicMedia<T>(payload: T): T {
+  try {
+    return toCdnHashes(payload);
+  } catch (err) {
+    console.error('[bot-api] cdn hash rewrite failed:', (err as Error)?.message ?? err);
+    return payload;
+  }
 }
 
 export { rewriteOutbound };
@@ -225,8 +241,32 @@ export function botTokenOf(authorization: string | null | undefined): string | n
   return /^[A-Za-z0-9._-]{20,512}$/.test(t) ? t : null;
 }
 
-async function botAppOf(request: Request) {
-  const token = botTokenOf(request.headers.get('authorization'));
+const appMemo = new WeakMap<Request, Promise<IApplicationLike | null>>();
+type IApplicationLike = { apiIdFormat?: string | null };
+
+/** The application a request acts as (bot token or OAuth2 Bearer), memoized per request. */
+function botAppOf(request: Request): Promise<IApplicationLike | null> {
+  const memo = appMemo.get(request);
+  if (memo) return memo;
+  const p = resolveRequestApp(request).catch(() => null);
+  appMemo.set(request, p);
+  return p;
+}
+
+async function resolveRequestApp(request: Request): Promise<IApplicationLike | null> {
+  const authorization = request.headers.get('authorization');
+  // OAuth2 Bearer: the app the token was granted to (its id format applies).
+  if (authorization && /^Bearer\s/i.test(authorization)) {
+    const { parseBearer } = await import('@/lib/oauth/scopes');
+    const bearer = parseBearer(authorization);
+    if (!bearer) return null;
+    const { resolveBearerToken } = await import('@/lib/services/oauth2Tokens');
+    const grant = await resolveBearerToken(bearer).catch(() => null);
+    if (!grant) return null;
+    const { Application } = await import('@/lib/models');
+    return Application.findById(grant.applicationId).catch(() => null);
+  }
+  const token = botTokenOf(authorization);
   if (!token) return null;
   const { resolveBotToken } = await import('@/lib/services/botTokens');
   return resolveBotToken(token).catch(() => null);

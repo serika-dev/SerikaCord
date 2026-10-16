@@ -97,6 +97,26 @@ const INSTANCE_ID = PROCESS_INSTANCE_ID || randomUUID();
 const VOICE_SSE_BUS = 'voice:sse';       // client-bound SSE payloads
 const VOICE_MEMBERS_BUS = 'voice:members'; // room membership sync
 
+// ── Bot API voice states (WP7) ──────────────────────────────────────────────
+// VOICE_STATE_UPDATE for server voice channels, sent by the instance where the
+// change happened (mirror updates from other instances never re-emit).
+function emitVoiceState(roomId: string, userId: string, participant: VoiceParticipant | null) {
+  if (!roomId.startsWith('channel-')) return; // DM / group calls are not bot-visible
+  void import('@/lib/services/voiceStates')
+    .then((m) => m.emitVoiceStateFor(roomId, userId, participant ? { ...participant } : null))
+    .catch(() => {});
+}
+
+/** Participants of every server voice room on this instance's (synced) mirror. */
+export function channelRoomParticipants(): Array<{ channelId: string; participants: VoiceParticipant[] }> {
+  const out: Array<{ channelId: string; participants: VoiceParticipant[] }> = [];
+  for (const [roomId, room] of roomState) {
+    const m = /^channel-([0-9a-f-]{36})$/i.exec(roomId);
+    if (m && room.size > 0) out.push({ channelId: m[1].toLowerCase(), participants: [...room.values()] });
+  }
+  return out;
+}
+
 function getRoom(roomId: string) {
   if (!roomState.has(roomId)) {
     roomState.set(roomId, new Map());
@@ -250,6 +270,7 @@ function evictFromRoom(roomId: string, userId: string) {
   const empty = room.size === 0;
   if (empty) roomState.delete(roomId);
   publishMembership(roomId, 'leave', { userId });
+  emitVoiceState(roomId, userId, null);
   broadcastToRoom(roomId, { type: 'voice:participant_left', userId });
   stopRingingIfEmpty(roomId);
   // Last one out of a DM call: close its call message ("lasted 5 minutes" /
@@ -341,6 +362,7 @@ export async function applyServerVoiceState(
   if (fields.deaf !== undefined) update.serverDeaf = fields.deaf;
   Object.assign(participant, update);
   publishMembership(found.roomId, 'update', { userId, fields: update });
+  emitVoiceState(found.roomId, userId, participant);
   broadcastToRoom(found.roomId, {
     type: 'voice:state_update',
     userId,
@@ -648,6 +670,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
 
     // Sync membership to other instances' mirrors, then notify participants.
     publishMembership(body.roomId, 'join', { participant: room.get(userId) });
+    if (!resumed) emitVoiceState(body.roomId, userId, room.get(userId) ?? null);
     if (!resumed) {
       broadcastToRoom(body.roomId, {
         type: 'voice:participant_joined',
@@ -1104,6 +1127,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       video: participant.video,
       screenShare: body.screenShare,
     });
+    emitVoiceState(params.roomId, user.id, participant);
 
     return { success: true };
   }, {

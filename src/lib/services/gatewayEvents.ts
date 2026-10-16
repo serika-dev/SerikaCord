@@ -24,6 +24,7 @@ export const Intents = {
   GUILD_MEMBERS: 1 << 1,
   GUILD_PRESENCES: 1 << 8,
   GUILD_MODERATION: 1 << 2,
+  GUILD_VOICE_STATES: 1 << 7,
   GUILD_MESSAGES: 1 << 9,
   GUILD_MESSAGE_REACTIONS: 1 << 10,
   GUILD_MESSAGE_TYPING: 1 << 11,
@@ -919,4 +920,81 @@ export function toDiscordGuildBase(s: ServerRowLike) {
     safety_alerts_channel_id: null,
     incidents_data: null,
   };
+}
+
+// ─── Users, presence, voice (WP1 presence/user, WP7 voice) ──
+
+/**
+ * USER_UPDATE: the bot's own user changed (PATCH /users/@me). Discord sends it
+ * only to that user's sessions.
+ */
+export function emitUserUpdate(user: UserRowLike & { id: string }) {
+  return publish({ t: 'USER_UPDATE', guildId: null, intent: 0, targetBotId: user.id, d: { ...toDiscordUserRow(user), verified: true, mfa_enabled: false, email: null, locale: 'en-US', premium_type: 0 } });
+}
+
+/** Guilds `userId` shares with bots, and those bots (not `userId` itself). One query. */
+async function guildsWithBots(userId: string): Promise<Map<string, string[]>> {
+  const { db } = await import('@/lib/db/postgres');
+  const { sql } = await import('drizzle-orm');
+  const res = await db.execute(sql`
+    SELECT me.server_id::text AS g, b.user_id::text AS b
+    FROM server_members me
+    JOIN server_members b ON b.server_id = me.server_id AND b.user_id <> me.user_id
+    JOIN users u ON u.id = b.user_id AND u.is_bot = true
+    WHERE me.user_id = ${userId}
+    LIMIT 5000
+  `);
+  const rows = ((res as unknown as { rows?: Array<{ g: string; b: string }> }).rows ?? (res as unknown as Array<{ g: string; b: string }>)) || [];
+  const out = new Map<string, string[]>();
+  for (const r of rows) {
+    const list = out.get(r.g);
+    if (list) list.push(r.b);
+    else out.set(r.g, [r.b]);
+  }
+  return out;
+}
+
+/**
+ * PRESENCE_UPDATE for `userId` (human or bot) in every guild it shares with a
+ * bot, to those bots only (GUILD_PRESENCES, privileged). `presence` comes
+ * from the caller (op 3 for bots); without it the stored status and custom
+ * status are used. Invisible users are sent as offline, like Discord.
+ */
+export async function emitPresenceUpdate(userId: string, presence?: { status: string; activities: unknown[] }) {
+  try {
+    const guilds = await guildsWithBots(userId);
+    if (guilds.size === 0) return;
+    let status = presence?.status;
+    let activities = presence?.activities;
+    if (!status || !activities) {
+      const { User } = await import('@/lib/models');
+      const { resolveEffectiveStatus } = await import('./presence');
+      const { presenceActivitiesOf } = await import('./botPresence');
+      const user = await User.findById(userId);
+      if (!user) return;
+      status = resolveEffectiveStatus(user);
+      activities = status === 'offline' ? [] : presenceActivitiesOf(user);
+    }
+    const effective = status === 'invisible' ? 'offline' : status;
+    const d = {
+      user: { id: userId },
+      status: effective,
+      activities: effective === 'offline' ? [] : activities,
+      client_status: effective === 'offline' ? {} : { web: effective },
+    };
+    for (const [guildId, bots] of guilds) {
+      await publish({ t: 'PRESENCE_UPDATE', guildId, intent: Intents.GUILD_PRESENCES, d: { ...d, guild_id: guildId }, audience: bots });
+    }
+  } catch {
+    // Best-effort, like publish().
+  }
+}
+
+/**
+ * VOICE_STATE_UPDATE in a guild (GUILD_VOICE_STATES). `state` is a Discord
+ * voice state object (src/lib/services/voiceStates.ts); channel_id null
+ * means the user left voice.
+ */
+export function emitVoiceStateUpdate(guildId: string, state: Record<string, unknown>) {
+  return publish({ t: 'VOICE_STATE_UPDATE', guildId, intent: Intents.GUILD_VOICE_STATES, d: { ...state, guild_id: guildId } });
 }
