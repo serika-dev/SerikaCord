@@ -638,7 +638,8 @@ export function isPrunable(
   const roles = m.roles.map((r) => r.toLowerCase()).filter((r) => r !== everyone);
   if (roles.some((r) => !include.has(r))) return false;
   const cutoff = (opts.now ?? Date.now()) - opts.days * 86_400_000;
-  return !m.lastSeenAt || m.lastSeenAt.getTime() < cutoff;
+  // Unknown activity is never pruned.
+  return !!m.lastSeenAt && Number.isFinite(m.lastSeenAt.getTime()) && m.lastSeenAt.getTime() < cutoff;
 }
 
 /** `delete_message_seconds` (0..604800); the deprecated `delete_message_days` (0..7) still works. */

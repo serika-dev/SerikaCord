@@ -8,6 +8,7 @@ import { FormErrors } from '@/lib/botapi/formErrors';
 import { IS_COMPONENTS_V2, componentsPlainText, isComponentsV2, parseStoredComponents, resolveAttachmentRefs, validateMessageComponents } from '@/lib/botapi/components';
 import * as crypto from 'crypto';
 import { nanoid } from 'nanoid';
+import { BoundedMap } from '@/lib/utils/boundedMap';
 import { config } from '@/lib/config';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { removeServerBan, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
@@ -635,6 +636,10 @@ async function afterGuildChange(serverId: string) {
   await invalidateServerGate(serverId).catch(() => {});
 }
 
+/** widget.json is public: its counts are cached briefly per guild. */
+const WIDGET_COUNTS_TTL_MS = 60_000;
+const widgetCounts = new BoundedMap<string, { at: number; counts: { members: number; presences: number } }>(2000);
+
 /** GET /guilds/{id}/regions (same static list as /voice/regions). */
 const GUILD_VOICE_REGIONS = [
   { id: 'us-west', name: 'US West', optimal: false, deprecated: false, custom: false },
@@ -944,6 +949,8 @@ async function patchBotMember(
       errors.add(['roles'], 'BASE_TYPE_BAD_TYPE', 'Must be an array of role ids.');
     } else {
       if (!standingHas(g.standing, P.MANAGE_ROLES)) return deny();
+      // Like the web app: never the owner's roles, nor those of a member ranked at or above the bot.
+      if (!isSelf && (targetIsOwner || !targetOutranked)) return deny();
       const roleById = new Map(g.roles.map((r) => [normalizeId(r.id), r]));
       const before = new Set(((member.roles || []) as string[]).map(normalizeId).filter((id) => !everyone || id !== normalizeId(everyone)));
       const after = new Set((body.roles as string[]).map(normalizeId).filter((id) => !everyone || id !== normalizeId(everyone)));
@@ -1056,6 +1063,11 @@ async function changeMemberRole(
   const member = await ServerMember.findOne({ serverId: guildId, userId });
   if (!member) { set.status = 404; return UNKNOWN_MEMBER; }
   if (role.isDefault || role.managed || !outranks(g.standing, role.position ?? 0)) { set.status = 403; return MISSING_PERMISSIONS; }
+  // Like the web app: never the owner's roles, nor those of a member ranked at or above the bot.
+  if (!compareIds(userId, auth.botUser.id)
+    && (compareIds(g.server.ownerId, userId) || !outranks(g.standing, memberTopPosition(g.roles, (member.roles || []) as string[])))) {
+    set.status = 403; return MISSING_PERMISSIONS;
+  }
 
   const current = (member.roles || []) as string[];
   const has = current.some((r) => compareIds(r, role.id));
@@ -1074,7 +1086,12 @@ async function changeMemberRole(
   return '';
 }
 
-/** Who a prune would remove: the bot must outrank each of them (Discord). At most 10000 per call. */
+/** Most members one prune removes (call again for more). */
+const MAX_PRUNE = 1000;
+/** Messages a bulk ban's delete_message_seconds may remove across all its users. */
+const BULK_BAN_PURGE_BUDGET = 5000;
+
+/** Who a prune would remove: the bot must outrank each of them (Discord). At most MAX_PRUNE per call. */
 async function pruneTargets(
   g: GuildOk,
   botId: string,
@@ -1087,23 +1104,26 @@ async function pruneTargets(
     include.push(r.id);
   }
   const cutoff = new Date(Date.now() - options.days * 86_400_000);
+  // Last seen: the live heartbeat, else when they disconnected (the heartbeat is
+  // cleared on disconnect), else when they joined. Nothing known: never pruned.
+  const lastSeen = sql<Date | null>`COALESCE(${schema.users.presenceLastHeartbeatAt}, ${schema.users.presenceLastDisconnectAt}, ${schema.serverMembers.joinedAt})`;
   const rows = await db.select({
     userId: schema.serverMembers.userId,
     roles: schema.serverMembers.roles,
     isBot: schema.users.isBot,
-    seen: schema.users.presenceLastHeartbeatAt,
+    seen: lastSeen,
   })
     .from(schema.serverMembers)
     .innerJoin(schema.users, eq(schema.users.id, schema.serverMembers.userId))
     .where(and(
       eq(schema.serverMembers.serverId, normalizeId(g.server.id)),
-      or(sql`${schema.users.presenceLastHeartbeatAt} IS NULL`, lt(schema.users.presenceLastHeartbeatAt, cutoff)),
+      sql`${lastSeen} < ${cutoff}`,
     ))
-    .limit(10000);
+    .limit(MAX_PRUNE);
   const everyone = g.roles.find((r) => r.isDefault)?.id ?? null;
   const ids = rows
     .filter((m) => isPrunable(
-      { roles: (m.roles ?? []) as string[], isBot: !!m.isBot, isOwner: compareIds(m.userId, g.server.ownerId), lastSeenAt: m.seen ?? null },
+      { roles: (m.roles ?? []) as string[], isBot: !!m.isBot, isOwner: compareIds(m.userId, g.server.ownerId), lastSeenAt: m.seen ? new Date(m.seen) : null },
       { days: options.days, includeRoles: include, everyoneRoleId: everyone },
     ))
     .filter((m) => !compareIds(m.userId, botId) && outranks(g.standing, memberTopPosition(g.roles, (m.roles ?? []) as string[])))
@@ -1112,7 +1132,14 @@ async function pruneTargets(
 }
 
 /** Ban one user as the bot (PUT ban, bulk-ban): hierarchy, message purge, ban row, removal, audit. */
-async function banOne(g: GuildOk, botId: string, userId: string, deleteSeconds: number, reason: string | null): Promise<{ ok: true } | Fail> {
+async function banOne(
+  g: GuildOk,
+  botId: string,
+  userId: string,
+  deleteSeconds: number,
+  reason: string | null,
+  purgeBudget?: { left: number },
+): Promise<{ ok: true } | Fail> {
   if (compareIds(g.server.ownerId, userId) || compareIds(userId, botId)) return { ok: false, status: 403, body: MISSING_PERMISSIONS };
   const target = await User.findById(userId);
   if (!target) return { ok: false, status: 404, body: { code: 10013, message: 'Unknown User' } };
@@ -1124,7 +1151,10 @@ async function banOne(g: GuildOk, botId: string, userId: string, deleteSeconds: 
   // GUILD_BAN_ADD and GUILD_MEMBER_REMOVE come from the membership service.
   await upsertServerBan(g.server.id, userId, botId, reason);
   await removeServerMember(g.server.id, userId);
-  if (deleteSeconds > 0) await purgeMemberMessages(g.server.id, userId, deleteSeconds).catch(() => 0);
+  if (deleteSeconds > 0 && (!purgeBudget || purgeBudget.left > 0)) {
+    const removed = await purgeMemberMessages(g.server.id, userId, deleteSeconds, purgeBudget?.left).catch(() => 0);
+    if (purgeBudget) purgeBudget.left -= removed;
+  }
   audit({ serverId: g.server.id, userId: botId, actionType: AuditLogEvent.MEMBER_BAN_ADD, targetId: userId, reason });
   return { ok: true };
 }
@@ -1432,21 +1462,21 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     if (!stored.ok) { set.status = 400; return invalidFormBodyAt([{ path: [field], code: 'IMAGE_INVALID', message: stored.message }]); }
     updates[column] = stored.url;
   }
-  // The web settings read verification / content filter from settings.moderation.
-  if (updates.verificationLevel !== undefined || updates.explicitContentFilter !== undefined) {
-    const settings = (server.settings ?? {}) as IServerSettings;
-    updates.settings = {
-      ...settings,
-      moderation: {
-        ...(settings.moderation || {}),
-        ...(updates.verificationLevel !== undefined ? { verificationLevel: updates.verificationLevel } : {}),
-        ...(updates.explicitContentFilter !== undefined ? { explicitContentFilter: updates.explicitContentFilter } : {}),
-      },
-    } as IServerSettings;
-  }
-
   if (Object.keys(updates).length === 0) return await formatGuild(server);
-  const updated = await Server.updateById(server.id, updates);
+  let updated = await Server.updateById(server.id, updates);
+  // The web settings read verification / content filter from settings.moderation:
+  // merge just those keys in SQL so a concurrent settings save isn't overwritten.
+  if (updates.verificationLevel !== undefined || updates.explicitContentFilter !== undefined) {
+    const moderation = {
+      ...(updates.verificationLevel !== undefined ? { verificationLevel: updates.verificationLevel } : {}),
+      ...(updates.explicitContentFilter !== undefined ? { explicitContentFilter: updates.explicitContentFilter } : {}),
+    };
+    const [row] = await db.update(schema.servers)
+      .set({ settings: sql`jsonb_set(coalesce(${schema.servers.settings}, '{}'::jsonb), '{moderation}', coalesce(${schema.servers.settings}->'moderation', '{}'::jsonb) || ${JSON.stringify(moderation)}::jsonb)` })
+      .where(eq(schema.servers.id, normalizeId(server.id)))
+      .returning();
+    if (row) updated = row;
+  }
   await afterGuildChange(server.id);
   const changes = diffChanges(server as Record<string, unknown>, updates as Record<string, unknown>, GUILD_AUDIT_KEYS);
   if (changes.length > 0) {
@@ -1530,7 +1560,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     enabled: typeof enabled === 'boolean' ? enabled : prev.enabled,
     channelId: channelId !== undefined ? channelId : prev.channelId,
   };
-  await Server.updateById(g.server.id, { settings: { ...settings, widget } as IServerSettings });
+  const widgetPatch = { enabled: widget.enabled, channelId: widget.channelId ?? null };
+  await db.update(schema.servers)
+    .set({ settings: sql`jsonb_set(coalesce(${schema.servers.settings}, '{}'::jsonb), '{widget}', coalesce(${schema.servers.settings}->'widget', '{}'::jsonb) || ${JSON.stringify(widgetPatch)}::jsonb)` })
+    .where(eq(schema.servers.id, normalizeId(g.server.id)));
+  widgetCounts.delete(g.server.id);
   await afterGuildChange(g.server.id);
   const changes = diffChanges(
     { widget_enabled: prev.enabled, widget_channel_id: prev.channelId },
@@ -1550,7 +1584,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!server) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
   const widget = ((server.settings ?? {}) as IServerSettings).widget;
   if (widget?.enabled !== true) { set.status = 403; return { code: 50004, message: 'Widget Disabled' }; }
-  const counts = await guildCounts(server.id);
+  const hit = widgetCounts.get(server.id);
+  const counts = hit && Date.now() - hit.at < WIDGET_COUNTS_TTL_MS ? hit.counts : await guildCounts(server.id);
+  if (!hit || hit.counts !== counts) widgetCounts.set(server.id, { at: Date.now(), counts });
   const vanity = server.isPartnered && server.vanityUrlCode ? server.vanityUrlCode : null;
   return {
     id: server.id,
@@ -1596,7 +1632,18 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     const ch = byId.get(normalizeId(u.id))!;
     const perms = await botChannelPermissions(auth.botUser.id, ch);
     if (!hasPermission(perms, P.MANAGE_CHANNELS)) { set.status = 403; return MISSING_PERMISSIONS; }
-    if (u.lockPermissions && !standingHas(g.standing, P.MANAGE_ROLES)) { set.status = 403; return MISSING_PERMISSIONS; }
+    if (u.lockPermissions && u.parentId) {
+      if (!standingHas(g.standing, P.MANAGE_ROLES) && !hasPermission(perms, P.MANAGE_ROLES)) { set.status = 403; return MISSING_PERMISSIONS; }
+      const parent = byId.get(normalizeId(u.parentId))!;
+      const parentPerms = await botChannelPermissions(auth.botUser.id, parent);
+      if (!hasPermission(parentPerms, P.MANAGE_CHANNELS)) { set.status = 403; return MISSING_PERMISSIONS; }
+      const bits = changedOverwriteBits(normalizeOverwrites(ch.permissionOverwrites), normalizeOverwrites(parent.permissionOverwrites));
+      if (!canSetOverwriteBits({ standing: g.standing, perms }, bits)) { set.status = 403; return MISSING_PERMISSIONS; }
+    } else if (u.parentId && !compareIds(u.parentId, ch.parentId ?? '')) {
+      // Moving into a category needs Manage Channels there (like PATCH /channels/{id}).
+      const parentPerms = await botChannelPermissions(auth.botUser.id, byId.get(normalizeId(u.parentId))!);
+      if (!hasPermission(parentPerms, P.MANAGE_CHANNELS)) { set.status = 403; return MISSING_PERMISSIONS; }
+    }
   }
 
   const finals = applyChannelPositions(all, updates);
@@ -1672,6 +1719,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  // Stricter than Discord: prefix searches would otherwise enumerate the member
+  // list that GET /members keeps behind the privileged GUILD_MEMBERS intent.
+  if ((allowedPrivilegedIntents(auth.app) & INTENT.GUILD_MEMBERS) === 0) { set.status = 403; return MISSING_ACCESS; }
   const q = typeof query.query === 'string' ? query.query.trim() : '';
   const limit = parseListLimit(query.limit, 1, 1000);
   if (!q || q.length > 100) { set.status = 400; return invalidFormBodyAt([{ path: ['query'], code: 'BASE_TYPE_REQUIRED', message: 'This field is required' }]); }
@@ -1774,11 +1824,13 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
   if (isThreadChannel(channel)) {
     // Thread fields (archived, locked, auto_archive_duration, ...) live with the thread routes.
-    const patch = body as Record<string, unknown>;
-    const updates: Record<string, unknown> = {};
-    if (patch.name !== undefined) updates.name = patch.name;
-    if (patch.rate_limit_per_user !== undefined) updates.rateLimitPerUser = patch.rate_limit_per_user;
-    const updated = await Channel.updateById(params.channelId, updates);
+    const { name, rate_limit_per_user } = (body ?? {}) as Record<string, unknown>;
+    const parsed = parseChannelFields({ name, rate_limit_per_user }, { type: 'text' }, { clean: sanitizeInput });
+    if (!parsed.errors.ok) { set.status = 400; return parsed.errors.toBody(); }
+    const updates: Partial<typeof schema.channels.$inferInsert> = {};
+    if (parsed.fields.name !== undefined) updates.name = parsed.fields.name;
+    if (parsed.fields.rateLimitPerUser !== undefined) updates.rateLimitPerUser = parsed.fields.rateLimitPerUser;
+    const updated = Object.keys(updates).length > 0 ? await Channel.updateById(params.channelId, updates) : channel;
     return formatChannel(updated || channel);
   }
 
@@ -3440,8 +3492,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const reason = auditReason(headers['x-audit-log-reason']);
   const banned: string[] = [];
   const failed: string[] = [];
+  const budget = { left: BULK_BAN_PURGE_BUDGET };
   for (const id of userIds) {
-    const r = isValidObjectId(id) ? await banOne(g, auth.botUser.id, id, deleteMessageSeconds, reason) : { ok: false as const };
+    const r = isValidObjectId(id) ? await banOne(g, auth.botUser.id, id, deleteMessageSeconds, reason, budget) : { ok: false as const };
     (r.ok ? banned : failed).push(id);
   }
   if (banned.length === 0) { set.status = 400; return { code: 500000, message: 'Failed to ban users' }; }

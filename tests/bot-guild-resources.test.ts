@@ -244,6 +244,8 @@ describe("members, bans, prune", () => {
     expect(isPrunable({ ...base, roles: ["everyone", "R1"] }, { ...opts, includeRoles: ["r1"] })).toBe(true);
     expect(isPrunable({ ...base, isBot: true }, opts)).toBe(false);
     expect(isPrunable({ ...base, isOwner: true }, opts)).toBe(false);
+    // Unknown activity (no heartbeat, disconnect or join time) is never pruned.
+    expect(isPrunable({ ...base, lastSeenAt: null }, opts)).toBe(false);
   });
 
   test("search prefix escapes LIKE wildcards", () => {

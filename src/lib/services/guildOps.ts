@@ -140,8 +140,8 @@ const PURGE_LIMIT = 5000;
  * (ban `delete_message_seconds`): live delete events to open channels and
  * MESSAGE_DELETE_BULK to bots. Returns how many messages were removed.
  */
-export async function purgeMemberMessages(serverId: string, userId: string, seconds: number): Promise<number> {
-  if (!seconds || seconds <= 0) return 0;
+export async function purgeMemberMessages(serverId: string, userId: string, seconds: number, limit = PURGE_LIMIT): Promise<number> {
+  if (!seconds || seconds <= 0 || limit <= 0) return 0;
   const since = new Date(Date.now() - seconds * 1000);
   const rows = await db.select({ id: schema.messages.id, channelId: schema.messages.channelId })
     .from(schema.messages)
@@ -151,7 +151,7 @@ export async function purgeMemberMessages(serverId: string, userId: string, seco
       eq(schema.messages.isDeleted, false),
       gte(schema.messages.createdAt, since),
     ))
-    .limit(PURGE_LIMIT);
+    .limit(Math.min(limit, PURGE_LIMIT));
   if (rows.length === 0) return 0;
   const now = new Date();
   for (let i = 0; i < rows.length; i += 500) {
