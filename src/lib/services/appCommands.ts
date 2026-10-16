@@ -5,7 +5,7 @@
  * check share one rule set: bot present, scope, contexts, nsfw,
  * default_member_permissions and permission overrides).
  */
-import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { and, eq, inArray, isNull, or } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { Application, User, type IChannel } from '@/lib/models';
 import { AppCommand, type IAppCommand } from '@/lib/models/AppCommand';
@@ -353,7 +353,12 @@ export function channelContext(channel: Pick<IChannel, 'serverId' | 'type'>): nu
   return channel.type === 'group_dm' ? InteractionContext.PRIVATE_CHANNEL : InteractionContext.BOT_DM;
 }
 
-async function viewerContext(v: CommandViewer): Promise<ViewerContext> {
+/**
+ * The viewer's permission context. `failClosed`: a failed overrides lookup
+ * throws (dispatch must not run a command an override may deny); the picker
+ * list falls back to no overrides.
+ */
+async function viewerContext(v: CommandViewer, opts: { failClosed?: boolean } = {}): Promise<ViewerContext> {
   const guildId = v.channel.serverId ?? null;
   if (!guildId) {
     return { userId: v.userId, context: channelContext(v.channel), guildId: null, perms: 0n, isAdmin: true, roleIds: [], everyoneIds: [], permissionRows: [], nsfwOk: true };
@@ -362,7 +367,8 @@ async function viewerContext(v: CommandViewer): Promise<ViewerContext> {
   const [perms, everyoneRoleId, permissionRows] = await Promise.all([
     getMemberChannelPermissions(v.userId, v.channel as IChannel & { serverId: string }, v.membership),
     getEveryoneRoleId(guildId),
-    db.select().from(schema.appCommandPermissions).where(eq(schema.appCommandPermissions.guildId, guildId)).catch(() => [] as PermissionRow[]),
+    db.select().from(schema.appCommandPermissions).where(eq(schema.appCommandPermissions.guildId, guildId))
+      .catch((err) => { if (opts.failClosed) throw err; return [] as PermissionRow[]; }),
   ]);
   return {
     userId: v.userId,
@@ -480,28 +486,52 @@ export async function resolveInvocableCommand(viewer: CommandViewer, commandId: 
   if (!app || !app.botId) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
   const bots = await channelBotIds(viewer.channel);
   if (!bots.some((b) => same(b, app.botId))) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
-  const ctx = await viewerContext(viewer);
+  const ctx = await viewerContext(viewer, { failClosed: true }).catch(() => null);
+  if (!ctx) return { ok: false, status: 503, error: 'Commands are unavailable right now', code: 'unavailable' };
   if (!usableBy(cmd, app.id, viewer.channel.id, ctx)) {
     return { ok: false, status: 403, error: 'You do not have permission to use this command here', code: 'command_forbidden' };
   }
   return { ok: true, command: cmd, app };
 }
 
-/** Commands named `name` (text fallback "/name args"), one per application. */
-export async function findCommandsByName(name: string, guildId: string | null): Promise<IAppCommand[]> {
+/**
+ * Typed `/name args` (text fallback): the slash commands called `name` that
+ * `viewer` may run here, one per application (a guild command shadows the
+ * global one). Only apps whose bot is in this channel / guild are queried, and
+ * the viewer's permission context is computed once.
+ */
+export async function findUsableCommandsByName(
+  viewer: CommandViewer,
+  name: string,
+): Promise<Array<{ command: IAppCommand; app: NonNullable<Awaited<ReturnType<typeof Application.findById>>> }>> {
+  const guildId = viewer.channel.serverId ?? null;
+  const botIds = await channelBotIds(viewer.channel);
+  if (botIds.length === 0) return [];
+  const apps = await db.select({ id: schema.applications.id }).from(schema.applications)
+    .where(inArray(schema.applications.botId, botIds)).limit(200);
+  const appIds = apps.map((a) => a.id);
+  if (appIds.length === 0) return [];
   const rows = await db.select().from(schema.appCommands)
     .where(and(
       eq(schema.appCommands.name, name),
       eq(schema.appCommands.type, CommandType.CHAT_INPUT),
-      guildId ? undefined : isNull(schema.appCommands.guildId),
+      inArray(schema.appCommands.applicationId, appIds),
+      guildId ? or(isNull(schema.appCommands.guildId), eq(schema.appCommands.guildId, guildId)) : isNull(schema.appCommands.guildId),
     ))
     .limit(100);
   const perApp = new Map<string, IAppCommand>();
   for (const c of rows) {
-    const isGuildMatch = Boolean(c.guildId && guildId && same(c.guildId, guildId));
-    if (c.guildId && !isGuildMatch) continue;
     const existing = perApp.get(c.applicationId);
-    if (!existing || (isGuildMatch && !existing.guildId)) perApp.set(c.applicationId, c);
+    if (!existing || (c.guildId && !existing.guildId)) perApp.set(c.applicationId, c);
   }
-  return [...perApp.values()];
+  if (perApp.size === 0) return [];
+  const ctx = await viewerContext(viewer, { failClosed: true }).catch(() => null);
+  if (!ctx) return [];
+  const out: Array<{ command: IAppCommand; app: NonNullable<Awaited<ReturnType<typeof Application.findById>>> }> = [];
+  for (const command of perApp.values()) {
+    const app = await Application.findById(command.applicationId);
+    if (!app?.botId || !usableBy(command, app.id, viewer.channel.id, ctx)) continue;
+    out.push({ command, app });
+  }
+  return out;
 }

@@ -19,7 +19,7 @@ import {
 import { createAppMessage, deleteAppMessage, editAppMessage, type AppAuthor } from '@/lib/services/appMessages';
 import { discordMessageFromRow, loadLiveMessage } from '@/lib/services/interactionPayload';
 import type { IncomingAttachment } from '@/lib/chat/attachmentPolicy';
-import { cleanWebhookAvatarUrl, cleanWebhookUsername } from '@/lib/chat/webhook';
+import { blockedWebhookWord, cleanWebhookAvatarUrl, cleanWebhookUsername } from '@/lib/chat/webhook';
 
 export type WebhookRow = NonNullable<Awaited<ReturnType<typeof ChannelWebhook.findById>>>;
 export type WebhookResult = { status: number; body: unknown; headers?: Record<string, string> };
@@ -224,15 +224,21 @@ export async function executeWebhook(
 export async function patchWebhook(
   w: WebhookRow,
   body: unknown,
-  opts: { allowChannel?: (channelId: string) => Promise<boolean> } = {},
+  opts: {
+    allowChannel?: (channelId: string) => Promise<boolean>;
+    /** Bot route: the calling app (the token is shown only when mayShowWebhookToken allows). Token routes omit it. */
+    viewerAppId?: string | null;
+  } = {},
 ): Promise<WebhookResult> {
+  const withToken = opts.viewerAppId === undefined ? true : mayShowWebhookToken(w, opts.viewerAppId);
   const input = (body && typeof body === 'object' ? body : {}) as { name?: unknown; avatar?: unknown; channel_id?: unknown };
   const errors = new FormErrors();
   const updates: { name?: string; avatar?: string | null; channelId?: string; url?: string } = {};
   if (input.name !== undefined) {
+    const word = typeof input.name === 'string' ? blockedWebhookWord(input.name) : null;
     const name = cleanWebhookUsername(input.name);
-    if (!name) errors.add(['name'], FE.BAD_LENGTH, 'Must be between 1 and 80 in length.');
-    else if (/clyde|discord/i.test(name)) errors.add(['name'], 'USERNAME_INVALID_CONTAINS', 'Username cannot contain "clyde" or "discord"');
+    if (word) errors.add(['name'], 'USERNAME_INVALID_CONTAINS', `Username cannot contain "${word}"`);
+    else if (!name) errors.add(['name'], FE.BAD_LENGTH, 'Must be between 1 and 80 in length.');
     else updates.name = name;
   }
   if (input.avatar !== undefined) {
@@ -250,10 +256,38 @@ export async function patchWebhook(
     else updates.channelId = input.channel_id;
   }
   if (!errors.ok) return { status: 400, body: errors.toBody() };
-  if (Object.keys(updates).length === 0) return { status: 200, body: serializeWebhook(w, { withToken: true }) };
+  if (Object.keys(updates).length === 0) return { status: 200, body: serializeWebhook(w, { withToken }) };
   if (updates.channelId) updates.url = `${config.API_BASE_URL}/api/webhooks/${w.id}/${w.token}`;
   const next = (await ChannelWebhook.updateById(w.id, updates)) ?? w;
-  return { status: 200, body: serializeWebhook(next, { withToken: true }) };
+  return { status: 200, body: serializeWebhook(next, { withToken }) };
+}
+
+/**
+ * Run a token-authenticated webhook route: per-webhook rate limit (execute has
+ * its own bucket), and for application-owned webhooks the app's id format on
+ * both sides (snowflake apps send and get snowflakes; these routes carry no
+ * bot token, so the API boundary can't tell).
+ */
+export async function runWebhookTokenRoute(
+  w: WebhookRow,
+  kind: 'execute' | 'manage',
+  input: { body?: unknown; threadId?: string },
+  run: (body: unknown, threadId: string | undefined) => Promise<WebhookResult>,
+): Promise<WebhookResult> {
+  if (kind === 'manage') {
+    const limit = await checkRateLimit('webhookToken', w.id);
+    if (!limit.success) {
+      const retry = limit.retryAfter ?? 1;
+      return { status: 429, body: { message: 'You are being rate limited.', retry_after: retry, global: false }, headers: { 'Retry-After': String(retry), Via: '1.1 serika' } };
+    }
+  }
+  const appId = applicationIdOf(w);
+  if (!appId) return run(input.body, input.threadId);
+  const { inboundForApp, outboundForApp } = await import('@/lib/services/interactions');
+  const body = input.body === undefined || input.body === null ? input.body : await inboundForApp(appId, input.body);
+  const ids = input.threadId ? (await inboundForApp(appId, { thread_id: input.threadId })) as { thread_id?: string } : null;
+  const result = await run(body, ids?.thread_id ?? input.threadId);
+  return { ...result, body: await outboundForApp(appId, result.body) };
 }
 
 export async function deleteWebhook(w: WebhookRow): Promise<WebhookResult> {

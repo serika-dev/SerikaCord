@@ -30,9 +30,15 @@ const TEXT_KEYS = new Set([
   'verify_key', 'value', 'resume_gateway_url', 'avatar', 'banner', 'icon', 'splash', 'hash',
   'unicode_emoji', 'locale', 'preferred_locale', 'emoji_name', 'state', 'details', 'large_text',
   'small_text', 'large_image', 'small_image', 'party_id', 'match', 'join', 'spectate', 'image',
-  // select-menu values are free text chosen by users
-  'values',
 ]);
+
+/**
+ * Select menus whose `values` are ids: user (5), role (6), mentionable (7) and
+ * channel (8) selects, in component interactions (`component_type`) and modal
+ * submits (`type`). String select (3) values are free text.
+ */
+const ID_SELECT_TYPES = new Set([5, 6, 7, 8]);
+const EPHEMERAL_FLAG = 1 << 6;
 
 /** Option types whose `value` is an id (USER, CHANNEL, ROLE, MENTIONABLE). */
 const ID_OPTION_TYPES = new Set([6, 7, 8, 9]);
@@ -60,7 +66,7 @@ function setOwn(obj: Record<string, unknown>, key: string, value: unknown) {
 export const MAX_OUTBOUND_IDS = 5000;
 
 /** Structural kinds (api_snowflakes.kind) for ids that live in jsonb, not in a table. */
-export const STRUCTURAL_KIND = { attachment: 11, interaction: 12, tag: 18 } as const;
+export const STRUCTURAL_KIND = { message: 4, attachment: 11, interaction: 12, tag: 18 } as const;
 
 export interface OutboundScan {
   /** Lower-cased UUIDs found in the payload (at most MAX_OUTBOUND_IDS). */
@@ -108,6 +114,11 @@ function walkOut(v: unknown, key: string | null, parent: Record<string, unknown>
       if (Number.isFinite(ts)) scan.hints.set(id, { ts });
     }
     if (key === 'attachments') scan.kinds.set(id, STRUCTURAL_KIND.attachment);
+    // Ephemeral interaction replies live in the interaction store, not the
+    // messages table: a message object with the EPHEMERAL flag proves the id.
+    else if (typeof obj.timestamp === 'string' && typeof obj.flags === 'number' && (obj.flags & EPHEMERAL_FLAG) !== 0 && 'channel_id' in obj) {
+      scan.kinds.set(id, STRUCTURAL_KIND.message);
+    }
     else if (key === 'available_tags') scan.kinds.set(id, STRUCTURAL_KIND.tag);
     else if (key === null && typeof obj.token === 'string' && 'application_id' in obj && typeof obj.type === 'number') {
       scan.kinds.set(id, STRUCTURAL_KIND.interaction);
@@ -122,6 +133,7 @@ function walkOut(v: unknown, key: string | null, parent: Record<string, unknown>
 function isIdPosition(key: string | null, parent: Record<string, unknown> | null): boolean {
   if (key === null) return true;
   if (key === 'value') return !!parent && ID_OPTION_TYPES.has(Number(parent.type));
+  if (key === 'values') return !!parent && ID_SELECT_TYPES.has(Number(parent.component_type ?? parent.type));
   return !TEXT_KEYS.has(key);
 }
 

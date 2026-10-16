@@ -5,6 +5,7 @@ import {
   ComponentType,
   IS_COMPONENTS_V2,
   buildModalSubmit,
+  channelTypesAllowed,
   checkComponentClick,
   componentsPlainText,
   resolveAttachmentRefs,
@@ -220,6 +221,39 @@ describe("modals", () => {
     expect(ComponentType.CONTAINER).toBe(17);
     expect(ComponentType.LABEL).toBe(18);
     expect(IS_COMPONENTS_V2).toBe(32768);
+  });
+});
+
+describe("modal entity selects", () => {
+  const modal = validateModal({
+    custom_id: "m",
+    title: "T",
+    components: [
+      { type: 18, label: "Role", component: { type: 6, custom_id: "role" } },
+      { type: 18, label: "Who", component: { type: 7, custom_id: "who" } },
+      { type: 18, label: "Where", component: { type: 8, custom_id: "where", channel_types: [0] } },
+    ],
+  }, new FormErrors())!;
+
+  test("role selects resolve to roles only; mentionables stay separate; channel types are kept for the check", () => {
+    const r = buildModalSubmit(modal, [
+      { custom_id: "role", values: ["r1"] },
+      { custom_id: "who", values: ["u1"] },
+      { custom_id: "where", values: ["c1"] },
+    ]);
+    expect(r.ok).toBeTrue();
+    if (!r.ok) return;
+    expect(r.entityIds.roles).toEqual(["r1"]);
+    expect(r.entityIds.users).toEqual([]);
+    expect(r.entityIds.mentionables).toEqual(["u1"]);
+    expect(r.entityIds.channelTypes).toEqual([{ values: ["c1"], types: [0] }]);
+  });
+
+  test("channel_types are enforced against the resolved channels", () => {
+    const checks = [{ values: ["c1"], types: [0] }];
+    expect(channelTypesAllowed(checks, { c1: { type: 0 } })).toBeTrue();
+    expect(channelTypesAllowed(checks, { c1: { type: 2 } })).toBeFalse();
+    expect(channelTypesAllowed(checks, {})).toBeFalse();
   });
 });
 

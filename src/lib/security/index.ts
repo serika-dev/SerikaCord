@@ -62,10 +62,13 @@ export const rateLimiters_config = {
   // Interactions a user starts (slash commands, button clicks, select menus,
   // modal submits) and autocomplete requests while typing an option, per user.
   interactionCreate: { points: 20, duration: 10 },
-  interactionAutocomplete: { points: 60, duration: 10 },
+  interactionAutocomplete: { points: 30, duration: 10 },
   // Interaction-token routes (callback, followups, @original), per interaction
   // and per application (they carry no bot token, so bot limits don't apply).
   interactionToken: { points: 5, duration: 2 },
+  // Token routes of a channel webhook other than execute (GET / PATCH / DELETE,
+  // message edit / delete), per webhook.
+  webhookToken: { points: 30, duration: 10 },
   interactionApp: { points: 50, duration: 1 },
   // Saving an interactions endpoint sends a signed PING, per user.
   interactionsEndpointVerify: { points: 10, duration: 600 },

@@ -830,6 +830,30 @@ export function modalInputs(modal: Modal): MessageComponent[] {
 
 export type ModalSubmitValue = { custom_id: string; value?: unknown; values?: unknown };
 
+/** Ids picked in a modal's entity selects, by kind (role selects resolve to roles only). */
+export interface ModalEntityIds {
+  users: string[];
+  roles: string[];
+  channels: string[];
+  mentionables: string[];
+  /** Channel selects with channel_types: the picked channels must be of those types. */
+  channelTypes: Array<{ values: string[]; types: number[] }>;
+}
+
+/** Do the resolved channels (Discord partials with `type`) fit each select's channel_types? */
+export function channelTypesAllowed(
+  checks: Array<{ values: string[]; types: number[] }>,
+  resolvedChannels: Record<string, unknown> | undefined,
+): boolean {
+  for (const { values, types } of checks) {
+    for (const v of values) {
+      const entry = Object.entries(resolvedChannels ?? {}).find(([k]) => k.toLowerCase() === v.toLowerCase())?.[1] as { type?: unknown } | undefined;
+      if (!entry || typeof entry.type !== 'number' || !types.includes(entry.type)) return false;
+    }
+  }
+  return true;
+}
+
 /**
  * Check a modal submission against the stored modal and build the
  * `data.components` Discord sends with MODAL_SUBMIT (same layout as the modal,
@@ -839,12 +863,12 @@ export type ModalSubmitValue = { custom_id: string; value?: unknown; values?: un
 export function buildModalSubmit(
   modal: Modal,
   submitted: ModalSubmitValue[],
-): { ok: true; components: MessageComponent[]; entityIds: { users: string[]; roles: string[]; channels: string[] } } | { ok: false; field: string; reason: string } {
+ ): { ok: true; components: MessageComponent[]; entityIds: ModalEntityIds } | { ok: false; field: string; reason: string } {
   const byId = new Map<string, ModalSubmitValue>();
   for (const s of submitted.slice(0, 50)) {
     if (s && typeof s.custom_id === 'string') byId.set(s.custom_id, s);
   }
-  const entityIds = { users: [] as string[], roles: [] as string[], channels: [] as string[] };
+  const entityIds: ModalEntityIds = { users: [], roles: [], channels: [], mentionables: [], channelTypes: [] };
   let failure: { field: string; reason: string } | null = null;
 
   const fill = (comp: MessageComponent): MessageComponent => {
@@ -882,8 +906,10 @@ export function buildModalSubmit(
       if (comp.type === ComponentType.RADIO_GROUP) return { ...base, value: values[0] ?? null } as unknown as MessageComponent;
     } else if (comp.type === ComponentType.USER_SELECT) entityIds.users.push(...values);
     else if (comp.type === ComponentType.ROLE_SELECT) entityIds.roles.push(...values);
-    else if (comp.type === ComponentType.CHANNEL_SELECT) entityIds.channels.push(...values);
-    else if (comp.type === ComponentType.MENTIONABLE_SELECT) { entityIds.users.push(...values); entityIds.roles.push(...values); }
+    else if (comp.type === ComponentType.CHANNEL_SELECT) {
+      entityIds.channels.push(...values);
+      if (comp.channel_types?.length && values.length) entityIds.channelTypes.push({ values, types: comp.channel_types });
+    } else if (comp.type === ComponentType.MENTIONABLE_SELECT) entityIds.mentionables.push(...values);
     return { ...base, values } as MessageComponent;
   };
 

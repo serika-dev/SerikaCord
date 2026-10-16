@@ -30,7 +30,7 @@ import {
   type CommandOption, type InvocationOption, type InvocationRefs,
 } from '@/lib/botapi/commands';
 import {
-  ComponentType, buildModalSubmit, checkComponentClick, parseStoredComponents, validateModal, type Modal, type ModalSubmitValue,
+  ComponentType, buildModalSubmit, channelTypesAllowed, checkComponentClick, parseStoredComponents, validateModal, type Modal, type ModalSubmitValue,
 } from '@/lib/botapi/components';
 import { FormErrors, formError, FE } from '@/lib/botapi/formErrors';
 import {
@@ -47,7 +47,7 @@ import {
 import { DM_BOT_PERMISSIONS, applyTimeout } from '@/lib/permissions/botChannel';
 import { parseBotMessageBody } from '@/lib/chat/botMultipart';
 import type { IncomingAttachment } from '@/lib/chat/attachmentPolicy';
-import { channelContext, resolveInvocableCommand, findCommandsByName } from '@/lib/services/appCommands';
+import { channelContext, resolveInvocableCommand, findUsableCommandsByName } from '@/lib/services/appCommands';
 
 const same = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
@@ -74,6 +74,48 @@ export function interactionStore(): InteractionStore {
 // ─── Delivery to the app ────────────────────────────────────
 
 type App = NonNullable<Awaited<ReturnType<typeof Application.findById>>>;
+
+// ─── Id format (snowflake apps) ─────────────────────────────
+
+const formatCache = processShared('interactionAppIdFormat', () => new Map<string, { at: number; fmt: 'uuid' | 'snowflake' }>());
+
+/** The id format an application's bot uses (lib/botapi/boundary), cached briefly. */
+export async function appIdFormat(applicationId: string | null | undefined): Promise<'uuid' | 'snowflake'> {
+  if (!applicationId) return 'uuid';
+  const hit = formatCache.get(applicationId);
+  if (hit && Date.now() - hit.at < 30_000) return hit.fmt;
+  const app = await Application.findById(applicationId).catch(() => null);
+  const { idFormatOf } = await import('@/lib/botapi/boundary');
+  const fmt = idFormatOf(app);
+  if (formatCache.size > 2000) formatCache.clear();
+  formatCache.set(applicationId, { at: Date.now(), fmt });
+  return fmt;
+}
+
+/** Snowflakes → UUIDs in a token-route body (those routes carry no bot token, so the boundary skips them). */
+export async function inboundForApp(applicationId: string | null | undefined, body: unknown): Promise<unknown> {
+  if ((await appIdFormat(applicationId)) !== 'snowflake' || !body || typeof body !== 'object') return body;
+  const { translateInbound } = await import('@/lib/botapi/boundary');
+  const res = await translateInbound({ body, reportUnknown: false });
+  return res.body !== undefined ? res.body : body;
+}
+
+/** UUIDs → snowflakes in what a token route (or HTTP delivery) sends to a snowflake app. */
+export async function outboundForApp<T>(applicationId: string | null | undefined, value: T): Promise<T> {
+  if ((await appIdFormat(applicationId)) !== 'snowflake' || !value || typeof value !== 'object') return value;
+  const { toSnowflakes } = await import('@/lib/botapi/boundary');
+  return toSnowflakes(value);
+}
+
+/** Run a token route for `applicationId`'s app with its id format on both sides. */
+export async function withAppIds<R extends { status: number; body: unknown }>(
+  applicationId: string | null | undefined,
+  body: unknown,
+  run: (body: unknown) => Promise<R>,
+): Promise<R> {
+  const result = await run(await inboundForApp(applicationId, body));
+  return { ...result, body: await outboundForApp(applicationId, result.body) };
+}
 
 /** Largest JSON reply we read from an interactions endpoint. */
 const MAX_RESPONSE_BYTES = 1024 * 1024;
@@ -196,12 +238,14 @@ async function deliver(app: App, state: InteractionState, token: string, payload
   await store.create(token, state);
   const quiet = state.type === InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE;
   if (app.interactionsEndpointUrl) {
-    const res = await postSignedInteraction(app, payload);
+    // Snowflake-format apps get snowflakes over HTTP too (the gateway translates per session).
+    const res = await postSignedInteraction(app, await outboundForApp(app.id, payload));
     if (!res || !res.ok || !res.body || typeof res.body !== 'object') {
       if (!quiet) void notifyInvoker(state.invokerId, { event: 'failed', interactionId: state.id, channelId: state.channelId, reason: 'no_response' });
       return { ok: true, interactionId: state.id };
     }
-    const applied = await applyCallback(state, { payload: res.body as Record<string, unknown>, files: [] }, { withResponse: false });
+    const answer = (await inboundForApp(app.id, res.body)) as Record<string, unknown>;
+    const applied = await applyCallback(state, { payload: answer, files: [] }, { withResponse: false });
     if (applied.status >= 400 && !quiet) {
       void notifyInvoker(state.invokerId, { event: 'failed', interactionId: state.id, channelId: state.channelId, reason: 'invalid_response' });
     }
@@ -346,6 +390,7 @@ async function applyCallback(
       }
       case CallbackType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT:
         await store.setAutocomplete(state.id, choices ?? []);
+        announceAutocomplete(state.id);
         break;
       case CallbackType.MODAL: {
         const modalId = randomUUID().replace(/-/g, '');
@@ -480,9 +525,11 @@ export async function handleInteractionCallback(
   if (!state || !same(state.id, interactionId)) return { status: 404, body: { code: 10062, message: 'Unknown interaction' } };
   const limited = await tokenRateLimited(state);
   if (limited) return limited;
-  const parsed = parseBotMessageBody(body);
-  if (!parsed.ok) return { status: 400, body: { code: parsed.code, message: parsed.error } };
-  return applyCallback(state, { payload: parsed.payload, files: parsed.files }, { withResponse: Boolean(opts.withResponse) });
+  return withAppIds(state.applicationId, body, async (translated) => {
+    const parsed = parseBotMessageBody(translated);
+    if (!parsed.ok) return { status: 400, body: { code: parsed.code, message: parsed.error } };
+    return applyCallback(state, { payload: parsed.payload, files: parsed.files }, { withResponse: Boolean(opts.withResponse) });
+  });
 }
 
 // ─── Webhook-token routes (followups, @original) ────────────
@@ -811,13 +858,64 @@ export async function invokeAutocomplete(input: {
   const delivered = await deliver(resolved.app, state, token, payload);
   if (!delivered.ok) return delivered;
   const store = interactionStore();
-  const deadline = Date.now() + ACK_DEADLINE_MS;
-  while (Date.now() < deadline) {
-    const choices = await store.takeAutocomplete(state.id);
-    if (choices) return { ok: true, choices };
-    await new Promise((r) => setTimeout(r, 120));
+  // Woken by the callback (this instance, or another one via Redis pub/sub)
+  // instead of polling; a last read at the deadline catches a missed wake-up.
+  const woke = waitForAutocomplete(state.id, ACK_DEADLINE_MS + ACK_GRACE_MS);
+  const early = await store.takeAutocomplete(state.id);
+  if (early) { cancelAutocompleteWait(state.id); return { ok: true, choices: early }; }
+  await woke;
+  return { ok: true, choices: (await store.takeAutocomplete(state.id)) ?? [] };
+}
+
+// ─── Autocomplete wake-ups ──────────────────────────────────
+
+const AC_CHANNEL = 'ix:autocomplete';
+const acWaiters = processShared('interactionAcWaiters', () => new Map<string, () => void>());
+const acBus = processShared('interactionAcBus', () => ({ started: false }));
+
+function wakeAutocomplete(id: string) {
+  const wake = acWaiters.get(id);
+  if (wake) { acWaiters.delete(id); wake(); }
+}
+
+function cancelAutocompleteWait(id: string) {
+  wakeAutocomplete(id);
+}
+
+/** Subscribe this process to autocomplete wake-ups from other instances (once, dedicated connection). */
+async function startAutocompleteBus() {
+  if (acBus.started) return;
+  acBus.started = true;
+  try {
+    const { config } = await import('@/lib/config');
+    if (!config.REDIS_URL) return;
+    const Redis = (await import('ioredis')).default;
+    const sub = new Redis(config.REDIS_URL, { lazyConnect: true, maxRetriesPerRequest: null });
+    sub.on('error', (err: Error) => console.error('[interactions] autocomplete bus error:', err.message));
+    await sub.connect();
+    await sub.subscribe(AC_CHANNEL);
+    sub.on('message', (_ch: string, id: string) => wakeAutocomplete(id));
+  } catch (err) {
+    acBus.started = false;
+    console.error('[interactions] autocomplete bus failed:', (err as Error)?.message ?? err);
   }
-  return { ok: true, choices: [] };
+}
+
+function waitForAutocomplete(id: string, timeoutMs: number): Promise<void> {
+  void startAutocompleteBus();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(() => { acWaiters.delete(id); resolve(); }, timeoutMs);
+    acWaiters.set(id, () => { clearTimeout(timer); resolve(); });
+  });
+}
+
+/** The app answered an autocomplete: wake the waiting request wherever it is. */
+function announceAutocomplete(id: string) {
+  wakeAutocomplete(id);
+  try {
+    const pub = getRedis();
+    if (pub) void pub.publish(AC_CHANNEL, id).catch(() => {});
+  } catch { /* the waiter's deadline read still picks it up */ }
 }
 
 /** The app that owns a message's components (its bot, or an app-owned webhook). */
@@ -879,6 +977,11 @@ export async function invokeComponent(input: {
     else refs.mentionables = click.values.map((v) => v.toLowerCase());
     const r = await buildResolved({ invokerId: input.user.id, channel: c.ctx.channel }, refs);
     if (!r.ok) return { ok: false, status: 400, error: 'This selection is not available', code: 'component_values' };
+    // Channel selects: only the channel types the app asked for.
+    if (click.component.type === ComponentType.CHANNEL_SELECT && click.component.channel_types?.length
+      && !channelTypesAllowed([{ values: click.values, types: click.component.channel_types }], r.resolved.channels)) {
+      return { ok: false, status: 400, error: 'This selection is not available', code: 'component_values' };
+    }
     resolved = r.resolved;
   }
   const state = newState(app, c.ctx, InteractionType.MESSAGE_COMPONENT, {
@@ -917,12 +1020,13 @@ export async function submitModal(input: {
   const app = await Application.findById(record.applicationId);
   if (!app || !app.botId) return { ok: false, status: 404, error: 'Unknown application', code: 'unknown_application' };
   let resolved: Record<string, unknown> | null = null;
-  const { users, roles, channels } = built.entityIds;
-  if (users.length || roles.length || channels.length) {
+  const { users, roles, channels, mentionables, channelTypes } = built.entityIds;
+  if (users.length || roles.length || channels.length || mentionables.length) {
     const r = await buildResolved({ invokerId: input.user.id, channel: c.ctx.channel }, {
-      users: users.filter((u) => !roles.includes(u)), roles: [], channels, mentionables: roles, attachments: [],
+      users, roles, channels, mentionables, attachments: [],
     });
     if (!r.ok) return { ok: false, status: 400, error: 'Some fields are not valid', code: 'modal_values' };
+    if (!channelTypesAllowed(channelTypes, r.resolved.channels)) return { ok: false, status: 400, error: 'Some fields are not valid', code: 'modal_values' };
     resolved = r.resolved;
   }
   if (!(await store.claimOnce('modal', input.modalId))) return { ok: false, status: 409, error: 'This form was already submitted', code: 'modal_used' };
@@ -1046,32 +1150,27 @@ export async function maybeDispatchSlashInteraction(
   if (!name || name.length > 32) return false;
 
   const guildId = message.serverId ?? null;
-  const candidates = await findCommandsByName(name, guildId);
-  if (candidates.length === 0) return false;
   const user = await User.findById(message.author.id);
   if (!user) return false;
+  const channel = await Channel.findById(message.channelId);
+  if (!channel) return false;
+  const membership = guildId ? await ServerMember.findOne({ serverId: guildId, userId: user.id }) : null;
+  const usable = (await findUsableCommandsByName({ userId: user.id, channel, membership }, name))
+    .filter(({ app }) => !restrictToBotId || same(app.botId, restrictToBotId));
+  if (usable.length === 0) return false;
   if (await rateLimited('interactionCreate', user.id)) {
     void notifyInvoker(user.id, { event: 'failed', channelId: message.channelId, reason: 'rate_limited' });
     return true;
   }
-  const channel = await Channel.findById(message.channelId);
-  if (!channel) return false;
-  const membership = guildId ? await ServerMember.findOne({ serverId: guildId, userId: user.id }) : null;
   const ctx: InvokeContext = { user, channel, membership };
-
-  let consumed = false;
-  await Promise.all(candidates.map(async (cmd) => {
-    const resolved = await resolveInvocableCommand({ userId: user.id, channel, membership }, cmd.id, CommandType.CHAT_INPUT);
-    if (!resolved.ok) return;
-    if (restrictToBotId && !same(resolved.app.botId, restrictToBotId)) return;
-    consumed = true;
-    const declared = (Array.isArray(cmd.options) ? cmd.options : []) as CommandOption[];
-    const result = await dispatchCommand({ ctx, command: cmd, app: resolved.app, options: optionsFromText(declared, tokens) });
+  await Promise.all(usable.map(async ({ command, app }) => {
+    const declared = (Array.isArray(command.options) ? command.options : []) as CommandOption[];
+    const result = await dispatchCommand({ ctx, command, app, options: optionsFromText(declared, tokens) });
     if (!result.ok) {
-      void notifyInvoker(user.id, { event: 'failed', channelId: channel.id, reason: result.code, command: cmd.name });
+      void notifyInvoker(user.id, { event: 'failed', channelId: channel.id, reason: result.code, command: command.name });
     }
   }));
-  return consumed;
+  return true;
 }
 
 /**

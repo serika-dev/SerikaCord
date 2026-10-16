@@ -4037,10 +4037,12 @@ export const api = new Elysia({ prefix: '/api' })
   // /api/v10/webhooks/..., see botApi.ts): both resolve here, the token is
   // compared in constant time. Without ?wait the old response shape is kept.
   .post('/webhooks/:channelId/:token', async ({ params, body, query, request, set }) => {
-    const { findLegacyWebhook, executeWebhook } = await import('@/lib/services/channelWebhooks');
+    const { findLegacyWebhook, executeWebhook, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
     const webhook = await findLegacyWebhook(normalizeId(params.channelId), params.token);
     if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook', error: 'Webhook not found' }; }
-    const result = await executeWebhook(webhook, body, query as Record<string, string | undefined>, { ip: getClientIP(request), legacy: true });
+    const { wait, thread_id, with_components } = query as Record<string, string | undefined>;
+    const result = await runWebhookTokenRoute(webhook, 'execute', { body, threadId: thread_id }, (b, threadId) =>
+      executeWebhook(webhook, b, { wait, thread_id: threadId, with_components }, { ip: getClientIP(request), legacy: true }));
     set.status = result.status;
     if (result.headers) Object.assign(set.headers, result.headers);
     return result.status === 204 ? '' : result.body;
@@ -4323,9 +4325,15 @@ export async function initializeAPI() {
     // messages.pinned_at are named in every Drizzle select on messages
     // (src/lib/db/schema.ts). server.ts awaits initializeAPI() before it starts
     // serving or the gateway, so no message query runs before this. Idempotent,
-    // metadata-only, lock_timeout 3s per attempt, never throws.
+    // metadata-only, lock_timeout 3s per attempt, skipped when present; throws
+    // (boot fails, the old instance keeps serving) when it can't be completed.
     const { ensureBotMessageSchema } = await import('@/lib/services/botMessageSchema');
     await ensureBotMessageSchema();
+    // Same for interactions + components: messages.components / webhook_author
+    // (also in every message select), app_commands fields,
+    // app_command_permissions, channel_webhooks.application_id.
+    const { ensureInteractionSchema } = await import('@/lib/services/interactionSchema');
+    await ensureInteractionSchema();
     // Create + seed the staff-editable `badges` table if this database predates
     // it. Idempotent, runs once per process, never throws (falls back to the
     // built-in badge constants on failure).
@@ -4346,7 +4354,8 @@ export async function initializeAPI() {
     const { ensureGroupDmSchema } = await import('@/lib/services/groupDms');
     await ensureGroupDmSchema();
     // Bot API snowflake ids: api_snowflakes + applications.api_id_format (read
-    // by every application query). Idempotent, never throws.
+    // by every application query). Idempotent, skipped when present; throws
+    // when it can't be completed.
     const { ensureApiSnowflakeSchema } = await import('@/lib/botapi/snowflakeStore');
     await ensureApiSnowflakeSchema();
     // Threads in text channels: 'thread_created' message type + thread columns
@@ -4359,11 +4368,6 @@ export async function initializeAPI() {
     const { ensureMessageExtrasSchema, startPollSweeper } = await import('@/lib/services/messageExtras');
     await ensureMessageExtrasSchema();
     startPollSweeper();
-    // Interactions + components: messages.components / webhook_author (read
-    // by every message query), app_commands fields, app_command_permissions,
-    // channel_webhooks.application_id. Idempotent, never throws.
-    const { ensureInteractionSchema } = await import('@/lib/services/interactionSchema');
-    await ensureInteractionSchema();
     // Per-user notification settings table. Idempotent, never throws.
     const { ensureNotificationSettingsSchema } = await import('@/lib/services/notificationSettings');
     await ensureNotificationSettingsSchema();

@@ -4667,6 +4667,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
     const { name, avatar } = body as { name: string; avatar?: string };
     if (!name || typeof name !== 'string') { set.status = 400; return { error: 'Name is required' }; }
+    // Same name rules as webhook overrides: no posing as the platform or staff.
+    const { blockedWebhookWord } = await import('@/lib/chat/webhook');
+    const blockedWord = blockedWebhookWord(name);
+    if (blockedWord) { set.status = 400; return { error: `Webhook names cannot contain "${blockedWord}"` }; }
     const { ChannelWebhook } = await import('@/lib/models');
     const token = randomUUID().replace(/-/g, '');
     const webhook = await ChannelWebhook.create({

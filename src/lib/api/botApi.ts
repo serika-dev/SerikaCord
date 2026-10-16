@@ -2545,10 +2545,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
 
   const { name, avatar } = (body ?? {}) as { name?: unknown; avatar?: unknown };
-  const { cleanWebhookUsername, cleanWebhookAvatarUrl } = await import('@/lib/chat/webhook');
+  const { cleanWebhookUsername, cleanWebhookAvatarUrl, blockedWebhookWord } = await import('@/lib/chat/webhook');
+  const blocked = typeof name === 'string' ? blockedWebhookWord(name) : null;
+  if (blocked) { set.status = 400; return { code: 50035, message: 'Invalid Form Body', errors: { name: { _errors: [{ code: 'USERNAME_INVALID_CONTAINS', message: `Username cannot contain "${blocked}"` }] } } }; }
   const cleanName = cleanWebhookUsername(name);
   if (!cleanName) { set.status = 400; return { code: 50035, message: 'Invalid Form Body', errors: { name: { _errors: [{ code: 'BASE_TYPE_BAD_LENGTH', message: 'Must be between 1 and 80 in length.' }] } } }; }
-  if (/clyde|discord/i.test(cleanName)) { set.status = 400; return { code: 50035, message: 'Invalid Form Body', errors: { name: { _errors: [{ code: 'USERNAME_INVALID_CONTAINS', message: 'Username cannot contain "clyde" or "discord"' }] } } }; }
 
   const token = crypto.randomBytes(34).toString('base64url');
   const { serializeWebhook, webhookUrl } = await import('@/lib/services/channelWebhooks');
@@ -2603,6 +2604,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       const target = await requireChannelAction(channelId, auth.botUser.id, 'manage_webhooks');
       return target.ok && compareIds(target.channel.serverId ?? '', webhook.serverId ?? '') && target.channel.type !== 'category';
     },
+    // Another app's webhook token stays with that app.
+    viewerAppId: auth.app.id,
   });
   return respond(set, result);
 })
@@ -2630,86 +2633,89 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 // interaction token: followups and @original). Interaction tokens are tried
 // first; they're random 64-byte values looked up by hash.
 .post('/webhooks/:webhookId/:webhookToken', async ({ params, body, query, request, set }) => {
-  const { resolveInteractionWebhook, createFollowup } = await import('@/lib/services/interactions');
+  const { resolveInteractionWebhook, createFollowup, withAppIds } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
-  if (ix) return respond(set, await createFollowup(ix, body));
-  const { findWebhookByToken, executeWebhook } = await import('@/lib/services/channelWebhooks');
+  if (ix) return respond(set, await withAppIds(ix.applicationId, body, (b) => createFollowup(ix, b)));
+  const { findWebhookByToken, executeWebhook, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   const { wait, thread_id, with_components } = query as Record<string, string | undefined>;
-  return respond(set, await executeWebhook(webhook, body, { wait, thread_id, with_components }, { ip: getClientIP(request) }));
+  return respond(set, await runWebhookTokenRoute(webhook, 'execute', { body, threadId: thread_id }, (b, threadId) =>
+    executeWebhook(webhook, b, { wait, thread_id: threadId, with_components }, { ip: getClientIP(request) })));
 })
 .get('/webhooks/:webhookId/:webhookToken', async ({ params, set }) => {
   const { resolveInteractionWebhook } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
   if (ix) {
     const bot = await User.findById(ix.botId);
-    return { id: ix.applicationId, type: 3, application_id: ix.applicationId, name: bot?.username ?? '', avatar: bot?.avatar ?? null, channel_id: ix.channelId, guild_id: ix.guildId };
+    const { outboundForApp } = await import('@/lib/services/interactions');
+    return outboundForApp(ix.applicationId, { id: ix.applicationId, type: 3, application_id: ix.applicationId, name: bot?.username ?? '', avatar: bot?.avatar ?? null, channel_id: ix.channelId, guild_id: ix.guildId });
   }
-  const { findWebhookByToken, serializeWebhook } = await import('@/lib/services/channelWebhooks');
+  const { findWebhookByToken, serializeWebhook, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return serializeWebhook(webhook, { withToken: true });
+  return respond(set, await runWebhookTokenRoute(webhook, 'manage', {}, async () => ({ status: 200, body: serializeWebhook(webhook, { withToken: true }) })));
 })
 .patch('/webhooks/:webhookId/:webhookToken', async ({ params, body, set }) => {
-  const { findWebhookByToken, patchWebhook } = await import('@/lib/services/channelWebhooks');
+  const { findWebhookByToken, patchWebhook, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await patchWebhook(webhook, body));
+  return respond(set, await runWebhookTokenRoute(webhook, 'manage', { body }, (b) => patchWebhook(webhook, b)));
 })
 .delete('/webhooks/:webhookId/:webhookToken', async ({ params, set }) => {
-  const { findWebhookByToken, deleteWebhook } = await import('@/lib/services/channelWebhooks');
+  const { findWebhookByToken, deleteWebhook, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await deleteWebhook(webhook));
+  return respond(set, await runWebhookTokenRoute(webhook, 'manage', {}, () => deleteWebhook(webhook)));
 })
 .get('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, set }) => {
-  const { resolveInteractionWebhook, getInteractionMessage } = await import('@/lib/services/interactions');
+  const { resolveInteractionWebhook, getInteractionMessage, withAppIds } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
   if (!ix) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await getInteractionMessage(ix, '@original'));
+  return respond(set, await withAppIds(ix.applicationId, null, () => getInteractionMessage(ix, '@original')));
 })
 .patch('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, body, set }) => {
-  const { resolveInteractionWebhook, editInteractionMessage } = await import('@/lib/services/interactions');
+  const { resolveInteractionWebhook, editInteractionMessage, withAppIds } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
   if (!ix) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await editInteractionMessage(ix, '@original', body));
+  return respond(set, await withAppIds(ix.applicationId, body, (b) => editInteractionMessage(ix, '@original', b)));
 })
 .delete('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, set }) => {
-  const { resolveInteractionWebhook, deleteInteractionMessage } = await import('@/lib/services/interactions');
+  const { resolveInteractionWebhook, deleteInteractionMessage, withAppIds } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
   if (!ix) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await deleteInteractionMessage(ix, '@original'));
+  return respond(set, await withAppIds(ix.applicationId, null, () => deleteInteractionMessage(ix, '@original')));
 })
 .get('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, query, set }) => {
-  const { resolveInteractionWebhook, getInteractionMessage } = await import('@/lib/services/interactions');
+  const { resolveInteractionWebhook, getInteractionMessage, withAppIds } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
-  if (ix) return respond(set, await getInteractionMessage(ix, params.messageId));
-  const { findWebhookByToken, getWebhookMessage } = await import('@/lib/services/channelWebhooks');
+  if (ix) return respond(set, await withAppIds(ix.applicationId, null, () => getInteractionMessage(ix, params.messageId)));
+  const { findWebhookByToken, getWebhookMessage, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   const { thread_id } = query as Record<string, string | undefined>;
-  return respond(set, await getWebhookMessage(webhook, params.messageId, thread_id));
+  return respond(set, await runWebhookTokenRoute(webhook, 'manage', { threadId: thread_id }, (_b, threadId) => getWebhookMessage(webhook, params.messageId, threadId)));
 })
 .patch('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, body, query, request, set }) => {
-  const { resolveInteractionWebhook, editInteractionMessage } = await import('@/lib/services/interactions');
+  const { resolveInteractionWebhook, editInteractionMessage, withAppIds } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
-  if (ix) return respond(set, await editInteractionMessage(ix, params.messageId, body));
-  const { findWebhookByToken, editWebhookMessage } = await import('@/lib/services/channelWebhooks');
+  if (ix) return respond(set, await withAppIds(ix.applicationId, body, (b) => editInteractionMessage(ix, params.messageId, b)));
+  const { findWebhookByToken, editWebhookMessage, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   const { thread_id, with_components } = query as Record<string, string | undefined>;
-  return respond(set, await editWebhookMessage(webhook, params.messageId, body, { thread_id, with_components }, { ip: getClientIP(request) }));
+  return respond(set, await runWebhookTokenRoute(webhook, 'manage', { body, threadId: thread_id }, (b, threadId) =>
+    editWebhookMessage(webhook, params.messageId, b, { thread_id: threadId, with_components }, { ip: getClientIP(request) })));
 })
 .delete('/webhooks/:webhookId/:webhookToken/messages/:messageId', async ({ params, query, set }) => {
-  const { resolveInteractionWebhook, deleteInteractionMessage } = await import('@/lib/services/interactions');
+  const { resolveInteractionWebhook, deleteInteractionMessage, withAppIds } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
-  if (ix) return respond(set, await deleteInteractionMessage(ix, params.messageId));
-  const { findWebhookByToken, deleteWebhookMessage } = await import('@/lib/services/channelWebhooks');
+  if (ix) return respond(set, await withAppIds(ix.applicationId, null, () => deleteInteractionMessage(ix, params.messageId)));
+  const { findWebhookByToken, deleteWebhookMessage, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   const { thread_id } = query as Record<string, string | undefined>;
-  return respond(set, await deleteWebhookMessage(webhook, params.messageId, thread_id));
+  return respond(set, await runWebhookTokenRoute(webhook, 'manage', { threadId: thread_id }, (_b, threadId) => deleteWebhookMessage(webhook, params.messageId, threadId)));
 })
 
 // ─── Audit Log ─────────────────────────────────────────────

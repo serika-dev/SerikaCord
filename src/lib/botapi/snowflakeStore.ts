@@ -26,6 +26,7 @@ import { getRedis } from '@/lib/db/redis';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { processShared } from '@/lib/realtime/processShared';
 import { candidateSnowflake, isSnowflake } from './snowflake';
+import { ensureSchema, withLockTimeout } from '@/lib/db/schemaGuard';
 
 /** `api_snowflakes.kind` values. */
 export const SF_KIND = {
@@ -58,37 +59,35 @@ export const MAX_NEW_PER_PAYLOAD = 2000;
 const g = globalThis as unknown as { __apiSnowflakeSchema?: Promise<void> | null };
 
 /**
- * Idempotent boot-time DDL (same statements as drizzle/manual_api_snowflakes.sql).
- * Never throws; retries with a short lock timeout so it never queues behind a
- * long transaction on the shared production database.
+ * Idempotent boot-time DDL (same statements as drizzle/manual_api_snowflakes.sql),
+ * skipped when present, with a short lock timeout and retries; throws when the
+ * schema can't be completed.
  */
 export function ensureApiSnowflakeSchema(): Promise<void> {
   if (g.__apiSnowflakeSchema) return g.__apiSnowflakeSchema;
-  g.__apiSnowflakeSchema = (async () => {
-    for (let attempt = 1; attempt <= 10; attempt++) {
-      try {
-        await db.transaction(async (tx) => {
-          await tx.execute(sql`SET LOCAL lock_timeout = '3s'`);
-          await tx.execute(sql`CREATE TABLE IF NOT EXISTS api_snowflakes (
-            snowflake bigint PRIMARY KEY,
-            kind smallint NOT NULL DEFAULT 0,
-            uuid uuid NOT NULL,
-            created_at timestamp DEFAULT now()
-          )`);
-          await tx.execute(sql`CREATE UNIQUE INDEX IF NOT EXISTS api_snowflakes_uuid_unique ON api_snowflakes (uuid)`);
-        });
-        await db.transaction(async (tx) => {
-          await tx.execute(sql`SET LOCAL lock_timeout = '3s'`);
-          await tx.execute(sql`ALTER TABLE applications ADD COLUMN IF NOT EXISTS api_id_format text`);
-        });
-        return;
-      } catch (err) {
-        console.error(`[snowflakes] Ensuring api_snowflakes schema failed (attempt ${attempt}):`, (err as Error)?.message ?? err);
-        await new Promise((r) => setTimeout(r, Math.min(30_000, 2_000 * attempt)));
-      }
+  // Nothing runs when the table and column exist; boot fails when they can't
+  // be created (lib/db/schemaGuard).
+  g.__apiSnowflakeSchema = ensureSchema('snowflakes', {
+    tables: { api_snowflakes: ['snowflake', 'kind', 'uuid'], applications: ['api_id_format'] },
+  }, async (missing) => {
+    if (missing.some((m) => m.startsWith('api_snowflakes'))) {
+      await withLockTimeout([
+        sql`CREATE TABLE IF NOT EXISTS api_snowflakes (
+          snowflake bigint PRIMARY KEY,
+          kind smallint NOT NULL DEFAULT 0,
+          uuid uuid NOT NULL,
+          created_at timestamp DEFAULT now()
+        )`,
+        sql`CREATE UNIQUE INDEX IF NOT EXISTS api_snowflakes_uuid_unique ON api_snowflakes (uuid)`,
+      ]);
     }
+    if (missing.some((m) => m.startsWith('applications'))) {
+      await withLockTimeout([sql`ALTER TABLE applications ADD COLUMN IF NOT EXISTS api_id_format text`]);
+    }
+  }, { backoffMs: (a) => Math.min(30_000, 2_000 * a) }).catch((err) => {
     g.__apiSnowflakeSchema = null;
-  })();
+    throw err;
+  });
   return g.__apiSnowflakeSchema;
 }
 

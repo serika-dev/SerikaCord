@@ -30,6 +30,8 @@ export const FLAG_LOADING = 1 << 7;
 const SENDABLE = MESSAGE_FLAGS.SUPPRESS_EMBEDS | FLAG_EPHEMERAL | MESSAGE_FLAGS.SUPPRESS_NOTIFICATIONS | IS_COMPONENTS_V2;
 const MAX_EMBEDS = 10;
 const MAX_EMBEDS_JSON = 24_000;
+/** Total bytes of files one app request may upload. */
+export const MAX_REQUEST_UPLOAD_BYTES = 25 * 1024 * 1024;
 
 export type ApiFailure = { ok: false; status: number; body: DiscordFormError | { code: number; message: string } };
 
@@ -243,9 +245,21 @@ export async function uploadOutgoingFiles(opts: {
   ip?: string;
 }): Promise<{ ok: true; attachments: IncomingAttachment[] } | ApiFailure> {
   if (opts.files.length === 0) return { ok: true, attachments: [] };
+  // Byte budget per request (Discord answers 40005), checked before anything is stored.
+  const total = opts.files.reduce((n, f) => n + (Number(f.file.size) || 0), 0);
+  if (total > MAX_REQUEST_UPLOAD_BYTES) {
+    return { ok: false, status: 413, body: { code: 40005, message: 'Request entity too large' } };
+  }
   const { storeChatAttachment } = await import('@/lib/api/uploads');
+  const { checkRateLimit } = await import('@/lib/security');
   const out: IncomingAttachment[] = [];
   for (const { index, file } of opts.files) {
+    // Same upload budget users get, per app / webhook (each file counts).
+    const limit = await checkRateLimit('upload', `app:${opts.uploaderId}`);
+    if (!limit.success) {
+      const retry = limit.retryAfter ?? 1;
+      return { ok: false, status: 429, body: { code: 0, message: 'You are being rate limited.', retry_after: retry, global: false } as unknown as { code: number; message: string } };
+    }
     const m = opts.meta.get(index) ?? {};
     const filename = effectiveFilename(file.name || `file${index}`, m.filename);
     if (!filename) return { ok: false, status: 400, body: formError(['attachments', index, 'filename'], FE.INVALID, 'The filename may not change the file extension') };

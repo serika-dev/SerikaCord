@@ -37,6 +37,16 @@ describe("webhook author", () => {
     expect(cleanWebhookAvatarUrl("javascript:alert(1)")).toBeNull();
     expect(cleanWebhookAvatarUrl("not a url")).toBeNull();
     expect(cleanWebhookAvatarUrl("https://ok.example/p.png")).toBe("https://ok.example/p.png");
+    expect(cleanWebhookAvatarUrl("http://ok.example/p.png")).toBeNull();
+  });
+
+  test("blocks names posing as the platform or its staff, invisible characters included", () => {
+    expect(cleanWebhookUsername("Serika Staff")).toBeNull();
+    expect(cleanWebhookUsername("S.e.r.i.k.a")).toBeNull();
+    expect(cleanWebhookUsername("Ad\u200bmin")).toBeNull();
+    expect(cleanWebhookUsername("Discord")).toBeNull();
+    expect(cleanWebhookUsername("Build\u202Ebot")).toBe("Buildbot");
+    expect(cleanWebhookUsername("CI Bot")).toBe("CI Bot");
   });
 });
 

@@ -26,20 +26,38 @@ export interface WebhookAuthor {
 
 const MAX_WEBHOOK_USERNAME = 80;
 
-/** Trimmed, length-capped override name, or null when the override is unusable. */
-export function cleanWebhookUsername(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.replace(/[\x00-\x1F\x7F]/g, '').trim();
-  if (!trimmed) return null;
-  return trimmed.slice(0, MAX_WEBHOOK_USERNAME);
+// Control, zero-width and bidi-override characters: invisible in a name and
+// used to fake other names ("Serika\u200bStaff").
+const INVISIBLE_CHARS = /[\u0000-\u001F\u007F\u00AD\u061C\u180E\u200B-\u200F\u202A-\u202E\u2060-\u2069\uFEFF]/g;
+
+/**
+ * Words a webhook name or per-message username may not contain: Discord's
+ * ("clyde", "discord") plus ours, so a webhook can't pose as the platform or
+ * its staff. Compared without spaces, dots, dashes and underscores.
+ */
+const BLOCKED_NAME_WORDS = ['clyde', 'discord', 'serika', 'system', 'staff', 'admin', 'moderator'];
+
+/** A blocked word in `name` (after removing separators), or null. */
+export function blockedWebhookWord(name: string): string | null {
+  const flat = name.toLowerCase().replace(INVISIBLE_CHARS, '').replace(/[\s._\-'"`*~|]+/g, '');
+  return BLOCKED_NAME_WORDS.find((w) => flat.includes(w)) ?? null;
 }
 
-/** Only absolute http(s) URLs are accepted as an avatar override. */
+/** Trimmed, invisible-character-free, length-capped name; null when unusable or blocked. */
+export function cleanWebhookUsername(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.replace(INVISIBLE_CHARS, '').trim();
+  if (!trimmed) return null;
+  const capped = trimmed.slice(0, MAX_WEBHOOK_USERNAME);
+  return blockedWebhookWord(capped) ? null : capped;
+}
+
+/** Only absolute https URLs are accepted as an avatar override. */
 export function cleanWebhookAvatarUrl(value: unknown): string | null {
   if (typeof value !== 'string' || value.length > 2048) return null;
   try {
     const u = new URL(value);
-    return u.protocol === 'https:' || u.protocol === 'http:' ? u.toString() : null;
+    return u.protocol === 'https:' && !u.username && !u.password ? u.toString() : null;
   } catch {
     return null;
   }
