@@ -53,6 +53,8 @@ export async function insertServerMember(
   }
   await adjustServerMemberCount(serverId, 1);
   await afterMembershipChange(serverId);
+  // GUILD_MEMBER_ADD for the guild's bots (GUILD_MEMBERS intent).
+  void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberAdd(serverId, userId)).catch(() => {});
   return { membership: row, created: true };
 }
 
@@ -80,6 +82,8 @@ export async function removeServerMember(serverId: string, userId: string): Prom
   void import('@/lib/services/gatewayEvents')
     .then((m) => m.emitGuildDelete({ guildId: normalizeId(serverId), targetBotId: normalizeId(userId) }))
     .catch(() => {});
+  // GUILD_MEMBER_REMOVE to the remaining bots (plus GUILD_INTEGRATIONS_UPDATE when a bot left).
+  void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberRemove(serverId, userId)).catch(() => {});
   return true;
 }
 
@@ -101,10 +105,29 @@ export async function upsertServerBan(
   }
   try {
     await ServerBan.create({ serverId: normalizeId(serverId), userId: normalizeId(userId), bannedBy, reason });
+    // GUILD_BAN_ADD (GUILD_MODERATION intent) for a new ban only, like Discord.
+    void import('@/lib/services/guildGatewayEvents').then((m) => m.emitBanAdd(serverId, userId)).catch(() => {});
   } catch (err) {
     const e = err as { code?: string; cause?: { code?: string } } | null;
     if ((e?.code ?? e?.cause?.code) !== '23505') throw err;
     const raced = await ServerBan.findOne({ serverId, userId });
     if (raced) await ServerBan.updateById(raced.id, { bannedBy, reason });
   }
+}
+
+/**
+ * Lift a ban. Returns false when there was none. Sends GUILD_BAN_REMOVE to
+ * the guild's bots. Shared by the web unban route and the bot API.
+ */
+export async function removeServerBan(serverId: string, userId: string): Promise<boolean> {
+  const deleted = await db
+    .delete(schema.serverBans)
+    .where(and(
+      eq(schema.serverBans.serverId, normalizeId(serverId)),
+      eq(schema.serverBans.userId, normalizeId(userId)),
+    ))
+    .returning({ id: schema.serverBans.id });
+  if (deleted.length === 0) return false;
+  void import('@/lib/services/guildGatewayEvents').then((m) => m.emitBanRemove(serverId, userId)).catch(() => {});
+  return true;
 }

@@ -219,6 +219,84 @@ async function listFollowTargets(userId: string, sourceChannelId: string): Promi
   return out;
 }
 
+// ─── Following ────────────────────────────────────────────────────────────────
+
+type FollowResult =
+  | { ok: true; follow: typeof cf.$inferSelect; webhook: { id: string; name: string }; source: IChannel; target: IChannel }
+  | { ok: false; status: number; error: string; code: number };
+
+/**
+ * Make `targetId` follow announcement channel `sourceId` as `userId` (a user
+ * or a bot): both channels visible to them, MANAGE_WEBHOOKS in the target,
+ * follow limits, then a "Server #channel" webhook in the target plus the
+ * channel_follows row and a WEBHOOK_CREATE audit entry. Shared by
+ * POST /api/channels/:id/followers and the bot API's
+ * POST /api/v10/channels/{id}/followers. `code` is the Discord error code.
+ */
+export async function createChannelFollow(userId: string, sourceId: string, targetId: string): Promise<FollowResult> {
+  const fail = (status: number, error: string, code: number): FollowResult => ({ ok: false, status, error, code });
+  if (!isValidObjectId(targetId) || !isValidObjectId(sourceId)) return fail(400, 'Invalid channel', 10003);
+  if (sameId(targetId, sourceId)) return fail(400, 'A channel cannot follow itself', 50035);
+  const rl = await checkRateLimit('channelFollow', userId);
+  if (!rl.success) return fail(429, 'You are doing that too quickly', 0);
+  const { checkChannelAccess } = await import('@/lib/api/channels');
+  const [src, dst] = await Promise.all([
+    checkChannelAccess(userId, sourceId),
+    checkChannelAccess(userId, targetId),
+  ]);
+  if (!src.hasAccess || !src.channel) return fail(403, src.error || 'Access denied', 50001);
+  const source = src.channel as IChannel;
+  if (source.type !== 'announcement' || !source.serverId) return fail(400, 'Only announcement channels can be followed', 50024);
+  if (!dst.hasAccess || !dst.channel) return fail(403, dst.error || 'Access denied', 50001);
+  const target = dst.channel as IChannel;
+  if (!target.serverId || !canReceiveFollow(target.type)) return fail(400, 'Choose a text channel', 50024);
+  const perms = await permsIn(userId, target, dst.membership);
+  if (!hasPermission(perms, PERMISSION_BITS.MANAGE_WEBHOOKS)) return fail(403, 'You need Manage Webhooks in that channel', 50013);
+  if (!(await ensureScheduledEventSchema())) return fail(503, 'Following is unavailable right now', 0);
+  const [[existing], [targetCount], [sourceCount]] = await Promise.all([
+    db.select({ id: cf.id }).from(cf).where(and(eq(cf.sourceChannelId, source.id), eq(cf.targetChannelId, target.id))).limit(1),
+    db.select({ n: count() }).from(cf).where(eq(cf.targetChannelId, target.id)),
+    db.select({ n: count() }).from(cf).where(eq(cf.sourceChannelId, source.id)),
+  ]);
+  if (existing) return fail(400, 'That channel already follows this one', 50035);
+  if (Number(targetCount?.n ?? 0) >= MAX_FOLLOWS_PER_TARGET) return fail(400, 'That channel follows too many channels', 30007);
+  if (Number(sourceCount?.n ?? 0) >= MAX_FOLLOWERS_PER_CHANNEL) return fail(400, 'This channel has too many followers', 30007);
+
+  const sourceServer = await Server.findById(source.serverId);
+  const name = followWebhookName(sourceServer?.name, source.name);
+  const token = randomUUID().replace(/-/g, '');
+  const webhook = await ChannelWebhook.create({
+    channelId: target.id,
+    serverId: target.serverId,
+    name,
+    avatar: sourceServer?.icon ?? null,
+    token,
+    url: `${config.API_BASE_URL}/api/webhooks/${target.id}/${token}`,
+    creatorId: userId,
+  });
+  const [follow] = await db.insert(cf).values({
+    sourceChannelId: source.id,
+    sourceServerId: source.serverId,
+    targetChannelId: target.id,
+    targetServerId: target.serverId,
+    webhookId: webhook.id,
+    creatorId: userId,
+  }).onConflictDoNothing().returning();
+  if (!follow) {
+    await ChannelWebhook.deleteById(webhook.id).catch(() => {});
+    return fail(400, 'That channel already follows this one', 50035);
+  }
+  audit({
+    serverId: target.serverId,
+    userId,
+    actionType: AuditLogEvent.WEBHOOK_CREATE,
+    targetId: webhook.id,
+    changes: [{ key: 'name', new: webhook.name }, { key: 'channel_id', new: target.id }, { key: 'type', new: 2 }],
+    options: { channel_name: target.name, webhook_name: webhook.name },
+  });
+  return { ok: true, follow, webhook, source, target };
+}
+
 export const announcementRoutes = new Elysia()
   .onBeforeHandle(rejectInvalidObjectIdParams)
   .post('/channels/:channelId/messages/:messageId/crosspost', async ({ headers, cookie, params, set }) => {
@@ -266,71 +344,9 @@ export const announcementRoutes = new Elysia()
   .post('/channels/:channelId/followers', async ({ headers, cookie, params, body, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
-    const targetId = body.webhookChannelId;
-    if (!isValidObjectId(targetId)) { set.status = 400; return { error: 'Invalid channel' }; }
-    if (sameId(targetId, params.channelId)) { set.status = 400; return { error: 'A channel cannot follow itself' }; }
-    const rl = await checkRateLimit('channelFollow', user.id);
-    if (!rl.success) { set.status = 429; return { error: 'You are doing that too quickly' }; }
-    const { checkChannelAccess } = await import('@/lib/api/channels');
-    const [src, dst] = await Promise.all([
-      checkChannelAccess(user.id, params.channelId),
-      checkChannelAccess(user.id, targetId),
-    ]);
-    if (!src.hasAccess || !src.channel) { set.status = 403; return { error: src.error || 'Access denied' }; }
-    const source = src.channel as IChannel;
-    if (source.type !== 'announcement' || !source.serverId) { set.status = 400; return { error: 'Only announcement channels can be followed' }; }
-    if (!dst.hasAccess || !dst.channel) { set.status = 403; return { error: dst.error || 'Access denied' }; }
-    const target = dst.channel as IChannel;
-    if (!target.serverId || !canReceiveFollow(target.type)) { set.status = 400; return { error: 'Choose a text channel' }; }
-    const perms = await permsIn(user.id, target, dst.membership);
-    if (!hasPermission(perms, PERMISSION_BITS.MANAGE_WEBHOOKS)) {
-      set.status = 403;
-      return { error: 'You need Manage Webhooks in that channel' };
-    }
-    if (!(await ensureScheduledEventSchema())) { set.status = 503; return { error: 'Following is unavailable right now' }; }
-    const [[existing], [targetCount], [sourceCount]] = await Promise.all([
-      db.select({ id: cf.id }).from(cf).where(and(eq(cf.sourceChannelId, source.id), eq(cf.targetChannelId, target.id))).limit(1),
-      db.select({ n: count() }).from(cf).where(eq(cf.targetChannelId, target.id)),
-      db.select({ n: count() }).from(cf).where(eq(cf.sourceChannelId, source.id)),
-    ]);
-    if (existing) { set.status = 400; return { error: 'That channel already follows this one' }; }
-    if (Number(targetCount?.n ?? 0) >= MAX_FOLLOWS_PER_TARGET) { set.status = 400; return { error: 'That channel follows too many channels' }; }
-    if (Number(sourceCount?.n ?? 0) >= MAX_FOLLOWERS_PER_CHANNEL) { set.status = 400; return { error: 'This channel has too many followers' }; }
-
-    const sourceServer = await Server.findById(source.serverId);
-    const name = followWebhookName(sourceServer?.name, source.name);
-    const token = randomUUID().replace(/-/g, '');
-    const webhook = await ChannelWebhook.create({
-      channelId: target.id,
-      serverId: target.serverId,
-      name,
-      avatar: sourceServer?.icon ?? null,
-      token,
-      url: `${config.API_BASE_URL}/api/webhooks/${target.id}/${token}`,
-      creatorId: user.id,
-    });
-    const [follow] = await db.insert(cf).values({
-      sourceChannelId: source.id,
-      sourceServerId: source.serverId,
-      targetChannelId: target.id,
-      targetServerId: target.serverId,
-      webhookId: webhook.id,
-      creatorId: user.id,
-    }).onConflictDoNothing().returning();
-    if (!follow) {
-      await ChannelWebhook.deleteById(webhook.id).catch(() => {});
-      set.status = 400;
-      return { error: 'That channel already follows this one' };
-    }
-    audit({
-      serverId: target.serverId,
-      userId: user.id,
-      actionType: AuditLogEvent.WEBHOOK_CREATE,
-      targetId: webhook.id,
-      changes: [{ key: 'name', new: webhook.name }, { key: 'channel_id', new: target.id }, { key: 'type', new: 2 }],
-      options: { channel_name: target.name, webhook_name: webhook.name },
-    });
-    return { id: follow.id, channel_id: source.id, webhook_id: webhook.id, target_channel_id: target.id };
+    const result = await createChannelFollow(user.id, params.channelId, body.webhookChannelId);
+    if (!result.ok) { set.status = result.status; return { error: result.error }; }
+    return { id: result.follow.id, channel_id: result.source.id, webhook_id: result.webhook.id, target_channel_id: result.target.id };
   }, { body: t.Object({ webhookChannelId: t.String() }) })
   .delete('/channel-follows/:followId', async ({ headers, cookie, params, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);

@@ -1209,6 +1209,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       if (body.deaf !== undefined) updates.deaf = body.deaf;
       await ServerMember.updateById(member.id, updates);
       await applyServerVoiceState(server.id, targetId, updates);
+      void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberUpdate(server.id, targetId)).catch(() => {});
     }
 
     if (body.channelId !== undefined && current) {

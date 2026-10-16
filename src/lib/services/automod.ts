@@ -391,6 +391,7 @@ async function applyTimeout(serverId: string, userId: string, seconds: number, m
   const current = member.communicationDisabledUntil ? new Date(member.communicationDisabledUntil).getTime() : 0;
   if (current >= until.getTime()) return null; // already timed out for longer
   await ServerMember.updateById(member.id, { communicationDisabledUntil: until });
+  void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberUpdate(serverId, userId)).catch(() => {});
   return until.toISOString();
 }
 

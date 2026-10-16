@@ -196,6 +196,8 @@ export async function acceptScreening(serverId: string, userId: string): Promise
       eq(schema.serverMembers.userId, normalizeId(userId)),
     ))
     .returning({ id: schema.serverMembers.id });
+  // GUILD_MEMBER_UPDATE: `pending` is now false.
+  if (rows.length > 0) void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberUpdate(serverId, userId)).catch(() => {});
   return rows.length > 0;
 }
 
@@ -349,6 +351,7 @@ export async function applyMemberOnboardingRoles(serverId: string, userId: strin
   if (changed) {
     await ServerMember.updateById(member.id, { roles: next });
     invalidateServerMemberCache(serverId);
+    void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberUpdate(serverId, userId)).catch(() => {});
     requestUserChannelStreamRecheck(normalizeId(userId));
     const everyone = serverRoles.find((r) => r.isDefault)?.id;
     const names = new Map(serverRoles.map((r) => [r.id, r.name] as const));
