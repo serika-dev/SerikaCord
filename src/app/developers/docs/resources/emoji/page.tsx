@@ -63,6 +63,15 @@ export default async function EmojiDoc() {
       <Callout type="warning" title={gt("Emoji Roles")}>
         {gt("Emojis can be restricted to specific roles. Only members with those roles can use the emoji.")}
       </Callout>
+      <P>{gt("Images are data URIs (PNG, JPEG, GIF or WebP, up to 256 KB). Create Expressions lets a bot add emojis and edit or delete its own; Manage Emojis and Stickers covers all of them.")}</P>
+
+      <H2 id="application-emojis">{gt("Application Emojis")}</H2>
+      <P>{gt("Emojis owned by your application (up to 2000), usable by its bot.")}</P>
+      <Endpoint method="GET" path="/applications/{application.id}/emojis">{gt("List the application's emojis (in items).")}</Endpoint>
+      <Endpoint method="GET" path="/applications/{application.id}/emojis/{emoji.id}">{gt("Get an application emoji.")}</Endpoint>
+      <Endpoint method="POST" path="/applications/{application.id}/emojis">{gt("Create an application emoji (name, image).")}</Endpoint>
+      <Endpoint method="PATCH" path="/applications/{application.id}/emojis/{emoji.id}">{gt("Rename an application emoji.")}</Endpoint>
+      <Endpoint method="DELETE" path="/applications/{application.id}/emojis/{emoji.id}">{gt("Delete an application emoji.")}</Endpoint>
     </DocPage>
   );
 }

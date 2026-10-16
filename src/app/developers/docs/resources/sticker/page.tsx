@@ -46,7 +46,11 @@ export default async function StickerResourceDoc() {
 
       <Callout type="warning" title={gt("Permissions")}>
         {gt("Creating, updating, and deleting stickers requires the")}{" "}
-        <InlineCode>MANAGE_EMOJIS_AND_STICKERS</InlineCode> {gt("permission.")}
+        <InlineCode>MANAGE_EMOJIS_AND_STICKERS</InlineCode> {gt("permission.")}{" "}
+        {gt("With Create Expressions a bot may create stickers and edit or delete its own.")}
+      </Callout>
+      <Callout type="info" title={gt("Sticker Packs")}>
+        {gt("SerikaCord has no Nitro sticker packs: the sticker pack list is always empty. GUILD_STICKERS_UPDATE and GUILD_EMOJIS_UPDATE need the GUILD_EXPRESSIONS intent.")}
       </Callout>
     </DocPage>
   );

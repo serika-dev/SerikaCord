@@ -82,6 +82,20 @@ export default async function GuildDoc() {
       <Callout type="info" title={gt("Member Limits")}>
         <InlineCode>member_count</InlineCode> {gt("is approximate. For exact counts, use the member list endpoint with pagination.")}
       </Callout>
+
+      <H2 id="community">{gt("Onboarding, Welcome Screen, Templates and Integrations")}</H2>
+      <Endpoint method="GET" path="/guilds/{guild.id}/onboarding">{gt("Get the onboarding questions.")}</Endpoint>
+      <Endpoint method="PUT" path="/guilds/{guild.id}/onboarding">{gt("Replace the onboarding questions. Requires Manage Server and Manage Roles; options can only grant roles the bot may assign.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/welcome-screen">{gt("Get the welcome screen (Manage Server unless it is enabled).")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/welcome-screen">{gt("Update the welcome screen. Requires Manage Server.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/templates">{gt("List the guild's template (a guild has at most one).")}</Endpoint>
+      <Endpoint method="POST" path="/guilds/{guild.id}/templates">{gt("Create the guild's template.")}</Endpoint>
+      <Endpoint method="PUT" path="/guilds/{guild.id}/templates/{template.code}">{gt("Sync the template with the guild.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/templates/{template.code}">{gt("Rename the template.")}</Endpoint>
+      <Endpoint method="DELETE" path="/guilds/{guild.id}/templates/{template.code}">{gt("Delete the template.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/templates/{template.code}">{gt("Get a template by its code.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/integrations">{gt("List the guild's integrations: one per bot.")}</Endpoint>
+      <Endpoint method="DELETE" path="/guilds/{guild.id}/integrations/{integration.id}">{gt("Remove a bot from the guild. The integration id is the bot's application id.")}</Endpoint>
     </DocPage>
   );
 }

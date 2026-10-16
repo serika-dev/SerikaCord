@@ -83,6 +83,20 @@ export default async function AuditLogDoc() {
       <Callout type="info" title={gt("Retention")}>
         {gt("Audit logs are retained for 90 days. Entries are returned in reverse chronological order.")}
       </Callout>
+      <P>
+        <InlineCode>before</InlineCode> {gt("and")} <InlineCode>after</InlineCode> {gt("take entry ids;")}{" "}
+        <InlineCode>target_id</InlineCode> {gt("filters by target. The response also lists the users, webhooks, threads, integrations and AutoMod rules the entries refer to.")}
+      </P>
+
+      <H2 id="auto-moderation">{gt("Auto Moderation")}</H2>
+      <Endpoint method="GET" path="/guilds/{guild.id}/auto-moderation/rules">{gt("List AutoMod rules. Requires Manage Server.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/auto-moderation/rules/{rule.id}">{gt("Get an AutoMod rule.")}</Endpoint>
+      <Endpoint method="POST" path="/guilds/{guild.id}/auto-moderation/rules">{gt("Create an AutoMod rule. A timeout action also needs Moderate Members.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/auto-moderation/rules/{rule.id}">{gt("Update an AutoMod rule (the trigger type can't change).")}</Endpoint>
+      <Endpoint method="DELETE" path="/guilds/{guild.id}/auto-moderation/rules/{rule.id}">{gt("Delete an AutoMod rule.")}</Endpoint>
+      <Callout type="warning" title={gt("Supported Rules")}>
+        {gt("SerikaCord supports message rules (event type 1) with keyword (1), spam (3) and mention spam (5) triggers, and block, alert and timeout actions. Keyword presets, member profile rules, regex patterns and blocking member interactions are not supported. The link filter appears as a keyword rule whose allow list holds the allowed domains.")}
+      </Callout>
     </DocPage>
   );
 }

@@ -31,8 +31,8 @@ export default async function InviteDoc() {
 
       <H2 id="endpoints">{gt("Endpoints")}</H2>
       <Endpoint method="POST" path="/channels/{channel.id}/invites">{gt("Create an invite.")}</Endpoint>
-      <Endpoint method="GET" path="/invites/{invite.code}">{gt("Get an invite (with optional")}{" "}<InlineCode>with_count</InlineCode> {gt("and")}{" "}<InlineCode>with_expiration</InlineCode> {gt("params).")}</Endpoint>
-      <Endpoint method="DELETE" path="/invites/{invite.code}">{gt("Revoke an invite.")}</Endpoint>
+      <Endpoint method="GET" path="/invites/{invite.code}">{gt("Get an invite (with optional")}{" "}<InlineCode>with_counts</InlineCode> {gt("and")}{" "}<InlineCode>guild_scheduled_event_id</InlineCode> {gt("params; expires_at is always included).")}</Endpoint>
+      <Endpoint method="DELETE" path="/invites/{invite.code}">{gt("Revoke an invite. Requires Manage Server, or Manage Channels on the invite's channel. Sends INVITE_DELETE.")}</Endpoint>
       <Endpoint method="GET" path="/channels/{channel.id}/invites">{gt("List channel invites.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/invites">{gt("List guild invites.")}</Endpoint>
 
