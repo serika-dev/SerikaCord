@@ -661,8 +661,6 @@ const KNOWN_GAPS: Record<string, string[]> = {
   'PUT /channels/{channel_id}/pins/{message_id}': ['deprecated route; no system "pinned a message" (type 6) message is posted'],
   'PUT /channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me': ['custom emoji ids must be Serika ids until the snowflake layer resolves `name:<snowflake>` path segments'],
   'GET /channels/{channel_id}': ['DM recipients are bare ids'],
-  'PATCH /guilds/{guild_id}/members/{user_id}': ['channel_id (voice move / disconnect) not supported: answers 40032'],
-  'PUT /guilds/{guild_id}/members/{user_id}': ['needs an OAuth2 guilds.join access token, which SerikaCord does not issue yet: 403 50025 unless already a member'],
   'PUT /channels/{channel_id}/recipients/{user_id}': ['needs an OAuth2 gdm.join access token, which SerikaCord does not issue yet: 403 50025'],
   'GET /guilds/{guild_id}/widget.json': ['channels and members lists are empty; instant_invite only for partnered vanity links'],
   'GET /guilds/{guild_id}/audit-logs': ['application_commands / guild_scheduled_events arrays stay empty (Serika logs neither change)'],
