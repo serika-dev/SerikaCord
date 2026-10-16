@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.21.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.22.
 
 ---
 
@@ -17,6 +17,19 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.22 — 2026-10-16
+
+**Tag:** `v2.1.22` · **Commit:** `1daee4f`
+
+### Features
+- Bots using Discord-style ids now see Discord's own permission numbers for soundboard, external sounds, voice messages, creating expressions and creating events, so discord.js and discord.py permission flags work unchanged.
+
+### Bug Fixes
+- The Developer Portal's bot invite link builder granted the wrong permissions for some choices (for example "Send Messages" actually granted View Channel) and was missing newer permissions; it now grants exactly what you pick.
+- Server owners now get every permission, including creating polls and setting the voice channel status.
 
 ---
 
