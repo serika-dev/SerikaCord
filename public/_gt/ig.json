@@ -11184,5 +11184,8 @@
   "7bb963169b82a0e0": "any",
   "d25fb6f1706cdf51": "A missing scope answers 403 with code 50026; an unknown, expired or revoked token answers 401. The token endpoints also exist under /api/v10/oauth2/token and /api/v10/oauth2/token/revoke, and accept client credentials in the body or as HTTP Basic auth.",
   "a826bf67ef280653": "Codes are single-use",
-  "814254fba7574ac2": "An authorization code works once, for 10 minutes, and only with the redirect_uri it was issued for. Refresh tokens rotate: each refresh returns a new pair and the old refresh token stops working. Removing the app under User Settings -> Authorized Apps revokes its tokens."
+  "814254fba7574ac2": "An authorization code works once, for 10 minutes, and only with the redirect_uri it was issued for. Refresh tokens rotate: each refresh returns a new pair and the old refresh token stops working. Removing the app under User Settings -> Authorized Apps revokes its tokens.",
+  "b7c5b3bd724739c4": "applications.commands.update (client credentials tokens only)",
+  "8ad0272acbe0d2ff": "PKCE",
+  "0f7d1d29584327e9": "Add code_challenge (base64url SHA-256 of your code_verifier) and code_challenge_method=S256 to the authorize URL, then send code_verifier with the code exchange. Only S256 is accepted; any other method is rejected instead of being ignored. PKCE works with response_type=code only."
 }

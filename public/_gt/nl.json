@@ -11322,5 +11322,8 @@
   "7bb963169b82a0e0": "elke",
   "d25fb6f1706cdf51": "Een ontbrekende scope geeft 403 met code 50026; een onbekend, verlopen of ingetrokken token geeft 401. De token-endpoints bestaan ook onder /api/v10/oauth2/token en /api/v10/oauth2/token/revoke en accepteren client credentials in de body of als HTTP Basic auth.",
   "a826bf67ef280653": "Codes zijn eenmalig bruikbaar",
-  "814254fba7574ac2": "Een autorisatiecode werkt één keer, 10 minuten lang, en alleen met de redirect_uri waarvoor hij is uitgegeven. Refresh tokens roteren: elke refresh levert een nieuw paar op en het oude refresh token werkt dan niet meer. Als je de app verwijdert onder Gebruikersinstellingen -> Geautoriseerde apps, worden de tokens ingetrokken."
+  "814254fba7574ac2": "Een autorisatiecode werkt één keer, 10 minuten lang, en alleen met de redirect_uri waarvoor hij is uitgegeven. Refresh tokens roteren: elke refresh levert een nieuw paar op en het oude refresh token werkt dan niet meer. Als je de app verwijdert onder Gebruikersinstellingen -> Geautoriseerde apps, worden de tokens ingetrokken.",
+  "b7c5b3bd724739c4": "applications.commands.update (alleen tokens via client credentials)",
+  "8ad0272acbe0d2ff": "PKCE",
+  "0f7d1d29584327e9": "Voeg code_challenge (base64url SHA-256 van je code_verifier) en code_challenge_method=S256 toe aan de autorisatie-URL en stuur daarna code_verifier mee bij het inwisselen van de code. Alleen S256 wordt geaccepteerd; elke andere methode wordt geweigerd in plaats van genegeerd. PKCE werkt alleen met response_type=code."
 }
