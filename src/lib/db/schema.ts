@@ -211,6 +211,11 @@ export const channels = pgTable('channels', {
   autoArchiveDuration: integer('auto_archive_duration'),
   archiveTimestamp: timestamp('archive_timestamp'),
   starterMessageId: uuid('starter_message_id'),
+  // Discord channel flags (PINNED forum post 1<<1, REQUIRE_TAG forum 1<<4;
+  // null = 0) and private-thread `invitable` (null = true). Added at boot by
+  // ensureThreadParitySchema() (drizzle/manual_thread_parity.sql).
+  flags: integer('flags'),
+  threadInvitable: boolean('thread_invitable'),
   recipientIds: uuid('recipient_ids').array().default([]),
   // Group DM icon (CDN URL). Added at boot by ensureGroupDmSchema().
   icon: text('icon'),

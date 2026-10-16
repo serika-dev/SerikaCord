@@ -52,6 +52,9 @@ export default async function GuildScheduledEventDoc() {
       <Endpoint method="PATCH" path="/guilds/{guild.id}/scheduled-events/{event.id}">{gt("Update a scheduled event.")}</Endpoint>
       <Endpoint method="DELETE" path="/guilds/{guild.id}/scheduled-events/{event.id}">{gt("Delete a scheduled event.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events/{event.id}/users">{gt("Get event subscribers.")}</Endpoint>
+      <Callout type="info" title={gt("SerikaCord Differences")}>
+        {gt("Events are guild-only (privacy_level 2) and can't repeat. Creating needs Create Events (editing or deleting someone else's event needs Manage Events). Stage instances are not supported yet: their endpoints answer Unknown Stage Instance.")}
+      </Callout>
     </DocPage>
   );
 }

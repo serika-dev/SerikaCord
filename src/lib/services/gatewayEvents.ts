@@ -24,6 +24,9 @@ export const Intents = {
   GUILD_MEMBERS: 1 << 1,
   GUILD_PRESENCES: 1 << 8,
   GUILD_MODERATION: 1 << 2,
+  GUILD_EXPRESSIONS: 1 << 3,
+  GUILD_INTEGRATIONS: 1 << 4,
+  GUILD_INVITES: 1 << 6,
   GUILD_VOICE_STATES: 1 << 7,
   GUILD_MESSAGES: 1 << 9,
   GUILD_MESSAGE_REACTIONS: 1 << 10,
@@ -552,6 +555,220 @@ export function emitGuildScheduledEvent(t: string, guildId: string, d: unknown) 
   return publish({ t, guildId, intent: Intents.GUILD_SCHEDULED_EVENTS, d });
 }
 
+// ─── Threads (WP5) ─────────────────────────────────────────
+// THREAD_CREATE / _UPDATE reach the bots that can view the thread (private
+// threads: members, the owner, MANAGE_THREADS and ticket-access roles; see
+// listViewableServerChannels). Membership events follow Discord: the full
+// THREAD_MEMBERS_UPDATE needs GUILD_MEMBERS, but a bot that was itself added
+// or removed always hears about it.
+
+/** Discord thread member object (join time: the thread's creation; Serika keeps no per-member timestamp). */
+export function toDiscordThreadMember(
+  thread: { id: string; createdAt?: Date | string | null },
+  userId: string,
+  member?: unknown,
+) {
+  return {
+    id: thread.id,
+    user_id: userId,
+    join_timestamp: iso(thread.createdAt) ?? new Date(0).toISOString(),
+    flags: 0,
+    ...(member ? { member } : {}),
+  };
+}
+
+/** THREAD_CREATE: a new thread (newly_created) to everyone who can view it. */
+export function emitThreadCreate(thread: ChannelRowLike) {
+  if (!thread.serverId) return Promise.resolve();
+  return publishChannelScoped({
+    t: 'THREAD_CREATE',
+    guildId: thread.serverId,
+    intent: Intents.GUILDS,
+    d: { ...toDiscordChannel(thread), newly_created: true },
+  }, thread.id);
+}
+
+/** THREAD_UPDATE with the current thread object (name, archive / lock state, tags, ...). */
+export function emitThreadUpdate(thread: ChannelRowLike) {
+  if (!thread.serverId) return Promise.resolve();
+  return publishChannelScoped({
+    t: 'THREAD_UPDATE',
+    guildId: thread.serverId,
+    intent: Intents.GUILDS,
+    d: toDiscordChannel(thread),
+  }, thread.id);
+}
+
+/**
+ * THREAD_DELETE to the bots that could see the thread: `before` (viewers
+ * captured before the delete, guildGatewayEvents.captureChannelViewers) when
+ * given; otherwise the parent's viewers, narrowed for private threads to the
+ * members / owner and the bots with MANAGE_THREADS.
+ */
+export async function emitThreadDelete(thread: ChannelRowLike, before?: Map<string, Set<string>>) {
+  if (!thread.serverId || !thread.parentId) return;
+  try {
+    const { channelAudience, guildPermissionBotAudience } = await import('./gatewayAudience');
+    const tid = thread.id.toLowerCase();
+    let audience = before
+      ? [...before].filter(([, ids]) => ids.has(tid)).map(([bot]) => bot)
+      : await channelAudience(thread.parentId, thread.serverId);
+    if (!before && thread.type === 'private_thread') {
+      const allowed = new Set([...(thread.threadMemberIds ?? []), thread.ownerId ?? ''].map((id) => String(id).toLowerCase()));
+      for (const id of await guildPermissionBotAudience(thread.serverId, PERMISSION_BITS.MANAGE_THREADS)) allowed.add(id.toLowerCase());
+      audience = audience.filter((id) => allowed.has(id.toLowerCase()));
+    }
+    if (audience.length === 0) return;
+    await publish({
+      t: 'THREAD_DELETE',
+      guildId: thread.serverId,
+      intent: Intents.GUILDS,
+      audience,
+      d: { id: thread.id, guild_id: thread.serverId, parent_id: thread.parentId, type: CHANNEL_TYPE_NUMBERS[String(thread.type)] ?? 11 },
+    });
+  } catch {
+    // Best-effort, like publish().
+  }
+}
+
+/** Bot users among `ids` (thread membership events only matter to bots). */
+export async function botIdsAmong(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return [];
+  try {
+    const { User } = await import('@/lib/models');
+    const bots = await User.find({ id: { in: ids }, isBot: true });
+    return bots.filter((u: { isBot?: boolean | null }) => u.isBot === true).map((u: { id: string }) => u.id);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * THREAD_MEMBERS_UPDATE after users joined or left a thread; to a bot that
+ * joined, also THREAD_MEMBER_UPDATE and a THREAD_CREATE carrying its thread
+ * member, like Discord. `thread` is the row after the change.
+ */
+export async function emitThreadMembersUpdate(
+  thread: ChannelRowLike,
+  change: { added?: string[]; removed?: string[] },
+) {
+  if (!thread.serverId) return;
+  const guildId = thread.serverId;
+  const added = [...new Set((change.added ?? []).map(String))];
+  const removed = [...new Set((change.removed ?? []).map(String))];
+  if (added.length === 0 && removed.length === 0) return;
+  try {
+    const { ServerMember, User } = await import('@/lib/models');
+    const [members, users] = await Promise.all([
+      added.length ? ServerMember.find({ serverId: guildId, userId: { in: added } }).catch(() => []) : Promise.resolve([]),
+      added.length ? User.find({ id: { in: added } }).catch(() => []) : Promise.resolve([]),
+    ]);
+    const memberBy = new Map(members.map((m: MemberRowLike & { userId: string }) => [m.userId.toLowerCase(), m]));
+    const userBy = new Map(users.map((u: UserRowLike) => [u.id.toLowerCase(), u]));
+    const addedMembers = added.map((id) => {
+      const m = memberBy.get(id.toLowerCase());
+      const u = userBy.get(id.toLowerCase());
+      return toDiscordThreadMember(thread, id, m ? toDiscordGuildMember(m, u ?? { id }) : undefined);
+    });
+    const d = {
+      id: thread.id,
+      guild_id: guildId,
+      member_count: Math.min(50, (thread.threadMemberIds ?? []).length),
+      ...(addedMembers.length ? { added_members: addedMembers } : {}),
+      ...(removed.length ? { removed_member_ids: removed } : {}),
+    };
+    // Bots that were themselves added / removed get it whatever their intents.
+    const selfBots = await botIdsAmong([...added, ...removed]);
+    const self = new Set(selfBots.map((id) => id.toLowerCase()));
+    const { channelAudience } = await import('./gatewayAudience');
+    const viewers = await channelAudience(thread.id, guildId);
+    const canSee = new Set(viewers.map((id) => id.toLowerCase()));
+    const audience = viewers.filter((id) => !self.has(id.toLowerCase()));
+    if (audience.length > 0) await publish({ t: 'THREAD_MEMBERS_UPDATE', guildId, intent: Intents.GUILD_MEMBERS, audience, d });
+    for (const botId of selfBots) {
+      const joined = added.some((id) => id.toLowerCase() === botId.toLowerCase());
+      // An added bot that still can't see the thread (no access to the parent) hears nothing about it.
+      if (joined && !canSee.has(botId.toLowerCase())) continue;
+      await publish({ t: 'THREAD_MEMBERS_UPDATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d });
+      if (!joined) continue;
+      const own = toDiscordThreadMember(thread, botId);
+      await publish({ t: 'THREAD_MEMBER_UPDATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d: { ...own, guild_id: guildId } });
+      await publish({ t: 'THREAD_CREATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d: { ...toDiscordChannel(thread), member: own } });
+    }
+  } catch {
+    // Best-effort, like publish().
+  }
+}
+
+/**
+ * THREAD_LIST_SYNC to one bot that gained access to `channelIds`: the active
+ * threads it can now see there and its own thread member objects.
+ */
+export function emitThreadListSync(opts: { guildId: string; botId: string; channelIds?: string[]; threads: ChannelRowLike[] }) {
+  const bot = opts.botId.toLowerCase();
+  const members = opts.threads
+    .filter((t) => (t.threadMemberIds ?? []).some((id) => id.toLowerCase() === bot))
+    .map((t) => toDiscordThreadMember(t, opts.botId));
+  return publish({
+    t: 'THREAD_LIST_SYNC',
+    guildId: opts.guildId,
+    intent: Intents.GUILDS,
+    targetBotId: opts.botId,
+    d: {
+      guild_id: opts.guildId,
+      ...(opts.channelIds ? { channel_ids: opts.channelIds } : {}),
+      threads: opts.threads.map((t) => toDiscordChannel(t)),
+      members,
+    },
+  });
+}
+
+// ─── Expressions + invites (WP4b) ──────────────────────────
+
+/** GUILD_EMOJIS_UPDATE with the guild's full emoji list (GUILD_EXPRESSIONS intent). */
+export async function emitGuildEmojisUpdate(guildId: string) {
+  try {
+    const { ServerEmoji } = await import('@/lib/models');
+    const emojis = await ServerEmoji.find({ serverId: guildId });
+    await publish({ t: 'GUILD_EMOJIS_UPDATE', guildId, intent: Intents.GUILD_EXPRESSIONS, d: { guild_id: guildId, emojis: emojis.map(toDiscordEmoji) } });
+  } catch {
+    // Best-effort, like publish().
+  }
+}
+
+/** GUILD_STICKERS_UPDATE with the guild's full sticker list (GUILD_EXPRESSIONS intent). */
+export async function emitGuildStickersUpdate(guildId: string) {
+  try {
+    const { ServerSticker } = await import('@/lib/models');
+    const stickers = await ServerSticker.find({ serverId: guildId });
+    await publish({ t: 'GUILD_STICKERS_UPDATE', guildId, intent: Intents.GUILD_EXPRESSIONS, d: { guild_id: guildId, stickers: stickers.map(toDiscordSticker) } });
+  } catch {
+    // Best-effort, like publish().
+  }
+}
+
+/**
+ * A bot integration was removed from a guild: INTEGRATION_DELETE to the bots
+ * that may manage the guild (GUILD_INTEGRATIONS intent). GUILD_INTEGRATIONS_UPDATE
+ * comes with the bot's GUILD_MEMBER_REMOVE (guildGatewayEvents.emitMemberRemove).
+ */
+export async function emitIntegrationDelete(opts: { guildId: string; integrationId: string; applicationId: string }) {
+  try {
+    const { guildPermissionBotAudience } = await import('./gatewayAudience');
+    const audience = await guildPermissionBotAudience(opts.guildId, PERMISSION_BITS.MANAGE_SERVER);
+    if (audience.length === 0) return;
+    await publish({
+      t: 'INTEGRATION_DELETE',
+      guildId: opts.guildId,
+      intent: Intents.GUILD_INTEGRATIONS,
+      audience,
+      d: { id: opts.integrationId, guild_id: opts.guildId, application_id: opts.applicationId },
+    });
+  } catch {
+    // Best-effort, like publish().
+  }
+}
+
 export function gatewayBotUrl() {
   return config.GATEWAY_URL;
 }
@@ -610,6 +827,10 @@ export interface ChannelRowLike {
   appliedTags?: string[] | null;
   createdAt?: Date | string | null;
   icon?: string | null;
+  /** Discord channel flags (PINNED forum post, REQUIRE_TAG forum). */
+  flags?: number | null;
+  /** Private threads: thread_metadata.invitable (null = true). */
+  threadInvitable?: boolean | null;
 }
 
 /** Discord permission overwrite list from the stored jsonb ({ type: 'role' | 'member' }). */
@@ -638,7 +859,7 @@ export function toDiscordChannel(c: ChannelRowLike) {
   const base: Record<string, unknown> = {
     id: c.id,
     type,
-    flags: 0,
+    flags: Number(c.flags) || 0,
     last_message_id: c.lastMessageId ?? null,
   };
   if (c.type === 'dm' || c.type === 'group_dm') {
@@ -674,7 +895,7 @@ export function toDiscordChannel(c: ChannelRowLike) {
         auto_archive_duration: c.autoArchiveDuration ?? 10080,
         archive_timestamp: iso(c.archiveTimestamp) ?? created,
         locked: c.locked ?? false,
-        ...(c.type === 'private_thread' ? { invitable: true } : {}),
+        ...(c.type === 'private_thread' ? { invitable: c.threadInvitable !== false } : {}),
         create_timestamp: created,
       },
     };

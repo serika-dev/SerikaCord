@@ -3183,6 +3183,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       uploadedBy: user.id,
     });
     audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.EMOJI_CREATE, targetId: emoji.id, changes: [{ key: 'name', new: emoji.name }], options: { emoji_url: emoji.imageUrl } });
+    void import('@/lib/services/gatewayEvents').then((m) => m.emitGuildEmojisUpdate(params.serverId)).catch(() => {});
 
     return { emoji };
   }, {
@@ -3227,6 +3228,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     await ServerEmoji.deleteById(emoji.id);
     audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.EMOJI_DELETE, targetId: emoji.id, changes: [{ key: 'name', old: emoji.name }], options: { emoji_url: emoji.imageUrl } });
+    void import('@/lib/services/gatewayEvents').then((m) => m.emitGuildEmojisUpdate(params.serverId)).catch(() => {});
 
     return { success: true };
   }, {
@@ -3276,6 +3278,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const emojiChanges = diffChanges(emoji as Record<string, unknown>, updates, { name: 'name' });
     if (emojiChanges.length > 0) {
       audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.EMOJI_UPDATE, targetId: emoji.id, changes: emojiChanges, options: { emoji_url: emoji.imageUrl } });
+      void import('@/lib/services/gatewayEvents').then((m) => m.emitGuildEmojisUpdate(params.serverId)).catch(() => {});
     }
     return { emoji: updated };
   }, {
@@ -3359,6 +3362,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       uploadedBy: user.id,
     });
     audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.STICKER_CREATE, targetId: sticker.id, changes: [{ key: 'name', new: sticker.name }] });
+    void import('@/lib/services/gatewayEvents').then((m) => m.emitGuildStickersUpdate(params.serverId)).catch(() => {});
 
     return { sticker };
   }, {
@@ -3400,6 +3404,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     if (stickerToDelete) {
       await ServerSticker.deleteById(stickerToDelete.id);
       audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.STICKER_DELETE, targetId: stickerToDelete.id, changes: [{ key: 'name', old: stickerToDelete.name }] });
+      void import('@/lib/services/gatewayEvents').then((m) => m.emitGuildStickersUpdate(params.serverId)).catch(() => {});
     }
     return { success: true };
   }, {
@@ -3451,6 +3456,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const stickerChanges = diffChanges(sticker as Record<string, unknown>, updates, { name: 'name', description: 'description', tags: 'tags' });
     if (stickerChanges.length > 0) {
       audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.STICKER_UPDATE, targetId: sticker.id, changes: stickerChanges });
+      void import('@/lib/services/gatewayEvents').then((m) => m.emitGuildStickersUpdate(params.serverId)).catch(() => {});
     }
     return { sticker: updated };
   }, {

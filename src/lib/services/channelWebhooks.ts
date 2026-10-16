@@ -192,9 +192,13 @@ export async function executeWebhook(
     });
     const { publishToChannel } = await import('@/lib/api/channels');
     publishToChannel(forum.id, { type: 'thread_create', threadId: channel.id });
+    // Bots: THREAD_CREATE before the post's MESSAGE_CREATE.
+    const { emitThreadCreate } = await import('@/lib/services/gatewayEvents');
+    await emitThreadCreate(channel);
   } else if (isThread(channel) && channel.archived) {
     const { setThreadArchived } = await import('@/lib/services/threads');
-    await setThreadArchived(channel.id, false).catch(() => null);
+    const reopened = await setThreadArchived(channel.id, false).catch(() => null);
+    if (reopened) void import('@/lib/services/gatewayEvents').then(({ emitThreadUpdate }) => emitThreadUpdate(reopened)).catch(() => {});
   }
 
   const created = await createAppMessage({

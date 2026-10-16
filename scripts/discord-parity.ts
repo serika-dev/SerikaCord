@@ -665,7 +665,18 @@ const KNOWN_GAPS: Record<string, string[]> = {
   'PUT /guilds/{guild_id}/members/{user_id}': ['needs an OAuth2 guilds.join access token, which SerikaCord does not issue yet: 403 50025 unless already a member'],
   'PUT /channels/{channel_id}/recipients/{user_id}': ['needs an OAuth2 gdm.join access token, which SerikaCord does not issue yet: 403 50025'],
   'GET /guilds/{guild_id}/widget.json': ['channels and members lists are empty; instant_invite only for partnered vanity links'],
-  'GET /guilds/{guild_id}/audit-logs': ['users/webhooks/threads arrays always empty; before/after ignored'],
+  'GET /guilds/{guild_id}/audit-logs': ['application_commands / guild_scheduled_events arrays stay empty (Serika logs neither change)'],
+  // WP5 threads + forums
+  'POST /channels/{channel_id}/threads': ['forum posts send their first message through POST /channels/{id}/messages, so the bot also needs SEND_MESSAGES_IN_THREADS'],
+  'POST /channels/{channel_id}/messages/{message_id}/threads': ['the thread gets its own id (Discord reuses the starter message id)'],
+  'GET /channels/{channel_id}/thread-members': ['join_timestamp is the thread creation time (no per-member timestamp or flags)'],
+  'GET /channels/{channel_id}/threads/search': ['slop and min_id / max_id ignored; relevance sorts by last activity'],
+  // WP4b guild features
+  'PUT /guilds/{guild_id}/onboarding': ['option channel_ids, default_channel_ids and mode are ignored (Serika options only grant roles)'],
+  'POST /stage-instances': ['stage instances are not supported yet: 501'],
+  'GET /stage-instances/{channel_id}': ['stage instances are not supported yet: always 10067 Unknown Stage Instance'],
+  'PATCH /stage-instances/{channel_id}': ['stage instances are not supported yet: always 10067 Unknown Stage Instance'],
+  'DELETE /stage-instances/{channel_id}': ['stage instances are not supported yet: always 10067 Unknown Stage Instance'],
   'GET /gateway/bot': ['always 1 shard; session_start_limit is static'],
   'POST /interactions/{interaction_id}/{interaction_token}/callback': [
     'callback types 10 (premium) and 12 (launch activity) are rejected with 50035',
@@ -675,7 +686,6 @@ const KNOWN_GAPS: Record<string, string[]> = {
   ],
   'PATCH /webhooks/{webhook_id}': ['avatar takes an https URL, not image data'],
   'PATCH /webhooks/{webhook_id}/{webhook_token}': ['avatar takes an https URL, not image data'],
-  'GET /invites/{code}': ['guild/channel are id-only stubs; approximate counts always 0; with_counts ignored'],
   'PATCH /users/@me': ['username follows Serika handle rules (2-32 of a-z 0-9 _ .), not Discord display names'],
   'GET /guilds/{guild_id}/soundboard-sounds': ['always empty: Serika soundboard sounds have no Discord sound ids'],
 };
@@ -683,6 +693,8 @@ const KNOWN_GAPS: Record<string, string[]> = {
 /** Events that are emitted, but only from some of the places that should emit them. */
 const EVENT_GAPS: Record<string, string> = {
   RESUMED: 'replay buffer is per process: a RESUME that lands on another instance (or after a restart) gets op 9',
+  THREAD_LIST_SYNC: 'sent by the instance that made the access change, and only when it held a recent audience snapshot of the guild',
+  THREAD_MEMBER_UPDATE: 'only when the bot itself joins a thread (Serika has no per-member thread flags)',
 };
 
 /** Regex probes for protocol-level behaviour. `invert` = the regex matches the *broken* pattern. */

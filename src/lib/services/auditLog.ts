@@ -3,7 +3,7 @@
 // settings UI and the bot API, and tells bots about new entries
 // (GUILD_AUDIT_LOG_ENTRY_CREATE). Recording is best-effort: a failing write is
 // logged and never fails the action that triggered it.
-import { and, desc, eq, inArray, lt, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gt, inArray, lt, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { normalizeId } from '@/lib/db/normalizeId';
 import {
@@ -132,25 +132,57 @@ export interface AuditQuery {
   actionType?: number | null;
   /** ISO timestamp cursor: only entries older than this. */
   before?: string | null;
+  /** Entry id cursors (Discord's before / after): entries older / newer than that entry. */
+  beforeId?: string | null;
+  afterId?: string | null;
+  /** Only entries about this target (Discord's target_id). */
+  targetId?: string | null;
   limit?: number;
 }
 
-/** Newest-first audit entries for a server, including legacy admin_logs rows. */
+/** When an entry (current table or legacy admin_logs) of this server was written. */
+async function entryTime(sid: string, id: string): Promise<Date | null> {
+  if (!UUID_RE.test(normalizeId(id))) return null;
+  const eid = normalizeId(id);
+  try {
+    const [row] = await db.select({ at: table.createdAt }).from(table).where(and(eq(table.serverId, sid), eq(table.id, eid))).limit(1);
+    if (row?.at) return new Date(row.at);
+  } catch { /* fall through */ }
+  try {
+    const [row] = await db.select({ at: schema.adminLogs.createdAt }).from(schema.adminLogs)
+      .where(and(eq(schema.adminLogs.id, eid), eq(schema.adminLogs.targetId, sid))).limit(1);
+    if (row?.at) return new Date(row.at);
+  } catch { /* unknown cursor */ }
+  return null;
+}
+
+/**
+ * Newest-first audit entries for a server, including legacy admin_logs rows.
+ * With `afterId`, the `limit` entries right after that entry (still returned
+ * newest first, like Discord), so paging forward never skips any.
+ */
 export async function listAuditLogs(serverId: string, q: AuditQuery = {}): Promise<AuditEntryShape[]> {
   const limit = Math.min(Math.max(Number(q.limit) || 50, 1), 100);
   const sid = normalizeId(serverId);
-  const beforeDate = q.before ? new Date(q.before) : null;
+  const beforeDate = q.beforeId ? await entryTime(sid, q.beforeId) : q.before ? new Date(q.before) : null;
   const validBefore = beforeDate && !Number.isNaN(beforeDate.getTime()) ? beforeDate : null;
+  const afterDate = q.afterId ? await entryTime(sid, q.afterId) : null;
+  // An unknown entry id as a cursor matches nothing rather than everything.
+  if ((q.beforeId && !validBefore) || (q.afterId && !afterDate)) return [];
   const filterUser = q.userId && UUID_RE.test(normalizeId(q.userId)) ? normalizeId(q.userId) : null;
+  const filterTarget = q.targetId ? String(q.targetId) : null;
+  const ascending = Boolean(afterDate);
 
   let current: AuditEntryShape[] = [];
   try {
     await ensureAuditLogSchema();
     const conds = [eq(table.serverId, sid)];
     if (filterUser) conds.push(eq(table.userId, filterUser));
+    if (filterTarget) conds.push(sql`lower(${table.targetId}) = ${filterTarget.toLowerCase()}`);
     if (typeof q.actionType === 'number') conds.push(eq(table.actionType, q.actionType));
     if (validBefore) conds.push(lt(table.createdAt, validBefore));
-    const rows = await db.select().from(table).where(and(...conds)).orderBy(desc(table.createdAt)).limit(limit);
+    if (afterDate) conds.push(gt(table.createdAt, afterDate));
+    const rows = await db.select().from(table).where(and(...conds)).orderBy(ascending ? asc(table.createdAt) : desc(table.createdAt)).limit(limit);
     current = rows.map(rowToEntry);
   } catch (err) {
     console.error('[audit] Failed to read audit log:', (err as Error)?.message ?? err);
@@ -166,7 +198,9 @@ export async function listAuditLogs(serverId: string, q: AuditQuery = {}): Promi
     ];
     if (filterUser) conds.push(eq(schema.adminLogs.adminId, filterUser));
     if (validBefore) conds.push(lt(schema.adminLogs.createdAt, validBefore));
-    const rows = await db.select().from(schema.adminLogs).where(and(...conds)).orderBy(desc(schema.adminLogs.createdAt)).limit(limit);
+    if (afterDate) conds.push(gt(schema.adminLogs.createdAt, afterDate));
+    const rows = await db.select().from(schema.adminLogs).where(and(...conds))
+      .orderBy(ascending ? asc(schema.adminLogs.createdAt) : desc(schema.adminLogs.createdAt)).limit(limit);
     legacy = rows
       .map((r) => legacyAdminLogToAudit({
         id: r.id,
@@ -177,12 +211,16 @@ export async function listAuditLogs(serverId: string, q: AuditQuery = {}): Promi
         createdAt: r.createdAt,
       }))
       .filter((e): e is AuditEntryShape => !!e)
-      .filter((e) => typeof q.actionType !== 'number' || e.actionType === q.actionType);
+      .filter((e) => typeof q.actionType !== 'number' || e.actionType === q.actionType)
+      .filter((e) => !filterTarget || (e.targetId ?? '').toLowerCase() === filterTarget.toLowerCase());
   } catch {
     /* legacy rows are optional */
   }
 
-  return mergeAuditEntries(current, legacy, limit);
+  if (!ascending) return mergeAuditEntries(current, legacy, limit);
+  // The oldest `limit` after the cursor, then newest first.
+  const oldest = [...current, ...legacy].sort((x, y) => (x.createdAt < y.createdAt ? -1 : x.createdAt > y.createdAt ? 1 : 0)).slice(0, limit);
+  return mergeAuditEntries(oldest, [], limit);
 }
 
 export { toDiscordEntry };

@@ -4381,6 +4381,11 @@ export async function initializeAPI() {
     // when it can't be completed.
     const { ensureOAuth2TokenSchema } = await import('@/lib/services/oauth2Tokens');
     await ensureOAuth2TokenSchema();
+    // Thread / forum parity columns: channels.flags + channels.thread_invitable
+    // (read by every channel query). Idempotent, skipped when present; throws
+    // when it can't be completed.
+    const { ensureThreadParitySchema } = await import('@/lib/services/threadParitySchema');
+    await ensureThreadParitySchema();
     // Threads in text channels: 'thread_created' message type + thread columns
     // on channels, then the auto-archive sweep. Idempotent, never throws.
     const { ensureThreadSchema, startThreadAutoArchive } = await import('@/lib/services/threads');
