@@ -11147,5 +11147,7 @@
   "e9942a17d1e79511": "De overschrijvingen van username en avatar_url worden bij het bericht bewaard, zodat het na het herladen dezelfde naam toont. Oude webhook-URL's van de vorm /api/webhooks/CHANNEL_ID/TOKEN blijven werken.",
   "1a4d319150f5686a": "Bewerk een bericht dat door de webhook is verzonden (inhoud, embeds, componenten, bijlagen, flags). Voor interactietokens,",
   "ab0c5fd7ef66230b": "is het eerste antwoord van de interactie.",
-  "66fe15ff47b7549c": "Verwijder een bericht dat door de webhook is verzonden."
+  "66fe15ff47b7549c": "Verwijder een bericht dat door de webhook is verzonden.",
+  "26873ac82fef86bb": "gebruikte",
+  "abdd6903e82bedcb": "Alleen jij kunt dit zien"
 }

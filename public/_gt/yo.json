@@ -11009,5 +11009,7 @@
   "e9942a17d1e79511": "The username and avatar_url overrides are kept with the message, so it shows the same name after a reload. Old webhook URLs of the form /api/webhooks/CHANNEL_ID/TOKEN keep working.",
   "1a4d319150f5686a": "Edit a message sent by the webhook (content, embeds, components, attachments, flags). For interaction tokens,",
   "ab0c5fd7ef66230b": "is the interaction's first response.",
-  "66fe15ff47b7549c": "Delete a message sent by the webhook."
+  "66fe15ff47b7549c": "Delete a message sent by the webhook.",
+  "26873ac82fef86bb": "used",
+  "abdd6903e82bedcb": "Only you can see this"
 }

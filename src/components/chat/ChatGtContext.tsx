@@ -211,6 +211,9 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "File": gt("File"),
       // MessageGroup — deferred interaction reply
       "{name} is thinking…": gt("{name} is thinking…", { name: "{name}" }),
+      // MessageGroup — interaction header and ephemeral replies
+      "used": gt("used"),
+      "Only you can see this": gt("Only you can see this"),
       "Not verified": gt("Not verified"),
       "Someone": gt("Someone"),
       "{actor} turned off end-to-end encryption. New messages here aren't end-to-end encrypted.": gt("{actor} turned off end-to-end encryption. New messages here aren't end-to-end encrypted.", { actor: "{actor}" }),
