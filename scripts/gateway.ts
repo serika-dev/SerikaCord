@@ -7,45 +7,24 @@
  *
  * Shares all protocol logic with the integrated server via src/lib/gateway/core.
  */
-import type { ServerWebSocket } from 'bun';
 import { config } from '../src/lib/config';
 import { connectDB } from '../src/lib/db';
-import {
-  GatewayHub,
-  subscribeHubToRedis,
-  newSession,
-  isHeartbeatExpired,
-  KEEPALIVE_SWEEP_INTERVAL,
-  GATEWAY_PATH,
-  type Conn,
-  type Session,
-} from '../src/lib/gateway/core';
-
-interface SocketData { conn: Conn }
-type WS = ServerWebSocket<SocketData>;
+import { GatewayHub, subscribeHubToRedis, GATEWAY_PATH } from '../src/lib/gateway/core';
+import { createBunGatewayTransport, type GatewaySocketData } from '../src/lib/gateway/bunTransport';
 
 async function main() {
   await connectDB();
-  console.log('✅ Gateway: MongoDB connected');
+  console.log('✅ Gateway: PostgreSQL connected');
 
   const hub = new GatewayHub();
   await subscribeHubToRedis(hub);
 
-  // Reap zombie connections that stopped heartbeating. Bun sends protocol-level
-  // pings automatically (sendPings: true) which keeps proxies happy; this sweep
-  // additionally closes bots that went silent so they can reconnect cleanly.
-  const liveSockets = new Set<WS>();
-  const keepaliveSweep = setInterval(() => {
-    for (const ws of liveSockets) {
-      const conn = ws.data.conn;
-      if (conn?.data.authenticated && isHeartbeatExpired(conn)) {
-        try { ws.close(4009, 'Session timed out'); } catch { ws.terminate(); }
-      }
-    }
-  }, KEEPALIVE_SWEEP_INTERVAL);
-  keepaliveSweep.unref?.();
+  // Same transport as server.ts: ?v= / encoding / compress=zlib-stream, the
+  // zombie sweep (4009) and op 7 RECONNECT to every bot on SIGTERM.
+  const gateway = createBunGatewayTransport(hub);
+  gateway.installShutdown();
 
-  Bun.serve<SocketData, Record<string, never>>({
+  Bun.serve<GatewaySocketData>({
     port: config.GATEWAY_PORT,
     // Bun closes sockets idle longer than this (seconds). Keep it comfortably
     // above the heartbeat interval so a healthy bot is never dropped.
@@ -60,34 +39,9 @@ async function main() {
       if (url.pathname !== GATEWAY_PATH && url.pathname !== '/') {
         return new Response('SerikaCord Gateway', { status: 426 });
       }
-      const ok = server.upgrade(req, { data: { conn: null as unknown as Conn } });
-      return ok ? undefined : new Response('Upgrade failed', { status: 426 });
+      return gateway.upgrade(req, server);
     },
-    websocket: {
-      sendPings: true,
-      maxPayloadLength: 1 << 20,
-      open(ws: WS) {
-        const session: Session = newSession();
-        const conn: Conn = {
-          data: session,
-          sendText: (text) => { ws.send(text); },
-          close: (code, reason) => ws.close(code, reason),
-        };
-        ws.data.conn = conn;
-        liveSockets.add(ws);
-        hub.hello(conn);
-      },
-      async message(ws: WS, raw: string | Buffer) {
-        await hub.onFrame(ws.data.conn, raw.toString());
-      },
-      pong(ws: WS) {
-        if (ws.data.conn) ws.data.conn.data.lastHeartbeat = Date.now();
-      },
-      close(ws: WS) {
-        liveSockets.delete(ws);
-        if (ws.data.conn) hub.onClose(ws.data.conn);
-      },
-    },
+    websocket: gateway.websocket,
   });
 
   console.log(`🚀 Standalone Gateway on :${config.GATEWAY_PORT}${GATEWAY_PATH}`);

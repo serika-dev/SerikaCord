@@ -32,6 +32,8 @@ export interface ApplicationData {
   emojiCount?: number;
   webhookCount?: number;
   gatewayIntents?: number;
+  /** Id format the bot API shows this app ('snowflake' = Discord-style numeric ids). */
+  apiIdFormat?: 'snowflake' | 'uuid';
   interactionsEndpointUrl?: string | null;
   publicKey?: string | null;
   botAvatar?: string | null;

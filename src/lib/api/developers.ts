@@ -150,6 +150,8 @@ function sanitizeApp(app: any) {
     gatewayIntents: allowedPrivilegedIntents(app),
     interactionsEndpointUrl: app.interactionsEndpointUrl ?? null,
     publicKey: app.publicKey ?? null,
+    // Id format the bot API shows this app ('snowflake' or 'uuid', see src/lib/botapi/boundary.ts).
+    apiIdFormat: app.apiIdFormat === 'snowflake' ? 'snowflake' : 'uuid',
     createdAt: app.createdAt,
     updatedAt: app.updatedAt,
   };
@@ -239,6 +241,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     serverCount: 0,
     tags: [],
     flags: 0,
+    // New apps get Discord-style numeric ids so discord.js / discord.py work as is.
+    apiIdFormat: 'snowflake',
   });
 
   // Auto-assign active_developer badge
@@ -308,35 +312,14 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     'name', 'description', 'icon', 'coverImage', 'botPublic', 'botRequireCodeGrant',
     'redirectUris', 'scopes', 'installParams', 'customInstallUrl', 'tags',
     'termsOfServiceUrl', 'privacyPolicyUrl', 'rpcOrigins', 'gatewayIntents',
-    'interactionsEndpointUrl',
+    'apiIdFormat',
+    // interactionsEndpointUrl is set only through POST .../bot/interactions-endpoint (verified PING).
   ];
 
   const updateData: Record<string, unknown> = {};
   for (const key of allowed) {
     if (patch[key] !== undefined) {
       updateData[key] = patch[key];
-    }
-  }
-  if (updateData.interactionsEndpointUrl !== undefined && updateData.interactionsEndpointUrl !== app.interactionsEndpointUrl) {
-    // Same rules as POST …/bot/interactions-endpoint: a public https URL that
-    // answers a signed PING. Clearing it is always allowed.
-    const raw = updateData.interactionsEndpointUrl;
-    if (raw === null || raw === '') {
-      updateData.interactionsEndpointUrl = null;
-    } else {
-      if (typeof raw !== 'string') { set.status = 400; return { error: 'Invalid URL' }; }
-      const url = raw.trim();
-      const { checkRateLimit } = await import('@/lib/security');
-      if (!(await checkRateLimit('interactionsEndpointVerify', user.id)).success) { set.status = 429; return { error: 'Too many attempts. Try again later.' }; }
-      const { interactionsEndpointUrlProblem, verifyInteractionEndpoint } = await import('@/lib/services/interactions');
-      const problem = await interactionsEndpointUrlProblem(url);
-      if (problem) { set.status = 400; return { error: problem }; }
-      const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
-      await ensureBotProvisioned(app);
-      const fresh = await Application.findById(app.id);
-      const ok = await verifyInteractionEndpoint({ id: app.id, interactionsEndpointUrl: url, privateKeyPem: fresh?.privateKeyPem ?? app.privateKeyPem, clientId: app.clientId });
-      if (!ok) { set.status = 400; return { error: 'The interactions endpoint did not respond to our PING with a valid PONG.' }; }
-      updateData.interactionsEndpointUrl = url;
     }
   }
   if (updateData.gatewayIntents !== undefined) {
@@ -346,8 +329,20 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     if (stored === null) { set.status = 400; return { error: 'gatewayIntents must be a non-negative integer' }; }
     updateData.gatewayIntents = stored;
   }
+  if (updateData.apiIdFormat !== undefined) {
+    // 'snowflake' = Discord-style numeric ids; 'uuid' (stored as NULL) = legacy ids.
+    if (updateData.apiIdFormat !== 'snowflake' && updateData.apiIdFormat !== 'uuid') {
+      set.status = 400; return { error: "apiIdFormat must be 'snowflake' or 'uuid'" };
+    }
+    updateData.apiIdFormat = updateData.apiIdFormat === 'snowflake' ? 'snowflake' : null;
+  }
 
   await Application.updateById(app.id, updateData);
+  if (updateData.apiIdFormat !== undefined) {
+    // The bot API reads the format from the cached token lookup: drop it.
+    const { invalidateBotTokenCache } = await import('@/lib/services/botTokens');
+    invalidateBotTokenCache();
+  }
   const updated = await Application.findById(app.id);
   return { application: sanitizeApp(updated) };
 })
@@ -456,22 +451,18 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   // Each save sends a signed PING: limit per user.
   const { checkRateLimit } = await import('@/lib/security');
   if (!(await checkRateLimit('interactionsEndpointVerify', user.id)).success) { set.status = 429; return { error: 'Too many attempts. Try again later.' }; }
-  // https, public address only (SSRF): checked here and again on every delivery.
-  const { interactionsEndpointUrlProblem } = await import('@/lib/services/interactions');
-  const problem = await interactionsEndpointUrlProblem(url);
-  if (problem) { set.status = 400; return { error: problem }; }
+  const { isAcceptableEndpointUrl, verifyInteractionsEndpointSafely } = await import('@/lib/botapi/endpointVerify');
+  if (!isAcceptableEndpointUrl(url)) { set.status = 400; return { error: 'The interactions endpoint must be an https URL' }; }
 
   // Make sure the app has a keypair to sign with.
   const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
-  await ensureBotProvisioned(app);
+  const provisioned = await ensureBotProvisioned(app);
 
-  const { verifyInteractionEndpoint } = await import('@/lib/services/interactions');
-  const provisioned = await Application.findById(app.id);
-  const ok = await verifyInteractionEndpoint({
-    id: app.id,
-    interactionsEndpointUrl: url,
-    privateKeyPem: provisioned?.privateKeyPem ?? app.privateKeyPem,
-    clientId: app.clientId,
+  // Public addresses only (checked on the request itself), no redirects, capped reply.
+  const ok = await verifyInteractionsEndpointSafely({
+    url,
+    privateKeyPem: provisioned.privateKeyPem,
+    clientId: provisioned.clientId,
   });
   if (!ok) {
     set.status = 400;
@@ -1495,7 +1486,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       }
     }
 
-    const { Application, User, ServerMember, Server, Role, AuthorizedApp, Channel } = await import('@/lib/models');
+    const { Application, User, ServerMember, Server, Role, AuthorizedApp } = await import('@/lib/models');
 
     const app = await Application.findOne({ clientId });
     if (!app) {
@@ -1643,88 +1634,22 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
 
         await emitGuildMemberAdd({ guildId: serverId, member: memberDto });
 
-        const serverChannels = await Channel.find({ serverId });
-        const serverRolesUpdated = await Role.find({ serverId });
-        
-        const mappedRoles = serverRolesUpdated.map(r => ({
-          id: r.id,
-          name: r.name,
-          color: Number(r.color) || 0,
-          hoist: Boolean(r.hoist),
-          position: r.position ?? 0,
-          permissions: r.permissions || '0',
-          managed: Boolean(r.managed),
-          mentionable: Boolean(r.mentionable),
-        }));
-
-        const typeMap: Record<string, number> = {
-          text: 0,
-          dm: 1,
-          voice: 2,
-          group_dm: 3,
-          category: 4,
-          announcement: 5,
-          forum: 15,
-        };
-
-        const mappedChannels = serverChannels.map(c => ({
-          id: c.id,
-          type: typeMap[c.type] ?? 0,
-          name: c.name,
-          position: c.position ?? 0,
-          parent_id: c.parentId ?? null,
-          topic: c.topic ?? null,
-          nsfw: Boolean(c.nsfw),
-          rate_limit_per_user: c.rateLimitPerUser ?? 0,
-        }));
-
-        // Like Discord: the full member list only goes to apps with the
-        // privileged GUILD_MEMBERS intent; everyone else gets just the bot.
-        const canSeeMembers = (allowedPrivilegedIntents(app) & INTENT.GUILD_MEMBERS) !== 0;
-        const allServerMembers = canSeeMembers
-          ? await ServerMember.find({ serverId })
-          : await ServerMember.find({ serverId, userId: botUser.id });
-        const allUserIds = allServerMembers.map(m => m.userId);
-        const allUsers = await User.find({ id: { in: allUserIds } });
-        const userMap = new Map(allUsers.map(u => [u.id, u]));
-
-        const mappedMembers = allServerMembers.map(m => {
-          const u = userMap.get(m.userId) || { id: m.userId, username: 'Unknown', isBot: false, avatar: null };
-          return {
-            user: {
-              id: u.id,
-              username: u.username,
-              avatar: u.avatar || null,
-              bot: Boolean(u.isBot),
-              discriminator: '0',
-            },
-            nick: m.nickname || null,
-            roles: m.roles || [],
-            joined_at: m.joinedAt ? new Date(m.joinedAt).toISOString() : new Date().toISOString(),
-            deaf: Boolean(m.deaf),
-            mute: Boolean(m.mute),
-          };
+        // The same full GUILD_CREATE a bot gets after READY. Like Discord, the
+        // member list only goes to apps with the privileged GUILD_MEMBERS
+        // intent; everyone else gets just the bot.
+        const { buildGuildCreate } = await import('@/lib/gateway/guildPayload');
+        const guildCreatePayload = await buildGuildCreate(serverId, {
+          botId: botUser.id,
+          intents: allowedPrivilegedIntents(app) & INTENT.GUILD_MEMBERS,
+          largeThreshold: 250,
         });
-
-        const guildCreatePayload = {
-          id: targetServer.id,
-          name: targetServer.name,
-          icon: targetServer.icon ?? null,
-          owner_id: targetServer.ownerId,
-          roles: mappedRoles,
-          channels: mappedChannels,
-          members: mappedMembers,
-          member_count: canSeeMembers ? mappedMembers.length : (targetServer.memberCount ?? mappedMembers.length),
-          joined_at: new Date().toISOString(),
-          large: false,
-          unavailable: false,
-        };
-
-        await emitGuildCreate({
-          guildId: serverId,
-          targetBotId: botUser.id,
-          guild: guildCreatePayload,
-        });
+        if (guildCreatePayload) {
+          await emitGuildCreate({
+            guildId: serverId,
+            targetBotId: botUser.id,
+            guild: guildCreatePayload,
+          });
+        }
 
         botAdded = true;
       }

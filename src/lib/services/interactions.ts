@@ -19,7 +19,6 @@
 import { randomUUID } from 'crypto';
 import { Application, Channel, ChannelWebhook, ServerMember, User, type IChannel, type IMessage } from '@/lib/models';
 import type { IAppCommand } from '@/lib/models/AppCommand';
-import { signInteraction } from '@/lib/services/appIdentity';
 import { getRedis } from '@/lib/db/redis';
 import { processShared } from '@/lib/realtime/processShared';
 import {
@@ -76,126 +75,28 @@ export function interactionStore(): InteractionStore {
 
 type App = NonNullable<Awaited<ReturnType<typeof Application.findById>>>;
 
-const httpInflight = processShared('interactionHttpInflight', () => new Map<string, number>());
-/** Concurrent HTTP interaction deliveries per application (per instance). */
-const HTTP_CONCURRENCY = 25;
+/** Largest JSON reply we read from an interactions endpoint. */
 const MAX_RESPONSE_BYTES = 1024 * 1024;
 
-async function readJsonLimited(res: Response): Promise<unknown> {
-  const len = Number(res.headers.get('content-length') ?? '0');
-  if (len > MAX_RESPONSE_BYTES) { try { await res.body?.cancel(); } catch { /* ignore */ } return null; }
-  const reader = res.body?.getReader();
-  if (!reader) return null;
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    total += value.byteLength;
-    if (total > MAX_RESPONSE_BYTES) { try { await reader.cancel(); } catch { /* ignore */ } return null; }
-    chunks.push(value);
-  }
-  try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8'));
-  } catch {
-    return null;
-  }
-}
-
 /**
- * POST a signed interaction to an application's interactions endpoint and return
- * the parsed JSON response. Signs `timestamp + body` with the app's Ed25519 key
- * (headers X-Signature-Ed25519 / X-Signature-Timestamp), exactly like Discord.
- * The URL is re-checked against private / loopback addresses on every call
- * (no redirects followed), the request times out after 3 s, and each app has
- * a concurrency cap so a slow endpoint can't tie up the server.
+ * POST a signed interaction to an application's interactions endpoint and
+ * return the parsed JSON response. Goes through the single SSRF-guarded path
+ * in src/lib/botapi/endpointVerify.ts (https, public addresses re-checked on
+ * every call, no redirects, 3 s, capped reply, per-app + global concurrency).
  */
-/**
- * Why an interactions endpoint URL is refused, or null when it's usable:
- * https only, no credentials, standard port, and a public address (the DNS
- * answer is checked, not just the name). Used by the portal setters and again
- * by every delivery (safeFetch re-resolves, so a later DNS change to a private
- * address is refused too).
- */
-export async function interactionsEndpointUrlProblem(url: string): Promise<string | null> {
-  if (url.length > 2048) return 'URL is too long';
-  let u: URL;
-  try { u = new URL(url); } catch { return 'Invalid URL'; }
-  if (u.protocol !== 'https:') return 'The interactions endpoint must use https://';
-  const { assertPublicUrl, UnsafeUrlError } = await import('@/lib/security/ssrf');
-  try {
-    await assertPublicUrl(u);
-  } catch (err) {
-    return err instanceof UnsafeUrlError ? 'The interactions endpoint must be a public https URL' : 'Invalid URL';
-  }
-  return null;
-}
-
 export async function postSignedInteraction(
   app: { id?: string; interactionsEndpointUrl?: string | null; privateKeyPem?: string | null },
   payload: unknown,
 ): Promise<{ ok: boolean; status: number; body: unknown } | null> {
   if (!app.interactionsEndpointUrl || !app.privateKeyPem) return null;
-  // https only (safeFetch below also refuses private / loopback / link-local /
-  // metadata addresses after resolving DNS, and follows no redirects).
-  if (!/^https:\/\//i.test(app.interactionsEndpointUrl)) return null;
-  const key = app.id ?? app.interactionsEndpointUrl;
-  const current = httpInflight.get(key) ?? 0;
-  if (current >= HTTP_CONCURRENCY) return null;
-  httpInflight.set(key, current + 1);
-  try {
-    const body = JSON.stringify(payload);
-    const timestamp = String(Math.floor(Date.now() / 1000));
-    const signature = signInteraction(app.privateKeyPem, timestamp + body);
-    const { safeFetch } = await import('@/lib/security/ssrf');
-    // The DNS check inside safeFetch isn't covered by the fetch's AbortSignal:
-    // bound the whole call so a slow resolver can't hold a slot.
-    let deadline: ReturnType<typeof setTimeout> | null = null;
-    const timedOut = new Promise<null>((resolve) => { deadline = setTimeout(() => resolve(null), ACK_DEADLINE_MS + 250); });
-    const res = await Promise.race([timedOut, safeFetch(app.interactionsEndpointUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'User-Agent': 'SerikaCord-Interactions/1.0 (+https://serika.chat/developers)',
-        'X-Signature-Ed25519': signature,
-        'X-Signature-Timestamp': timestamp,
-      },
-      body,
-      signal: AbortSignal.timeout(ACK_DEADLINE_MS),
-    }, { maxRedirects: 0 })]);
-    if (deadline) clearTimeout(deadline);
-    if (!res) return null;
-    if (res.status >= 300 && res.status < 400) return { ok: false, status: res.status, body: null };
-    const json = await readJsonLimited(res);
-    return { ok: res.ok, status: res.status, body: json };
-  } catch {
-    return null;
-  } finally {
-    const n = (httpInflight.get(key) ?? 1) - 1;
-    if (n <= 0) httpInflight.delete(key);
-    else httpInflight.set(key, n);
-  }
-}
-
-/**
- * Verify an interactions endpoint URL by sending a PING. Discord requires the
- * endpoint to respond to a signed PING with `{ type: 1 }` before it will accept
- * the URL. Returns true only if the endpoint responds correctly.
- */
-export async function verifyInteractionEndpoint(app: {
-  id?: string;
-  interactionsEndpointUrl?: string | null;
-  privateKeyPem?: string | null;
-  clientId?: string;
-}): Promise<boolean> {
-  const result = await postSignedInteraction(app, {
-    id: randomUUID(),
-    application_id: app.id ?? app.clientId ?? '',
-    type: InteractionType.PING,
-    token: newInteractionToken(),
-    version: 1,
+  const { postSignedToEndpoint } = await import('@/lib/botapi/endpointVerify');
+  return postSignedToEndpoint({
+    url: app.interactionsEndpointUrl,
+    privateKeyPem: app.privateKeyPem,
+    payload,
+    key: app.id ?? app.interactionsEndpointUrl,
+    maxBytes: MAX_RESPONSE_BYTES,
   });
-  return !!result && result.ok && (result.body as { type?: unknown } | null)?.type === CallbackType.PONG;
 }
 
 /**

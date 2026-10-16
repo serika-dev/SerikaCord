@@ -1,4 +1,4 @@
-import { eq, and, gt, asc, type SQL } from 'drizzle-orm';
+import { eq, and, gt, asc, sql, type SQL } from 'drizzle-orm';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 
@@ -55,6 +55,16 @@ export const ServerMember = {
       .innerJoin(schema.users, eq(schema.users.id, schema.serverMembers.userId))
       .where(and(eq(schema.serverMembers.serverId, normalizeId(serverId)), eq(schema.users.isBot, true)));
     return rows.map((r) => r.userId);
+  },
+
+  /** How many servers a user is a member of (one indexed count). */
+  async countByUser(userId: string): Promise<number> {
+    if (!userId) return 0;
+    const [row] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(schema.serverMembers)
+      .where(eq(schema.serverMembers.userId, normalizeId(userId)));
+    return Number(row?.n ?? 0);
   },
 
   /** One page of a server's members ordered by user id (Discord's `after` + `limit`). */

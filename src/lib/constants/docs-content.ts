@@ -18,7 +18,10 @@ export const DOCS_CONTENT_REGISTRY: Record<string, DocContentItem> = {
     description: "Build bots, apps, and integrations on SerikaCord — a 1:1-compatible mirror of the Discord API. If you can build a Discord bot, you can build a SerikaCord bot.",
     content: `# SerikaCord Developer Documentation
 
-SerikaCord follows Discord v10 for REST routes, gateway opcodes, OAuth2 flows and data structures, for the parts it implements. The official serika.js SDK handles everything natively. Discord libraries are not drop-in yet: ids are UUIDs rather than numeric snowflakes, so discord.py and other libraries that parse ids as integers cannot connect, and discord.js only partly works.
+SerikaCord follows Discord v10 for REST routes, gateway opcodes, OAuth2 flows and data structures, for the parts it implements. The official serika.js SDK handles everything natively. discord.js (v14) and discord.py (2.x) log in, see their servers, receive messages and reply once you point them at SerikaCord (see Quick Start). Not every Discord route exists yet; the API reference lists what does.
+
+## Ids
+New applications see Discord-style numeric ids (snowflakes), so libraries that parse ids as 64-bit integers work. Applications created before snowflake ids existed keep seeing UUIDs until their owner switches **Developer Portal -> your app -> Bot -> Discord-style ids** on. Switching changes every id the bot sees, so ids it stored before no longer match. Requests accept both forms. An application's id is its numeric client id, and the @everyone role has the same id as its server, like Discord.
 
 ## Base URL & Endpoints
 Every request goes to the dedicated bot API host. The version lives in the path, just like Discord.
@@ -134,8 +137,54 @@ client.on('messageCreate', msg => {
 client.login(process.env.BOT_TOKEN);
 \`\`\`
 
+## discord.js (v14)
+Point the REST client at SerikaCord. The gateway URL comes from GET /gateway/bot.
+
+\`\`\`javascript
+const { Client, GatewayIntentBits } = require('discord.js');
+
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildMessages, GatewayIntentBits.MessageContent],
+  rest: { api: '${API.rest.replace(/\/v10$/, '')}' },
+});
+
+client.on('messageCreate', (msg) => {
+  if (msg.content === 'ping') msg.reply('pong');
+});
+
+client.login(process.env.BOT_TOKEN);
+\`\`\`
+
+## discord.py (2.x)
+Set both the REST base and the gateway URL **before** creating the client. discord.py does not ask GET /gateway/bot for its gateway unless it is sharded, so without the second line it sends your SerikaCord token to Discord's gateway.
+
+\`\`\`python
+import os
+
+import discord
+import yarl
+
+discord.http.Route.BASE = "${API.rest}"
+discord.gateway.DiscordWebSocket.DEFAULT_GATEWAY = yarl.URL("${API.gateway}")
+
+intents = discord.Intents.default()
+intents.message_content = True
+client = discord.Client(intents=intents)
+
+
+@client.event
+async def on_message(message: discord.Message):
+    if message.content == "ping":
+        await message.reply("pong")
+
+
+client.run(os.environ["BOT_TOKEN"])
+\`\`\`
+
+Message Content and Server Members are privileged intents: switch them on in the Developer Portal (Bot tab) first, or the gateway closes with 4014.
+
 ## Python (REST with requests)
-discord.py does not work against SerikaCord yet (it parses ids as integers and calls GET /oauth2/applications/@me while logging in). Call the REST API directly:
+Without a library, call the REST API directly:
 
 \`\`\`python
 import os
@@ -184,6 +233,8 @@ SerikaCord implements standard v10 REST resources.
 - **Channels**: \`/channels/{channel_id}\`, \`/channels/{channel_id}/messages\`, \`/channels/{channel_id}/pins\`
 - **Guilds / Servers**: \`/guilds/{guild_id}\`, \`/guilds/{guild_id}/members\`, \`/guilds/{guild_id}/roles\`
 - **Users**: \`/users/@me\`, \`/users/{user_id}\`
+- **Applications**: \`GET/PATCH /applications/@me\`, \`GET /oauth2/applications/@me\`, \`GET/PATCH /applications/{application_id}\` (your own application only). PATCH accepts \`description\`, \`tags\`, \`custom_install_url\`, \`install_params\`, \`interactions_endpoint_url\` (verified with a signed PING) and the intent \`flags\`.
+- **Gateway**: \`GET /gateway\`, \`GET /gateway/bot\`. The gateway sends READY, then one GUILD_CREATE per server (channels with permission overwrites, threads, roles, emojis, stickers, scheduled events, members). It supports \`compress=zlib-stream\`, RESUME (missed events are replayed for 5 minutes), op 3 presence, op 8 Request Guild Members and op 7 RECONNECT before deploys.
 - **Interactions & Commands**: \`/applications/{application_id}/commands\`, \`/interactions/{interaction_id}/{interaction_token}/callback\`
 - **Webhooks**: \`/webhooks/{webhook_id}/{webhook_token}\`
 - **OAuth2**: \`/oauth2/authorize\`, \`/oauth2/token\`

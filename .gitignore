@@ -40,6 +40,9 @@ package-lock.json
 .env.development.local
 .env.test.local
 .env.production.local
+# bot-compat harness (scripts/bot-compat): local test env + seeded tokens
+scripts/bot-compat/.env.test
+scripts/bot-compat/.seed.json
 
 # Keep example env
 !.env.example

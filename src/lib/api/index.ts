@@ -6,7 +6,7 @@ import { config } from '@/lib/config';
 import { connectDB, cache } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, isGlobalRateLimitExempt, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
-import { botApiTokenFromRequest } from '@/lib/security/botRateLimit';
+import { botApiTokenFromRequest, rateLimitedResponse } from '@/lib/security/botRateLimit';
 import { anonymizeIp } from '@/lib/security/ipPrivacy';
 import { User, type IUser, type IUserSettings, type IPendingFriendRequests, type IRole, AuthorizedApp, UserDeviceSession, UserConnection, ServerMember, Server, Role, ServerEmoji, ServerSticker, Channel, Message, BugReport } from '@/lib/models';
 import type { IAllowedFileType } from '@/lib/models/PlatformSettings';
@@ -39,6 +39,7 @@ import { voiceRoutes } from './voice';
 import { gifRoutes } from './gifs';
 import { developerRoutes, oauth2Routes } from './developers';
 import { botApiRoutes } from './botApi';
+import { validationErrorBody } from '@/lib/botapi/errors';
 import { socialSdkRoutes } from './social-sdk';
 import { mcpRoutes } from './mcp';
 import { pushRoutes } from './push';
@@ -450,6 +451,12 @@ const rateLimitPlugin = new Elysia({ name: 'rateLimit' })
     const result = await checkRateLimit('api', getClientIP(request));
     if (!result.success) {
       set.status = 429;
+      // Bot API paths get Discord's 429 (body + Via, which discord.py requires).
+      if (/^\/api\/v(9|10)(\/|$)/.test(path)) {
+        const limited = rateLimitedResponse({ retryAfterSeconds: result.retryAfter ?? 1, global: true });
+        Object.assign(set.headers, limited.headers);
+        return limited.body;
+      }
       set.headers['Retry-After'] = String(result.retryAfter ?? 1);
       return {
         error: 'Too many requests',
@@ -3956,6 +3963,15 @@ export const api = new Elysia({ prefix: '/api' })
     const method = request.method;
     console.error('API Error:', code, `${method} ${path}`, error);
 
+    // The bot API answers with Discord JSON errors (this handler runs before
+    // the bot group's own onError): 50035 + errors tree, 50109, { code, message }.
+    if (/^\/api\/v(9|10)(\/|$)/.test(path) && code !== 'NOT_FOUND') {
+      if (code === 'VALIDATION') { set.status = 400; return validationErrorBody(error); }
+      if (code === 'PARSE') { set.status = 400; return { code: 50109, message: 'The request body contains invalid JSON.' }; }
+      set.status = 500;
+      return { code: 0, message: '500: Internal Server Error' };
+    }
+
     if (code === 'VALIDATION') {
       set.status = 400;
       return { error: 'Validation error', details: error.message };
@@ -4329,6 +4345,10 @@ export async function initializeAPI() {
     // Group DMs: system message types + channels.icon. Idempotent, never throws.
     const { ensureGroupDmSchema } = await import('@/lib/services/groupDms');
     await ensureGroupDmSchema();
+    // Bot API snowflake ids: api_snowflakes + applications.api_id_format (read
+    // by every application query). Idempotent, never throws.
+    const { ensureApiSnowflakeSchema } = await import('@/lib/botapi/snowflakeStore');
+    await ensureApiSnowflakeSchema();
     // Threads in text channels: 'thread_created' message type + thread columns
     // on channels, then the auto-archive sweep. Idempotent, never throws.
     const { ensureThreadSchema, startThreadAutoArchive } = await import('@/lib/services/threads');

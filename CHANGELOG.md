@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.16.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.17.
 
 ---
 
@@ -17,6 +17,22 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.17 — 2026-10-16
+
+**Tag:** `v2.1.17` · **Commit:** `c430c67`
+
+### Features
+- **discord.js and discord.py bots work on SerikaCord** — new bot applications see Discord-style numeric ids, so unmodified discord.js and discord.py bots log in, see their servers and reply to messages. Existing bots keep their ids until their owner turns on "Discord-style ids" in the Developer Portal.
+- **Bots get the full server when they connect** — after logging in, bots receive every server with its channels, roles, emojis and members, can request member lists, and catch up on events they missed during a short disconnect or a SerikaCord update.
+
+### Bug Fixes
+- Bot errors and rate limits now look like Discord's: validation errors list the bad fields, and rate-limited bots back off instead of crashing.
+
+### Security
+- Interaction endpoint URLs set in the Developer Portal must be public https addresses and can no longer redirect to internal ones, and the bot gateway now limits idle connections, logins and sessions per bot.
 
 ---
 

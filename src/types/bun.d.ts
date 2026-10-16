@@ -1,7 +1,7 @@
 // Ambient Bun type declarations (no import/export to keep this a script file)
 
 interface BunServerWebSocket<T = unknown> {
-  send(data: string | ArrayBufferLike): boolean;
+  send(data: string | ArrayBufferLike | ArrayBufferView): boolean | number;
   close(code?: number, reason?: string): void;
   terminate(): void;
   subscribe(topic: string): void;
@@ -15,6 +15,7 @@ interface BunServerWebSocket<T = unknown> {
 
 interface BunServeOptions<T = unknown> {
   port?: number;
+  hostname?: string;
   idleTimeout?: number;
   fetch: (req: Request, server: { upgrade: (req: Request, options?: { data?: T; headers?: Record<string, string> }) => boolean }) => Response | undefined | Promise<Response | undefined>;
   websocket?: {
