@@ -184,7 +184,7 @@ grant_type=client_credentials
         ["GET /api/v10/users/@me/guilds/{guild.id}/member", "guilds.members.read"],
         ["GET /api/v10/users/@me/connections", "connections"],
         ["GET /api/v10/oauth2/@me", gt("any")],
-        ["GET/POST/PUT/PATCH/DELETE /api/v10/applications/{app.id}/commands…", "applications.commands.update"],
+        ["GET/POST/PUT/PATCH/DELETE /api/v10/applications/{app.id}/commands…", gt("applications.commands.update (client credentials tokens only)")],
         ["PUT …/guilds/{guild.id}/commands/{command.id}/permissions", "applications.commands.permissions.update"],
         ["PUT /api/v10/guilds/{guild.id}/members/{user.id} (access_token in the body)", "guilds.join"],
       ]} />
@@ -192,6 +192,8 @@ grant_type=client_credentials
       <Callout type="info" title={gt("Codes are single-use")}>
         {gt("An authorization code works once, for 10 minutes, and only with the redirect_uri it was issued for. Refresh tokens rotate: each refresh returns a new pair and the old refresh token stops working. Removing the app under User Settings -> Authorized Apps revokes its tokens.")}
       </Callout>
+      <H3 id="pkce">{gt("PKCE")}</H3>
+      <P>{gt("Add code_challenge (base64url SHA-256 of your code_verifier) and code_challenge_method=S256 to the authorize URL, then send code_verifier with the code exchange. Only S256 is accepted; any other method is rejected instead of being ignored. PKCE works with response_type=code only.")}</P>
 
       <H2 id="token-revocation">{gt("Token Revocation")}</H2>
       <P>{gt("Revoke an access or refresh token to immediately invalidate it:")}</P>

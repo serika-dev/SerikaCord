@@ -255,7 +255,8 @@ export default function BotPage() {
     );
   }
 
-  const hasBot = !!token || !!app?.botToken;
+  // Team members without bot-token access still see that a bot exists.
+  const hasBot = !!token || !!app?.botToken || !!app?.botId;
 
   return (
     <div className="space-y-6">
