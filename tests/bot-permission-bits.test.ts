@@ -49,7 +49,7 @@ describe("permission bit table", () => {
   test("every Serika flag has its Discord v10 number", () => {
     for (const name of Object.keys(PERMISSION_BITS) as PermissionName[]) {
       const discord = DISCORD_V10[discordNameOf(name)];
-      expect([name, discord]).toEqual([name, expect.any(BigInt)]);
+      expect([name, typeof discord]).toEqual([name, "bigint"]);
       expect([name, DISCORD_BIT_OF[name]]).toEqual([name, discord]);
     }
   });
