@@ -173,7 +173,7 @@ grant_type=client_credentials
   "scope": "identify applications.commands.update"
 }`}</CodeBlock>
       <Callout type="warning" title={gt("Limited scopes")}>
-        {gt("Like on Discord, a client credentials token acts as the application's owner. It can't use bot, guilds.join, webhook.incoming or the DM and message scopes, and there is no refresh token. Its usual use is applications.commands.update, to deploy slash commands without a bot token.")}
+        {gt("A client credentials token acts as the application's owner, so it is limited to identify, applications.commands, applications.commands.update and applications.commands.permissions.update, and there is no refresh token. Its usual use is deploying slash commands without a bot token.")}
       </Callout>
 
       <H2 id="bearer-routes">{gt("Where access tokens work")}</H2>

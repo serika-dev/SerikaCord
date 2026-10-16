@@ -43,12 +43,16 @@ describe('scopes', () => {
     expect(parseScopeParam('bad<scope> identify')).toEqual(['identify']);
     expect(parseScopeParam(undefined)).toEqual([]);
   });
-  test('client_credentials cannot install bots, join guilds or create webhooks', () => {
+  test('client_credentials: commands + public profile only', () => {
     expect(clientCredentialsScopes(['identify', 'applications.commands.update'], VALID)).toEqual({ ok: true, scopes: ['identify', 'applications.commands.update'] });
     expect(clientCredentialsScopes(['bot'], VALID)).toEqual({ ok: false, scope: 'bot' });
     expect(clientCredentialsScopes(['guilds.join'], VALID)).toEqual({ ok: false, scope: 'guilds.join' });
     expect(clientCredentialsScopes(['webhook.incoming'], VALID)).toEqual({ ok: false, scope: 'webhook.incoming' });
     expect(clientCredentialsScopes(['made.up'], VALID)).toEqual({ ok: false, scope: 'made.up' });
+    // Allowlist: never the owner's private data.
+    expect(clientCredentialsScopes(['email'], VALID)).toEqual({ ok: false, scope: 'email' });
+    expect(clientCredentialsScopes(['identify', 'guilds'], VALID)).toEqual({ ok: false, scope: 'guilds' });
+    expect(clientCredentialsScopes(['connections'], VALID)).toEqual({ ok: false, scope: 'connections' });
   });
   test('command routes need applications.commands.update (permissions: .permissions.update)', () => {
     expect(commandsScopeOk(['applications.commands.update'], 'write')).toBe(true);

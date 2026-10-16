@@ -181,7 +181,13 @@ export interface PatchError { path: string; code: string; message: string }
 export const MAX_PROFILE_IMAGE_BYTES = 10 * 1024 * 1024;
 const IMAGE_MIME = new Set(['image/png', 'image/jpeg', 'image/gif', 'image/webp']);
 /** Names Discord refuses in usernames (and we reserve). */
-const RESERVED_NAMES = ['everyone', 'here', 'discord', 'serika', 'clyde', 'system'];
+const RESERVED_NAMES = ['everyone', 'here', 'clyde', 'system', 'admin', 'administrator', 'staff', 'moderator', 'support', 'official'];
+
+/** Names a bot can't take: reserved words, anything starting with "serika", anything with "discord". */
+export function isReservedBotName(name: string): boolean {
+  const n = name.toLowerCase().replace(/[._]/g, '');
+  return RESERVED_NAMES.includes(n) || n.startsWith('serika') || n.includes('discord');
+}
 
 /** `data:image/png;base64,...` -> bytes (null when malformed / not an image / too big). */
 export function parseImageDataUri(v: string): { mime: string; data: Buffer } | null | 'too_big' {
@@ -216,7 +222,7 @@ export function parseBotUserPatch(body: unknown): { ok: true; patch: BotUserPatc
       const name = b.username.trim().toLowerCase();
       if (name.length < 2 || name.length > 32) errors.push({ path: 'username', code: 'BASE_TYPE_BAD_LENGTH', message: 'Must be between 2 and 32 in length.' });
       else if (!/^[a-z0-9_.]+$/.test(name)) errors.push({ path: 'username', code: 'USERNAME_INVALID_CONTAINS', message: 'Username can only use letters, numbers, underscores and periods.' });
-      else if (RESERVED_NAMES.includes(name) || name.includes('discord')) errors.push({ path: 'username', code: 'USERNAME_INVALID', message: 'Username is not allowed.' });
+      else if (isReservedBotName(name)) errors.push({ path: 'username', code: 'USERNAME_INVALID', message: 'Username is not allowed.' });
       else patch.username = name;
     }
   }

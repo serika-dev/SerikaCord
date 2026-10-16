@@ -12,10 +12,13 @@ export const REFRESH_TOKEN_TTL_S = 30 * 86_400;
 export const AUTH_CODE_TTL_S = 600;
 
 /**
- * Scopes a client_credentials token may carry. The token acts as the app's
- * owner, so anything that installs, joins or reads other people's data is out.
+ * Scopes a client_credentials token may carry (allowlist). The token acts as
+ * the app's owner, but anyone holding the client secret (team members, a
+ * leaked bot repo) can mint one, so it never reads the owner's private data
+ * (email, connections, server list): commands management and the public
+ * profile only.
  */
-const CLIENT_CREDENTIALS_FORBIDDEN = new Set(['bot', 'webhook.incoming', 'guilds.join', 'messages.read', 'dm_channels.read', 'dm_channels.write', 'relationships.read']);
+const CLIENT_CREDENTIALS_ALLOWED = new Set(['identify', 'applications.commands', 'applications.commands.update', 'applications.commands.permissions.update']);
 
 /** `scope` from a request: space (or `+`/comma) separated, de-duplicated, at most 32 entries. */
 export function parseScopeParam(raw: unknown): string[] {
@@ -33,7 +36,7 @@ export function parseScopeParam(raw: unknown): string[] {
 /** Scopes a client_credentials request may be granted (unknown or forbidden ones dropped). */
 export function clientCredentialsScopes(requested: string[], valid: ReadonlySet<string>): { ok: true; scopes: string[] } | { ok: false; scope: string } {
   for (const s of requested) {
-    if (!valid.has(s) || CLIENT_CREDENTIALS_FORBIDDEN.has(s)) return { ok: false, scope: s };
+    if (!valid.has(s) || !CLIENT_CREDENTIALS_ALLOWED.has(s)) return { ok: false, scope: s };
   }
   return { ok: true, scopes: requested };
 }

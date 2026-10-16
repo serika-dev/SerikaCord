@@ -993,8 +993,10 @@ export async function emitPresenceUpdate(userId: string, presence?: { status: st
 /**
  * VOICE_STATE_UPDATE in a guild (GUILD_VOICE_STATES). `state` is a Discord
  * voice state object (src/lib/services/voiceStates.ts); channel_id null
- * means the user left voice.
+ * means the user left voice. Only bots that can view `channelId` (the voice
+ * channel joined, changed or left) receive it: private voice channels stay
+ * private.
  */
-export function emitVoiceStateUpdate(guildId: string, state: Record<string, unknown>) {
-  return publish({ t: 'VOICE_STATE_UPDATE', guildId, intent: Intents.GUILD_VOICE_STATES, d: { ...state, guild_id: guildId } });
+export function emitVoiceStateUpdate(guildId: string, channelId: string, state: Record<string, unknown>) {
+  return publishChannelScoped({ t: 'VOICE_STATE_UPDATE', guildId, intent: Intents.GUILD_VOICE_STATES, d: { ...state, guild_id: guildId } }, channelId);
 }

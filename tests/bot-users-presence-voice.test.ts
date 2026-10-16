@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'bun:test';
-import { discordConnection, parseBotUserPatch, parseGuildPageQuery, parseImageDataUri, partialGuild } from '../src/lib/botapi/users';
+import { discordConnection, isReservedBotName, parseBotUserPatch, parseGuildPageQuery, parseImageDataUri, partialGuild } from '../src/lib/botapi/users';
 import { activitiesToRichPresence, buildPresences, customStatusOf, sanitizeActivities } from '../src/lib/services/botPresence';
 import { botVoiceState, channelIdOfVoiceRoom, voiceSessionId, voiceStateOf } from '../src/lib/services/voiceStates';
 
@@ -27,6 +27,10 @@ describe('PATCH /users/@me (bots)', () => {
     expect(parseBotUserPatch({ username: 'x' }).ok).toBe(false);
     expect(parseBotUserPatch({ username: 'mydiscordbot' }).ok).toBe(false);
     expect(parseBotUserPatch({ username: 5 }).ok).toBe(false);
+    expect(isReservedBotName('serika_staff')).toBe(true);
+    expect(isReservedBotName('serikacord')).toBe(true);
+    expect(isReservedBotName('ad.min')).toBe(true);
+    expect(isReservedBotName('music_bot')).toBe(false);
   });
   test('avatar data URIs: type sniffed, null clears', () => {
     const uri = `data:image/png;base64,${PNG.toString('base64')}`;

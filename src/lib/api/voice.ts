@@ -374,6 +374,97 @@ export async function applyServerVoiceState(
   });
 }
 
+type VoiceRoomRef = { roomId: string; channel: { id: string; serverId: string; name?: string | null } };
+
+/**
+ * Disconnect (`destination` null) or move a member who is in `current`: tell
+ * their client first, then update the room (VOICE_STATE_UPDATE goes out from
+ * the leave and from the client's re-join). Shared by the moderation route and
+ * the bot API's member PATCH channel_id.
+ */
+async function performVoiceMove(current: VoiceRoomRef, targetId: string, destination: { id: string; name?: string | null } | null, serverId: string, actorId: string) {
+  const participant = roomState.get(current.roomId)?.get(targetId);
+  if (destination === null) {
+    await markSessionKicked(participant?.sessionId);
+    sendToUser(current.roomId, targetId, { type: 'voice:force_disconnect', by: actorId });
+    evictFromRoom(current.roomId, targetId);
+  } else if (destination.id.toLowerCase() !== current.channel.id.toLowerCase()) {
+    const roomId = `channel-${destination.id}`;
+    await cache.set(moveGrantKey(targetId, roomId), 1, MOVE_GRANT_TTL_S).catch(() => {});
+    roomAuthCache.delete(`${targetId}|${roomId}`);
+    sendToUser(current.roomId, targetId, {
+      type: 'voice:move',
+      roomId,
+      channelId: destination.id,
+      serverId,
+      channelName: destination.name ?? '',
+      by: actorId,
+    });
+  }
+}
+
+export type ServerVoiceMovePlan =
+  | { ok: true; apply: () => Promise<void>; fromChannelId: string; toChannelId: string | null }
+  | { ok: false; status: number; code: number; message: string };
+
+/**
+ * Check a voice move / disconnect of `targetUserId` by `actorId` (Discord's
+ * member PATCH `channel_id`): the target must be in one of the server's voice
+ * channels, the actor needs MOVE_MEMBERS there (channel overwrites apply) and,
+ * for a move, VIEW_CHANNEL + CONNECT in the destination, which the target
+ * must be able to see. `reducePerms` lets callers apply e.g. a timeout.
+ * Nothing changes until `apply()`.
+ */
+export async function planServerVoiceMove(opts: {
+  serverId: string;
+  actorId: string;
+  targetUserId: string;
+  channelId: string | null;
+  reducePerms?: (perms: bigint) => bigint;
+}): Promise<ServerVoiceMovePlan> {
+  const reduce = opts.reducePerms ?? ((p: bigint) => p);
+  const current = await findServerVoiceRoom(opts.serverId, opts.targetUserId);
+  if (!current) return { ok: false, status: 400, code: 40032, message: 'Target user is not connected to voice.' };
+  const actorMember = await ServerMember.findOne({ serverId: opts.serverId, userId: opts.actorId });
+  const actorPerms = reduce(await getMemberChannelPermissions(opts.actorId, current.channel, actorMember ?? null));
+  let destination: { id: string; serverId: string; name?: string | null } | null = null;
+  let destinationPerms: bigint | null = null;
+  let targetCanJoin = true;
+  if (opts.channelId) {
+    if (!isValidObjectId(opts.channelId)) return { ok: false, status: 404, code: 10003, message: 'Unknown Channel' };
+    const dest = await Channel.findById(opts.channelId);
+    if (!dest || dest.serverId?.toLowerCase() !== opts.serverId.toLowerCase()) return { ok: false, status: 404, code: 10003, message: 'Unknown Channel' };
+    if (dest.type !== 'voice') return { ok: false, status: 400, code: 50024, message: 'Cannot execute action on this channel type' };
+    destination = dest as typeof dest & { serverId: string };
+    const [perms, targetAccess] = await Promise.all([
+      getMemberChannelPermissions(opts.actorId, destination, actorMember ?? null),
+      checkChannelAccess(opts.targetUserId, dest.id),
+    ]);
+    destinationPerms = reduce(perms);
+    targetCanJoin = targetAccess.hasAccess;
+  }
+  const decision = checkVoiceModeration({
+    patch: { channelId: opts.channelId },
+    actorPerms,
+    targetInVoice: true,
+    destinationPerms,
+    destinationValid: opts.channelId === null || !!destination,
+    targetCanJoinDestination: targetCanJoin,
+  });
+  if (!decision.ok) {
+    return decision.status === 403
+      ? { ok: false, status: 403, code: 50013, message: 'Missing Permissions' }
+      : { ok: false, status: 400, code: 50035, message: decision.error };
+  }
+  const dest = destination;
+  return {
+    ok: true,
+    fromChannelId: current.channel.id,
+    toChannelId: dest ? dest.id : null,
+    apply: () => performVoiceMove(current, opts.targetUserId, dest, opts.serverId, opts.actorId),
+  };
+}
+
 // Subscribe this process to the voice buses. Call once at startup with a
 // dedicated ioredis connection.
 export async function startVoiceBridge(): Promise<() => void> {
@@ -1213,26 +1304,10 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     }
 
     if (body.channelId !== undefined && current) {
-      const participant = roomState.get(current.roomId)?.get(targetId);
-      if (body.channelId === null) {
-        // Disconnect: tell their client first (so it leaves instead of
-        // re-joining), then take them out for everyone else.
-        await markSessionKicked(participant?.sessionId);
-        sendToUser(current.roomId, targetId, { type: 'voice:force_disconnect', by: user.id });
-        evictFromRoom(current.roomId, targetId);
-      } else if (destination && destination.id.toLowerCase() !== current.channel.id.toLowerCase()) {
-        const roomId = `channel-${destination.id}`;
-        await cache.set(moveGrantKey(targetId, roomId), 1, MOVE_GRANT_TTL_S).catch(() => {});
-        roomAuthCache.delete(`${targetId}|${roomId}`);
-        sendToUser(current.roomId, targetId, {
-          type: 'voice:move',
-          roomId,
-          channelId: destination.id,
-          serverId: server.id,
-          channelName: destination.name ?? '',
-          by: user.id,
-        });
-      }
+      // Disconnect: their client is told first (so it leaves instead of
+      // re-joining), then they are taken out for everyone else.
+      if (body.channelId === null) await performVoiceMove(current, targetId, null, server.id, user.id);
+      else if (destination) await performVoiceMove(current, targetId, destination, server.id, user.id);
     }
 
     const room = current ? roomState.get(current.roomId) : null;

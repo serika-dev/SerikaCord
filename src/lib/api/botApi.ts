@@ -1075,10 +1075,22 @@ async function patchBotMember(
       if (body.mute !== (member.mute ?? false)) changes.push({ key: 'mute', old: member.mute ?? false, new: body.mute });
     }
   }
+  // Voice move / disconnect (WP7): checked now, applied after the member update.
+  let voiceMove: import('./voice').ServerVoiceMovePlan | null = null;
   if (body.channel_id !== undefined) {
-    // Moving / disconnecting voice members isn't exposed to bots yet.
-    set.status = 400;
-    return { code: 40032, message: 'Target user is not connected to voice.' };
+    if (body.channel_id !== null && typeof body.channel_id !== 'string') errors.add(['channel_id'], 'NUMBER_TYPE_COERCE', 'Value is not snowflake.');
+    else {
+      const { planServerVoiceMove } = await import('./voice');
+      const botMembership = await ServerMember.findOne({ serverId: guildId, userId: auth.botUser.id });
+      voiceMove = await planServerVoiceMove({
+        serverId: g.server.id,
+        actorId: auth.botUser.id,
+        targetUserId: member.userId,
+        channelId: body.channel_id,
+        reducePerms: (p) => (g.standing.isOwner ? p : applyTimeout(p, botMembership?.communicationDisabledUntil ?? null)),
+      });
+      if (!voiceMove.ok) { set.status = voiceMove.status; return { code: voiceMove.code, message: voiceMove.message }; }
+    }
   }
   if (body.communication_disabled_until !== undefined) {
     if (!standingHas(g.standing, P.MODERATE_MEMBERS) || targetIsOwner || isSelf || !targetOutranked) return deny();
@@ -1123,6 +1135,17 @@ async function patchBotMember(
       .catch(() => {});
   }
   const reason = auditReason(headers['x-audit-log-reason']);
+  if (voiceMove?.ok) {
+    await voiceMove.apply();
+    audit({
+      serverId: g.server.id,
+      userId: auth.botUser.id,
+      actionType: voiceMove.toChannelId ? AuditLogEvent.MEMBER_MOVE : AuditLogEvent.MEMBER_DISCONNECT,
+      targetId: member.userId,
+      options: voiceMove.toChannelId ? { channel_id: voiceMove.toChannelId, count: '1' } : { count: '1' },
+      reason,
+    });
+  }
   if (changes.length > 0) audit({ serverId: g.server.id, userId: auth.botUser.id, actionType: AuditLogEvent.MEMBER_UPDATE, targetId: member.userId, changes, reason });
   if (roleChanges.length > 0) audit({ serverId: g.server.id, userId: auth.botUser.id, actionType: AuditLogEvent.MEMBER_ROLE_UPDATE, targetId: member.userId, changes: roleChanges, reason });
   if (Object.keys(updates).length > 0) afterMemberChange(g.server.id, member.userId, { roles: updates.roles !== undefined });
@@ -1314,12 +1337,17 @@ const VOICE_REGIONS = [{ id: 'serika', name: 'SerikaCord (peer-to-peer)', optima
 const UNKNOWN_VOICE_STATE = { code: 10065, message: 'Unknown voice state' };
 const UNKNOWN_ENTITLEMENT = { code: 10029, message: 'Unknown entitlement' };
 
-/** The voice state of `userId` in a guild's voice channels (with member), or null. */
-async function findVoiceState(guildId: string, userId: string) {
+/**
+ * The voice state of `userId` in a guild's voice channels (with member), or
+ * null, also when `botId` can't view that voice channel.
+ */
+async function findVoiceState(guildId: string, userId: string, botId: string) {
   if (!isValidObjectId(guildId) || !isValidObjectId(userId)) return null;
   const { listGuildVoiceStates } = await import('@/lib/services/voiceStates');
   const state = (await listGuildVoiceStates(guildId)).find((v) => compareIds(v.user_id, userId));
-  if (!state) return null;
+  if (!state || !state.channel_id) return null;
+  const { checkChannelAccess } = await import('@/lib/api/channels');
+  if (!(await checkChannelAccess(botId, state.channel_id)).hasAccess) return null;
   const member = await ServerMember.findOne({ serverId: guildId, userId });
   const user = member ? await User.findById(userId) : null;
   return { ...state, guild_id: guildId, ...(member ? { member: formatMember(member, user) } : {}) };
@@ -3623,14 +3651,65 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.userId)) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
   const existing = await ServerMember.findOne({ serverId: params.guildId, userId: params.userId });
   if (existing) { set.status = 204; return ''; }
-  const { access_token } = (body ?? {}) as { access_token?: unknown };
+  const { access_token, nick, roles, mute, deaf } = (body ?? {}) as { access_token?: unknown; nick?: unknown; roles?: unknown; mute?: unknown; deaf?: unknown };
   if (typeof access_token !== 'string' || !access_token) {
     set.status = 400;
     return invalidFormBodyAt([{ path: ['access_token'], code: 'BASE_TYPE_REQUIRED', message: 'This field is required' }]);
   }
-  // SerikaCord does not issue guilds.join access tokens yet.
-  set.status = 403;
-  return { code: 50025, message: 'Invalid OAuth2 access token' };
+  // The bot needs CREATE_INSTANT_INVITE; the token must be the user's own,
+  // granted to this bot's application with guilds.join (src/lib/oauth/guildsJoin.ts).
+  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.CREATE_INVITE);
+  if (!g.ok) { set.status = g.status; return g.body; }
+  const { resolveGuildsJoinGrant } = await import('@/lib/oauth/guildsJoin');
+  const grant = await resolveGuildsJoinGrant(access_token, params.userId, { applicationId: auth.app.id });
+  if (!grant.ok) { set.status = grant.status; return grant.body; }
+  const user = await User.findById(params.userId);
+  if (!user || user.isBanned) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
+  if (await ServerBan.findOne({ serverId: g.server.id, userId: user.id })) {
+    set.status = 403; return { code: 40007, message: 'The user is banned from this guild.' };
+  }
+  // Optional fields need the matching permission, like PATCH.
+  const deny = () => { set.status = 403; return MISSING_PERMISSIONS; };
+  const errs: Array<{ path: Array<string | number>; code: string; message: string }> = [];
+  const everyone = g.roles.find((r) => r.isDefault)?.id ?? null;
+  let nickname: string | null = null;
+  if (nick !== undefined && nick !== null) {
+    if (typeof nick !== 'string' || nick.length > 32) errs.push({ path: ['nick'], code: 'BASE_TYPE_MAX_LENGTH', message: 'Must be 32 or fewer in length.' });
+    else if (!standingHas(g.standing, P.MANAGE_NICKNAMES)) return deny();
+    else nickname = nick.trim() || null;
+  }
+  const roleIds: string[] = [];
+  if (roles !== undefined && roles !== null) {
+    if (!Array.isArray(roles)) errs.push({ path: ['roles'], code: 'BASE_TYPE_BAD_TYPE', message: 'Must be an array.' });
+    else {
+      if (roles.length > 0 && !standingHas(g.standing, P.MANAGE_ROLES)) return deny();
+      for (const [i, id] of roles.entries()) {
+        const r = typeof id === 'string' ? g.roles.find((x) => compareIds(x.id, id)) : undefined;
+        if (!r) { errs.push({ path: ['roles', i], code: 'UNKNOWN_ROLE', message: 'Unknown role' }); continue; }
+        if (r.isDefault) continue;
+        if (r.managed || !outranks(g.standing, r.position ?? 0)) return deny();
+        if (!roleIds.includes(r.id)) roleIds.push(r.id);
+      }
+    }
+  }
+  for (const [key, value, bit] of [['mute', mute, P.MUTE_MEMBERS], ['deaf', deaf, P.DEAFEN_MEMBERS]] as const) {
+    if (value === undefined || value === null) continue;
+    if (typeof value !== 'boolean') errs.push({ path: [key], code: 'BASE_TYPE_BAD_TYPE', message: 'Must be either true or false.' });
+    else if (value && !standingHas(g.standing, bit)) return deny();
+  }
+  if (errs.length > 0) { set.status = 400; return invalidFormBodyAt(errs); }
+  // insertServerMember applies rules screening (pending) and sends GUILD_MEMBER_ADD.
+  const { insertServerMember } = await import('@/lib/services/serverMembership');
+  const { membership, created } = await insertServerMember(g.server.id, user.id, {
+    roles: everyone ? [everyone, ...roleIds] : roleIds,
+    ...(nickname ? { nickname } : {}),
+    ...(mute === true ? { mute: true } : {}),
+    ...(deaf === true ? { deaf: true } : {}),
+  });
+  if (!membership) { set.status = 500; return { code: 0, message: '500: Internal Server Error' }; }
+  if (!created) { set.status = 204; return ''; }
+  set.status = 201;
+  return formatMember(membership, user, everyone);
 })
 .delete('/guilds/:guildId/members/:userId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -4223,7 +4302,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 .get('/guilds/:guildId/voice-states/:userId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  const state = await findVoiceState(params.guildId, params.userId);
+  const state = await findVoiceState(params.guildId, params.userId, auth.botUser.id);
   if (!state) { set.status = 404; return UNKNOWN_VOICE_STATE; }
   return state;
 })
@@ -4244,7 +4323,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (bad) { set.status = 400; return bad; }
   const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MUTE_MEMBERS);
   if (!g.ok) { set.status = g.status; return g.body; }
-  const state = await findVoiceState(params.guildId, params.userId);
+  const state = await findVoiceState(params.guildId, params.userId, auth.botUser.id);
   if (!state) { set.status = 404; return UNKNOWN_VOICE_STATE; }
   // Serika voice channels are not stage channels: there is nothing to suppress.
   set.status = 400;

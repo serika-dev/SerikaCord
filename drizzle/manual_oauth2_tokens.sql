@@ -19,3 +19,5 @@ CREATE TABLE IF NOT EXISTS oauth2_tokens (
 CREATE UNIQUE INDEX IF NOT EXISTS oauth2_tokens_access_token_hash_unique ON oauth2_tokens (access_token_hash);
 CREATE UNIQUE INDEX IF NOT EXISTS oauth2_tokens_refresh_token_hash_unique ON oauth2_tokens (refresh_token_hash);
 CREATE INDEX IF NOT EXISTS oauth2_tokens_application_id_user_id_idx ON oauth2_tokens (application_id, user_id);
+-- Which application an authorized_apps row is for (deauthorizing revokes its tokens).
+ALTER TABLE authorized_apps ADD COLUMN IF NOT EXISTS application_id uuid;

@@ -591,6 +591,10 @@ export const authorizedApps = pgTable('authorized_apps', {
   description: text('description'),
   icon: text('icon'),
   scopes: text('scopes').array().default([]),
+  // The authorized application (rows used to be keyed by name only, which an
+  // app can change). Nullable: older rows. Added at boot by
+  // ensureOAuth2TokenSchema() (drizzle/manual_oauth2_tokens.sql).
+  applicationId: uuid('application_id'),
   approvedAt: timestamp('approved_at').defaultNow(),
   lastUsedAt: timestamp('last_used_at'),
   createdAt: timestamp('created_at').defaultNow(),

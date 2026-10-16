@@ -273,7 +273,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const emojiCount = emojis.length;
   const webhookCount = webhooks.length;
 
-  const sanitized = sanitizeApp(app);
+  // Only the owner sees the client secret (it mints client_credentials tokens).
+  const sanitized = { ...sanitizeApp(app), clientSecret: isOwner ? app.clientSecret : undefined };
   let botAvatar: string | null = null;
   let botUsername: string | null = null;
   if (app.botId) {
@@ -1418,6 +1419,9 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    // Each approval issues a code or token: bounded per user.
+    const authorizeLimit = await checkRateLimit('oauthAuthorize', user.id);
+    if (!authorizeLimit.success) { set.status = 429; return { error: 'Too many requests', retryAfter: authorizeLimit.retryAfter }; }
 
     const payload = body as { client_id?: string; serverId?: string; permissions?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string };
     const clientId = payload.client_id || (query.client_id as string);
@@ -1472,11 +1476,15 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     }
     const redirectUri = redirect.uri;
 
-    const existingAuth = await AuthorizedApp.findOne({ userId: user.id, name: app.name });
+    // Rows carry the app id; legacy rows (no id yet) are matched by name once.
+    const byName = await AuthorizedApp.findOne({ userId: user.id, name: app.name });
+    const existingAuth = (await AuthorizedApp.findOne({ userId: user.id, applicationId: app.id }))
+      ?? (byName && !byName.applicationId ? byName : null);
     if (existingAuth) {
       const mergedScopes = Array.from(new Set([...(existingAuth.scopes || []), ...requestedScopes]));
       await AuthorizedApp.updateById(existingAuth.id, {
         scopes: mergedScopes,
+        applicationId: existingAuth.applicationId ?? app.id,
         lastUsedAt: new Date(),
       });
     } else {
@@ -1486,6 +1494,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
         description: app.description || '',
         icon: app.icon || '',
         scopes: requestedScopes,
+        applicationId: app.id,
         lastUsedAt: new Date(),
       });
     }

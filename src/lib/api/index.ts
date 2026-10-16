@@ -2088,10 +2088,15 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: 'Authorized app not found' };
     }
     // Its OAuth2 access / refresh tokens stop working too.
-    if (row?.name) {
-      void import('@/lib/services/oauth2Tokens')
-        .then((m) => m.revokeTokensForAuthorizedApp(authUser.id, row.name))
-        .catch((err) => console.error('[oauth2] revoke on deauthorize failed:', (err as Error)?.message ?? err));
+    if (row) {
+      try {
+        const { revokeTokensForAuthorizedApp } = await import('@/lib/services/oauth2Tokens');
+        await revokeTokensForAuthorizedApp(authUser.id, row);
+      } catch (err) {
+        console.error('[oauth2] revoke on deauthorize failed:', (err as Error)?.message ?? err);
+        set.status = 500;
+        return { error: 'Removed, but its access could not be revoked. Try again.' };
+      }
     }
     return { success: true };
   }, {
@@ -4371,6 +4376,11 @@ export async function initializeAPI() {
     // when it can't be completed.
     const { ensureApiSnowflakeSchema } = await import('@/lib/botapi/snowflakeStore');
     await ensureApiSnowflakeSchema();
+    // OAuth2 grants: oauth2_tokens + authorized_apps.application_id (read by
+    // every authorized_apps query). Idempotent, skipped when present; throws
+    // when it can't be completed.
+    const { ensureOAuth2TokenSchema } = await import('@/lib/services/oauth2Tokens');
+    await ensureOAuth2TokenSchema();
     // Threads in text channels: 'thread_created' message type + thread columns
     // on channels, then the auto-archive sweep. Idempotent, never throws.
     const { ensureThreadSchema, startThreadAutoArchive } = await import('@/lib/services/threads');

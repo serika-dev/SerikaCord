@@ -8,7 +8,7 @@
  * and the guilds.join helper (src/lib/oauth/guildsJoin.ts).
  */
 import { createHash, randomBytes, timingSafeEqual } from 'crypto';
-import { and, eq, gt, inArray, isNull, lt, or, sql } from 'drizzle-orm';
+import { and, eq, gt, inArray, isNotNull, isNull, lt, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { getRedis } from '@/lib/db/redis';
 import { ensureSchema, withLockTimeout } from '@/lib/db/schemaGuard';
@@ -29,8 +29,15 @@ export function ensureOAuth2TokenSchema(): Promise<void> {
   if (g.__oauth2TokenSchema) return g.__oauth2TokenSchema;
   g.__oauth2TokenSchema = ensureSchema(
     'oauth2-tokens',
-    { tables: { oauth2_tokens: ['id', 'application_id', 'user_id', 'scopes', 'grant_type', 'access_token_hash', 'refresh_token_hash', 'expires_at', 'refresh_expires_at', 'revoked_at'] } },
+    {
+      tables: {
+        oauth2_tokens: ['id', 'application_id', 'user_id', 'scopes', 'grant_type', 'access_token_hash', 'refresh_token_hash', 'expires_at', 'refresh_expires_at', 'revoked_at'],
+        // Read by every authorized_apps query (src/lib/db/schema.ts).
+        authorized_apps: ['application_id'],
+      },
+    },
     () => withLockTimeout([
+      sql`ALTER TABLE authorized_apps ADD COLUMN IF NOT EXISTS application_id uuid`,
       sql`CREATE TABLE IF NOT EXISTS oauth2_tokens (
         id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
         application_id uuid NOT NULL,
@@ -138,8 +145,10 @@ async function pruneTokens(applicationId: string, userId: string) {
   await db.delete(t).where(and(
     eq(t.applicationId, applicationId),
     eq(t.userId, userId),
-    lt(t.expiresAt, now),
-    or(isNull(t.refreshExpiresAt), lt(t.refreshExpiresAt, now)),
+    or(
+      and(lt(t.expiresAt, now), or(isNull(t.refreshExpiresAt), lt(t.refreshExpiresAt, now))),
+      isNotNull(t.revokedAt),
+    ),
   ));
   const live = await db.select({ id: t.id }).from(t)
     .where(and(eq(t.applicationId, applicationId), eq(t.userId, userId), isNull(t.revokedAt)))
@@ -195,12 +204,14 @@ export async function revokeUserAppTokens(userId: string, applicationIds: string
 }
 
 /**
- * Deauthorizing an app in User Settings (authorized_apps rows are keyed by
- * the app's name): revoke the user's tokens for every app with that name.
+ * Deauthorizing an app in User Settings: revoke the user's tokens for it.
+ * Rows carry the application id; rows from before it existed fall back to the
+ * app name (apps can be renamed, so new rows never rely on it).
  */
-export async function revokeTokensForAuthorizedApp(userId: string, appName: string): Promise<void> {
-  if (!appName) return;
-  const apps = await db.select({ id: schema.applications.id }).from(schema.applications).where(eq(schema.applications.name, appName)).limit(50);
+export async function revokeTokensForAuthorizedApp(userId: string, row: { applicationId?: string | null; name?: string | null }): Promise<void> {
+  if (row.applicationId) { await revokeUserAppTokens(userId, [row.applicationId]); return; }
+  if (!row.name) return;
+  const apps = await db.select({ id: schema.applications.id }).from(schema.applications).where(eq(schema.applications.name, row.name)).limit(50);
   await revokeUserAppTokens(userId, apps.map((a) => a.id));
 }
 

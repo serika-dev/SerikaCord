@@ -63,7 +63,7 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
       <UL>
         <li>{gt("Access tokens work only on the routes Discord allows them on (see OAuth2 -> Where access tokens work).")}</li>
         <li>{gt("There is no OpenID Connect yet (/oauth2/userinfo and /oauth2/keys), no linked roles and no group DM creation (gdm.join).")}</li>
-        <li>{gt("client_credentials tokens act as the application's owner and can't use bot, guilds.join or webhook.incoming.")}</li>
+        <li>{gt("client_credentials tokens act as the application's owner and only get identify and the applications.commands scopes (Discord allows more).")}</li>
       </UL>
 
       <H2 id="users">{gt("Users and DMs")}</H2>

@@ -170,7 +170,8 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
   if ((opts.intents & GUILD_VOICE_STATES) !== 0) {
     try {
       const { listGuildVoiceStates } = await import('@/lib/services/voiceStates');
-      voiceStates = await listGuildVoiceStates(sid);
+      // Only voice channels the bot can view (private channels stay private).
+      voiceStates = (await listGuildVoiceStates(sid)).filter((v) => canViewParent(byId.get(String(v.channel_id ?? '').toLowerCase()) ?? null));
     } catch { /* voice mirror unavailable (standalone gateway) */ }
   }
   let presences: unknown[] = [];

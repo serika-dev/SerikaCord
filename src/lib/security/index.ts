@@ -74,6 +74,8 @@ export const rateLimiters_config = {
   interactionsEndpointVerify: { points: 10, duration: 600 },
   // OAuth2 token + revoke endpoints, per IP (client secrets are guessed here).
   oauthToken: { points: 30, duration: 60 },
+  // OAuth2 consent approvals (each issues a code / token), per user.
+  oauthAuthorize: { points: 30, duration: 600 },
   // Bot profile edits (PATCH /users/@me): Discord allows 2 username changes
   // per hour; avatar / banner changes get a slightly larger budget.
   botUsernameChange: { points: 2, duration: 3600 },

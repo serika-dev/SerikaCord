@@ -19,22 +19,22 @@ const INVALID_TOKEN = { code: 50025, message: 'Invalid OAuth2 access token' };
  * Validate an `access_token` for adding `userId` to a guild.
  *
  * `bearer` is the raw access token from the request body (a `Bearer ` prefix
- * is tolerated). With `opts.applicationId` (the calling bot's application id,
- * internal UUID) the token must belong to that application, as on Discord.
+ * is tolerated). The token must belong to `opts.applicationId` (the calling
+ * bot's application id, internal UUID), as on Discord.
  * Errors are Discord-shaped: 50025 for a bad / expired / foreign token or one
  * granted by another user, 50026 when it lacks the `guilds.join` scope.
  */
 export async function resolveGuildsJoinGrant(
   bearer: unknown,
   userId: string,
-  opts: { applicationId?: string | null } = {},
+  opts: { applicationId: string },
 ): Promise<GuildsJoinGrant> {
   if (typeof bearer !== 'string' || !bearer.trim()) return { ok: false, status: 400, body: INVALID_TOKEN };
   const token = bearer.trim().replace(/^Bearer\s+/i, '');
   const { resolveBearerToken } = await import('@/lib/services/oauth2Tokens');
   const grant = await resolveBearerToken(token);
   if (!grant) return { ok: false, status: 403, body: INVALID_TOKEN };
-  if (opts.applicationId && grant.applicationId.toLowerCase() !== opts.applicationId.toLowerCase()) {
+  if (!opts.applicationId || grant.applicationId.toLowerCase() !== opts.applicationId.toLowerCase()) {
     return { ok: false, status: 403, body: INVALID_TOKEN };
   }
   if (grant.userId.toLowerCase() !== String(userId).toLowerCase()) return { ok: false, status: 403, body: INVALID_TOKEN };
