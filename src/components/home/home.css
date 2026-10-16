@@ -76,16 +76,30 @@ html.theme-light .hm-root {
   text-wrap: balance;
 }
 
+/* Phones get a compact scale (h1 ≈ 2.3rem, h2 ≈ 1.6rem at 375px); both
+   reach the same desktop sizes as before. */
 .hm-h1 {
-  font-size: clamp(2.6rem, 1.5rem + 4.8vw, 5.25rem);
+  font-size: clamp(2.25rem, 1rem + 5.6vw, 5.25rem);
   font-weight: 700;
-  line-height: 1;
+  line-height: 1.02;
 }
 
 .hm-h2 {
-  font-size: clamp(1.9rem, 1.3rem + 2.3vw, 3.1rem);
+  font-size: clamp(1.55rem, 1rem + 2.6vw, 3.1rem);
   font-weight: 700;
-  line-height: 1.06;
+  line-height: 1.08;
+}
+
+/* Long-form pages (/compare/*): a smaller page title and section titles. */
+.hm-h1.hm-h1-page {
+  font-size: clamp(2.1rem, 1rem + 4.4vw, 4.25rem);
+  line-height: 1.04;
+}
+
+.hm-h2-page {
+  font-size: clamp(1.4rem, 1rem + 1.7vw, 2.25rem);
+  font-weight: 700;
+  line-height: 1.12;
 }
 
 .hm-h3 {
@@ -98,8 +112,8 @@ html.theme-light .hm-root {
 }
 
 .hm-lede {
-  font-size: clamp(1.03rem, 0.96rem + 0.35vw, 1.2rem);
-  line-height: 1.6;
+  font-size: clamp(0.95rem, 0.88rem + 0.45vw, 1.2rem);
+  line-height: 1.55;
   color: var(--hm-body);
   text-wrap: pretty;
 }
@@ -109,6 +123,20 @@ html.theme-light .hm-root {
 }
 
 .hm-dark .hm-accent {
+  color: var(--brand-violet-light);
+}
+
+/* The two-tone wordmark next to the mark (BrandMark.tsx). */
+.hm-wordmark {
+  font-family: var(--hm-display);
+  font-size: 1.2rem;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: -0.02em;
+  color: var(--brand-white);
+}
+
+.hm-wordmark > span {
   color: var(--brand-violet-light);
 }
 
@@ -167,6 +195,40 @@ html.theme-light .hm-root {
   min-height: 38px;
   padding: 0 1.1rem;
   font-size: 0.9rem;
+}
+
+/* Small on phones, regular from sm up. */
+@media (max-width: 639px) {
+  .hm-btn-compact {
+    min-height: 40px;
+    padding: 0 1.1rem;
+    font-size: 0.9rem;
+  }
+}
+
+/* Phones: a sideways, snapping row (PartnerSection); a grid from sm up. */
+@media (max-width: 639px) {
+  .hm-snap-row {
+    display: flex;
+    gap: 0.625rem;
+    margin-inline: -1rem;
+    padding-inline: 1rem;
+    padding-bottom: 0.25rem;
+    overflow-x: auto;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: 1rem;
+    scrollbar-width: none;
+  }
+
+  .hm-snap-row::-webkit-scrollbar {
+    display: none;
+  }
+
+  .hm-snap-row > li {
+    flex: 0 0 82%;
+    scroll-snap-align: start;
+  }
 }
 
 .hm-link {
@@ -300,7 +362,7 @@ html.theme-light .hm-frame {
 .hm-app {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  height: 500px;
+  height: 420px;
 }
 
 .hm-app-rail,
@@ -310,7 +372,7 @@ html.theme-light .hm-frame {
 }
 
 @media (min-width: 640px) {
-  .hm-app { grid-template-columns: 72px minmax(0, 1fr); }
+  .hm-app { grid-template-columns: 72px minmax(0, 1fr); height: 500px; }
   .hm-app-rail { display: flex; }
 }
 

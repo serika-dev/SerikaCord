@@ -45,8 +45,8 @@ export async function getHomeFaq(): Promise<FaqEntry[]> {
 export async function HomeFaq({ items }: { items: FaqEntry[] }) {
   const gt = await getGT();
   return (
-    <section id="faq" aria-labelledby="hm-faq-title" className="scroll-mt-20 py-20 sm:py-28">
-      <div className="mx-auto grid max-w-[1200px] gap-10 px-4 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:px-10">
+    <section id="faq" aria-labelledby="hm-faq-title" className="scroll-mt-20 py-8 sm:py-28">
+      <div className="mx-auto grid max-w-[1200px] gap-6 px-4 sm:gap-10 sm:px-6 lg:grid-cols-[0.8fr_1.2fr] lg:px-10">
         <SectionHeading
           id="hm-faq-title"
           label={gt("FAQ")}
@@ -60,14 +60,14 @@ export async function HomeFaq({ items }: { items: FaqEntry[] }) {
             </>
           }
         />
-        <div className="flex flex-col gap-3" data-reveal>
+        <div className="flex flex-col gap-2 sm:gap-3" data-reveal>
           {items.map((item) => (
             <details key={item.question} className="hm-faq hm-card group !rounded-[16px]">
-              <summary className="flex items-center justify-between gap-4 px-5 py-4 font-semibold text-[var(--hm-ink)]">
+              <summary className="flex items-center justify-between gap-4 px-4 py-3 text-[0.95rem] font-semibold leading-snug text-[var(--hm-ink)] sm:px-5 sm:py-4 sm:text-base">
                 <span>{item.question}</span>
                 <Plus className="hm-faq-icon h-5 w-5 shrink-0 text-[var(--hm-accent-text)]" aria-hidden />
               </summary>
-              <p className="px-5 pb-5 leading-relaxed">{item.answer}</p>
+              <p className="px-4 pb-4 text-sm leading-relaxed sm:px-5 sm:pb-5 sm:text-base">{item.answer}</p>
             </details>
           ))}
         </div>

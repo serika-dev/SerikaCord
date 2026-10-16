@@ -29,7 +29,7 @@ export function SourceRefs({ numbers }: { numbers: number[] }) {
       {numbers.map((n, i) => (
         <span key={n}>
           {i > 0 && ","}
-          <a href={`#source-${n}`} className="text-[var(--app-accent)] hover:underline">
+          <a href={`#source-${n}`} className="text-[var(--hm-accent-text)] hover:underline">
             [{n}]
           </a>
         </span>
@@ -45,7 +45,7 @@ const GOOD = "bg-emerald-500/10 text-emerald-700 dark:text-emerald-400";
 const BAD = "bg-rose-500/10 text-rose-700 dark:text-rose-400";
 const MID = "bg-amber-500/10 text-amber-700 dark:text-amber-400";
 const SOON = "bg-sky-500/10 text-sky-700 dark:text-sky-400";
-const NEUTRAL = "bg-[var(--app-surface-alt)] text-[var(--app-muted)]";
+const NEUTRAL = "bg-[var(--hm-surface-2)] text-[var(--hm-body)]";
 
 function statusStyle(status: CompareStatus, inverted: boolean): string {
   switch (status) {
@@ -85,11 +85,11 @@ function CellBody({
             {labels[cell.status]}
           </span>
         )}
-        {cell.value && <span className="font-semibold text-[var(--app-text)]">{cell.value}</span>}
+        {cell.value && <span className="font-semibold text-[var(--hm-ink)]">{cell.value}</span>}
         {!cell.note && <SourceRefs numbers={refs} />}
       </div>
       {cell.note && (
-        <p className="mt-1 text-[13px] text-[var(--app-muted)]">
+        <p className="mt-1 text-[13px] text-[var(--hm-body)]">
           {cell.note}
           <SourceRefs numbers={refs} />
         </p>
@@ -120,10 +120,10 @@ export async function FactTable({
   return (
     <div>
       {/* Wide screens */}
-      <div className="hidden overflow-hidden rounded-2xl border border-[var(--app-border)] md:block">
+      <div className="hidden overflow-hidden rounded-2xl border border-[var(--hm-line)] md:block">
         <table className="w-full table-fixed border-collapse text-left">
           <caption className="sr-only">{gt("SerikaCord and {app} compared, feature by feature", { app: appName })}</caption>
-          <thead className="bg-[var(--app-surface-alt)] text-sm">
+          <thead className="bg-[var(--hm-surface-2)] text-sm">
             <tr>
               <th scope="col" className="w-[26%] px-4 py-3 font-semibold">{gt("Feature")}</th>
               <th scope="col" className="w-[37%] px-4 py-3 font-semibold">SerikaCord</th>
@@ -132,13 +132,13 @@ export async function FactTable({
           </thead>
           {FACT_GROUPS.map((group) => (
             <tbody key={group.id}>
-              <tr className="border-t border-[var(--app-border)] bg-[var(--app-bg)]">
-                <th scope="colgroup" colSpan={3} className="px-4 pb-2 pt-5 text-xs font-bold uppercase tracking-wider text-[var(--app-accent)]">
+              <tr className="border-t border-[var(--hm-line)] bg-[var(--hm-bg)]">
+                <th scope="colgroup" colSpan={3} className="px-4 pb-2 pt-5 text-xs font-bold uppercase tracking-wider text-[var(--hm-accent-text)]">
                   {groups[group.id]}
                 </th>
               </tr>
               {group.rows.map((row) => (
-                <tr key={row} className="border-t border-[var(--app-border)] bg-[var(--app-surface)] align-top">
+                <tr key={row} className="border-t border-[var(--hm-line)] bg-[var(--hm-surface)] align-top">
                   <th scope="row" className="px-4 py-3 text-sm font-medium">{rows[row]}</th>
                   <td className="px-4 py-3">
                     <CellBody cell={serika[row]} row={row} labels={labels} refs={sourceNumbers(lookup, "serika", serika[row].src)} />
@@ -157,18 +157,18 @@ export async function FactTable({
       <div className="space-y-8 md:hidden">
         {FACT_GROUPS.map((group) => (
           <section key={group.id} aria-label={groups[group.id]}>
-            <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--app-accent)]">{groups[group.id]}</h3>
+            <h3 className="mb-3 text-xs font-bold uppercase tracking-wider text-[var(--hm-accent-text)]">{groups[group.id]}</h3>
             <ul className="space-y-3">
               {group.rows.map((row) => (
-                <li key={row} className="rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4">
+                <li key={row} className="rounded-xl border border-[var(--hm-line)] bg-[var(--hm-surface)] p-4">
                   <h4 className="mb-3 text-sm font-semibold">{rows[row]}</h4>
                   <div className="space-y-3">
                     <div>
-                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--app-muted)]">SerikaCord</p>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--hm-body)]">SerikaCord</p>
                       <CellBody cell={serika[row]} row={row} labels={labels} refs={sourceNumbers(lookup, "serika", serika[row].src)} />
                     </div>
-                    <div className="border-t border-[var(--app-border)] pt-3">
-                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--app-muted)]">{appName}</p>
+                    <div className="border-t border-[var(--hm-line)] pt-3">
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--hm-body)]">{appName}</p>
                       <CellBody cell={app[row]} row={row} labels={labels} refs={sourceNumbers(lookup, "app", app[row].src)} />
                     </div>
                   </div>
@@ -185,7 +185,7 @@ export async function FactTable({
 export async function StatusLegend() {
   const gt = await getGT();
   return (
-    <p className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--app-muted)]">
+    <p className="mt-4 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs text-[var(--hm-body)]">
       <span className="inline-flex items-center gap-1"><Check className="h-3.5 w-3.5" aria-hidden />{gt("Yes: available today")}</span>
       <span className="inline-flex items-center gap-1"><CircleDashed className="h-3.5 w-3.5" aria-hidden />{gt("Partly: limited, paid or with caveats")}</span>
       <span className="inline-flex items-center gap-1"><Clock className="h-3.5 w-3.5" aria-hidden />{gt("Not yet: announced or in development")}</span>
@@ -208,16 +208,16 @@ export function PointGrid({
   scope: "app" | "serika";
   tone: "us" | "them";
 }) {
-  const bar = tone === "us" ? "before:bg-[var(--app-accent)]" : "before:bg-[var(--app-muted)]";
+  const bar = tone === "us" ? "before:bg-[var(--brand-violet)]" : "before:bg-[var(--hm-body)]";
   return (
     <ul className="grid gap-3 sm:grid-cols-2">
       {points.map((p) => (
         <li
           key={p.title}
-          className={`relative overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-4 pl-5 before:absolute before:inset-y-0 before:left-0 before:w-1 sm:p-5 sm:pl-6 ${bar}`}
+          className={`relative overflow-hidden rounded-xl border border-[var(--hm-line)] bg-[var(--hm-surface)] p-4 pl-5 before:absolute before:inset-y-0 before:left-0 before:w-1 sm:p-5 sm:pl-6 ${bar}`}
         >
           <h3 className="mb-1.5 font-semibold leading-snug">{p.title}</h3>
-          <p className="text-sm leading-relaxed text-[var(--app-muted)]">
+          <p className="text-sm leading-relaxed text-[var(--hm-body)]">
             {p.text}
             <SourceRefs numbers={sourceNumbers(lookup, scope, p.src)} />
           </p>
@@ -230,10 +230,10 @@ export function PointGrid({
 /** A plain bulleted list in a soft card. */
 export function BulletCard({ title, intro, points, footer }: { title?: string; intro?: ReactNode; points: string[]; footer?: ReactNode }) {
   return (
-    <div className="rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] p-5 sm:p-6">
+    <div className="rounded-2xl border border-[var(--hm-line)] bg-[var(--hm-surface)] p-5 sm:p-6">
       {title && <h3 className="mb-2 text-lg font-semibold">{title}</h3>}
-      {intro && <div className="mb-3 text-sm leading-relaxed text-[var(--app-muted)]">{intro}</div>}
-      <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-[var(--app-muted)] marker:text-[var(--app-accent)]">
+      {intro && <div className="mb-3 text-sm leading-relaxed text-[var(--hm-body)]">{intro}</div>}
+      <ul className="list-disc space-y-2 pl-5 text-sm leading-relaxed text-[var(--hm-body)] marker:text-[var(--hm-accent-text)]">
         {points.map((p) => (
           <li key={p}>{p}</li>
         ))}
@@ -254,18 +254,18 @@ export async function SourceList({
   const gt = await getGT();
   return (
     <div>
-      <div className="mb-4 max-w-3xl text-sm leading-relaxed text-[var(--app-muted)]">{note}</div>
+      <div className="mb-4 max-w-3xl text-sm leading-relaxed text-[var(--hm-body)]">{note}</div>
       <ol className="space-y-2 text-sm">
         {list.map((s) => (
-          <li key={`${s.scope}-${s.id}`} id={`source-${s.n}`} className="flex scroll-mt-24 gap-3 break-words rounded-lg px-2 py-1 target:bg-[var(--app-surface-alt)]">
-            <span className="w-8 shrink-0 text-right font-mono text-xs leading-5 text-[var(--app-muted)]">[{s.n}]</span>
+          <li key={`${s.scope}-${s.id}`} id={`source-${s.n}`} className="flex scroll-mt-24 gap-3 break-words rounded-lg px-2 py-1 target:bg-[var(--hm-surface-2)]">
+            <span className="w-8 shrink-0 text-right font-mono text-xs leading-5 text-[var(--hm-body)]">[{s.n}]</span>
             <span className="min-w-0">
-              <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline">
+              <a href={s.url} target="_blank" rel="noopener noreferrer" className="text-[var(--hm-accent-text)] hover:underline">
                 {s.title}
                 <ExternalLink className="ml-1 inline h-3.5 w-3.5 align-[-2px]" aria-hidden />
                 <span className="sr-only"> {gt("(opens in a new tab)")}</span>
               </a>
-              <span className="text-[var(--app-muted)]">
+              <span className="text-[var(--hm-body)]">
                 {" · "}
                 {s.publisher}
                 {s.date ? ` · ${s.date}` : ""}

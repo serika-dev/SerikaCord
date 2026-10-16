@@ -21,7 +21,7 @@ export async function CompareTeaser() {
   ];
 
   return (
-    <section id="compare" aria-labelledby="hm-compare-title" className="scroll-mt-20 py-20 sm:py-28">
+    <section id="compare" aria-labelledby="hm-compare-title" className="scroll-mt-20 py-8 sm:py-28">
       <div className="mx-auto max-w-[1200px] px-4 sm:px-6 lg:px-10">
         <SectionHeading
           id="hm-compare-title"
@@ -30,12 +30,12 @@ export async function CompareTeaser() {
           lede={gt("We compare SerikaCord with Discord and other apps as fairly as we can, with sources, including where they're the better choice.")}
         />
 
-        <div className="mt-12 grid gap-4 md:grid-cols-2" data-reveal>
-          <div className="hm-card p-6 sm:p-8">
-            <h3 className="hm-h3">{gt("What you get with SerikaCord")}</h3>
-            <ul className="mt-5 flex flex-col gap-3">
+        <div className="mt-6 grid gap-3 sm:mt-12 sm:gap-4 md:grid-cols-2" data-reveal>
+          <div className="hm-card !rounded-[16px] p-4 sm:!rounded-[24px] sm:p-8">
+            <h3 className="hm-h3 !text-[1.02rem] sm:!text-[1.2rem]">{gt("What you get with SerikaCord")}</h3>
+            <ul className="mt-3 flex flex-col gap-2 text-sm sm:mt-5 sm:gap-3 sm:text-base">
               {strengths.map((s) => (
-                <li key={s} className="flex gap-3">
+                <li key={s} className="flex gap-3 leading-snug">
                   <span className="hm-check mt-0.5" aria-hidden>
                     <Check className="h-3.5 w-3.5" />
                   </span>
@@ -44,11 +44,11 @@ export async function CompareTeaser() {
               ))}
             </ul>
           </div>
-          <div className="hm-card border-dashed p-6 sm:p-8">
-            <h3 className="hm-h3">{gt("Where we're still catching up")}</h3>
-            <ul className="mt-5 flex flex-col gap-3">
+          <div className="hm-card border-dashed !rounded-[16px] p-4 sm:!rounded-[24px] sm:p-8">
+            <h3 className="hm-h3 !text-[1.02rem] sm:!text-[1.2rem]">{gt("Where we're still catching up")}</h3>
+            <ul className="mt-3 flex flex-col gap-2 text-sm sm:mt-5 sm:gap-3 sm:text-base">
               {gaps.map((s) => (
-                <li key={s} className="flex gap-3">
+                <li key={s} className="flex gap-3 leading-snug">
                   <span
                     className="mt-0.5 flex h-[1.3rem] w-[1.3rem] shrink-0 items-center justify-center rounded-full bg-[var(--hm-surface-2)] text-[var(--hm-body)]"
                     aria-hidden
@@ -62,12 +62,12 @@ export async function CompareTeaser() {
           </div>
         </div>
 
-        <div className="mt-6 flex flex-wrap gap-3" data-reveal>
-          <Link href="/compare" className="hm-btn hm-btn-ghost">
+        <div className="mt-4 flex flex-wrap gap-2 sm:mt-6 sm:gap-3" data-reveal>
+          <Link href="/compare" className="hm-btn hm-btn-ghost hm-btn-compact">
             {gt("Read the comparisons")}
             <ArrowRight className="h-4 w-4 rtl:rotate-180" aria-hidden />
           </Link>
-          <Link href="/compare/tier-list" className="hm-btn hm-btn-ghost">
+          <Link href="/compare/tier-list" className="hm-btn hm-btn-ghost hm-btn-compact">
             {gt("See the tier list")}
           </Link>
         </div>

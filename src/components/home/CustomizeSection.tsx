@@ -7,8 +7,8 @@ export async function CustomizeSection() {
   const gt = await getGT();
 
   return (
-    <section id="customize" aria-labelledby="hm-custom-title" className="scroll-mt-20 py-20 sm:py-28">
-      <div className="mx-auto grid max-w-[1200px] items-center gap-12 px-4 sm:px-6 lg:grid-cols-2 lg:px-10">
+    <section id="customize" aria-labelledby="hm-custom-title" className="scroll-mt-20 py-8 sm:py-28">
+      <div className="mx-auto grid max-w-[1200px] items-center gap-6 px-4 sm:gap-12 sm:px-6 lg:grid-cols-2 lg:px-10">
         <div>
           <SectionHeading
             id="hm-custom-title"
@@ -16,7 +16,7 @@ export async function CustomizeSection() {
             title={gt("Make it look like you.")}
             lede={gt("Pick a theme and an accent color, give your name a nameplate, and fill your profile with a banner, a bio and the accounts you've connected.")}
           />
-          <ul className="mt-8 flex flex-wrap gap-2" data-reveal>
+          <ul className="mt-5 flex flex-wrap gap-1.5 sm:mt-8 sm:gap-2" data-reveal>
             {[
               gt("Light, Dark and Midnight themes"),
               gt("Your own accent color"),
@@ -25,7 +25,7 @@ export async function CustomizeSection() {
               gt("Custom status"),
               gt("What you're playing or listening to"),
             ].map((x) => (
-              <li key={x} className="hm-chip">
+              <li key={x} className="hm-chip !px-3 !py-1.5 !text-[13px] sm:!px-[0.85rem] sm:!py-[0.4rem] sm:!text-[0.86rem]">
                 <Check className="h-3.5 w-3.5 text-[var(--hm-accent-text)]" aria-hidden />
                 {x}
               </li>
@@ -43,8 +43,11 @@ export async function CustomizeSection() {
               <MemberRow name="Aya" nameplate="sakura" />
               <MemberRow name="Theo" nameplate="ocean" roleColor="#3BA55C" activity={{ kind: "game", text: "Minecraft" }} />
               <MemberRow name="Rin" nameplate="aurora" activity={{ kind: "music", text: "Lo-fi Beats — Chillhop" }} />
-              <MemberRow name="Mika" nameplate="mint" />
-              <MemberRow name="Jun" nameplate="ember" />
+              {/* Phones show the first three members. */}
+              <div className="hidden sm:block">
+                <MemberRow name="Mika" nameplate="mint" />
+                <MemberRow name="Jun" nameplate="ember" />
+              </div>
             </div>
             <UserPanel name="Sora" nameplate="grape" />
           </div>

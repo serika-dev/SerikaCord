@@ -1,4 +1,3 @@
-import { Outfit } from "next/font/google";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd, homepageJsonLd } from "@/components/seo/JsonLd";
 import { faqPageJsonLd, serikaCordAppJsonLd } from "@/lib/jsonLd";
@@ -14,15 +13,8 @@ import { PartnerSection } from "@/components/home/PartnerSection";
 import { CompareTeaser } from "@/components/home/CompareTeaser";
 import { HomeFaq, getHomeFaq } from "@/components/home/HomeFaq";
 import { HomeFinalCta, HomeFooter } from "@/components/home/HomeFooter";
+import { homeDisplayFont } from "@/components/home/displayFont";
 import "@/components/home/home.css";
-
-// Serika family heading face (Outfit), homepage only; the app keeps Inter.
-// Other scripts fall back to Inter / Noto Kufi through --hm-display.
-const display = Outfit({
-  subsets: ["latin", "latin-ext"],
-  variable: "--font-hm-display",
-  display: "swap",
-});
 
 export const metadata = buildMetadata({
   title: "SerikaCord — Free Community Chat, Voice & Video",
@@ -52,7 +44,7 @@ export default async function HomePage() {
   const faq = await getHomeFaq();
 
   return (
-    <div className={`hm-root ${display.variable}`}>
+    <div className={`hm-root ${homeDisplayFont.variable}`}>
       <JsonLd data={homepageJsonLd} />
       <JsonLd data={serikaCordAppJsonLd} />
       <JsonLd data={faqPageJsonLd(faq)} />

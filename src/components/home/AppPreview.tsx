@@ -738,7 +738,8 @@ export async function CallPreview() {
                 <span className="truncate">{gt("{name}'s screen", { name: "Theo" })}</span>
               </div>
             </div>
-            <div className="flex shrink-0 gap-2 overflow-hidden pb-1">
+            {/* Phones: the screen share alone keeps the frame short. */}
+            <div className="hidden shrink-0 gap-2 overflow-hidden pb-1 sm:flex">
               {[
                 { name: "Mika", speaking: true },
                 { name: "Aya" },
@@ -774,7 +775,8 @@ export async function CallPreview() {
             <span className={cn(dockBtn, idle)}><Video className="w-5 h-5" /></span>
             <span className={cn(dockBtn, "bg-[#8B5CF6]/20 text-[#8B5CF6]")}><Sparkles className="w-5 h-5" /></span>
             <span className={cn(dockBtn, idle)}><ScreenShare className="w-5 h-5" /></span>
-            <span className={cn(dockBtn, idle)}><Music className="w-5 h-5" /></span>
+            {/* Phones: one button fewer so the dock fits a 375px screen. */}
+            <span className={cn(dockBtn, idle, "max-sm:hidden")}><Music className="w-5 h-5" /></span>
             <span className="w-px h-6 bg-white/10 mx-1" />
             <span className="flex items-center justify-center rounded-full bg-[#ef4444] text-white shadow-[0_2px_10px_rgba(239,68,68,0.4)] w-12 h-10">
               <PhoneOff className="w-5 h-5" />

@@ -16,10 +16,10 @@ export async function PrivacySection() {
   ];
 
   return (
-    <section id="privacy" aria-labelledby="hm-privacy-title" className="scroll-mt-20 py-20 sm:py-28">
+    <section id="privacy" aria-labelledby="hm-privacy-title" className="scroll-mt-20 py-8 sm:py-28">
       <div className="mx-auto max-w-[1200px] px-4 sm:px-6 lg:px-10">
-        <div className="relative overflow-hidden rounded-[24px] border border-[var(--hm-line)] bg-[var(--hm-surface)] px-5 py-10 sm:px-10 sm:py-14 lg:px-14">
-          <div className="relative grid items-center gap-12 lg:grid-cols-[1.05fr_0.95fr]">
+        <div className="relative overflow-hidden sm:rounded-[24px] sm:border sm:border-[var(--hm-line)] sm:bg-[var(--hm-surface)] sm:px-10 sm:py-14 lg:px-14">
+          <div className="relative grid items-center gap-7 sm:gap-12 lg:grid-cols-[1.05fr_0.95fr]">
             <div>
               <SectionHeading
                 id="hm-privacy-title"
@@ -31,9 +31,9 @@ export async function PrivacySection() {
                   </>
                 }
               />
-              <ul className="mt-8 flex flex-col gap-4" data-reveal>
+              <ul className="mt-5 flex flex-col gap-3 text-sm sm:mt-8 sm:gap-4 sm:text-base" data-reveal>
                 {points.map((p) => (
-                  <li key={p} className="flex gap-3 leading-relaxed">
+                  <li key={p} className="flex gap-3 leading-snug sm:leading-relaxed">
                     <span className="hm-check mt-0.5" aria-hidden>
                       <Check className="h-3.5 w-3.5" />
                     </span>
@@ -41,7 +41,7 @@ export async function PrivacySection() {
                   </li>
                 ))}
               </ul>
-              <p className="mt-8 max-w-xl border-s-2 border-[var(--hm-line)] ps-4 text-sm leading-relaxed text-[var(--hm-faint)]" data-reveal>
+              <p className="mt-5 max-w-xl border-s-2 border-[var(--hm-line)] ps-4 text-[13px] leading-relaxed text-[var(--hm-faint)] sm:mt-8 sm:text-sm" data-reveal>
                 {gt("Messages in server channels are encrypted at rest on our servers, but not end to end, so bots, search and moderation keep working there.")}{" "}
                 <Link href="/privacy" className="hm-link">
                   {gt("Read our privacy policy")}
@@ -52,7 +52,8 @@ export async function PrivacySection() {
             {/* The real DM header + encryption popover, and the PIN unlock dialog */}
             <div className="relative mx-auto flex w-full max-w-[460px] flex-col gap-4" data-reveal>
               <DmPreview />
-              <div className="mx-auto w-full max-w-[400px]">
+              {/* Phones: the DM view is enough; the PIN step is in the list above. */}
+              <div className="mx-auto hidden w-full max-w-[400px] sm:block">
                 <PinDialogPreview />
               </div>
             </div>

@@ -19,11 +19,11 @@ export function SectionHeading({
 }) {
   return (
     <div className={cn("max-w-2xl", align === "center" && "mx-auto text-center", className)} data-reveal>
-      <p className="hm-label mb-3">{label}</p>
+      <p className="hm-label mb-2 sm:mb-3">{label}</p>
       <h2 id={id} className="hm-display hm-h2">
         {title}
       </h2>
-      {lede && <p className="hm-lede mt-5">{lede}</p>}
+      {lede && <p className="hm-lede mt-3 sm:mt-5">{lede}</p>}
     </div>
   );
 }

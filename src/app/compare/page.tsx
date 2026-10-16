@@ -4,10 +4,10 @@ import { T } from "gt-next";
 import { getGT, getLocale } from "gt-next/server";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
-import { Breadcrumbs, CompareCta, CompareShell, PageHeader, PointList, Section } from "@/components/compare/CompareParts";
+import { Breadcrumbs, CompareShell, PageHeader, PointList, Section } from "@/components/compare/CompareParts";
 import { AppMark } from "@/components/compare/CompareBlocks";
 import { TierLetter } from "@/components/compare/TierBoard";
-import { APP_KINDS, compareArticleJsonLd, compareItemListJsonLd, formatCompareDate, type AppId } from "@/lib/compare";
+import { APP_KINDS, TIERS, compareArticleJsonLd, compareItemListJsonLd, formatCompareDate, type AppId } from "@/lib/compare";
 import { APPS, appsByKind } from "@/lib/compare/apps";
 import { CONTENT_MODULES } from "@/lib/compare/content";
 import { kindLabels } from "@/lib/compare/labels";
@@ -44,69 +44,101 @@ export default async function CompareIndexPage() {
   const serikaOverall = tierOf(OVERALL_RANKING, "serikacord");
 
   return (
-    <CompareShell>
+    <CompareShell
+      current="/compare"
+      hero={
+        <>
+          <Breadcrumbs items={[{ href: "/", label: gt("Home") }, { label: gt("Compare") }]} />
+          <div className="grid items-end gap-6 sm:gap-10 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)]">
+            <PageHeader
+              eyebrow={gt("Compare")}
+              title={gt("How SerikaCord compares")}
+              intro={
+                <T>
+                  <p>
+                    Choosing where your community lives is a big decision. These pages compare SerikaCord with 23 other chat apps as honestly as we can:
+                    where they are better, where we are better, and what we haven&apos;t built yet. Several of them beat us clearly at something, and we
+                    say so.
+                  </p>
+                  <p>They are written by the SerikaCord team, so read them with that in mind and check the sources we link.</p>
+                </T>
+              }
+              meta={<span>{gt("Last checked: {date}", { date: checked })}</span>}
+            />
+
+            {/* Featured: the tier list. */}
+            <Link
+              href="/compare/tier-list"
+              className="hm-card group flex flex-col gap-4 p-5 shadow-[0_30px_80px_-40px_rgba(139,92,246,0.55)] sm:p-7"
+            >
+              <span className="flex items-center justify-between gap-4">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] bg-[color-mix(in_srgb,var(--brand-violet)_18%,transparent)] text-[var(--hm-accent-text)]">
+                  <Trophy className="h-5 w-5" aria-hidden />
+                </span>
+                <span className="flex gap-1" aria-hidden>
+                  {TIERS.map((t) => (
+                    <TierLetter key={t} tier={t} size="sm" />
+                  ))}
+                </span>
+              </span>
+              <span>
+                <span className="hm-h3 block">{gt("The chat app tier list")}</span>
+                <span className="mt-1.5 block text-sm leading-relaxed">
+                  {gt("All 24 apps, SerikaCord included, ranked S to F in twelve sections from privacy to moving from Discord, with a reason for every placement.")}
+                </span>
+              </span>
+              <span className="flex items-center justify-between gap-3 border-t border-[var(--hm-line)] pt-4">
+                {serikaOverall ? (
+                  <span className="flex items-center gap-2 text-sm text-[var(--hm-ink)]">
+                    {gt("SerikaCord overall:")}
+                    <TierLetter tier={serikaOverall} size="sm" />
+                  </span>
+                ) : (
+                  <span />
+                )}
+                <span className="flex h-9 w-9 items-center justify-center rounded-full bg-[var(--brand-violet)] text-white transition-transform group-hover:translate-x-0.5" aria-hidden>
+                  <ArrowRight className="h-4 w-4 rtl:rotate-180" />
+                </span>
+              </span>
+            </Link>
+          </div>
+
+          <nav aria-label={gt("On this page")} className="-mx-4 mt-8 overflow-x-auto px-4 sm:mx-0 sm:mt-12 sm:px-0">
+            <ul className="flex gap-2 sm:flex-wrap">
+              {APP_KINDS.map((kind) => (
+                <li key={kind} className="shrink-0">
+                  <a href={`#${kind}`} className="hm-chip whitespace-nowrap transition-colors hover:border-[var(--brand-violet)]">
+                    {kinds[kind].title}
+                    <span className="text-xs text-[var(--hm-faint)]">{appsByKind(kind).length}</span>
+                  </a>
+                </li>
+              ))}
+            </ul>
+          </nav>
+        </>
+      }
+    >
       <JsonLd
         data={compareArticleJsonLd({ path: "/compare", headline: TITLE, description: DESCRIPTION, breadcrumbName: "Compare", inLanguage: locale })}
       />
       <JsonLd data={compareItemListJsonLd(APPS.map((a) => ({ name: `SerikaCord vs ${a.name}`, path: `/compare/${a.id}` })))} />
-      <Breadcrumbs items={[{ href: "/", label: gt("Home") }, { label: gt("Compare") }]} />
-      <PageHeader
-        eyebrow={gt("Compare")}
-        title={gt("How SerikaCord compares")}
-        intro={
-          <T>
-            <p>
-              Choosing where your community lives is a big decision. These pages compare SerikaCord with 23 other chat apps as honestly as we can:
-              where they are better, where we are better, and what we haven&apos;t built yet. Several of them beat us clearly at something, and we
-              say so.
-            </p>
-            <p>They are written by the SerikaCord team, so read them with that in mind and check the sources we link.</p>
-          </T>
-        }
-        meta={<span>{gt("Last checked: {date}", { date: checked })}</span>}
-      />
-
-      <Link
-        href="/compare/tier-list"
-        className="group mb-14 flex flex-col gap-4 rounded-3xl border border-[var(--app-border)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-accent)] sm:flex-row sm:items-center sm:p-6"
-      >
-        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl bg-[var(--app-accent)]/15 text-[var(--app-accent)]">
-          <Trophy className="h-6 w-6" aria-hidden />
-        </span>
-        <span className="min-w-0 flex-1">
-          <span className="mb-1 block text-lg font-bold">{gt("The chat app tier list")}</span>
-          <span className="block text-sm leading-relaxed text-[var(--app-muted)]">
-            {gt("All 24 apps, SerikaCord included, ranked S to F in twelve sections from privacy to moving from Discord, with a reason for every placement.")}
-          </span>
-        </span>
-        {serikaOverall && (
-          <span className="flex items-center gap-2 text-sm text-[var(--app-muted)]">
-            {gt("SerikaCord overall:")}
-            <TierLetter tier={serikaOverall} size="sm" />
-          </span>
-        )}
-        <ArrowRight className="hidden h-5 w-5 shrink-0 text-[var(--app-accent)] transition-transform group-hover:translate-x-1 sm:block rtl:rotate-180" aria-hidden />
-      </Link>
 
       {APP_KINDS.map((kind) => (
         <Section key={kind} id={kind} title={kinds[kind].title} intro={<p>{kinds[kind].intro}</p>}>
-          <ul className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+          <ul className="grid gap-2 sm:grid-cols-2 sm:gap-4 lg:grid-cols-3">
             {appsByKind(kind).map((a) => {
               const overall = tierOf(OVERALL_RANKING, a.id);
               return (
                 <li key={a.id}>
-                  <Link
-                    href={`/compare/${a.id}`}
-                    className="group flex h-full flex-col rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-accent)]"
-                  >
-                    <span className="mb-3 flex items-center gap-3">
+                  <Link href={`/compare/${a.id}`} className="hm-card group flex h-full flex-col !rounded-[16px] p-3.5 sm:!rounded-[20px] sm:p-5">
+                    <span className="flex items-center gap-3">
                       <AppMark name={a.name} hue={a.hue} />
                       <span className="min-w-0 flex-1">
-                        <span className="block font-bold leading-tight">{a.name}</span>
+                        <span className="hm-h3 block !text-[1.05rem] leading-tight">{a.name}</span>
                         {a.status === "shutdown" ? (
                           <span className="text-xs font-semibold text-rose-600 dark:text-rose-400">{gt("Shut down")}</span>
                         ) : a.status === "beta" ? (
-                          <span className="text-xs text-[var(--app-muted)]">{gt("Beta or early access")}</span>
+                          <span className="text-xs text-[var(--hm-faint)]">{gt("Beta or early access")}</span>
                         ) : null}
                       </span>
                       {overall && (
@@ -116,8 +148,8 @@ export default async function CompareIndexPage() {
                         </span>
                       )}
                     </span>
-                    <span className="mb-4 flex-1 text-sm leading-relaxed text-[var(--app-muted)]">{takes[a.id]}</span>
-                    <span className="inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--app-accent)]">
+                    <span className="mt-2 flex-1 text-[13px] leading-snug text-[var(--hm-body)] sm:mt-3 sm:text-sm sm:leading-relaxed">{takes[a.id]}</span>
+                    <span className="mt-2.5 inline-flex items-center gap-1.5 text-sm font-semibold text-[var(--hm-accent-text)] sm:mt-4">
                       {gt("SerikaCord vs {app}", { app: a.name })}
                       <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5 rtl:rotate-180" aria-hidden />
                     </span>
@@ -139,8 +171,6 @@ export default async function CompareIndexPage() {
           ]}
         />
       </Section>
-
-      <CompareCta />
     </CompareShell>
   );
 }

@@ -5,7 +5,7 @@ import { T } from "gt-next";
 import { getGT, getLocale } from "gt-next/server";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
-import { Breadcrumbs, CompareCta, CompareShell, PageHeader } from "@/components/compare/CompareParts";
+import { Breadcrumbs, CompareShell, PageHeader } from "@/components/compare/CompareParts";
 import { TierLetter, TierReasons, TierRows, type TierApp } from "@/components/compare/TierBoard";
 import { TIER_SECTIONS, compareArticleJsonLd, compareItemListJsonLd, formatCompareDate, type TierAppId } from "@/lib/compare";
 import { APPS } from "@/lib/compare/apps";
@@ -35,12 +35,12 @@ export const metadata = buildMetadata({
 
 function SectionDetails({ summary, children }: { summary: string; children: ReactNode }) {
   return (
-    <details className="group mt-3 overflow-hidden rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)]">
-      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold hover:bg-[var(--app-surface-alt)]">
+    <details className="group mt-3 overflow-hidden rounded-2xl border border-[var(--hm-line)] bg-[var(--hm-surface)]">
+      <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 text-sm font-semibold hover:bg-[var(--hm-surface-2)]">
         {summary}
-        <ChevronDown className="h-4 w-4 shrink-0 text-[var(--app-muted)] transition-transform group-open:rotate-180" aria-hidden />
+        <ChevronDown className="h-4 w-4 shrink-0 text-[var(--hm-body)] transition-transform group-open:rotate-180" aria-hidden />
       </summary>
-      <div className="border-t border-[var(--app-border)]">{children}</div>
+      <div className="border-t border-[var(--hm-line)]">{children}</div>
     </details>
   );
 }
@@ -61,7 +61,33 @@ export default async function TierListPage() {
   const empty = gt("Nobody earned this tier.");
 
   return (
-    <CompareShell>
+    <CompareShell
+      current="/compare/tier-list"
+      hero={
+        <>
+          <Breadcrumbs items={[{ href: "/", label: gt("Home") }, { href: "/compare", label: gt("Compare") }, { label: gt("Tier list") }]} />
+
+          <PageHeader
+            eyebrow={gt("Tier list")}
+            title={gt("The chat app tier list")}
+            intro={
+              <T>
+                <p>
+                  We ranked 24 chat apps, our own included, from S (best in class) to F (missing or unusable) in twelve sections, then gave each an
+                  overall tier. Every placement has a one-line reason, and every app has a full comparison page with dated sources.
+                </p>
+              </T>
+            }
+            meta={
+              <>
+                <span>{gt("Last checked: {date}", { date: checked })}</span>
+                <span>{gt("24 apps · 12 sections")}</span>
+              </>
+            }
+          />
+        </>
+      }
+    >
       <JsonLd
         data={compareArticleJsonLd({
           path: "/compare/tier-list",
@@ -72,28 +98,7 @@ export default async function TierListPage() {
         })}
       />
       <JsonLd data={compareItemListJsonLd(OVERALL_RANKING.map(([id]) => ({ name: apps[id].name, path: id === "serikacord" ? "/" : `/compare/${id}` })))} />
-      <Breadcrumbs items={[{ href: "/", label: gt("Home") }, { href: "/compare", label: gt("Compare") }, { label: gt("Tier list") }]} />
-
-      <PageHeader
-        eyebrow={gt("Tier list")}
-        title={gt("The chat app tier list")}
-        intro={
-          <T>
-            <p>
-              We ranked 24 chat apps, our own included, from S (best in class) to F (missing or unusable) in twelve sections, then gave each an
-              overall tier. Every placement has a one-line reason, and every app has a full comparison page with dated sources.
-            </p>
-          </T>
-        }
-        meta={
-          <>
-            <span>{gt("Last checked: {date}", { date: checked })}</span>
-            <span>{gt("24 apps · 12 sections")}</span>
-          </>
-        }
-      />
-
-      <aside className="mb-12 flex gap-3 rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-relaxed sm:p-5">
+      <aside className="mb-10 flex gap-3 rounded-[16px] border border-amber-500/30 bg-amber-500/10 p-4 text-sm leading-relaxed sm:mb-16 sm:p-5">
         <Info className="mt-0.5 h-5 w-5 shrink-0 text-amber-600 dark:text-amber-400" aria-hidden />
         <div>
           <p className="font-semibold">{gt("We make SerikaCord, so we are biased.")}</p>
@@ -106,9 +111,9 @@ export default async function TierListPage() {
         </div>
       </aside>
 
-      <section id="overall" aria-labelledby="overall-title" className="mb-14 scroll-mt-20">
-        <h2 id="overall-title" className="mb-2 text-2xl font-bold tracking-tight sm:text-3xl">{gt("Overall")}</h2>
-        <p className="mb-5 max-w-3xl leading-relaxed text-[var(--app-muted)]">
+      <section id="overall" aria-labelledby="overall-title" className="mb-12 scroll-mt-24 sm:mb-16">
+        <h2 id="overall-title" className="hm-display hm-h2-page mb-2 sm:mb-3">{gt("Overall")}</h2>
+        <p className="mb-5 max-w-3xl text-[0.95rem] leading-relaxed text-[var(--hm-body)] sm:mb-7 sm:text-base">
           {gt("Our overall judgment for someone choosing where their community or friends should talk. It weighs every section, not a simple average.")}
         </p>
         <TierRows ranking={OVERALL_RANKING} apps={apps} tierNames={names} emptyLabel={empty} />
@@ -117,16 +122,16 @@ export default async function TierListPage() {
         </SectionDetails>
       </section>
 
-      <nav aria-label={gt("Sections")} className="mb-12">
-        <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-[var(--app-muted)]">{gt("Jump to a section")}</h2>
+      <nav aria-label={gt("Sections")} className="mb-12 sm:mb-16">
+        <h2 className="hm-label mb-3">{gt("Jump to a section")}</h2>
         <ol className="flex flex-wrap gap-2">
           {TIER_SECTIONS.map((s, i) => (
             <li key={s}>
               <a
                 href={`#${s}`}
-                className="inline-flex items-center gap-1.5 rounded-full border border-[var(--app-border)] px-3 py-1 text-sm text-[var(--app-muted)] transition-colors hover:border-[var(--app-accent)] hover:text-[var(--app-text)]"
+                className="hm-chip transition-colors hover:border-[var(--brand-violet)]"
               >
-                <span className="font-mono text-xs">{i + 1}</span>
+                <span className="font-mono text-xs text-[var(--hm-accent-text)]">{i + 1}</span>
                 {sections[s].title}
               </a>
             </li>
@@ -137,15 +142,15 @@ export default async function TierListPage() {
       {TIER_SECTIONS.map((s, i) => {
         const ours = tierOf(TIER_RANKINGS[s], "serikacord");
         return (
-          <section key={s} id={s} aria-labelledby={`${s}-title`} className="mb-14 scroll-mt-20">
+          <section key={s} id={s} aria-labelledby={`${s}-title`} className="mb-12 scroll-mt-24 sm:mb-16">
             <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
               <div className="max-w-3xl">
-                <p className="mb-1 font-mono text-xs text-[var(--app-accent)]">{String(i + 1).padStart(2, "0")}</p>
-                <h2 id={`${s}-title`} className="mb-2 text-2xl font-bold tracking-tight">{sections[s].title}</h2>
-                <p className="text-sm leading-relaxed text-[var(--app-muted)]">{sections[s].criteria}</p>
+                <p className="mb-1 font-mono text-xs text-[var(--hm-accent-text)]">{String(i + 1).padStart(2, "0")}</p>
+                <h2 id={`${s}-title`} className="hm-display hm-h2-page mb-2">{sections[s].title}</h2>
+                <p className="text-sm leading-relaxed text-[var(--hm-body)]">{sections[s].criteria}</p>
               </div>
               {ours && (
-                <p className="flex items-center gap-2 text-sm text-[var(--app-muted)]">
+                <p className="flex items-center gap-2 text-sm text-[var(--hm-body)]">
                   {gt("SerikaCord:")}
                   <TierLetter tier={ours} size="sm" />
                 </p>
@@ -159,17 +164,17 @@ export default async function TierListPage() {
         );
       })}
 
-      <section id="matrix" aria-labelledby="matrix-title" className="mb-14 min-w-0 scroll-mt-20">
-        <h2 id="matrix-title" className="mb-2 text-2xl font-bold tracking-tight sm:text-3xl">{gt("Every ranking at a glance")}</h2>
-        <p className="mb-5 max-w-3xl leading-relaxed text-[var(--app-muted)]">
+      <section id="matrix" aria-labelledby="matrix-title" className="mb-12 min-w-0 scroll-mt-24 sm:mb-16">
+        <h2 id="matrix-title" className="hm-display hm-h2-page mb-2 sm:mb-3">{gt("Every ranking at a glance")}</h2>
+        <p className="mb-5 max-w-3xl text-[0.95rem] leading-relaxed text-[var(--hm-body)] sm:text-base">
           {gt("Apps in overall order; the numbered columns are the twelve sections above. Scroll sideways on a phone.")}
         </p>
-        <div className="relative w-full max-w-full overflow-x-auto rounded-2xl border border-[var(--app-border)]">
+        <div className="relative w-full max-w-full overflow-x-auto rounded-2xl border border-[var(--hm-line)]">
           <table className="w-full min-w-[720px] border-collapse text-sm">
             <caption className="sr-only">{gt("Tier of every app in every section")}</caption>
-            <thead className="bg-[var(--app-surface-alt)]">
+            <thead className="bg-[var(--hm-surface-2)]">
               <tr>
-                <th scope="col" className="sticky left-0 z-10 bg-[var(--app-surface-alt)] px-3 py-2.5 text-left font-semibold">{gt("App")}</th>
+                <th scope="col" className="sticky left-0 z-10 bg-[var(--hm-surface-2)] px-3 py-2.5 text-left font-semibold">{gt("App")}</th>
                 <th scope="col" className="px-2 py-2.5 font-semibold">{gt("Overall")}</th>
                 {TIER_SECTIONS.map((s, i) => (
                   <th key={s} scope="col" className="px-1.5 py-2.5 font-mono text-xs font-semibold">
@@ -181,9 +186,9 @@ export default async function TierListPage() {
             </thead>
             <tbody>
               {OVERALL_RANKING.map(([id, tier]) => (
-                <tr key={id} className={`border-t border-[var(--app-border)] ${id === "serikacord" ? "bg-[var(--app-accent)]/10" : "bg-[var(--app-surface)]"}`}>
-                  <th scope="row" className={`sticky left-0 z-10 px-3 py-1.5 text-left font-medium ${id === "serikacord" ? "bg-[var(--app-surface-alt)]" : "bg-[var(--app-surface)]"}`}>
-                    <Link href={apps[id].href} className="hover:text-[var(--app-accent)]">{apps[id].short}</Link>
+                <tr key={id} className={`border-t border-[var(--hm-line)] ${id === "serikacord" ? "bg-[var(--brand-violet)]/10" : "bg-[var(--hm-surface)]"}`}>
+                  <th scope="row" className={`sticky left-0 z-10 px-3 py-1.5 text-left font-medium ${id === "serikacord" ? "bg-[var(--hm-surface-2)]" : "bg-[var(--hm-surface)]"}`}>
+                    <Link href={apps[id].href} className="hover:text-[var(--hm-accent-text)]">{apps[id].short}</Link>
                   </th>
                   <td className="px-2 py-1.5 text-center"><TierLetter tier={tier} size="sm" /></td>
                   {TIER_SECTIONS.map((s) => {
@@ -201,9 +206,9 @@ export default async function TierListPage() {
         </div>
       </section>
 
-      <section id="method" aria-labelledby="method-title" className="mb-14 scroll-mt-20">
-        <h2 id="method-title" className="mb-4 text-2xl font-bold tracking-tight sm:text-3xl">{gt("How we ranked them")}</h2>
-        <div className="max-w-3xl space-y-4 text-sm leading-relaxed text-[var(--app-muted)] sm:text-base">
+      <section id="method" aria-labelledby="method-title" className="mb-12 scroll-mt-24 sm:mb-16">
+        <h2 id="method-title" className="hm-display hm-h2-page mb-4">{gt("How we ranked them")}</h2>
+        <div className="max-w-3xl space-y-4 text-sm leading-relaxed text-[var(--hm-body)] sm:text-base">
           <T>
             <p>
               Each section is judged on what a normal person or community gets today, not on roadmaps. S means best in class, A excellent, B
@@ -220,12 +225,11 @@ export default async function TierListPage() {
           </T>
           <p>{gt("Last checked: {date}", { date: checked })}</p>
           <p>
-            <Link href="/compare" className="font-semibold text-[var(--app-accent)] hover:underline">{gt("Read the detailed comparisons")}</Link>
+            <Link href="/compare" className="hm-link">{gt("Read the detailed comparisons")}</Link>
           </p>
         </div>
       </section>
 
-      <CompareCta />
     </CompareShell>
   );
 }

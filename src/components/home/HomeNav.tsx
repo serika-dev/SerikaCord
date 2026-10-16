@@ -133,8 +133,8 @@ export function HomeHeroActions({ align = "center" }: { align?: "center" | "star
   const name = user ? user.displayName || user.username : "";
 
   return (
-    <div className={cn("flex flex-col gap-4", align === "center" ? "items-center" : "items-start")}>
-      <div className={cn("flex w-full flex-col gap-3 sm:w-auto sm:flex-row", align === "center" && "sm:justify-center")}>
+    <div className={cn("flex flex-col gap-3 sm:gap-4", align === "center" ? "items-center" : "items-start")}>
+      <div className={cn("flex w-full max-w-[22rem] flex-col gap-2.5 sm:w-auto sm:max-w-none sm:flex-row sm:gap-3", align === "center" && "sm:justify-center")}>
         <Link href="/channels/me" className="hm-btn hm-btn-primary w-full sm:w-auto sm:min-w-[200px]">
           {openLabel}
           <ArrowRight className="h-4 w-4 rtl:rotate-180" aria-hidden />

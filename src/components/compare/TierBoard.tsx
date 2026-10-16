@@ -49,10 +49,10 @@ function Chip({ id, app, highlight }: { id: TierAppId; app: TierApp; highlight: 
     <Link
       href={app.href}
       data-app={id}
-      className={`inline-flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-3 text-sm font-medium transition-colors hover:border-[var(--app-accent)] ${
+      className={`inline-flex items-center gap-1.5 rounded-full border py-1 pl-1 pr-3 text-sm font-medium transition-colors hover:border-[var(--brand-violet)] ${
         highlight
-          ? "border-[var(--app-accent)] bg-[var(--app-accent)]/15 text-[var(--app-text)] ring-1 ring-[var(--app-accent)]/40"
-          : "border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-text)]"
+          ? "border-[var(--brand-violet)] bg-[var(--brand-violet)]/15 text-[var(--hm-ink)] ring-1 ring-[var(--brand-violet)]/40"
+          : "border-[var(--hm-line)] bg-[var(--hm-surface)] text-[var(--hm-ink)]"
       } ${app.shutdown ? "opacity-70" : ""}`}
     >
       <AppMark name={app.name} hue={app.hue} size="sm" />
@@ -77,9 +77,9 @@ export function TierRows({
 }) {
   const grouped = groupByTier(ranking);
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--app-border)]">
+    <div className="overflow-hidden rounded-2xl border border-[var(--hm-line)]">
       {TIERS.map((tier, i) => (
-        <div key={tier} className={`flex min-h-14 ${i > 0 ? "border-t border-[var(--app-border)]" : ""} ${TIER_TINT[tier]}`}>
+        <div key={tier} className={`flex min-h-14 ${i > 0 ? "border-t border-[var(--hm-line)]" : ""} ${TIER_TINT[tier]}`}>
           <div className={`flex w-12 shrink-0 items-center justify-center text-2xl font-black sm:w-16 sm:text-3xl ${TIER_SOLID[tier]}`} aria-hidden>
             {tier}
           </div>
@@ -92,7 +92,7 @@ export function TierRows({
               ))}
             </ul>
           ) : (
-            <p className="flex flex-1 items-center p-3 text-sm italic text-[var(--app-muted)]">
+            <p className="flex flex-1 items-center p-3 text-sm italic text-[var(--hm-body)]">
               <span className="sr-only">{tierNames[tier]}: </span>
               {emptyLabel}
             </p>
@@ -116,19 +116,19 @@ export function TierReasons({
   highlight?: TierAppId;
 }) {
   return (
-    <ol className="divide-y divide-[var(--app-border)]">
+    <ol className="divide-y divide-[var(--hm-line)]">
       {ranking.map(([id, tier], i) => (
         <li
           key={id}
-          className={`flex gap-3 px-3 py-2.5 text-sm sm:px-4 ${id === highlight ? "bg-[var(--app-accent)]/10" : ""}`}
+          className={`flex gap-3 px-3 py-2.5 text-sm sm:px-4 ${id === highlight ? "bg-[var(--brand-violet)]/10" : ""}`}
         >
-          <span className="w-6 shrink-0 pt-1 text-right font-mono text-xs text-[var(--app-muted)]">{i + 1}</span>
+          <span className="w-6 shrink-0 pt-1 text-right font-mono text-xs text-[var(--hm-body)]">{i + 1}</span>
           <TierLetter tier={tier} size="sm" />
           <span className="min-w-0 flex-1 leading-relaxed">
-            <Link href={apps[id].href} className="font-semibold hover:text-[var(--app-accent)]">
+            <Link href={apps[id].href} className="font-semibold hover:text-[var(--hm-accent-text)]">
               {apps[id].name}
             </Link>
-            <span className="text-[var(--app-muted)]"> · {reasons[id]}</span>
+            <span className="text-[var(--hm-body)]"> · {reasons[id]}</span>
           </span>
         </li>
       ))}

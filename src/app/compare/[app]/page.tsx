@@ -5,7 +5,7 @@ import { ArrowRight, Power, Scale } from "lucide-react";
 import { getGT, getLocale } from "gt-next/server";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
-import { Breadcrumbs, CompareCta, CompareShell, FaqList, PageHeader, PickCards, Section } from "@/components/compare/CompareParts";
+import { Breadcrumbs, CompareShell, FaqList, PageHeader, PickCards, Section } from "@/components/compare/CompareParts";
 import { AppMark, BulletCard, FactTable, PointGrid, SourceList, SourceRefs, StatusLegend } from "@/components/compare/CompareBlocks";
 import { TierLetter } from "@/components/compare/TierBoard";
 import { APP_IDS, TIER_SECTIONS, compareArticleJsonLd, faqJsonLd, formatCompareDate, numberSources, sourceNumbers } from "@/lib/compare";
@@ -66,7 +66,69 @@ export default async function CompareAppPage({ params }: { params: Promise<{ app
   ];
 
   return (
-    <CompareShell>
+    <CompareShell
+      hero={
+        <>
+          <Breadcrumbs items={[{ href: "/", label: gt("Home") }, { href: "/compare", label: gt("Compare") }, { label: name }]} />
+
+          {meta.status === "shutdown" && (
+            <div role="note" className="mb-6 flex gap-3 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm leading-relaxed text-[var(--hm-ink)] sm:mb-8">
+              <Power className="mt-0.5 h-5 w-5 shrink-0 text-rose-400" aria-hidden />
+              <p>{gt("{app} has shut down. This page records what it offered and how it compared, for anyone looking for somewhere new to go.", { app: name })}</p>
+            </div>
+          )}
+
+          <PageHeader
+            eyebrow={meta.status === "beta" ? gt("Comparison · {app} is in beta or early access", { app: name }) : gt("Comparison")}
+            title={gt("SerikaCord vs {app}", { app: name })}
+            intro={
+              <>
+                {content.intro.map((p) => (
+                  <p key={p}>{p}</p>
+                ))}
+              </>
+            }
+            meta={
+              <>
+                <span>{gt("Last checked: {date}", { date: checked })}</span>
+                <span>{gt("Written by the SerikaCord team, so check the sources")}</span>
+                <a href={meta.website} target="_blank" rel="noopener noreferrer" className="hm-link font-normal">
+                  {gt("{app} website", { app: name })}
+                </a>
+              </>
+            }
+          />
+
+          <div className="mt-7 grid gap-3 sm:mt-10 sm:gap-4 md:grid-cols-[1fr_auto]">
+            <div className="hm-card !border-[color-mix(in_srgb,var(--brand-violet)_45%,transparent)] p-5 sm:p-7">
+              <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--hm-accent-text)]">
+                <Scale className="h-4 w-4" aria-hidden />
+                {gt("Our verdict")}
+              </p>
+              <p className="text-base leading-relaxed text-[var(--hm-ink)] sm:text-lg">{content.verdict}</p>
+            </div>
+            {overallApp && overallSerika && (
+              <Link
+                href="/compare/tier-list"
+                className="hm-card flex items-center justify-between gap-4 p-5 md:flex-col md:justify-center md:text-center"
+              >
+                <span className="text-xs font-semibold uppercase tracking-wide text-[var(--hm-body)]">{gt("Overall on our tier list")}</span>
+                <span className="flex items-center gap-4">
+                  <span className="flex flex-col items-center gap-1 text-xs text-[var(--hm-ink)]">
+                    <TierLetter tier={overallSerika} />
+                    SerikaCord
+                  </span>
+                  <span className="flex flex-col items-center gap-1 text-xs text-[var(--hm-ink)]">
+                    <TierLetter tier={overallApp} />
+                    {meta.short}
+                  </span>
+                </span>
+              </Link>
+            )}
+          </div>
+        </>
+      }
+    >
       <JsonLd
         data={compareArticleJsonLd({
           path: `/compare/${app}`,
@@ -78,70 +140,12 @@ export default async function CompareAppPage({ params }: { params: Promise<{ app
         })}
       />
       <JsonLd data={faqJsonLd(content.faq)} />
-      <Breadcrumbs items={[{ href: "/", label: gt("Home") }, { href: "/compare", label: gt("Compare") }, { label: name }]} />
-
-      {meta.status === "shutdown" && (
-        <div role="note" className="mb-8 flex gap-3 rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm leading-relaxed">
-          <Power className="mt-0.5 h-5 w-5 shrink-0 text-rose-600 dark:text-rose-400" aria-hidden />
-          <p>{gt("{app} has shut down. This page records what it offered and how it compared, for anyone looking for somewhere new to go.", { app: name })}</p>
-        </div>
-      )}
-
-      <PageHeader
-        eyebrow={meta.status === "beta" ? gt("Comparison · {app} is in beta or early access", { app: name }) : gt("Comparison")}
-        title={gt("SerikaCord vs {app}", { app: name })}
-        intro={
-          <>
-            {content.intro.map((p) => (
-              <p key={p}>{p}</p>
-            ))}
-          </>
-        }
-        meta={
-          <>
-            <span>{gt("Last checked: {date}", { date: checked })}</span>
-            <span>{gt("Written by the SerikaCord team, so check the sources")}</span>
-            <a href={meta.website} target="_blank" rel="noopener noreferrer" className="text-[var(--app-accent)] hover:underline">
-              {gt("{app} website", { app: name })}
-            </a>
-          </>
-        }
-      />
-
-      <div className="mb-10 grid gap-4 md:grid-cols-[1fr_auto]">
-        <div className="rounded-2xl border border-[var(--app-accent)]/40 bg-[var(--app-surface)] p-5 sm:p-6">
-          <p className="mb-2 flex items-center gap-2 text-sm font-semibold text-[var(--app-accent)]">
-            <Scale className="h-4 w-4" aria-hidden />
-            {gt("Our verdict")}
-          </p>
-          <p className="text-base leading-relaxed sm:text-lg">{content.verdict}</p>
-        </div>
-        {overallApp && overallSerika && (
-          <Link
-            href="/compare/tier-list"
-            className="flex items-center gap-4 rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] p-5 transition-colors hover:border-[var(--app-accent)] md:flex-col md:justify-center md:text-center"
-          >
-            <span className="text-xs font-semibold uppercase tracking-wide text-[var(--app-muted)]">{gt("Overall on our tier list")}</span>
-            <span className="flex items-center gap-4">
-              <span className="flex flex-col items-center gap-1 text-xs">
-                <TierLetter tier={overallSerika} />
-                SerikaCord
-              </span>
-              <span className="flex flex-col items-center gap-1 text-xs">
-                <TierLetter tier={overallApp} />
-                {meta.short}
-              </span>
-            </span>
-          </Link>
-        )}
-      </div>
-
-      <nav aria-label={gt("On this page")} className="mb-12 flex flex-wrap gap-2">
+      <nav aria-label={gt("On this page")} className="-mx-4 mb-10 flex gap-2 overflow-x-auto px-4 sm:mx-0 sm:mb-14 sm:flex-wrap sm:px-0">
         {jump.map((j) => (
           <a
             key={j.href}
             href={j.href}
-            className="rounded-full border border-[var(--app-border)] px-3 py-1 text-sm text-[var(--app-muted)] transition-colors hover:border-[var(--app-accent)] hover:text-[var(--app-text)]"
+            className="hm-chip shrink-0 whitespace-nowrap transition-colors hover:border-[var(--brand-violet)]"
           >
             {j.label}
           </a>
@@ -164,7 +168,7 @@ export default async function CompareAppPage({ params }: { params: Promise<{ app
             points={content.notes.points}
             footer={
               content.notes.src && content.notes.src.length > 0 ? (
-                <p className="mt-3 text-xs text-[var(--app-muted)]">
+                <p className="mt-3 text-xs text-[var(--hm-body)]">
                   {gt("Sources:")}
                   <SourceRefs numbers={sourceNumbers(lookup, "app", content.notes.src)} />
                 </p>
@@ -188,16 +192,16 @@ export default async function CompareAppPage({ params }: { params: Promise<{ app
         intro={
           <p>
             {gt("How we ranked both apps in each of the twelve sections of our tier list.")}{" "}
-            <Link href="/compare/tier-list" className="text-[var(--app-accent)] hover:underline">
+            <Link href="/compare/tier-list" className="hm-link">
               {gt("See the full tier list")}
             </Link>
           </p>
         }
       >
-        <div className="overflow-hidden rounded-2xl border border-[var(--app-border)]">
+        <div className="overflow-hidden rounded-2xl border border-[var(--hm-line)]">
           <table className="w-full border-collapse text-left text-sm">
             <caption className="sr-only">{gt("Tier list placements for SerikaCord and {app}", { app: name })}</caption>
-            <thead className="bg-[var(--app-surface-alt)]">
+            <thead className="bg-[var(--hm-surface-2)]">
               <tr>
                 <th scope="col" className="px-3 py-2.5 font-semibold sm:px-4">{gt("Section")}</th>
                 <th scope="col" className="w-24 px-2 py-2.5 text-center font-semibold sm:w-32">SerikaCord</th>
@@ -209,9 +213,9 @@ export default async function CompareAppPage({ params }: { params: Promise<{ app
                 const ours = tierOf(TIER_RANKINGS[section], "serikacord");
                 const theirs = tierOf(TIER_RANKINGS[section], app);
                 return (
-                  <tr key={section} className="border-t border-[var(--app-border)] bg-[var(--app-surface)]">
+                  <tr key={section} className="border-t border-[var(--hm-line)] bg-[var(--hm-surface)]">
                     <th scope="row" className="px-3 py-2 font-medium sm:px-4">
-                      <Link href={`/compare/tier-list#${section}`} className="hover:text-[var(--app-accent)]">{sectionLabels[section].title}</Link>
+                      <Link href={`/compare/tier-list#${section}`} className="hover:text-[var(--hm-accent-text)]">{sectionLabels[section].title}</Link>
                     </th>
                     <td className="px-2 py-2 text-center">{ours && <TierLetter tier={ours} size="sm" />}</td>
                     <td className="px-2 py-2 text-center">{theirs && <TierLetter tier={theirs} size="sm" />}</td>
@@ -275,28 +279,27 @@ export default async function CompareAppPage({ params }: { params: Promise<{ app
               <li key={o.id}>
                 <Link
                   href={`/compare/${o.id}`}
-                  className="group flex items-center gap-3 rounded-xl border border-[var(--app-border)] bg-[var(--app-surface)] p-3 transition-colors hover:border-[var(--app-accent)]"
+                  className="hm-card group flex items-center gap-3 !rounded-[16px] p-3"
                 >
                   <AppMark name={o.name} hue={o.hue} />
                   <span className="min-w-0 flex-1 font-medium">{gt("SerikaCord vs {app}", { app: o.name })}</span>
-                  <ArrowRight className="h-4 w-4 shrink-0 text-[var(--app-accent)] transition-transform group-hover:translate-x-0.5 rtl:rotate-180" aria-hidden />
+                  <ArrowRight className="h-4 w-4 shrink-0 text-[var(--hm-accent-text)] transition-transform group-hover:translate-x-0.5 rtl:rotate-180" aria-hidden />
                 </Link>
               </li>
             ))}
             <li>
               <Link
                 href="/compare/tier-list"
-                className="group flex items-center gap-3 rounded-xl border border-dashed border-[var(--app-border)] p-3 transition-colors hover:border-[var(--app-accent)]"
+                className="hm-card group flex items-center gap-3 !rounded-[16px] border-dashed p-3"
               >
                 <span className="min-w-0 flex-1 font-medium">{gt("The full tier list")}</span>
-                <ArrowRight className="h-4 w-4 shrink-0 text-[var(--app-accent)] rtl:rotate-180" aria-hidden />
+                <ArrowRight className="h-4 w-4 shrink-0 text-[var(--hm-accent-text)] rtl:rotate-180" aria-hidden />
               </Link>
             </li>
           </ul>
         </Section>
       )}
 
-      <CompareCta />
     </CompareShell>
   );
 }
