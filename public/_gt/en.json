@@ -10655,5 +10655,20 @@
   "814254fba7574ac2": "An authorization code works once, for 10 minutes, and only with the redirect_uri it was issued for. Refresh tokens rotate: each refresh returns a new pair and the old refresh token stops working. Removing the app under User Settings -> Authorized Apps revokes its tokens.",
   "b7c5b3bd724739c4": "applications.commands.update (client credentials tokens only)",
   "8ad0272acbe0d2ff": "PKCE",
-  "0f7d1d29584327e9": "Add code_challenge (base64url SHA-256 of your code_verifier) and code_challenge_method=S256 to the authorize URL, then send code_verifier with the code exchange. Only S256 is accepted; any other method is rejected instead of being ignored. PKCE works with response_type=code only."
+  "0f7d1d29584327e9": "Add code_challenge (base64url SHA-256 of your code_verifier) and code_challenge_method=S256 to the authorize URL, then send code_verifier with the code exchange. Only S256 is accepted; any other method is rejected instead of being ignored. PKCE works with response_type=code only.",
+  "77c61ac22770f619": "Video",
+  "f44697feeb90a57f": "Create Expressions",
+  "13c7a9d5ab03a78f": "Create Events",
+  "f26c6a90e6863034": "Use Soundboard",
+  "5736b7d985d3b687": "Use External Sounds",
+  "b2200b43fe92b177": "Send Voice Messages",
+  "73330e037d588422": "Set Voice Channel Status",
+  "9bbe790d02f0c077": "Create Polls",
+  "001e767dd21d4b1f": "Use External Apps",
+  "98f13cd1f8da85ed": "Pin Messages",
+  "59367acf9b5c8508": "Legacy UUID-format applications",
+  "ef434059d484ebfc": "The table above uses Discord API v10 bit numbers, which is what applications with snowflake ids see in every permission bitfield (roles, channel overwrites, member and app permissions, command default_member_permissions, install params and authorize links). Applications still on UUID ids see SerikaCord's original numbers for five flags:",
+  "4dfe16e648c2e253": "Snowflake-format apps",
+  "a52d79228f25566a": "UUID-format apps",
+  "40842b008451a98b": "Bits SerikaCord has no flag for (such as 41 and 52) are kept as sent."
 }

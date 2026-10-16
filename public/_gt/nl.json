@@ -11325,5 +11325,20 @@
   "814254fba7574ac2": "Een autorisatiecode werkt één keer, 10 minuten lang, en alleen met de redirect_uri waarvoor hij is uitgegeven. Refresh tokens roteren: elke refresh levert een nieuw paar op en het oude refresh token werkt dan niet meer. Als je de app verwijdert onder Gebruikersinstellingen -> Geautoriseerde apps, worden de tokens ingetrokken.",
   "b7c5b3bd724739c4": "applications.commands.update (alleen tokens via client credentials)",
   "8ad0272acbe0d2ff": "PKCE",
-  "0f7d1d29584327e9": "Voeg code_challenge (base64url SHA-256 van je code_verifier) en code_challenge_method=S256 toe aan de autorisatie-URL en stuur daarna code_verifier mee bij het inwisselen van de code. Alleen S256 wordt geaccepteerd; elke andere methode wordt geweigerd in plaats van genegeerd. PKCE werkt alleen met response_type=code."
+  "0f7d1d29584327e9": "Voeg code_challenge (base64url SHA-256 van je code_verifier) en code_challenge_method=S256 toe aan de autorisatie-URL en stuur daarna code_verifier mee bij het inwisselen van de code. Alleen S256 wordt geaccepteerd; elke andere methode wordt geweigerd in plaats van genegeerd. PKCE werkt alleen met response_type=code.",
+  "77c61ac22770f619": "Video",
+  "f44697feeb90a57f": "Expressies aanmaken",
+  "13c7a9d5ab03a78f": "Evenementen aanmaken",
+  "f26c6a90e6863034": "Soundboard gebruiken",
+  "5736b7d985d3b687": "Externe geluiden gebruiken",
+  "b2200b43fe92b177": "Spraakberichten versturen",
+  "73330e037d588422": "Spraakkanaalstatus instellen",
+  "9bbe790d02f0c077": "Peilingen maken",
+  "001e767dd21d4b1f": "Externe apps gebruiken",
+  "98f13cd1f8da85ed": "Berichten vastmaken",
+  "59367acf9b5c8508": "Oudere applicaties met UUID-id's",
+  "ef434059d484ebfc": "De tabel hierboven gebruikt de bitnummers van Discord API v10. Die zien applicaties met snowflake-id's in elk permissieveld (rollen, kanaaloverschrijvingen, leden- en app-permissies, default_member_permissions van commando's, installatieparameters en autorisatielinks). Applicaties die nog UUID-id's gebruiken, zien voor vijf vlaggen de oorspronkelijke nummers van SerikaCord:",
+  "4dfe16e648c2e253": "Apps met snowflake-id's",
+  "a52d79228f25566a": "Apps met UUID-id's",
+  "40842b008451a98b": "Bits waarvoor SerikaCord geen vlag heeft (zoals 41 en 52) blijven zoals ze zijn verstuurd."
 }
