@@ -62,16 +62,30 @@ export default async function PermissionsDoc() {
         ["1 << 39", "USE_EMBEDDED_ACTIVITIES", gt("Use embedded activities")],
         ["1 << 40", "MODERATE_MEMBERS", gt("Timeout members")],
         ["1 << 41", "VIEW_CREATOR_MONETIZATION_ANALYTICS", gt("View monetization analytics")],
-        ["1 << 42", "USE_EXTERNAL_SOUNDS", gt("Use external sounds")],
-        ["1 << 43", "SEND_VOICE_MESSAGES", gt("Send voice messages")],
-        ["1 << 44", "USE_SOUNDBOARD", gt("Use soundboard")],
-        ["1 << 45", "CREATE_EXPRESSIONS", gt("Create emoji, stickers, and sounds")],
-        ["1 << 46", "CREATE_EVENTS", gt("Create guild events")],
+        ["1 << 42", "USE_SOUNDBOARD", gt("Use soundboard")],
+        ["1 << 43", "CREATE_GUILD_EXPRESSIONS", gt("Create emoji, stickers, and sounds")],
+        ["1 << 44", "CREATE_EVENTS", gt("Create guild events")],
+        ["1 << 45", "USE_EXTERNAL_SOUNDS", gt("Use external sounds")],
+        ["1 << 46", "SEND_VOICE_MESSAGES", gt("Send voice messages")],
         ["1 << 48", "SET_VOICE_CHANNEL_STATUS", gt("Set voice channel status")],
         ["1 << 49", "SEND_POLLS", gt("Create polls")],
         ["1 << 50", "USE_EXTERNAL_APPS", gt("Use external apps")],
         ["1 << 51", "PIN_MESSAGES", gt("Pin or unpin messages")],
       ]} />
+
+      <Callout type="warning" title={gt("Legacy UUID-format applications")}>
+        {gt("The table above uses Discord API v10 bit numbers, which is what applications with snowflake ids see in every permission bitfield (roles, channel overwrites, member and app permissions, command default_member_permissions, install params and authorize links). Applications still on UUID ids see SerikaCord's original numbers for five flags:")}
+      </Callout>
+      <Table headers={[gt("Permission"), gt("Snowflake-format apps"), gt("UUID-format apps")]} rows={[
+        ["USE_EXTERNAL_SOUNDS", "1 << 45", "1 << 42"],
+        ["SEND_VOICE_MESSAGES", "1 << 46", "1 << 43"],
+        ["USE_SOUNDBOARD", "1 << 42", "1 << 44"],
+        ["CREATE_GUILD_EXPRESSIONS", "1 << 43", "1 << 45"],
+        ["CREATE_EVENTS", "1 << 44", "1 << 46"],
+      ]} />
+      <P>
+        {gt("Bits SerikaCord has no flag for (such as 41 and 52) are kept as sent.")}
+      </P>
 
       <H2 id="administrator">{gt("Administrator Permission")}</H2>
       <P>

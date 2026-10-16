@@ -6,7 +6,7 @@ import { config } from '@/lib/config';
 import { storage } from '@/lib/services/storage';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { adjustServerMemberCount } from '@/lib/services/serverMembership';
-import { resolveRedirectUri, appendQuery, parsePermissionsParam, clampBotPermissions } from '@/lib/oauth/authorize';
+import { resolveRedirectUri, appendQuery, parsePermissionsParam, clampBotPermissions, permissionNumberingOf } from '@/lib/oauth/authorize';
 import { allowedPrivilegedIntents, INTENT, toStoredIntents } from '@/lib/gateway/intents';
 
 const VALID_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
@@ -1372,6 +1372,11 @@ export async function oauthAuthorizeInfo(
     app = await ensureBotProvisioned(app);
   }
 
+  // The URL's permissions in Serika numbering (snowflake-format apps build
+  // their links with Discord bit numbers), so the consent page shows and
+  // grants the right flags.
+  const permissions = parsePermissionsParam(query.permissions, permissionNumberingOf(app));
+
   return {
     application: {
       id: app.id,
@@ -1381,6 +1386,7 @@ export async function oauthAuthorizeInfo(
     },
     scopes,
     redirect_uri: redirect.uri,
+    permissions: permissions === null ? null : permissions.toString(),
   };
 }
 
@@ -1423,10 +1429,10 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     const authorizeLimit = await checkRateLimit('oauthAuthorize', user.id);
     if (!authorizeLimit.success) { set.status = 429; return { error: 'Too many requests', retryAfter: authorizeLimit.retryAfter }; }
 
-    const payload = body as { client_id?: string; serverId?: string; permissions?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string };
+    const payload = body as { client_id?: string; serverId?: string; permissions?: string; permissions_numbering?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string };
     const clientId = payload.client_id || (query.client_id as string);
     const serverId = payload.serverId;
-    const requestedPermissions = parsePermissionsParam(payload.permissions);
+    let requestedPermissions = parsePermissionsParam(payload.permissions);
     if (requestedPermissions === null) {
       set.status = 400;
       return { error: 'invalid_permissions' };
@@ -1467,6 +1473,11 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     if (!app) {
       set.status = 404;
       return { error: 'Unknown application' };
+    }
+    // The consent page sends Serika numbering (it converted the URL value via
+    // GET /oauth2/authorize); a raw URL value follows the app's numbering.
+    if (payload.permissions_numbering !== 'serika') {
+      requestedPermissions = parsePermissionsParam(payload.permissions, permissionNumberingOf(app)) ?? 0n;
     }
 
     const redirect = resolveRedirectUri(requestedRedirectUri, app.redirectUris);

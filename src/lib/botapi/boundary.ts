@@ -17,6 +17,9 @@
  *    UUID id in the JSON response becomes a snowflake. Applications without
  *    the setting (NULL, all apps created before it existed) see UUIDs, exactly
  *    as before.
+ *  - Permission bitfields: snowflake-format apps also see Discord v10 bit
+ *    numbering (./permissionBits.ts), in both directions (beforeHandle turns
+ *    request bitfields back into Serika numbering). Legacy apps keep Serika's.
  *
  * Gateway: GatewayHub calls `resolveOutbound` once per dispatch and
  * `rewriteOutbound` per connection variant (src/lib/gateway/core.ts).
@@ -29,6 +32,8 @@ import {
 import { isPublicSnowflake as isSnowflake } from './snowflake';
 import { invalidFormBody, type DiscordError } from './errors';
 import { toCdnHashes } from './cdnCompat';
+import { permissionsToDiscord, permissionsToSerika } from './permissionBits';
+import { processShared } from '@/lib/realtime/processShared';
 import {
   applicationByClientId, cachedSnowflakeOf, everyoneRoleOf, isCachedEveryoneRole, snowflakesForUuids, SF_KIND,
   uuidsForSnowflakes,
@@ -71,22 +76,61 @@ export async function resolveOutbound(payload: unknown, opts?: { timeoutMs?: num
 
 /**
  * `payload` as a snowflake-format app sees it: UUID ids replaced by
- * snowflakes and CDN URLs by Discord image hashes (./cdn.ts; served by
- * /cdn-compat). Legacy UUID-format apps never pass through here, so they keep
- * full URLs.
+ * snowflakes, CDN URLs by Discord image hashes (./cdn.ts; served by
+ * /cdn-compat) and permission bitfields in Discord numbering. Legacy
+ * UUID-format apps never pass through here, so they keep full URLs and
+ * Serika's bit numbers.
  */
 export async function toSnowflakes<T>(payload: T): Promise<T> {
   const lookup = await resolveOutbound(payload);
-  return toPublicMedia(lookup ? rewriteOutbound(payload, lookup) : payload);
+  const out = toPublicView(lookup ? rewriteOutbound(payload, lookup) : payload);
+  if (out && typeof out === 'object') publicViews.add(out);
+  return out;
 }
 
-/** CDN URL fields -> Discord image hashes (the snowflake-format hook of WP6 CDN compatibility). */
-export function toPublicMedia<T>(payload: T): T {
+/**
+ * Values already in the snowflake-format view (token routes translate their
+ * own results via services/interactions outboundForApp). Id and CDN rewrites
+ * are idempotent, but the permission permutation is not: the afterHandle hook
+ * must not run it twice.
+ */
+const publicViews = processShared('botApiPublicViews', () => new WeakSet<object>());
+/** Request bodies already in Serika numbering (same reason, inbound). */
+const serikaBodies = processShared('botApiSerikaBodies', () => new WeakSet<object>());
+
+/**
+ * The id-independent part of the snowflake-format view (REST, gateway and
+ * HTTP interactions all end here): CDN URL fields -> Discord image hashes and
+ * Serika permission bits -> Discord v10 bits.
+ */
+export function toPublicView<T>(payload: T): T {
+  let out = payload;
   try {
-    return toCdnHashes(payload);
+    out = toCdnHashes(out);
   } catch (err) {
     console.error('[bot-api] cdn hash rewrite failed:', (err as Error)?.message ?? err);
-    return payload;
+  }
+  try {
+    out = permissionsToDiscord(out);
+  } catch (err) {
+    console.error('[bot-api] permission bit rewrite failed:', (err as Error)?.message ?? err);
+  }
+  return out;
+}
+
+/** Kept for existing callers (the gateway): the full {@link toPublicView}, not only media. */
+export const toPublicMedia = toPublicView;
+
+/** A snowflake-format app's request body in Serika numbering (permission bitfields). */
+export function fromPublicView<T>(body: T): T {
+  if (!body || typeof body !== 'object' || serikaBodies.has(body)) return body;
+  try {
+    const out = permissionsToSerika(body);
+    serikaBodies.add(out as object);
+    return out;
+  } catch (err) {
+    console.error('[bot-api] inbound permission bit rewrite failed:', (err as Error)?.message ?? err);
+    return body;
   }
 }
 
@@ -334,11 +378,21 @@ export const botIdBoundary = new Elysia({ name: 'botIdBoundary' })
     } catch (err) {
       console.error('[bot-api] inbound id translation failed:', (err as Error)?.message ?? err);
     }
+    // Discord-numbered permission bitfields (roles, overwrites, commands,
+    // install params) -> Serika numbering, for snowflake-format apps only.
+    try {
+      if (c.body && typeof c.body === 'object' && idFormatOf(await botAppOf(c.request)) === 'snowflake') {
+        c.body = fromPublicView(c.body);
+      }
+    } catch (err) {
+      console.error('[bot-api] inbound permission translation failed:', (err as Error)?.message ?? err);
+    }
   })
   .onAfterHandle({ as: 'scoped' }, async (ctx) => {
     const c = ctx as unknown as { request: Request; params?: Record<string, string | undefined>; responseValue?: unknown; response?: unknown };
     const value = 'responseValue' in c ? c.responseValue : c.response;
     if (!value || typeof value !== 'object' || value instanceof Response || value instanceof Blob) return;
+    if (publicViews.has(value)) return;
     try {
       if ((await requestFormat(c.request, c.params)) !== 'snowflake') return;
       return await toSnowflakes(value);

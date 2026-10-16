@@ -2,8 +2,13 @@
  * Canonical permission bit definitions for SerikaCord.
  *
  * This is the single source of truth for every permission flag in the app.
- * Bit numbers mirror Discord's system so bitfields are interchangeable with
- * Discord tooling. Both the client-side UI gating (`@/lib/roles/permissions`)
+ * Bit numbers mirror Discord's system, EXCEPT bits 42-46: Serika numbered
+ * USE_EXTERNAL_SOUNDS, SEND_VOICE_MESSAGES, USE_SOUNDBOARD, CREATE_EXPRESSIONS
+ * and CREATE_EVENTS before Discord did, in a different order. Stored role /
+ * overwrite values use these numbers and must never be rewritten; the bot API
+ * permutes them to Discord's numbering for snowflake-format apps
+ * (`@/lib/botapi/permissionBits`). New flags must take Discord's bit number
+ * (and get an entry in DISCORD_BIT_OF there). Both the client-side UI gating (`@/lib/roles/permissions`)
  * and the server-side role editor metadata (`@/lib/constants/rolePermissions`)
  * derive from this map, and server enforcement (channels/bot API) imports the
  * individual bits directly.

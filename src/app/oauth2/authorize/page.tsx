@@ -28,6 +28,8 @@ interface ApplicationData {
   };
   scopes: string[];
   redirect_uri: string | null;
+  /** The URL's `permissions` in Serika numbering (null when malformed). */
+  permissions?: string | null;
 }
 
 const COMMON_PERMISSIONS = [
@@ -114,15 +116,20 @@ function AuthorizeForm() {
           return;
         }
 
-        const appRes = await fetch(`/api/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scopeParam)}&redirect_uri=${encodeURIComponent(redirectUri)}`);
+        const appRes = await fetch(`/api/oauth2/authorize?client_id=${clientId}&scope=${encodeURIComponent(scopeParam)}&redirect_uri=${encodeURIComponent(redirectUri)}&permissions=${encodeURIComponent(permissionsParam)}`);
         if (!appRes.ok) {
           const appErr = await appRes.json();
           setError(appErr.error || gt("Failed to fetch application details."));
           setIsLoading(false);
           return;
         }
-        const appInfo = await appRes.json();
+        const appInfo: ApplicationData = await appRes.json();
         setAppData(appInfo);
+        // Snowflake-format apps use Discord's bit numbers in their links: the
+        // server hands back the Serika bits to show and grant.
+        if (typeof appInfo.permissions === "string" && /^\d+$/.test(appInfo.permissions)) {
+          setBotPermissions(BigInt(appInfo.permissions));
+        }
 
         // 3. Fetch user guilds (only if scope contains bot)
         const scopes = scopeParam.split(" ");
@@ -152,7 +159,7 @@ function AuthorizeForm() {
     };
 
     loadData();
-  }, [clientId, scopeParam, redirectUri, router]);
+  }, [clientId, scopeParam, redirectUri, permissionsParam, router]);
 
   const handlePermissionToggle = (bit: bigint) => {
     setBotPermissions((prev) => {
@@ -178,6 +185,7 @@ function AuthorizeForm() {
           client_id: clientId,
           serverId: selectedGuildId || undefined,
           permissions: scopes.includes("bot") ? String(botPermissions) : undefined,
+          permissions_numbering: "serika",
           scopes,
           redirect_uri: validatedRedirect || undefined,
           state: state || undefined,

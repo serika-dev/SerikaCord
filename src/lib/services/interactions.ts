@@ -95,9 +95,9 @@ export async function appIdFormat(applicationId: string | null | undefined): Pro
 /** Snowflakes → UUIDs in a token-route body (those routes carry no bot token, so the boundary skips them). */
 export async function inboundForApp(applicationId: string | null | undefined, body: unknown): Promise<unknown> {
   if ((await appIdFormat(applicationId)) !== 'snowflake' || !body || typeof body !== 'object') return body;
-  const { translateInbound } = await import('@/lib/botapi/boundary');
+  const { translateInbound, fromPublicView } = await import('@/lib/botapi/boundary');
   const res = await translateInbound({ body, reportUnknown: false });
-  return res.body !== undefined ? res.body : body;
+  return fromPublicView(res.body !== undefined ? res.body : body);
 }
 
 /** UUIDs → snowflakes in what a token route (or HTTP delivery) sends to a snowflake app. */

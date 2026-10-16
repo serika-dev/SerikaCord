@@ -83,8 +83,8 @@ const PERMISSION_FLAGS = [
   { name: 'READ_MESSAGE_HISTORY', flag: '0x0000000000010000', bit: 16, description: 'Allows reading message history.' },
   { name: 'MENTION_EVERYONE', flag: '0x0000000000020000', bit: 17, description: 'Allows using @everyone and @here mentions.' },
   { name: 'USE_EXTERNAL_EMOJIS', flag: '0x0000000000040000', bit: 18, description: 'Allows using emojis from other servers.' },
-  { name: 'MANAGE_ROLES', flag: '0x0000000000100000', bit: 20, description: 'Allows creating and editing roles below highest role.' },
-  { name: 'MANAGE_WEBHOOKS', flag: '0x0000000000200000', bit: 53, description: 'Allows creating and editing webhooks.' },
+  { name: 'MANAGE_ROLES', flag: '0x0000000010000000', bit: 28, description: 'Allows creating and editing roles below highest role.' },
+  { name: 'MANAGE_WEBHOOKS', flag: '0x0000000020000000', bit: 29, description: 'Allows creating and editing webhooks.' },
 ];
 
 /** Pre-packaged code examples for common bot workflows */
