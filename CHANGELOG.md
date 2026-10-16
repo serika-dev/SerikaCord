@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.17.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.18.
 
 ---
 
@@ -17,6 +17,24 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.18 — 2026-10-16
+
+**Tag:** `v2.1.18` · **Commit:** `5fc1620`
+
+### Features
+- **Bot buttons, menus and forms** — apps can send buttons, select menus and rich layouts, open pop-up forms, and send replies only you can see ("Only you can see this").
+- **Better app commands** — the command picker fills in numbers, choices, people, roles, channels and files, suggests values as you type, and works in DMs with a bot. Right-click a message or member to run an app's commands, and slow commands show "Bot is thinking…" until they answer.
+- **Discord-style webhooks** — webhook URLs work like Discord's: wait for the sent message, post into threads or create forum posts, attach files, edit or delete webhook messages, and the custom name and avatar now stay after a reload.
+
+### Bug Fixes
+- `GET /api/v10/gateway` now returns the gateway URL like Discord instead of an error.
+
+### Security
+- Private bot replies are only delivered to the person who ran the command (before, everyone in the channel received them and the app hid them).
+- Webhooks can no longer pose as Serika, staff or system accounts, webhook avatars must use https, and webhook and app uploads have size and rate limits.
 
 ---
 
