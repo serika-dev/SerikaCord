@@ -221,6 +221,8 @@ export interface MemberChunkRequest {
   limit: number;
   userIds?: string[];
   nonce?: string;
+  /** op 8 `presences: true` from a session with GUILD_PRESENCES. */
+  presences?: boolean;
 }
 
 /**
@@ -269,12 +271,26 @@ export async function buildMemberChunks(req: MemberChunkRequest, canListAll: boo
   for (let i = 0; i < count; i++) {
     const slice = members.slice(i * MEMBERS_PER_CHUNK, (i + 1) * MEMBERS_PER_CHUNK);
     const users = await usersById(slice.map((m) => m.userId));
+    let presences: unknown[] | undefined;
+    if (req.presences) {
+      try {
+        const { buildPresences } = await import('@/lib/services/botPresence');
+        const rich = users.size > 0
+          ? await db.select().from(schema.richPresence)
+            .where(and(inArray(schema.richPresence.userId, [...users.keys()]), gt(schema.richPresence.expiresAt, new Date())))
+          : [];
+        const richByUser = new Map<string, typeof rich>();
+        for (const r of rich) richByUser.set(r.userId, [...(richByUser.get(r.userId) ?? []), r]);
+        presences = buildPresences(users.values(), richByUser);
+      } catch { presences = []; }
+    }
     chunks.push({
       guild_id: sid,
       members: slice.map((m) => toDiscordGuildMember(m, users.get(m.userId) ?? { id: m.userId }, everyone)),
       chunk_index: i,
       chunk_count: count,
       ...(i === 0 && notFound && notFound.length > 0 ? { not_found: notFound } : {}),
+      ...(presences ? { presences } : {}),
       ...(nonce !== undefined ? { nonce } : {}),
     });
   }

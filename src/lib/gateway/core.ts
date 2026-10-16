@@ -751,7 +751,7 @@ export class GatewayHub {
     }
     const { buildMemberChunks } = await import('./guildPayload');
     const chunks = await buildMemberChunks(
-      { guildId: known, query, limit, userIds, nonce },
+      { guildId: known, query, limit, userIds, nonce, presences: d.presences === true && (conn.data.intents & INTENT.GUILD_PRESENCES) !== 0 },
       canListAll,
     );
     // Restore the ids the bot asked for in not_found (unknown snowflakes have no UUID).
