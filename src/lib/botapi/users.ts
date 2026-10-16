@@ -5,7 +5,7 @@
  * rules for bots. The pure parts (query parsing, body validation,
  * connection mapping) are unit tested in tests/bot-users.test.ts.
  */
-import { and, asc, desc, eq, gt, inArray, lt, or, type SQL } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, sql, type SQL } from 'drizzle-orm';
 import { computeGuildStanding } from '@/lib/permissions/botGuild';
 
 // ─── GET /users/@me/guilds ───────────────────────────────────────────────────
@@ -75,17 +75,23 @@ export async function listCurrentUserGuilds(userId: string, q: GuildPageQuery) {
   const s = schema.servers;
   const m = schema.serverMembers;
 
+  // Cursors compare in SQL against the cursor guild's own row: created_at has
+  // microsecond precision, a JS Date only milliseconds.
   const cursorOf = async (id: string | null) => {
-    if (!id || !UUID_RE.test(id)) return id ? 'none' as const : null;
-    const rows = await db.select({ id: s.id, createdAt: s.createdAt }).from(s).where(eq(s.id, id)).limit(1);
-    return rows[0] ? { id: rows[0].id, at: rows[0].createdAt ?? new Date(0) } : 'none' as const;
+    if (!id) return null;
+    if (!UUID_RE.test(id)) return 'none' as const;
+    const rows = await db.select({ id: s.id }).from(s).where(eq(s.id, id)).limit(1);
+    return rows[0] ? rows[0].id : 'none' as const;
   };
   const [after, before] = await Promise.all([cursorOf(q.after), cursorOf(q.before)]);
   if (after === 'none' || before === 'none') return [];
 
+  const epoch = sql`'epoch'::timestamp`;
+  const key = sql`(coalesce(${s.createdAt}, ${epoch}), ${s.id})`;
+  const cursorKey = (id: string) => sql`(SELECT coalesce(c.created_at, ${epoch}), c.id FROM servers c WHERE c.id = ${id})`;
   const conds: SQL[] = [eq(m.userId, userId)];
-  if (after) conds.push(or(gt(s.createdAt, after.at), and(eq(s.createdAt, after.at), gt(s.id, after.id)))!);
-  if (before) conds.push(or(lt(s.createdAt, before.at), and(eq(s.createdAt, before.at), lt(s.id, before.id)))!);
+  if (after) conds.push(sql`${key} > ${cursorKey(after)}`);
+  if (before) conds.push(sql`${key} < ${cursorKey(before)}`);
   // `before` alone pages backwards (closest first), then the page is re-sorted ascending.
   const backwards = !!before && !after;
   const rows = await db.select({
