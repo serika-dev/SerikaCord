@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.19.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.20.
 
 ---
 
@@ -17,6 +17,22 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.20 — 2026-10-16
+
+**Tag:** `v2.1.20` · **Commit:** `6b0c112`
+
+### Features
+- **Bots can run threads and forums** — bots can create threads and forum posts, add or remove thread members, list archived threads and search a forum's posts, and get live thread events.
+- **Bots can manage emojis, stickers, AutoMod, events and more** — custom emojis, stickers and app emojis, AutoMod rules, scheduled events, onboarding, the welcome screen and server templates, plus invite lookups and a richer audit log.
+
+### Bug Fixes
+- Emojis uploaded by bots are now stored as real images.
+
+### Security
+- In private threads that don't allow invites, mentioning someone no longer adds them to the thread unless the sender can manage threads.
 
 ---
 
