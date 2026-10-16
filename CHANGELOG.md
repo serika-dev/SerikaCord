@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.22.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.23.
 
 ---
 
@@ -17,6 +17,15 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.23 — 2026-10-16
+
+**Tag:** `v2.1.23` · **Commit:** `4e9cdf7`
+
+### Changes
+- **A tidier homepage on phones and matching comparison pages** — the homepage is much shorter and easier to scan on phones, and serika.chat/compare and the tier list now share the homepage's look.
 
 ---
 
