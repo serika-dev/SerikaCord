@@ -201,6 +201,24 @@ export async function releaseThreadMessages(threadId: string, parentId: string):
 }
 
 // ─── Membership ───────────────────────────────────────────────────────────────
+/**
+ * Bot gateway side of a membership change (every add / remove goes through
+ * the two functions below): THREAD_MEMBERS_UPDATE (+ THREAD_MEMBER_UPDATE /
+ * THREAD_CREATE to a bot that joined), and for private threads a fresh bot
+ * audience, since who may see the thread just changed.
+ */
+function announceMembershipToBots(row: IChannel, change: { added?: string[]; removed?: string[] }): void {
+  if (!row.serverId) return;
+  void (async () => {
+    if (row.type === 'private_thread') {
+      const { invalidateServerAudience } = await import('@/lib/services/gatewayAudience');
+      invalidateServerAudience(row.serverId);
+    }
+    const { emitThreadMembersUpdate } = await import('@/lib/services/gatewayEvents');
+    await emitThreadMembersUpdate(row, change);
+  })().catch(() => { /* best-effort */ });
+}
+
 /** Atomically add users to a thread. Returns the ids that were newly added. */
 export async function addThreadMembers(threadId: string, userIds: string[]): Promise<string[]> {
   const ids = [...new Set(userIds.filter(Boolean).map((id) => normalizeId(id).toLowerCase()))];
@@ -211,21 +229,31 @@ export async function addThreadMembers(threadId: string, userIds: string[]): Pro
   const fresh = ids.filter((id) => !had.has(id));
   if (fresh.length === 0) return [];
   const arr = sql.join(fresh.map((id) => sql`${id}::uuid`), sql`, `);
-  await db
+  const [row] = await db
     .update(schema.channels)
     .set({
       threadMemberIds: sql`ARRAY(SELECT DISTINCT x FROM unnest(coalesce(${schema.channels.threadMemberIds}, '{}'::uuid[]) || ARRAY[${arr}]) AS x)`,
     })
-    .where(eq(schema.channels.id, normalizeId(threadId)));
+    .where(eq(schema.channels.id, normalizeId(threadId)))
+    .returning();
+  if (row) announceMembershipToBots(row, { added: fresh });
   return fresh;
 }
 
-/** Atomically remove a user from a thread. */
-export async function removeThreadMember(threadId: string, userId: string): Promise<void> {
-  await db
+/** Atomically remove a user from a thread. Returns whether they were a member. */
+export async function removeThreadMember(threadId: string, userId: string): Promise<boolean> {
+  const uid = normalizeId(userId);
+  const [row] = await db
     .update(schema.channels)
-    .set({ threadMemberIds: sql`array_remove(coalesce(${schema.channels.threadMemberIds}, '{}'::uuid[]), ${normalizeId(userId)}::uuid)` })
-    .where(eq(schema.channels.id, normalizeId(threadId)));
+    .set({ threadMemberIds: sql`array_remove(coalesce(${schema.channels.threadMemberIds}, '{}'::uuid[]), ${uid}::uuid)` })
+    .where(and(
+      eq(schema.channels.id, normalizeId(threadId)),
+      sql`${uid}::uuid = ANY(coalesce(${schema.channels.threadMemberIds}, '{}'::uuid[]))`,
+    ))
+    .returning();
+  if (!row) return false;
+  announceMembershipToBots(row, { removed: [uid] });
+  return true;
 }
 
 /**
@@ -295,9 +323,11 @@ export function startThreadAutoArchive(): void {
   const run = async () => {
     try {
       const archived = await archiveIdleThreads();
+      const { emitThreadUpdate } = archived.length ? await import('@/lib/services/gatewayEvents') : { emitThreadUpdate: null };
       for (const row of archived) {
         await broadcastThreadUpdate(row).catch(() => null);
         notifyThreadMembership(row.serverId, row.id, row.threadMemberIds || []);
+        void emitThreadUpdate?.(row);
       }
     } catch (err) {
       console.error('[threads] auto-archive sweep failed:', (err as Error)?.message ?? err);

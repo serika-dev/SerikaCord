@@ -52,8 +52,60 @@ function once<T>(key: string, fn: () => Promise<T>): Promise<T> {
 export function invalidateServerAudience(serverId: string | null | undefined): void {
   if (!serverId) return;
   const sid = lower(serverId);
+  const previous = serverSnapshots.get(sid);
   serverSnapshots.delete(sid);
   for (const key of [...permAudiences.keys()]) if (key.startsWith(`${sid}:`)) permAudiences.delete(key);
+  if (previous && previous.viewers.size > 0) scheduleThreadListSync(serverId, previous);
+}
+
+// ─── THREAD_LIST_SYNC on gaining access ────────────────────
+// Discord sends THREAD_LIST_SYNC when a bot gains access to a channel: the
+// active threads it can now see there. An invalidation (role, overwrite or
+// membership change) keeps the snapshot it dropped; shortly after, the fresh
+// snapshot is diffed per bot and each bot that can now view new thread
+// parents gets their active threads. Bots without a previous snapshot
+// (new to the guild) got GUILD_CREATE instead.
+const syncTimers = processShared('gatewayAudience:threadSync', () => new Map<string, { timer: ReturnType<typeof setTimeout>; previous: ServerSnapshot }>());
+const THREAD_SYNC_DEBOUNCE_MS = 1_500;
+
+function scheduleThreadListSync(serverId: string, previous: ServerSnapshot): void {
+  const sid = lower(serverId);
+  const pending = syncTimers.get(sid);
+  if (pending) clearTimeout(pending.timer);
+  // Keep the oldest "before" across a burst of invalidations.
+  const before = pending?.previous ?? previous;
+  const timer = setTimeout(() => {
+    syncTimers.delete(sid);
+    void runThreadListSync(serverId, before).catch(() => {});
+  }, THREAD_SYNC_DEBOUNCE_MS);
+  (timer as { unref?: () => void }).unref?.();
+  syncTimers.set(sid, { timer, previous: before });
+}
+
+async function runThreadListSync(serverId: string, previous: ServerSnapshot): Promise<void> {
+  const sid = lower(serverId);
+  const { Channel } = await import('@/lib/models');
+  const channels = await Channel.find({ serverId });
+  const threadParents = new Set(['text', 'announcement', 'forum', 'media']);
+  const byId = new Map(channels.map((c: { id: string }) => [lower(c.id), c]));
+  const snap = await once(`server:${sid}`, async () => {
+    const s = await computeServerSnapshot(serverId);
+    serverSnapshots.set(sid, s);
+    return s;
+  });
+  const { emitThreadListSync } = await import('./gatewayEvents');
+  for (const [botId, visible] of snap.viewers) {
+    const before = previous.viewers.get(botId);
+    if (!before) continue;
+    const gained = [...visible].filter((id) => !before.has(id) && threadParents.has(String((byId.get(id) as { type?: string } | undefined)?.type)));
+    if (gained.length === 0) continue;
+    const gainedSet = new Set(gained);
+    const threads = channels.filter((c: { id: string; parentId?: string | null; type?: string | null; archived?: boolean | null }) =>
+      (c.type === 'public_thread' || c.type === 'private_thread') && !c.archived
+      && !!c.parentId && gainedSet.has(lower(c.parentId)) && visible.has(lower(c.id)));
+    const ids = gained.map((id) => (byId.get(id) as { id: string }).id);
+    await emitThreadListSync({ guildId: serverId, botId, channelIds: ids, threads });
+  }
 }
 
 /** Bot recipients of a DM or group DM ([] when unknown, not a DM, or no bots). */

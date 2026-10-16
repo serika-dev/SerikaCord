@@ -898,6 +898,9 @@ export async function listViewableServerChannels(userId: string, serverId: strin
   const pendingAccess = await pendingChannelAccess(serverId, userId, membership).catch(() => null);
   const memberRoles = (membership.roles || []) as string[];
   const canViewSource = new Map<string, boolean>();
+  // Thread moderators (MANAGE_THREADS) see private threads too, as in
+  // checkChannelAccess; resolved once, only when a private thread needs it.
+  let manageThreads: Promise<boolean> | null = null;
   const out: IChannel[] = [];
   for (const channel of channels) {
     if (channel.type === 'category' || channel.type === 'dm' || channel.type === 'group_dm') continue;
@@ -909,7 +912,12 @@ export async function listViewableServerChannels(userId: string, serverId: strin
       const isMember = (channel.threadMemberIds || []).some((m: string) => compareIds(m, userId));
       const accessRoles = (parent?.ticketAccessRoleIds || []) as string[];
       const hasAccessRole = accessRoles.length > 0 && memberRoles.some((r) => accessRoles.includes(r));
-      if (!isCreator && !isMember && !hasAccessRole) continue;
+      if (!isCreator && !isMember && !hasAccessRole) {
+        manageThreads ??= serverOwnerId
+          ? hasServerPermission({ id: serverId, ownerId: serverOwnerId }, userId, PERM_MANAGE_THREADS, membership).catch(() => false)
+          : Promise.resolve(false);
+        if (!(await manageThreads)) continue;
+      }
     }
     const source = parent ?? channel;
     let canView = canViewSource.get(source.id);
@@ -1535,6 +1543,8 @@ async function createChannelThread(
     const fresh = await Message.findById(starter.id);
     return { status: 409, body: { error: 'A thread already exists for this message', threadId: fresh?.threadId ?? null } };
   }
+  // Bots: THREAD_CREATE before the first message's MESSAGE_CREATE.
+  await import('@/lib/services/gatewayEvents').then(({ emitThreadCreate }) => emitThreadCreate(thread)).catch(() => {});
 
   // The first message in the thread.
   let firstMessage: IMessage | null = null;
@@ -1943,6 +1953,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // live; an archive change adds or removes it from members' sidebars.
     if (isThread && updated) {
       void broadcastThreadUpdate(updated).catch(() => null);
+      void import('@/lib/services/gatewayEvents').then(({ emitThreadUpdate }) => emitThreadUpdate(updated)).catch(() => {});
       if (threadArchiveChange || updateData.name !== undefined) {
         notifyThreadMembership(updated.serverId, updated.id, (updated.threadMemberIds || []) as string[]);
       }
@@ -2103,6 +2114,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (deletingThread && channel.parentId) {
       await releaseThreadMessages(channel.id, channel.parentId).catch(() => {});
       void broadcastThreadUpdate(channel, { deleted: true }).catch(() => null);
+      void import('@/lib/services/gatewayEvents').then(({ emitThreadDelete }) => emitThreadDelete(channel)).catch(() => {});
       notifyThreadMembership(channel.serverId, channel.id, (channel.threadMemberIds || []) as string[]);
     }
 
@@ -2378,6 +2390,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       threadMemberIds: [user.id],
       messageCount: 1,
     });
+    // Bots: THREAD_CREATE before the post's MESSAGE_CREATE.
+    await import('@/lib/services/gatewayEvents').then(({ emitThreadCreate }) => emitThreadCreate(thread)).catch(() => {});
 
     // Initial post message lives in the thread channel.
     let sanitizedContent = normalizeEmojiFormat(sanitizeMessageContent(content));
@@ -2851,9 +2865,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         return { error: 'This thread is locked' };
       }
       if (channel.archived) {
-        await setThreadArchived(channel.id, false);
+        const reopened = await setThreadArchived(channel.id, false);
         channel.archived = false;
         unarchivedThread = true;
+        if (reopened) void import('@/lib/services/gatewayEvents').then(({ emitThreadUpdate }) => emitThreadUpdate(reopened)).catch(() => {});
       }
     }
 

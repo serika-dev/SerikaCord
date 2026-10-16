@@ -10,7 +10,7 @@ import { db, schema } from '@/lib/db/postgres';
 import { normalizeId } from '@/lib/db/normalizeId';
 import {
   isThreadChannelType, toDiscordChannel, toDiscordEmoji, toDiscordGuildBase, toDiscordGuildMember,
-  toDiscordRole, toDiscordSticker,
+  toDiscordRole, toDiscordSticker, toDiscordThreadMember,
 } from '@/lib/services/gatewayEvents';
 import { INTENT } from './intents';
 import { computeChannelPermissions, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
@@ -159,7 +159,13 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
   });
   const threads = channels
     .filter((c) => isThreadChannelType(c.type) && threadVisibleToBot(c, byId.get((c.parentId ?? '').toLowerCase()) ?? null, botMember.userId, canViewParent))
-    .map((c) => ({ ...toDiscordChannel({ ...c, ownerId: c.ownerId ?? server.ownerId }) }));
+    .map((c) => ({
+      ...toDiscordChannel({ ...c, ownerId: c.ownerId ?? server.ownerId }),
+      // Joined threads carry the bot's thread member (Discord's GUILD_CREATE threads).
+      ...((c.threadMemberIds ?? []).some((u) => u.toLowerCase() === botMember.userId.toLowerCase())
+        ? { member: toDiscordThreadMember(c, botMember.userId) }
+        : {}),
+    }));
   const guildChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'group_dm' && !isThreadChannelType(c.type));
 
   return {

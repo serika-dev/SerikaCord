@@ -63,7 +63,7 @@ async function requireManager(
 }
 
 /** Drops exempt roles / channels from other servers and checks the alert channel. */
-async function scopeToServer(serverId: string, input: AutoModRuleInput): Promise<{ value: AutoModRuleInput } | { error: string }> {
+export async function scopeToServer(serverId: string, input: AutoModRuleInput): Promise<{ value: AutoModRuleInput } | { error: string }> {
   const sid = normalizeId(serverId);
   const [roles, channels] = await Promise.all([
     input.exemptRoles.length ? Role.find({ serverId: sid }) : Promise.resolve([]),

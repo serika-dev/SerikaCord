@@ -187,7 +187,7 @@ const TEMPLATE_BODY = t.Object({
 });
 
 /** Ids of the server's channels a welcome screen may recommend. */
-async function eligibleWelcomeChannelIds(serverId: string): Promise<Set<string>> {
+export async function eligibleWelcomeChannelIds(serverId: string): Promise<Set<string>> {
   const channels = await Channel.find({ serverId });
   return new Set(channels.filter((c) => WELCOME_CHANNEL_TYPES.has(String(c.type))).map((c) => c.id));
 }
@@ -213,13 +213,13 @@ function sanitizeDeep(value: unknown, depth = 0): unknown {
 }
 
 /** Ids of every channel in the server (guide to-dos / resources, accessible channels). */
-async function serverChannelIds(serverId: string): Promise<Set<string>> {
+export async function serverChannelIds(serverId: string): Promise<Set<string>> {
   const channels = await Channel.find({ serverId });
   return new Set(channels.filter((c) => c.type !== 'public_thread' && c.type !== 'private_thread').map((c) => c.id));
 }
 
 /** Roles this user may offer through onboarding: safe to self-assign and below their top role. */
-async function assignableOnboardingRoleIds(server: ServerRow, userId: string): Promise<Set<string>> {
+export async function assignableOnboardingRoleIds(server: ServerRow, userId: string): Promise<Set<string>> {
   const roles = await Role.find({ serverId: server.id });
   const actor = await getActorRoleContext(server, userId, roles as HierarchyRole[]);
   if (!actor) return new Set();

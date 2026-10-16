@@ -361,7 +361,7 @@ export function isRoleParam(name: string): boolean {
 /** Query keys whose values are ids (comma-separated lists allowed). */
 export const ID_QUERY_KEYS = new Set([
   'before', 'after', 'around', 'user_ids', 'user_id', 'guild_id', 'channel_id', 'thread_id',
-  'application_id', 'role_ids', 'target_id', 'message_id', 'sku_ids',
+  'application_id', 'role_ids', 'target_id', 'message_id', 'sku_ids', 'guild_scheduled_event_id', 'tag',
 ]);
 
 /**

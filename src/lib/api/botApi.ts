@@ -503,6 +503,42 @@ function respond(set: { status?: number | string; headers: Record<string, string
   return r.status === 204 ? '' : r.body;
 }
 
+/**
+ * Run a bot API route in-process as the same bot (forum posts send their
+ * first message through POST /channels/{thread}/messages, so it gets every
+ * check, file upload and event a normal send does). The response is in the
+ * app's id format already; the outer boundary leaves it as is.
+ */
+async function internalBotRequest(
+  request: Request,
+  method: string,
+  path: string,
+  payload: Record<string, unknown>,
+  files: Array<{ index: number; file: FileLike }>,
+): Promise<{ status: number; body: unknown }> {
+  const headers = new Headers();
+  for (const k of ['authorization', 'user-agent', 'x-forwarded-for', 'x-real-ip', 'cf-connecting-ip']) {
+    const v = request.headers.get(k);
+    if (v) headers.set(k, v);
+  }
+  let reqBody: BodyInit;
+  if (files.length > 0) {
+    const form = new FormData();
+    form.set('payload_json', JSON.stringify(payload));
+    for (const f of files) form.set(`files[${f.index}]`, f.file as unknown as Blob, (f.file as { name?: string }).name || `file${f.index}`);
+    reqBody = form;
+  } else {
+    headers.set('content-type', 'application/json');
+    reqBody = JSON.stringify(payload);
+  }
+  const origin = new URL(request.url).origin;
+  const res = await botApiRoutes.handle(new Request(`${origin}/v10${path}`, { method, headers, body: reqBody }));
+  const text = await res.text();
+  let parsed: unknown = '';
+  try { parsed = text ? JSON.parse(text) : ''; } catch { parsed = text; }
+  return { status: res.status, body: parsed };
+}
+
 // ─── Discord-compatible response formatters ────────────────
 
 function formatUser(user: any) {
@@ -909,17 +945,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const emojis = await ServerEmoji.find({ serverId: params.guildId });
-  return emojis.map((e: any) => ({
-    id: e.id,
-    name: e.name,
-    roles: [],
-    user: null,
-    require_colons: true,
-    managed: false,
-    animated: e.animated ?? false,
-    available: true,
-  }));
+  const { listGuildEmojis } = await import('@/lib/botapi/expressions');
+  return respond(set, await listGuildEmojis(params.guildId, auth.botUser.id));
 })
 .get('/guilds/:guildId/bans', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -960,6 +987,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 .patch('/channels/:channelId', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  // Threads follow Discord's thread rules (owner / MANAGE_THREADS), not MANAGE_CHANNELS (WP5).
+  { const { patchBotThread } = await import('@/lib/botapi/threads'); const t = await patchBotThread(auth.botUser.id, params.channelId, body, headers); if (t) return respond(set, t); }
 
   // MANAGE_CHANNELS in this channel (overwrites apply). DMs are never editable here.
   const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_channel');
@@ -973,12 +1002,16 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (patch.topic !== undefined) updates.topic = patch.topic;
   if (patch.nsfw !== undefined) updates.nsfw = patch.nsfw;
   if (patch.rate_limit_per_user !== undefined) updates.rateLimitPerUser = patch.rate_limit_per_user;
+  // Forum / media fields: available_tags, default_reaction_emoji, default_sort_order, default_forum_layout, default_thread_rate_limit_per_user, flags (WP5).
+  { const { forumPatchUpdates } = await import('@/lib/botapi/threads'); const f = forumPatchUpdates(channel, body); if (f && !f.ok) return respond(set, f); if (f?.ok) Object.assign(updates, f.updates); }
   const updated = await Channel.updateById(params.channelId, updates);
   return formatChannel(updated || channel);
 })
 .delete('/channels/:channelId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  // Threads: MANAGE_THREADS, THREAD_DELETE (WP5).
+  { const { deleteBotThread } = await import('@/lib/botapi/threads'); const t = await deleteBotThread(auth.botUser.id, params.channelId, headers); if (t) return respond(set, t); }
 
   const c = await requireChannelAction(params.channelId, auth.botUser.id, 'manage_channel');
   if (!c.ok) { set.status = c.status; return c.body; }
@@ -1064,6 +1097,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const isThread = isThreadChannel(channel);
   // End-to-end encrypted conversations only take envelopes from members' devices.
   if ((channel as { e2ee?: boolean | null }).e2ee === true) { set.status = 403; return { code: 50007, message: 'Cannot send messages to this user' }; }
+  // Threads: locked ones take moderators' messages only, archived ones reopen (WP5).
+  if (isThread) { const { prepareThreadSend } = await import('@/lib/botapi/threads'); const gate = await prepareThreadSend(channel, c.perms); if (gate) return respond(set, gate); }
 
   // JSON, or Discord multipart: files[n] + payload_json (attachments[] = per-file metadata).
   const parsedBody = parseBotMessageBody(body);
@@ -1291,7 +1326,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       const { scheduleOpenPoll } = await import('@/lib/services/messageExtras');
       void scheduleOpenPoll(msg.id, poll.expiresAt);
     }
-    if (isThread) void import('@/lib/services/threads').then((m) => m.refreshThreadAfterMessage(params.channelId)).catch(() => {});
+    // Threads: the bot (and whoever it mentioned) joins; the chip / count refreshes (WP5).
+    if (isThread) void import('@/lib/botapi/threads').then((m) => m.afterThreadSend(channel, botId, mentions.userIds)).catch(() => {});
 
     // Web clients: the internal message shape (createdAt, authorId, channelId), not Discord's.
     const author = auth.botUser;
@@ -2031,29 +2067,20 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 })
 
 // ─── Invite ────────────────────────────────────────────────
-.get('/invites/:code', async ({ headers, params, set }) => {
+// WP4b: src/lib/botapi/invites.ts
+.get('/invites/:code', async ({ headers, params, query, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  const invite = await Invite.findOne({ code: params.code });
-  if (!invite) { set.status = 404; return { code: 10006, message: 'Unknown Invite' }; }
-  return formatInvite(invite);
+  // with_expiration is deprecated: expires_at is always returned.
+  const { with_counts, guild_scheduled_event_id } = query as Record<string, string | undefined>;
+  const { getInviteByCode } = await import('@/lib/botapi/invites');
+  return respond(set, await getInviteByCode(params.code, { withCounts: with_counts === 'true', scheduledEventId: guild_scheduled_event_id ?? null }));
 })
 .delete('/invites/:code', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  const invite = await Invite.findOne({ code: params.code });
-  if (!invite) { set.status = 404; return { code: 10006, message: 'Unknown Invite' }; }
-  {
-    const g = await loadBotGuild(invite.serverId, auth.botUser.id);
-    if (!g.ok) { set.status = 404; return { code: 10006, message: 'Unknown Invite' }; }
-    if (!standingHas(g.standing, P.MANAGE_SERVER) && !standingHas(g.standing, P.MANAGE_CHANNELS)) {
-      set.status = 403; return MISSING_PERMISSIONS;
-    }
-  }
-  await Invite.deleteById(invite.id);
-  return formatInvite(invite);
+  const { deleteInviteByCode } = await import('@/lib/botapi/invites');
+  return respond(set, await deleteInviteByCode(params.code, auth.botUser.id, headers));
 })
 
 // ─── Guild Channel CRUD ────────────────────────────────────
@@ -2380,133 +2407,127 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   return '';
 })
 
-// ─── Guild Emoji CRUD ──────────────────────────────────────
+// ─── Guild Emoji CRUD (WP4b: src/lib/botapi/expressions.ts) ─
 .get('/guilds/:guildId/emojis/:emojiId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  if (!isValidObjectId(params.emojiId)) { set.status = 404; return { code: 10011, message: 'Unknown Emoji' }; }
-  const emoji = await ServerEmoji.findById(params.emojiId);
-  if (!emoji || !compareIds(emoji.serverId, params.guildId)) { set.status = 404; return { code: 10014, message: 'Unknown Emoji' }; }
-  return {
-    id: emoji.id,
-    name: emoji.name,
-    roles: [],
-    user: null,
-    require_colons: true,
-    managed: false,
-    animated: emoji.animated ?? false,
-    available: true,
-  };
+  const { getGuildEmoji } = await import('@/lib/botapi/expressions');
+  return respond(set, await getGuildEmoji(params.guildId, params.emojiId, auth.botUser.id));
 })
 .post('/guilds/:guildId/emojis', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MANAGE_EMOJIS_AND_STICKERS);
-  if (!g.ok) { set.status = g.status; return g.body; }
-  const { name, image, roles } = body as { name?: string; image?: string; roles?: string[] };
-  if (!name || !image) { set.status = 400; return { code: 50035, message: 'Name and image are required' }; }
-
-  const emoji = await ServerEmoji.create({
-    serverId: params.guildId,
-    name,
-    imageUrl: image,
-    animated: image.startsWith('data:image/gif'),
-    available: true,
-    managed: false,
-    requireColons: true,
-    roles: [],
-    uploadedBy: auth.botUser.id,
-  });
-  return {
-    id: emoji.id,
-    name: emoji.name,
-    roles: [],
-    user: null,
-    require_colons: true,
-    managed: false,
-    animated: emoji.animated,
-    available: true,
-  };
+  const { name, image, roles } = (body ?? {}) as { name?: unknown; image?: unknown; roles?: unknown };
+  const { createGuildEmoji } = await import('@/lib/botapi/expressions');
+  return respond(set, await createGuildEmoji(params.guildId, auth.botUser.id, { name, image, roles }, headers));
 })
 .patch('/guilds/:guildId/emojis/:emojiId', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  const emoji = isValidObjectId(params.emojiId) ? await ServerEmoji.findById(params.emojiId) : null;
-  if (!emoji || !compareIds(emoji.serverId, params.guildId)) { set.status = 404; return { code: 10014, message: 'Unknown Emoji' }; }
-  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MANAGE_EMOJIS_AND_STICKERS);
-  if (!g.ok) { set.status = g.status; return g.body; }
-
-  const { name, roles } = body as { name?: string; roles?: string[] };
-  const updates: Record<string, unknown> = {};
-  if (name !== undefined) updates.name = name;
-  const updated = await ServerEmoji.updateById(params.emojiId, updates);
-  const result = updated || emoji;
-  return {
-    id: result.id,
-    name: result.name,
-    roles: [],
-    user: null,
-    require_colons: true,
-    managed: false,
-    animated: result.animated,
-    available: true,
-  };
+  const { name, roles } = (body ?? {}) as { name?: unknown; roles?: unknown };
+  const { updateGuildEmoji } = await import('@/lib/botapi/expressions');
+  return respond(set, await updateGuildEmoji(params.guildId, params.emojiId, auth.botUser.id, { name, roles }, headers));
 })
 .delete('/guilds/:guildId/emojis/:emojiId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  const emoji = isValidObjectId(params.emojiId) ? await ServerEmoji.findById(params.emojiId) : null;
-  if (!emoji || !compareIds(emoji.serverId, params.guildId)) { set.status = 404; return { code: 10014, message: 'Unknown Emoji' }; }
-  const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MANAGE_EMOJIS_AND_STICKERS);
-  if (!g.ok) { set.status = g.status; return g.body; }
-  await ServerEmoji.deleteById(params.emojiId);
-  set.status = 204;
-  return '';
+  const { deleteGuildEmoji } = await import('@/lib/botapi/expressions');
+  return respond(set, await deleteGuildEmoji(params.guildId, params.emojiId, auth.botUser.id, headers));
 })
 
-// ─── Guild Stickers ────────────────────────────────────────
+// ─── Guild Stickers (WP4b) ─────────────────────────────────
 .get('/guilds/:guildId/stickers', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-
-  if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const stickers = await ServerSticker.find({ serverId: params.guildId });
-  return stickers.map((s: any) => ({
-    id: s.id,
-    name: s.name,
-    description: s.description ?? null,
-    tags: s.tags ?? [],
-    type: 1,
-    format_type: 1,
-    available: s.available ?? true,
-    guild_id: params.guildId,
-    user: null,
-  }));
+  const { listGuildStickers } = await import('@/lib/botapi/expressions');
+  return respond(set, await listGuildStickers(params.guildId, auth.botUser.id));
 })
 .get('/guilds/:guildId/stickers/:stickerId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { getGuildSticker } = await import('@/lib/botapi/expressions');
+  return respond(set, await getGuildSticker(params.guildId, params.stickerId, auth.botUser.id));
+})
+.post('/guilds/:guildId/stickers', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  // Multipart form: name, description, tags + file (PNG / APNG / GIF / Lottie JSON, 512 KiB).
+  const { name, description, tags, file } = (body ?? {}) as { name?: unknown; description?: unknown; tags?: unknown; file?: unknown };
+  const { createGuildSticker } = await import('@/lib/botapi/expressions');
+  const upload = file && typeof file === 'object' && typeof (file as { arrayBuffer?: unknown }).arrayBuffer === 'function'
+    ? (file as Parameters<typeof createGuildSticker>[3])
+    : null;
+  return respond(set, await createGuildSticker(params.guildId, auth.botUser.id, { name, description, tags }, upload, headers));
+})
+.patch('/guilds/:guildId/stickers/:stickerId', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, description, tags } = (body ?? {}) as { name?: unknown; description?: unknown; tags?: unknown };
+  const { updateGuildSticker } = await import('@/lib/botapi/expressions');
+  return respond(set, await updateGuildSticker(params.guildId, params.stickerId, auth.botUser.id, { name, description, tags }, headers));
+})
+.delete('/guilds/:guildId/stickers/:stickerId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { deleteGuildSticker } = await import('@/lib/botapi/expressions');
+  return respond(set, await deleteGuildSticker(params.guildId, params.stickerId, auth.botUser.id, headers));
+})
+.get('/stickers/:stickerId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { getStickerById } = await import('@/lib/botapi/expressions');
+  return respond(set, await getStickerById(params.stickerId, auth.botUser.id));
+})
+// Serika has no standard (Nitro) sticker packs.
+.get('/sticker-packs', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  return { sticker_packs: [] };
+})
+.get('/sticker-packs/:packId', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  set.status = 404;
+  return { code: 10061, message: 'Unknown Sticker Pack' };
+})
 
-  if (!isValidObjectId(params.stickerId)) { set.status = 404; return { code: 10011, message: 'Unknown Sticker' }; }
-  const sticker = await ServerSticker.findById(params.stickerId);
-  // Only stickers of this guild (the guard checked membership of :guildId, not of the sticker's guild).
-  if (!sticker || !compareIds(sticker.serverId, params.guildId)) { set.status = 404; return { code: 10060, message: 'Unknown Sticker' }; }
-  return {
-    id: sticker.id,
-    name: sticker.name,
-    description: sticker.description ?? null,
-    tags: sticker.tags ?? [],
-    type: 1,
-    format_type: 1,
-    available: sticker.available ?? true,
-    guild_id: params.guildId,
-    user: null,
-  };
+// ─── Application emojis (WP4b) ─────────────────────────────
+.get('/applications/:appId/emojis', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { listAppEmojis } = await import('@/lib/botapi/expressions');
+  return respond(set, await listAppEmojis(auth.app));
+})
+.get('/applications/:appId/emojis/:emojiId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { getAppEmoji } = await import('@/lib/botapi/expressions');
+  return respond(set, await getAppEmoji(auth.app, params.emojiId));
+})
+.post('/applications/:appId/emojis', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { name, image } = (body ?? {}) as { name?: unknown; image?: unknown };
+  const { createAppEmoji } = await import('@/lib/botapi/expressions');
+  return respond(set, await createAppEmoji(auth.app, auth.botUser.id, { name, image }));
+})
+.patch('/applications/:appId/emojis/:emojiId', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { name } = (body ?? {}) as { name?: unknown };
+  const { updateAppEmoji } = await import('@/lib/botapi/expressions');
+  return respond(set, await updateAppEmoji(auth.app, params.emojiId, { name }));
+})
+.delete('/applications/:appId/emojis/:emojiId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
+  const { deleteAppEmoji } = await import('@/lib/botapi/expressions');
+  return respond(set, await deleteAppEmoji(auth.app, params.emojiId));
 })
 
 // ─── Guild Webhooks ────────────────────────────────────────
@@ -2727,24 +2748,314 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   // Discord requires VIEW_AUDIT_LOG (this used to return any guild's log).
   const g = await requireBotPerm(params.guildId, auth.botUser.id, P.VIEW_AUDIT_LOG);
   if (!g.ok) { set.status = g.status; return g.body; }
-  const { listAuditLogs, toDiscordEntry } = await import('@/lib/services/auditLog');
-  const limit = Math.min(parseInt(query.limit as string) || 50, 100);
-  const actionType = query.action_type !== undefined ? Number(query.action_type) : null;
+  const { listAuditLogs } = await import('@/lib/services/auditLog');
+  const { user_id, target_id, action_type, before, after, limit } = query as Record<string, string | undefined>;
+  const actionType = action_type !== undefined ? Number(action_type) : null;
   const entries = await listAuditLogs(params.guildId, {
-    userId: typeof query.user_id === 'string' ? query.user_id : null,
-    actionType: Number.isFinite(actionType) ? actionType : null,
-    limit,
+    userId: user_id ?? null,
+    targetId: target_id ?? null,
+    actionType: actionType !== null && Number.isFinite(actionType) ? actionType : null,
+    // Entry ids (the boundary turned snowflakes into UUIDs); after = the next page forward.
+    beforeId: before ?? null,
+    afterId: after ?? null,
+    limit: Math.min(Math.max(parseInt(limit ?? '') || 50, 1), 100),
   });
-  return {
-    audit_log_entries: entries.map(toDiscordEntry),
-    users: [],
-    webhooks: [],
-    threads: [],
-    integrations: [],
-    application_commands: [],
-    auto_moderation_rules: [],
-    guild_scheduled_events: [],
-  };
+  // WP4b: users / webhooks / threads / integrations / AutoMod rules the entries refer to.
+  const { auditLogResponse } = await import('@/lib/botapi/auditLog');
+  return auditLogResponse(params.guildId, entries);
+})
+
+// ─── AutoMod rules (WP4b: src/lib/botapi/automod.ts) ───────
+.get('/guilds/:guildId/auto-moderation/rules', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { listBotRules } = await import('@/lib/botapi/automod');
+  return respond(set, await listBotRules(params.guildId, auth.botUser.id));
+})
+.get('/guilds/:guildId/auto-moderation/rules/:ruleId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { getBotRule } = await import('@/lib/botapi/automod');
+  return respond(set, await getBotRule(params.guildId, params.ruleId, auth.botUser.id));
+})
+.post('/guilds/:guildId/auto-moderation/rules', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, event_type, trigger_type, trigger_metadata, actions, enabled, exempt_roles, exempt_channels } = (body ?? {}) as Record<string, unknown>;
+  const { createBotRule } = await import('@/lib/botapi/automod');
+  return respond(set, await createBotRule(params.guildId, auth.botUser.id, { name, event_type, trigger_type, trigger_metadata, actions, enabled, exempt_roles, exempt_channels }, headers));
+})
+.patch('/guilds/:guildId/auto-moderation/rules/:ruleId', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, event_type, trigger_type, trigger_metadata, actions, enabled, exempt_roles, exempt_channels } = (body ?? {}) as Record<string, unknown>;
+  const { updateBotRule } = await import('@/lib/botapi/automod');
+  return respond(set, await updateBotRule(params.guildId, params.ruleId, auth.botUser.id, { name, event_type, trigger_type, trigger_metadata, actions, enabled, exempt_roles, exempt_channels }, headers));
+})
+.delete('/guilds/:guildId/auto-moderation/rules/:ruleId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { deleteBotRule } = await import('@/lib/botapi/automod');
+  return respond(set, await deleteBotRule(params.guildId, params.ruleId, auth.botUser.id, headers));
+})
+
+// ─── Scheduled events (WP4b: src/lib/botapi/scheduledEvents.ts) ─
+.get('/guilds/:guildId/scheduled-events', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { with_user_count } = query as Record<string, string | undefined>;
+  const { listBotEvents } = await import('@/lib/botapi/scheduledEvents');
+  return respond(set, await listBotEvents(params.guildId, auth.botUser.id, with_user_count === 'true'));
+})
+.post('/guilds/:guildId/scheduled-events', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, description, entity_type, channel_id, entity_metadata, privacy_level, scheduled_start_time, scheduled_end_time, image, recurrence_rule } = (body ?? {}) as Record<string, unknown>;
+  const { createBotEvent } = await import('@/lib/botapi/scheduledEvents');
+  return respond(set, await createBotEvent(params.guildId, auth.botUser.id, { name, description, entity_type, channel_id, entity_metadata, privacy_level, scheduled_start_time, scheduled_end_time, image, recurrence_rule }));
+})
+.get('/guilds/:guildId/scheduled-events/:eventId', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { with_user_count } = query as Record<string, string | undefined>;
+  const { getBotEvent } = await import('@/lib/botapi/scheduledEvents');
+  return respond(set, await getBotEvent(params.guildId, params.eventId, auth.botUser.id, with_user_count === 'true'));
+})
+.patch('/guilds/:guildId/scheduled-events/:eventId', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, description, entity_type, channel_id, entity_metadata, privacy_level, scheduled_start_time, scheduled_end_time, image, recurrence_rule, status } = (body ?? {}) as Record<string, unknown>;
+  const fields = Object.fromEntries(Object.entries({ name, description, entity_type, channel_id, entity_metadata, privacy_level, scheduled_start_time, scheduled_end_time, image, recurrence_rule, status }).filter(([, v]) => v !== undefined));
+  const { updateBotEvent } = await import('@/lib/botapi/scheduledEvents');
+  return respond(set, await updateBotEvent(params.guildId, params.eventId, auth.botUser.id, fields));
+})
+.delete('/guilds/:guildId/scheduled-events/:eventId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { deleteBotEvent } = await import('@/lib/botapi/scheduledEvents');
+  return respond(set, await deleteBotEvent(params.guildId, params.eventId, auth.botUser.id));
+})
+.get('/guilds/:guildId/scheduled-events/:eventId/users', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { with_member, limit, before, after } = query as Record<string, string | undefined>;
+  // Member objects need the GUILD_MEMBERS intent, like member lists.
+  const withMember = with_member === 'true' && (allowedPrivilegedIntents(auth.app) & INTENT.GUILD_MEMBERS) !== 0;
+  const { listBotEventUsers } = await import('@/lib/botapi/scheduledEvents');
+  return respond(set, await listBotEventUsers(params.guildId, params.eventId, auth.botUser.id, { withMember, limit, before: before ?? null, after: after ?? null }));
+})
+
+// ─── Stage instances ───────────────────────────────────────
+// Serika's stage channels have no stage instances (topic / live state) yet:
+// lookups answer Unknown Stage Instance, creation is not implemented.
+.post('/stage-instances', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  set.status = 501;
+  return { code: 0, message: 'Stage instances are not supported yet' };
+})
+.get('/stage-instances/:channelId', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  set.status = 404;
+  return { code: 10067, message: 'Unknown Stage Instance' };
+})
+.patch('/stage-instances/:channelId', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  set.status = 404;
+  return { code: 10067, message: 'Unknown Stage Instance' };
+})
+.delete('/stage-instances/:channelId', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  set.status = 404;
+  return { code: 10067, message: 'Unknown Stage Instance' };
+})
+
+// ─── Onboarding, welcome screen, templates, integrations (WP4b: src/lib/botapi/community.ts) ─
+.get('/guilds/:guildId/onboarding', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { getBotOnboarding } = await import('@/lib/botapi/community');
+  return respond(set, await getBotOnboarding(params.guildId));
+})
+.put('/guilds/:guildId/onboarding', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { prompts, enabled, default_channel_ids, mode } = (body ?? {}) as Record<string, unknown>;
+  const { putBotOnboarding } = await import('@/lib/botapi/community');
+  return respond(set, await putBotOnboarding(params.guildId, auth.botUser.id, { prompts, enabled, default_channel_ids, mode }));
+})
+.get('/guilds/:guildId/welcome-screen', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { getBotWelcomeScreen } = await import('@/lib/botapi/community');
+  return respond(set, await getBotWelcomeScreen(params.guildId, auth.botUser.id));
+})
+.patch('/guilds/:guildId/welcome-screen', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { enabled, description, welcome_channels } = (body ?? {}) as Record<string, unknown>;
+  const { patchBotWelcomeScreen } = await import('@/lib/botapi/community');
+  return respond(set, await patchBotWelcomeScreen(params.guildId, auth.botUser.id, { enabled, description, welcome_channels }));
+})
+.get('/guilds/templates/:code', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { getTemplateByCodeForBot } = await import('@/lib/botapi/community');
+  return respond(set, await getTemplateByCodeForBot(params.code));
+})
+.get('/guilds/:guildId/templates', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { listBotTemplates } = await import('@/lib/botapi/community');
+  return respond(set, await listBotTemplates(params.guildId, auth.botUser.id));
+})
+.post('/guilds/:guildId/templates', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, description } = (body ?? {}) as Record<string, unknown>;
+  const { createBotTemplate } = await import('@/lib/botapi/community');
+  return respond(set, await createBotTemplate(params.guildId, auth.botUser.id, { name, description }));
+})
+.put('/guilds/:guildId/templates/:code', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { syncBotTemplate } = await import('@/lib/botapi/community');
+  return respond(set, await syncBotTemplate(params.guildId, params.code, auth.botUser.id));
+})
+.patch('/guilds/:guildId/templates/:code', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, description } = (body ?? {}) as Record<string, unknown>;
+  const { patchBotTemplate } = await import('@/lib/botapi/community');
+  return respond(set, await patchBotTemplate(params.guildId, params.code, auth.botUser.id, { name, description }));
+})
+.delete('/guilds/:guildId/templates/:code', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { deleteBotTemplate } = await import('@/lib/botapi/community');
+  return respond(set, await deleteBotTemplate(params.guildId, params.code, auth.botUser.id));
+})
+.get('/guilds/:guildId/integrations', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { listBotIntegrations } = await import('@/lib/botapi/community');
+  return respond(set, await listBotIntegrations(params.guildId, auth.botUser.id));
+})
+.delete('/guilds/:guildId/integrations/:integrationId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { deleteBotIntegration } = await import('@/lib/botapi/community');
+  return respond(set, await deleteBotIntegration(params.guildId, params.integrationId, auth.botUser.id, headers));
+})
+
+// ─── Threads + forums (WP5: src/lib/botapi/threads.ts) ─────
+.post('/channels/:channelId/threads', async ({ headers, params, body, request, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  // JSON, or multipart for forum posts (payload_json + files[n] for the first message).
+  const parsedBody = parseBotMessageBody(body);
+  if (!parsedBody.ok) { set.status = 400; return { code: parsedBody.code, message: parsedBody.error }; }
+  const { name, type, auto_archive_duration, rate_limit_per_user, invitable, applied_tags, message } = parsedBody.payload as Record<string, unknown>;
+  const { createBotThread } = await import('@/lib/botapi/threads');
+  return respond(set, await createBotThread({
+    bot: auth.botUser,
+    channelId: params.channelId,
+    body: { name, type, auto_archive_duration, rate_limit_per_user, invitable, applied_tags, message },
+    headers,
+    sendStarter: (threadId, starter) => internalBotRequest(request, 'POST', `/channels/${threadId}/messages`, starter, parsedBody.files),
+  }));
+})
+.post('/channels/:channelId/messages/:messageId/threads', async ({ headers, params, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, auto_archive_duration, rate_limit_per_user } = (body ?? {}) as Record<string, unknown>;
+  const { createBotThread } = await import('@/lib/botapi/threads');
+  return respond(set, await createBotThread({
+    bot: auth.botUser,
+    channelId: params.channelId,
+    messageId: params.messageId,
+    body: { name, auto_archive_duration, rate_limit_per_user },
+    headers,
+  }));
+})
+.get('/channels/:channelId/thread-members', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  // Discord: restricted by the privileged GUILD_MEMBERS intent.
+  if ((allowedPrivilegedIntents(auth.app) & INTENT.GUILD_MEMBERS) === 0) { set.status = 403; return MISSING_ACCESS; }
+  const { with_member, after, limit } = query as Record<string, string | undefined>;
+  const { listBotThreadMembers } = await import('@/lib/botapi/threads');
+  return respond(set, await listBotThreadMembers(params.channelId, { withMember: with_member === 'true', after: after ?? null, limit }));
+})
+.put('/channels/:channelId/thread-members/@me', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { addBotThreadMember } = await import('@/lib/botapi/threads');
+  return respond(set, await addBotThreadMember(auth.botUser.id, params.channelId, auth.botUser.id));
+})
+.delete('/channels/:channelId/thread-members/@me', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { removeBotThreadMember } = await import('@/lib/botapi/threads');
+  return respond(set, await removeBotThreadMember(auth.botUser.id, params.channelId, auth.botUser.id));
+})
+.get('/channels/:channelId/thread-members/:userId', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { with_member } = query as Record<string, string | undefined>;
+  // A member object needs the GUILD_MEMBERS intent, like the list.
+  const withMember = with_member === 'true' && (allowedPrivilegedIntents(auth.app) & INTENT.GUILD_MEMBERS) !== 0;
+  const { getBotThreadMember } = await import('@/lib/botapi/threads');
+  return respond(set, await getBotThreadMember(params.channelId, params.userId, withMember));
+})
+.put('/channels/:channelId/thread-members/:userId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { addBotThreadMember } = await import('@/lib/botapi/threads');
+  return respond(set, await addBotThreadMember(auth.botUser.id, params.channelId, params.userId));
+})
+.delete('/channels/:channelId/thread-members/:userId', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { removeBotThreadMember } = await import('@/lib/botapi/threads');
+  return respond(set, await removeBotThreadMember(auth.botUser.id, params.channelId, params.userId));
+})
+.get('/channels/:channelId/threads/archived/public', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { before, limit } = query as Record<string, string | undefined>;
+  const { listArchivedThreads } = await import('@/lib/botapi/threads');
+  return respond(set, await listArchivedThreads(auth.botUser.id, params.channelId, 'public', { before, limit }));
+})
+.get('/channels/:channelId/threads/archived/private', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { before, limit } = query as Record<string, string | undefined>;
+  const { listArchivedThreads } = await import('@/lib/botapi/threads');
+  return respond(set, await listArchivedThreads(auth.botUser.id, params.channelId, 'private', { before, limit }));
+})
+.get('/channels/:channelId/users/@me/threads/archived/private', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { before, limit } = query as Record<string, string | undefined>;
+  const { listArchivedThreads } = await import('@/lib/botapi/threads');
+  return respond(set, await listArchivedThreads(auth.botUser.id, params.channelId, 'joined', { before, limit }));
+})
+.get('/channels/:channelId/threads/search', async ({ headers, params, query, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { name, tag, tag_setting, archived, sort_by, sort_order, limit, offset } = query as Record<string, string | undefined>;
+  const { searchBotThreads } = await import('@/lib/botapi/threads');
+  return respond(set, await searchBotThreads(auth.botUser.id, params.channelId, { name, tag, tag_setting, archived, sort_by, sort_order, limit, offset }));
+})
+.get('/guilds/:guildId/threads/active', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const { listActiveGuildThreads } = await import('@/lib/botapi/threads');
+  return respond(set, await listActiveGuildThreads(auth.botUser.id, params.guildId));
 })
 
 // ─── User DMs ──────────────────────────────────────────────
