@@ -616,7 +616,9 @@ function respond(set: { status?: number | string; headers: Record<string, string
  * Run a bot API route in-process as the same bot (forum posts send their
  * first message through POST /channels/{thread}/messages, so it gets every
  * check, file upload and event a normal send does). The response is in the
- * app's id format already; the outer boundary leaves it as is.
+ * app's id format already; the outer boundary leaves it as is. (Only message
+ * routes may go through here: their bodies carry no permission bitfields,
+ * whose Discord <-> Serika permutation, unlike id rewriting, isn't idempotent.)
  */
 async function internalBotRequest(
   request: Request,

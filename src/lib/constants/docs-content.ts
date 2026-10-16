@@ -632,7 +632,11 @@ Permissions in SerikaCord are represented as 64-bit integer bitfields.
 - \`READ_MESSAGE_HISTORY\` (1 << 16)
 - \`MENTION_EVERYONE\` (1 << 17)
 - \`MANAGE_ROLES\` (1 << 28)
-- \`MANAGE_WEBHOOKS\` (1 << 29)`,
+- \`MANAGE_WEBHOOKS\` (1 << 29)
+- \`USE_SOUNDBOARD\` (1 << 42), \`CREATE_GUILD_EXPRESSIONS\` (1 << 43), \`CREATE_EVENTS\` (1 << 44), \`USE_EXTERNAL_SOUNDS\` (1 << 45), \`SEND_VOICE_MESSAGES\` (1 << 46)
+- \`SET_VOICE_CHANNEL_STATUS\` (1 << 48), \`SEND_POLLS\` (1 << 49), \`USE_EXTERNAL_APPS\` (1 << 50), \`PIN_MESSAGES\` (1 << 51)
+
+These are Discord API v10 numbers, used by applications with snowflake ids in every permission bitfield (roles, overwrites, member and app permissions, \`default_member_permissions\`, install params, authorize links). Legacy UUID-format applications see SerikaCord's original numbers for five flags: USE_EXTERNAL_SOUNDS 1 << 42, SEND_VOICE_MESSAGES 1 << 43, USE_SOUNDBOARD 1 << 44, CREATE_EXPRESSIONS 1 << 45, CREATE_EVENTS 1 << 46.`,
   },
   "topics/rate-limits": {
     slug: "topics/rate-limits",

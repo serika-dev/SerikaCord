@@ -706,6 +706,7 @@ const FEATURES: Feature[] = [
   { id: 'ratelimit.body', wp: 'WP0', title: '429 body is { message, retry_after, global } (+ X-RateLimit-Scope)', files: [...BOTAPI, 'src/lib/api/index.ts', 'src/lib/security/botRateLimit.ts'], re: /retry_after[\s\S]{0,120}global|X-RateLimit-Scope/i },
   { id: 'auth.bearer', wp: 'WP6', title: 'OAuth2 Bearer tokens accepted on /api/v10 (users/@me, guilds, connections)', files: BOTAPI, re: /['"`]Bearer |requireBearerScope\(/i },
   { id: 'perm.overwrites', wp: 'WP0', title: 'Channel permission overwrites applied to bot actions (reuse computeChannelPermissions from src/lib/permissions/channelOverwrites.ts)', files: BOTAPI, re: /computeChannelPermissions|applyChannelOverwrites|getMemberChannelPermissions/ },
+  { id: 'perm.discord_bits', wp: 'WP0', title: 'Permission bitfields in Discord v10 numbering (bits 42-46 permuted at the boundary for snowflake-format apps)', files: BOTAPI, re: /permissionsToDiscord\(/ },
   { id: 'cdn.compat', wp: 'WP6', title: 'Discord CDN path compatibility (/avatars/{user_id}/{hash}.png, /icons/, /emojis/{id}.png, /embed/avatars/)', files: [...BOTAPI, 'server.ts', 'src/lib/api/index.ts'], re: /['"`]\/(avatars|icons|emojis|embed\/avatars)\/|handleCdnCompat\(/ },
   { id: 'gw.guild_create', wp: 'WP1', title: 'GUILD_CREATE sent for every guild after READY', files: GW, re: /t:\s*['"]GUILD_CREATE['"]|dispatchTo\(conn,\s*'GUILD_CREATE'/ },
   { id: 'gw.zlib', wp: 'WP1', title: 'compress=zlib-stream transport compression', files: GW, re: /zlib-stream|createDeflate|deflateRaw|Deflate\(/ },

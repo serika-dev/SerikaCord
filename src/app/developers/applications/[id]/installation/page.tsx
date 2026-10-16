@@ -8,6 +8,8 @@ import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { PERMISSION_BITS } from "@/lib/permissions/bits";
+import { serikaToDiscord } from "@/lib/botapi/permissionBits";
 
 const allScopes = [
   "bot", "applications.commands", "applications.commands.permissions.update",
@@ -16,48 +18,61 @@ const allScopes = [
   "webhook.incoming", "dm_channels.read", "voice", "activity.read", "activity.write",
 ];
 
-const permissionBits: Record<string, number> = {
-  CREATE_INSTANT_INVITE: 1 << 0,
-  KICK_MEMBERS: 1 << 1,
-  BAN_MEMBERS: 1 << 2,
-  ADMINISTRATOR: 1 << 3,
-  MANAGE_CHANNELS: 1 << 4,
-  MANAGE_GUILD: 1 << 5,
-  ADD_REACTIONS: 1 << 6,
-  VIEW_AUDIT_LOG: 1 << 7,
-  VIEW_GUILD_INSIGHTS: 1 << 8,
-  SEND_MESSAGES: 1 << 10,
-  SEND_TTS_MESSAGES: 1 << 11,
-  MANAGE_MESSAGES: 1 << 12,
-  EMBED_LINKS: 1 << 13,
-  ATTACH_FILES: 1 << 14,
-  READ_MESSAGE_HISTORY: 1 << 16,
-  MENTION_EVERYONE: 1 << 17,
-  USE_EXTERNAL_EMOJIS: 1 << 18,
-  VIEW_GUILD_EVENTS: 1 << 20,
-  CONNECT: 1 << 20,
-  SPEAK: 1 << 21,
-  MUTE_MEMBERS: 1 << 22,
-  DEAFEN_MEMBERS: 1 << 23,
-  MOVE_MEMBERS: 1 << 24,
-  USE_VAD: 1 << 25,
-  PRIORITY_SPEAKER: 1 << 8,
-  CHANGE_NICKNAME: 1 << 26,
-  MANAGE_NICKNAMES: 1 << 27,
-  MANAGE_ROLES: 1 << 28,
-  MANAGE_WEBHOOKS: 1 << 29,
-  MANAGE_EMOJIS_AND_STICKERS: 1 << 30,
-  USE_APPLICATION_COMMANDS: 1 << 31,
-  REQUEST_TO_SPEAK: 1 << 32,
-  MANAGE_EVENTS: 1 << 33,
-  MANAGE_THREADS: 1 << 34,
-  CREATE_PUBLIC_THREADS: 1 << 35,
-  CREATE_PRIVATE_THREADS: 1 << 36,
-  USE_EXTERNAL_STICKERS: 1 << 37,
-  SEND_MESSAGES_IN_THREADS: 1 << 38,
-  USE_EMBEDDED_ACTIVITIES: 1 << 39,
-  MODERATE_MEMBERS: 1 << 40,
+// Install-link names -> Serika's canonical bits (src/lib/permissions/bits.ts).
+const permissionBits: Record<string, bigint> = {
+  CREATE_INSTANT_INVITE: PERMISSION_BITS.CREATE_INVITE,
+  KICK_MEMBERS: PERMISSION_BITS.KICK_MEMBERS,
+  BAN_MEMBERS: PERMISSION_BITS.BAN_MEMBERS,
+  ADMINISTRATOR: PERMISSION_BITS.ADMINISTRATOR,
+  MANAGE_CHANNELS: PERMISSION_BITS.MANAGE_CHANNELS,
+  MANAGE_GUILD: PERMISSION_BITS.MANAGE_SERVER,
+  ADD_REACTIONS: PERMISSION_BITS.ADD_REACTIONS,
+  VIEW_AUDIT_LOG: PERMISSION_BITS.VIEW_AUDIT_LOG,
+  VIEW_GUILD_INSIGHTS: PERMISSION_BITS.VIEW_SERVER_INSIGHTS,
+  VIEW_CHANNEL: PERMISSION_BITS.VIEW_CHANNEL,
+  SEND_MESSAGES: PERMISSION_BITS.SEND_MESSAGES,
+  SEND_TTS_MESSAGES: PERMISSION_BITS.SEND_TTS_MESSAGES,
+  MANAGE_MESSAGES: PERMISSION_BITS.MANAGE_MESSAGES,
+  EMBED_LINKS: PERMISSION_BITS.EMBED_LINKS,
+  ATTACH_FILES: PERMISSION_BITS.ATTACH_FILES,
+  READ_MESSAGE_HISTORY: PERMISSION_BITS.READ_MESSAGE_HISTORY,
+  MENTION_EVERYONE: PERMISSION_BITS.MENTION_EVERYONE,
+  USE_EXTERNAL_EMOJIS: PERMISSION_BITS.USE_EXTERNAL_EMOJIS,
+  CONNECT: PERMISSION_BITS.CONNECT,
+  SPEAK: PERMISSION_BITS.SPEAK,
+  STREAM: PERMISSION_BITS.VIDEO,
+  MUTE_MEMBERS: PERMISSION_BITS.MUTE_MEMBERS,
+  DEAFEN_MEMBERS: PERMISSION_BITS.DEAFEN_MEMBERS,
+  MOVE_MEMBERS: PERMISSION_BITS.MOVE_MEMBERS,
+  USE_VAD: PERMISSION_BITS.USE_VOICE_ACTIVITY,
+  PRIORITY_SPEAKER: PERMISSION_BITS.PRIORITY_SPEAKER,
+  CHANGE_NICKNAME: PERMISSION_BITS.CHANGE_NICKNAME,
+  MANAGE_NICKNAMES: PERMISSION_BITS.MANAGE_NICKNAMES,
+  MANAGE_ROLES: PERMISSION_BITS.MANAGE_ROLES,
+  MANAGE_WEBHOOKS: PERMISSION_BITS.MANAGE_WEBHOOKS,
+  MANAGE_EMOJIS_AND_STICKERS: PERMISSION_BITS.MANAGE_EMOJIS_AND_STICKERS,
+  CREATE_GUILD_EXPRESSIONS: PERMISSION_BITS.CREATE_EXPRESSIONS,
+  USE_APPLICATION_COMMANDS: PERMISSION_BITS.USE_APPLICATION_COMMANDS,
+  REQUEST_TO_SPEAK: PERMISSION_BITS.REQUEST_TO_SPEAK,
+  MANAGE_EVENTS: PERMISSION_BITS.MANAGE_EVENTS,
+  CREATE_EVENTS: PERMISSION_BITS.CREATE_EVENTS,
+  MANAGE_THREADS: PERMISSION_BITS.MANAGE_THREADS,
+  CREATE_PUBLIC_THREADS: PERMISSION_BITS.CREATE_PUBLIC_THREADS,
+  CREATE_PRIVATE_THREADS: PERMISSION_BITS.CREATE_PRIVATE_THREADS,
+  USE_EXTERNAL_STICKERS: PERMISSION_BITS.USE_EXTERNAL_STICKERS,
+  SEND_MESSAGES_IN_THREADS: PERMISSION_BITS.SEND_MESSAGES_IN_THREADS,
+  USE_EMBEDDED_ACTIVITIES: PERMISSION_BITS.USE_EMBEDDED_ACTIVITIES,
+  MODERATE_MEMBERS: PERMISSION_BITS.MODERATE_MEMBERS,
+  USE_SOUNDBOARD: PERMISSION_BITS.USE_SOUNDBOARD,
+  USE_EXTERNAL_SOUNDS: PERMISSION_BITS.USE_EXTERNAL_SOUNDS,
+  SEND_VOICE_MESSAGES: PERMISSION_BITS.SEND_VOICE_MESSAGES,
+  SET_VOICE_CHANNEL_STATUS: PERMISSION_BITS.SET_VOICE_CHANNEL_STATUS,
+  SEND_POLLS: PERMISSION_BITS.SEND_POLLS,
+  USE_EXTERNAL_APPS: PERMISSION_BITS.USE_EXTERNAL_APPS,
+  PIN_MESSAGES: PERMISSION_BITS.PIN_MESSAGES,
 };
+
+const bitmaskOf = (names: string[]) => names.reduce((acc, p) => acc | (permissionBits[p] ?? 0n), 0n);
 
 const permissions = [
   { name: "Create Invite", value: "CREATE_INSTANT_INVITE" },
@@ -69,6 +84,7 @@ const permissions = [
   { name: "Add Reactions", value: "ADD_REACTIONS" },
   { name: "View Audit Log", value: "VIEW_AUDIT_LOG" },
   { name: "View Server Insights", value: "VIEW_GUILD_INSIGHTS" },
+  { name: "View Channels", value: "VIEW_CHANNEL" },
   { name: "Send Messages", value: "SEND_MESSAGES" },
   { name: "Send TTS Messages", value: "SEND_TTS_MESSAGES" },
   { name: "Manage Messages", value: "MANAGE_MESSAGES" },
@@ -77,9 +93,9 @@ const permissions = [
   { name: "Read Message History", value: "READ_MESSAGE_HISTORY" },
   { name: "Mention Everyone", value: "MENTION_EVERYONE" },
   { name: "Use External Emojis", value: "USE_EXTERNAL_EMOJIS" },
-  { name: "View Server Events", value: "VIEW_GUILD_EVENTS" },
   { name: "Connect", value: "CONNECT" },
   { name: "Speak", value: "SPEAK" },
+  { name: "Video", value: "STREAM" },
   { name: "Mute Members", value: "MUTE_MEMBERS" },
   { name: "Deafen Members", value: "DEAFEN_MEMBERS" },
   { name: "Move Members", value: "MOVE_MEMBERS" },
@@ -90,9 +106,11 @@ const permissions = [
   { name: "Manage Roles", value: "MANAGE_ROLES" },
   { name: "Manage Webhooks", value: "MANAGE_WEBHOOKS" },
   { name: "Manage Emojis", value: "MANAGE_EMOJIS_AND_STICKERS" },
+  { name: "Create Expressions", value: "CREATE_GUILD_EXPRESSIONS" },
   { name: "Use Application Commands", value: "USE_APPLICATION_COMMANDS" },
   { name: "Request to Speak", value: "REQUEST_TO_SPEAK" },
   { name: "Manage Events", value: "MANAGE_EVENTS" },
+  { name: "Create Events", value: "CREATE_EVENTS" },
   { name: "Manage Threads", value: "MANAGE_THREADS" },
   { name: "Create Public Threads", value: "CREATE_PUBLIC_THREADS" },
   { name: "Create Private Threads", value: "CREATE_PRIVATE_THREADS" },
@@ -100,6 +118,13 @@ const permissions = [
   { name: "Send Messages in Threads", value: "SEND_MESSAGES_IN_THREADS" },
   { name: "Use Embedded Activities", value: "USE_EMBEDDED_ACTIVITIES" },
   { name: "Moderate Members", value: "MODERATE_MEMBERS" },
+  { name: "Use Soundboard", value: "USE_SOUNDBOARD" },
+  { name: "Use External Sounds", value: "USE_EXTERNAL_SOUNDS" },
+  { name: "Send Voice Messages", value: "SEND_VOICE_MESSAGES" },
+  { name: "Set Voice Channel Status", value: "SET_VOICE_CHANNEL_STATUS" },
+  { name: "Create Polls", value: "SEND_POLLS" },
+  { name: "Use External Apps", value: "USE_EXTERNAL_APPS" },
+  { name: "Pin Messages", value: "PIN_MESSAGES" },
 ];
 
 type GTFunc = ReturnType<typeof useGT>;
@@ -115,6 +140,7 @@ function permNameLabel(value: string, gt: GTFunc): string {
     case 'ADD_REACTIONS': return gt('Add Reactions');
     case 'VIEW_AUDIT_LOG': return gt('View Audit Log');
     case 'VIEW_GUILD_INSIGHTS': return gt('View Server Insights');
+    case 'VIEW_CHANNEL': return gt('View Channels');
     case 'SEND_MESSAGES': return gt('Send Messages');
     case 'SEND_TTS_MESSAGES': return gt('Send TTS Messages');
     case 'MANAGE_MESSAGES': return gt('Manage Messages');
@@ -123,9 +149,9 @@ function permNameLabel(value: string, gt: GTFunc): string {
     case 'READ_MESSAGE_HISTORY': return gt('Read Message History');
     case 'MENTION_EVERYONE': return gt('Mention Everyone');
     case 'USE_EXTERNAL_EMOJIS': return gt('Use External Emojis');
-    case 'VIEW_GUILD_EVENTS': return gt('View Server Events');
     case 'CONNECT': return gt('Connect');
     case 'SPEAK': return gt('Speak');
+    case 'STREAM': return gt('Video');
     case 'MUTE_MEMBERS': return gt('Mute Members');
     case 'DEAFEN_MEMBERS': return gt('Deafen Members');
     case 'MOVE_MEMBERS': return gt('Move Members');
@@ -136,6 +162,7 @@ function permNameLabel(value: string, gt: GTFunc): string {
     case 'MANAGE_ROLES': return gt('Manage Roles');
     case 'MANAGE_WEBHOOKS': return gt('Manage Webhooks');
     case 'MANAGE_EMOJIS_AND_STICKERS': return gt('Manage Emojis');
+    case 'CREATE_GUILD_EXPRESSIONS': return gt('Create Expressions');
     case 'USE_APPLICATION_COMMANDS': return gt('Use Application Commands');
     case 'REQUEST_TO_SPEAK': return gt('Request to Speak');
     case 'MANAGE_EVENTS': return gt('Manage Events');
@@ -146,6 +173,14 @@ function permNameLabel(value: string, gt: GTFunc): string {
     case 'SEND_MESSAGES_IN_THREADS': return gt('Send Messages in Threads');
     case 'USE_EMBEDDED_ACTIVITIES': return gt('Use Embedded Activities');
     case 'MODERATE_MEMBERS': return gt('Moderate Members');
+    case 'CREATE_EVENTS': return gt('Create Events');
+    case 'USE_SOUNDBOARD': return gt('Use Soundboard');
+    case 'USE_EXTERNAL_SOUNDS': return gt('Use External Sounds');
+    case 'SEND_VOICE_MESSAGES': return gt('Send Voice Messages');
+    case 'SET_VOICE_CHANNEL_STATUS': return gt('Set Voice Channel Status');
+    case 'SEND_POLLS': return gt('Create Polls');
+    case 'USE_EXTERNAL_APPS': return gt('Use External Apps');
+    case 'PIN_MESSAGES': return gt('Pin Messages');
     default: return value;
   }
 }
@@ -164,8 +199,10 @@ export default function InstallationPage() {
     if (app) {
       setSelectedScopes(app.installParams?.scopes || ["bot"]);
       setCustomInstallUrl(app.customInstallUrl || "");
-      const savedPerms = parseInt(app.installParams?.permissions || "0", 10);
-      if (savedPerms > 0) {
+      // Saved install params use Serika's bit numbers.
+      let savedPerms = 0n;
+      try { savedPerms = BigInt(app.installParams?.permissions || "0"); } catch { /* malformed */ }
+      if (savedPerms > 0n) {
         const names = Object.entries(permissionBits)
           .filter(([, bit]) => (savedPerms & bit) === bit)
           .map(([name]) => name);
@@ -186,10 +223,14 @@ export default function InstallationPage() {
     );
   };
 
-  const installLink = `https://api.serika.chat/api/oauth2/authorize?client_id=${app?.clientId || appId}&scope=${selectedScopes.join("+")}${selectedPerms.length > 0 ? `&permissions=${selectedPerms.reduce((acc, p) => acc | (permissionBits[p] || 0), 0)}` : ""}`;
+  // Snowflake-format apps read install links with Discord's bit numbers
+  // (the authorize page converts them back to Serika's).
+  const selectedMask = bitmaskOf(selectedPerms);
+  const linkMask = app?.apiIdFormat === "snowflake" ? serikaToDiscord(selectedMask) : selectedMask;
+  const installLink = `https://api.serika.chat/api/oauth2/authorize?client_id=${app?.clientId || appId}&scope=${selectedScopes.join("+")}${selectedPerms.length > 0 ? `&permissions=${linkMask}` : ""}`;
 
   const handleSave = async () => {
-    const permBitmask = selectedPerms.reduce((acc, p) => acc | (permissionBits[p] || 0), 0);
+    const permBitmask = selectedMask;
     await saveApp({
       installParams: { scopes: selectedScopes, permissions: String(permBitmask) },
       customInstallUrl,

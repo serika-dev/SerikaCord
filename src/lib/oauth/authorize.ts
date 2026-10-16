@@ -4,6 +4,7 @@
  * shared by server and client and unit tested.
  */
 import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
+import { discordToSerika } from '@/lib/botapi/permissionBits';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]', '::1']);
 
@@ -62,15 +63,29 @@ export function appendQuery(uri: string, params: Record<string, string>): string
 }
 
 /**
- * Parse the `permissions` integer string an authorize request carries.
- * Returns null for anything that is not a non-negative integer.
+ * Bit numbering of an authorize URL's `permissions`: Discord v10 for
+ * snowflake-format applications (their install links are built with Discord
+ * tooling), Serika's own for legacy UUID-format ones.
  */
-export function parsePermissionsParam(raw: unknown): bigint | null {
+export type PermissionNumbering = 'serika' | 'discord';
+
+export function permissionNumberingOf(app: { apiIdFormat?: string | null } | null | undefined): PermissionNumbering {
+  return app?.apiIdFormat === 'snowflake' ? 'discord' : 'serika';
+}
+
+/**
+ * Parse the `permissions` integer string an authorize request carries into
+ * Serika numbering (converted from Discord's when `numbering` is 'discord'),
+ * keeping only bits Serika knows. Returns null for anything that is not a
+ * non-negative integer.
+ */
+export function parsePermissionsParam(raw: unknown, numbering: PermissionNumbering = 'serika'): bigint | null {
   if (raw === undefined || raw === null || raw === '') return 0n;
   const str = String(raw).trim();
   if (!/^\d{1,40}$/.test(str)) return null;
   try {
-    return BigInt(str) & ALL_PERMISSIONS;
+    const bits = BigInt(str);
+    return (numbering === 'discord' ? discordToSerika(bits) : bits) & ALL_PERMISSIONS;
   } catch {
     return null;
   }
