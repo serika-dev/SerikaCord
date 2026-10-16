@@ -1615,24 +1615,14 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
 
         // The new bot must show up in this server's gateway audiences right away.
         void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(serverId)).catch(() => {});
-        const { emitGuildMemberAdd, emitGuildCreate } = await import('@/lib/services/gatewayEvents');
+        const { emitGuildCreate } = await import('@/lib/services/gatewayEvents');
+        const guildEvents = await import('@/lib/services/guildGatewayEvents');
 
-        const memberDto = {
-          user: {
-            id: botUser.id,
-            username: botUser.username,
-            avatar: botUser.avatar || null,
-            bot: true,
-            discriminator: '0',
-          },
-          nick: null,
-          roles: botRolesList,
-          joined_at: new Date().toISOString(),
-          deaf: false,
-          mute: false,
-        };
-
-        await emitGuildMemberAdd({ guildId: serverId, member: memberDto });
+        // The bot's managed role, its GUILD_MEMBER_ADD (the full member, which
+        // also adds the guild to the bot's session) and GUILD_INTEGRATIONS_UPDATE.
+        await guildEvents.emitRoleCreate(serverId, botRole.id);
+        await guildEvents.emitMemberAdd(serverId, botUser.id);
+        void guildEvents.emitGuildIntegrationsUpdate(serverId);
 
         // The same full GUILD_CREATE a bot gets after READY. Like Discord, the
         // member list only goes to apps with the privileged GUILD_MEMBERS

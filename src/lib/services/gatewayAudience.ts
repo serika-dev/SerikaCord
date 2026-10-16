@@ -115,6 +115,31 @@ export async function guildChannelBotAudience(channelId: string, serverId: strin
   }
 }
 
+/**
+ * Which channels each bot member of `serverId` can view right now: bot id ->
+ * lower-cased channel ids. Reuses a fresh cached snapshot, otherwise computes
+ * one. Callers that compare before/after a mutation (CHANNEL_CREATE/DELETE when
+ * overwrites grant or remove view) take one copy before and, after
+ * invalidateServerAudience(), one after. Errors give an empty map.
+ */
+export async function serverChannelViewers(serverId: string): Promise<Map<string, Set<string>>> {
+  try {
+    const sid = lower(serverId);
+    const hit = serverSnapshots.get(sid);
+    const snap = hit && Date.now() - hit.at < AUDIENCE_TTL_MS
+      ? hit
+      : await once(`server:${sid}`, async () => {
+        const fresh = await computeServerSnapshot(serverId);
+        serverSnapshots.set(sid, fresh);
+        return fresh;
+      });
+    return new Map([...snap.viewers].map(([bot, ids]) => [bot, new Set(ids)]));
+  } catch (err) {
+    console.error('gatewayAudience: viewer snapshot failed', (err as Error)?.message);
+    return new Map();
+  }
+}
+
 /** Bot members of `serverId` whose server-wide permissions include `bit` (owner and ADMINISTRATOR included). */
 export async function guildPermissionBotAudience(serverId: string, bit: bigint): Promise<string[]> {
   const key = `${lower(serverId)}:${bit.toString()}`;

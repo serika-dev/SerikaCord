@@ -85,7 +85,15 @@ export default async function ReferenceDoc() {
       <Endpoint method="DELETE" path="/guilds/{guild.id}/roles/{role.id}">{gt("Delete a role.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/members/{user.id}">{gt("Get a guild member.")}</Endpoint>
       <Endpoint method="PATCH" path="/guilds/{guild.id}/members/{user.id}">{gt("Update a member (nick, roles, mute, deaf, timeout).")}</Endpoint>
-      <Endpoint method="PATCH" path="/guilds/{guild.id}/members/@me/nick">{gt("Update the bot's own nickname.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/members/@me">{gt("Update the bot's own nickname, server avatar or banner.")}</Endpoint>
+      <Endpoint method="PUT" path="/guilds/{guild.id}/members/{user.id}/roles/{role.id}">{gt("Give a member a role.")}</Endpoint>
+      <Endpoint method="DELETE" path="/guilds/{guild.id}/members/{user.id}/roles/{role.id}">{gt("Take a role from a member.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/members/search">{gt("Search members by username or nickname prefix.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/roles">{gt("Reorder roles.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/channels">{gt("Reorder channels.")}</Endpoint>
+      <Endpoint method="POST" path="/guilds/{guild.id}/bulk-ban">{gt("Ban up to 200 users at once.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/prune">{gt("Count members a prune would remove.")}</Endpoint>
+      <Endpoint method="POST" path="/guilds/{guild.id}/prune">{gt("Remove members without roles who have not been online for a number of days.")}</Endpoint>
       <Endpoint method="DELETE" path="/guilds/{guild.id}/members/{user.id}">{gt("Kick a member.")}</Endpoint>
       <Endpoint method="PUT" path="/guilds/{guild.id}/bans/{user.id}">{gt("Ban a user (with optional reason).")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/bans/{user.id}">{gt("Get a ban.")}</Endpoint>

@@ -30,25 +30,46 @@ export default async function GuildDoc() {
 }`}</CodeBlock>
 
       <H2 id="endpoints">{gt("Endpoints")}</H2>
-      <Endpoint method="POST" path="/guilds">{gt("Create a guild (bot only, max 10 per bot).")}</Endpoint>
-      <Endpoint method="GET" path="/guilds/{guild.id}">{gt("Get a guild.")}</Endpoint>
-      <Endpoint method="PATCH" path="/guilds/{guild.id}">{gt("Update a guild.")}</Endpoint>
-      <Endpoint method="DELETE" path="/guilds/{guild.id}">{gt("Delete a guild (owner only).")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}">{gt("Get a guild (with_counts adds approximate member and presence counts).")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}">{gt("Update a guild (needs Manage Server). Icon, banner and splash take image data URIs.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/preview">{gt("Get guild preview.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/regions">{gt("List voice regions.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/vanity-url">{gt("Get the vanity invite code and its uses.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/widget">{gt("Get widget settings.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/widget">{gt("Update widget settings.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/widget.json">{gt("Public widget data (only when the widget is enabled).")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/channels">{gt("List channels.")}</Endpoint>
+      <Endpoint method="POST" path="/guilds/{guild.id}/channels">{gt("Create a channel in a guild.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/channels">{gt("Reorder channels.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/roles">{gt("List roles.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/roles/{role.id}">{gt("Get a role.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/roles/member-counts">{gt("Member count per role.")}</Endpoint>
       <Endpoint method="POST" path="/guilds/{guild.id}/roles">{gt("Create a role.")}</Endpoint>
-      <Endpoint method="PATCH" path="/guilds/{guild.id}/roles/@me">{gt("Update own roles.")}</Endpoint>
-      <Endpoint method="GET" path="/guilds/{guild.id}/members">{gt("List members.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/roles">{gt("Reorder roles.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/roles/{role.id}">{gt("Update a role.")}</Endpoint>
+      <Endpoint method="DELETE" path="/guilds/{guild.id}/roles/{role.id}">{gt("Delete a role.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/members">{gt("List members (limit and after; needs the Server Members intent).")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/members/search">{gt("Search members by username or nickname prefix.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/members/{user.id}">{gt("Get a member.")}</Endpoint>
-      <Endpoint method="PUT" path="/guilds/{guild.id}/members/{user.id}">{gt("Add a member (bot, with token).")}</Endpoint>
-      <Endpoint method="PATCH" path="/guilds/{guild.id}/members/{user.id}">{gt("Update a member.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/members/{user.id}">{gt("Update a member (nick, roles, mute, deaf, timeout).")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/members/@me">{gt("Update the bot's own nickname, server avatar or banner.")}</Endpoint>
+      <Endpoint method="PUT" path="/guilds/{guild.id}/members/{user.id}/roles/{role.id}">{gt("Give a member a role.")}</Endpoint>
+      <Endpoint method="DELETE" path="/guilds/{guild.id}/members/{user.id}/roles/{role.id}">{gt("Take a role from a member.")}</Endpoint>
       <Endpoint method="DELETE" path="/guilds/{guild.id}/members/{user.id}">{gt("Kick a member.")}</Endpoint>
-      <Endpoint method="PUT" path="/guilds/{guild.id}/bans/{user.id}">{gt("Ban a member.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/prune">{gt("Count members a prune would remove.")}</Endpoint>
+      <Endpoint method="POST" path="/guilds/{guild.id}/prune">{gt("Remove members without roles who have not been online for a number of days.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/bans">{gt("List bans (limit, before and after).")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/bans/{user.id}">{gt("Get a ban.")}</Endpoint>
+      <Endpoint method="PUT" path="/guilds/{guild.id}/bans/{user.id}">{gt("Ban a user (delete_message_seconds removes their recent messages).")}</Endpoint>
       <Endpoint method="DELETE" path="/guilds/{guild.id}/bans/{user.id}">{gt("Unban a user.")}</Endpoint>
-      <Endpoint method="GET" path="/guilds/{guild.id}/bans">{gt("List bans.")}</Endpoint>
+      <Endpoint method="POST" path="/guilds/{guild.id}/bulk-ban">{gt("Ban up to 200 users at once.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/invites">{gt("List invites.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/webhooks">{gt("List webhooks.")}</Endpoint>
+
+      <Callout type="info" title={gt("Hierarchy and audit log")}>
+        {gt("Moderation follows the role hierarchy: a bot can only manage roles and members below its highest role, and can only grant permissions it has. Send an X-Audit-Log-Reason header to record a reason in the audit log.")}
+      </Callout>
+      <P>{gt("Adding a member with PUT needs an OAuth2 guilds.join access token, which SerikaCord does not issue yet; the request answers 403 unless the user is already a member.")}</P>
 
       <H2 id="verification-levels">{gt("Verification Levels")}</H2>
       <Table headers={[gt("Level"), gt("Value"), gt("Description")]} rows={[
