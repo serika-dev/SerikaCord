@@ -1,3 +1,5 @@
+import { createHash } from 'crypto';
+
 /**
  * Pure OAuth2 helpers for the token endpoint and Bearer authentication on the
  * Discord-compatible API (/api/v10). No DB, no Redis: unit tested in
@@ -100,8 +102,56 @@ export const BEARER_ROUTE_SCOPES: Record<string, string> = {
   'GET /users/@me/connections': 'connections',
 };
 
-/** Whether a grant may touch application commands (`write`) or their permissions. */
-export function commandsScopeOk(scopes: readonly string[], mode: 'read' | 'write' | 'permissions'): boolean {
-  if (mode === 'permissions') return hasScope(scopes, 'applications.commands.permissions.update');
-  return hasScope(scopes, 'applications.commands.update');
+/**
+ * Whether a Bearer grant may use the application command routes. Managing
+ * commands (`read` / `write`) is the app's own business: only a
+ * client_credentials token (minted with the client secret) with
+ * applications.commands.update, as on Discord. Command permissions take a
+ * user's token with applications.commands.permissions.update (the route then
+ * requires that user to manage the guild and its roles).
+ */
+export function commandsGrantOk(grant: { scopes: readonly string[]; grantType: string }, mode: 'read' | 'write' | 'permissions'): boolean {
+  if (mode === 'permissions') return hasScope(grant.scopes, 'applications.commands.permissions.update');
+  return grant.grantType === 'client_credentials' && hasScope(grant.scopes, 'applications.commands.update');
+}
+
+/** Scopes only the client_credentials grant may carry, never user consent (Discord). */
+export const CLIENT_CREDENTIALS_ONLY_SCOPES: ReadonlySet<string> = new Set(['applications.commands.update']);
+/** Install-time scopes: the consent itself acts on them; they are never put on a token. */
+const INSTALL_ONLY_SCOPES: ReadonlySet<string> = new Set(['bot', 'webhook.incoming']);
+
+/**
+ * The scopes a user-consented grant (authorization code or implicit) gets for
+ * `requested`: client_credentials-only scopes are refused, install-time
+ * scopes are dropped from the token.
+ */
+export function userGrantScopes(requested: readonly string[]): { ok: true; scopes: string[] } | { ok: false; scope: string } {
+  for (const s of requested) if (CLIENT_CREDENTIALS_ONLY_SCOPES.has(s)) return { ok: false, scope: s };
+  return { ok: true, scopes: requested.filter((s) => !INSTALL_ONLY_SCOPES.has(s)) };
+}
+
+// ─── PKCE (RFC 7636) ──────────────────────────────────────────────────────────
+
+const PKCE_VALUE = /^[A-Za-z0-9._~-]{43,128}$/;
+
+/**
+ * Validate an authorize request's `code_challenge` / `code_challenge_method`.
+ * Only S256 is supported (plain would give no protection over the code
+ * itself); a method without a challenge, or a malformed challenge, is an error
+ * so clients never assume protection they don't get.
+ */
+export function parsePkceChallenge(challenge: unknown, method: unknown): { ok: true; challenge: string | null } | { ok: false; error: string } {
+  const c = typeof challenge === 'string' ? challenge : '';
+  const m = typeof method === 'string' ? method : '';
+  if (!c && !m) return { ok: true, challenge: null };
+  if (!c) return { ok: false, error: 'code_challenge_method requires code_challenge' };
+  if ((m || 'plain') !== 'S256') return { ok: false, error: 'Only code_challenge_method=S256 is supported' };
+  if (!/^[A-Za-z0-9_-]{43}$/.test(c)) return { ok: false, error: 'Invalid code_challenge' };
+  return { ok: true, challenge: c };
+}
+
+/** Whether `verifier` matches an S256 `challenge` (base64url(sha256(verifier))). */
+export function pkceVerifierOk(verifier: unknown, challenge: string): boolean {
+  if (typeof verifier !== 'string' || !PKCE_VALUE.test(verifier)) return false;
+  return createHash('sha256').update(verifier).digest('base64url') === challenge;
 }

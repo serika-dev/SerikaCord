@@ -16,8 +16,8 @@ import { processShared } from '@/lib/realtime/processShared';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import type { IApplication } from '@/lib/models';
 import {
-  ACCESS_TOKEN_TTL_S, AUTH_CODE_TTL_S, REFRESH_TOKEN_TTL_S, clientCredentialsOf, clientCredentialsScopes, oauthError,
-  parseScopeParam,
+  ACCESS_TOKEN_TTL_S, AUTH_CODE_TTL_S, CLIENT_CREDENTIALS_ONLY_SCOPES, REFRESH_TOKEN_TTL_S, clientCredentialsOf,
+  clientCredentialsScopes, oauthError, parseScopeParam, pkceVerifierOk,
 } from '@/lib/oauth/scopes';
 
 // ─── Schema ───────────────────────────────────────────────────────────────────
@@ -92,8 +92,37 @@ export interface OAuthGrant {
 const BEARER_TTL_MS = 15_000;
 const bearerCache = processShared(
   'oauth2BearerCache',
-  () => new BoundedMap<string, { grant: OAuthGrant | null; at: number }>(10_000),
+  () => new BoundedMap<string, { grant: OAuthGrant | null; at: number; gen: string }>(10_000),
 );
+
+/**
+ * Cross-instance cache busting: every revoke / rotation bumps a Redis
+ * generation counter; cached grants remember the generation they were read
+ * under and are dropped when it moved, so a revoked token stops working on
+ * every instance at once (the counter itself is read at most once a second).
+ */
+const BUST_KEY = 'oauth2:bearer-gen';
+const genState = processShared('oauth2BearerGen', () => ({ value: '0', at: 0 }));
+
+async function bearerGeneration(): Promise<string> {
+  const now = Date.now();
+  if (now - genState.at < 1000) return genState.value;
+  try {
+    const v = await getRedis()?.get(BUST_KEY);
+    genState.value = v ?? '0';
+  } catch { /* keep the last known value */ }
+  genState.at = now;
+  return genState.value;
+}
+
+/** Drop cached grants here and on every other instance. */
+async function bustBearerCache(): Promise<void> {
+  bearerCache.clear();
+  try {
+    const v = await getRedis()?.incr(BUST_KEY);
+    if (v !== undefined && v !== null) { genState.value = String(v); genState.at = Date.now(); }
+  } catch { /* local clear still applies */ }
+}
 
 /** Most live tokens one user keeps per application; older ones are revoked. */
 const MAX_TOKENS_PER_APP_USER = 25;
@@ -156,6 +185,7 @@ async function pruneTokens(applicationId: string, userId: string) {
   const extra = live.slice(MAX_TOKENS_PER_APP_USER).map((r) => r.id);
   if (extra.length > 0) {
     await db.update(t).set({ revokedAt: now }).where(inArray(t.id, extra));
+    await bustBearerCache();
   }
 }
 
@@ -165,7 +195,8 @@ export async function resolveBearerToken(token: string): Promise<OAuthGrant | nu
   const key = hashSecret(token);
   const hit = bearerCache.get(key);
   const now = Date.now();
-  if (hit && now - hit.at < BEARER_TTL_MS) {
+  const gen = await bearerGeneration();
+  if (hit && now - hit.at < BEARER_TTL_MS && hit.gen === gen) {
     if (!hit.grant || hit.grant.expiresAt.getTime() <= now) return null;
     return hit.grant;
   }
@@ -189,7 +220,7 @@ export async function resolveBearerToken(token: string): Promise<OAuthGrant | nu
     console.error('[oauth2] bearer lookup failed:', (err as Error)?.message ?? err);
     return null; // don't cache a transient failure
   }
-  bearerCache.set(key, { grant, at: now });
+  bearerCache.set(key, { grant, at: now, gen });
   return grant;
 }
 
@@ -200,7 +231,7 @@ export async function revokeUserAppTokens(userId: string, applicationIds: string
   const t = schema.oauth2Tokens;
   await db.update(t).set({ revokedAt: new Date() })
     .where(and(eq(t.userId, userId), isNull(t.revokedAt), inArray(t.applicationId, applicationIds)));
-  bearerCache.clear();
+  await bustBearerCache();
 }
 
 /**
@@ -222,6 +253,8 @@ interface StoredCode {
   userId: string;
   scopes: string[];
   redirectUri: string | null;
+  /** PKCE S256 challenge bound to the code (the exchange must send its verifier). */
+  codeChallenge?: string | null;
 }
 
 const codeKey = (code: string) => `oauth2:code:${hashSecret(code)}`;
@@ -290,6 +323,13 @@ export async function handleTokenRequest(
     if (stored.redirectUri && redirectUri !== stored.redirectUri) {
       return { status: 400, body: oauthError('invalid_grant', 'Invalid "redirect_uri" in request.') };
     }
+    if (stored.codeChallenge && !pkceVerifierOk(body.code_verifier, stored.codeChallenge)) {
+      return { status: 400, body: oauthError('invalid_grant', 'Invalid "code_verifier" in request.') };
+    }
+    // Defence in depth: a user-consented token never carries client_credentials-only scopes.
+    if (stored.scopes.some((s) => CLIENT_CREDENTIALS_ONLY_SCOPES.has(s))) {
+      return { status: 400, body: oauthError('invalid_scope') };
+    }
     const issued = await mintToken({ applicationId: app.id, userId: stored.userId, scopes: stored.scopes, grantType: 'authorization_code', withRefresh: true });
     return { status: 200, body: issued };
   }
@@ -311,7 +351,7 @@ export async function handleTokenRequest(
       ))
       .returning({ userId: t.userId, scopes: t.scopes });
     if (old.length === 0) return { status: 400, body: oauthError('invalid_grant', 'Invalid "refresh_token" in request.') };
-    bearerCache.clear();
+    await bustBearerCache();
     const issued = await mintToken({ applicationId: app.id, userId: old[0].userId, scopes: old[0].scopes ?? [], grantType: 'refresh_token', withRefresh: true });
     return { status: 200, body: issued };
   }
@@ -339,7 +379,7 @@ export async function handleRevokeRequest(rawBody: unknown, authorization: strin
     const h = hashSecret(token);
     await db.update(t).set({ revokedAt: new Date(), updatedAt: new Date() })
       .where(and(eq(t.applicationId, app.id), isNull(t.revokedAt), or(eq(t.accessTokenHash, h), eq(t.refreshTokenHash, h))));
-    bearerCache.clear();
+    await bustBearerCache();
   }
   // RFC 7009: unknown tokens are not an error.
   return { status: 200, body: {} };

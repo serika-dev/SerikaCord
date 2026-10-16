@@ -3402,7 +3402,7 @@ dependencies = [
 
 [[package]]
 name = "serikacord-desktop"
-version = "2.1.20"
+version = "2.1.21"
 dependencies = [
  "base64 0.22.1",
  "serde",

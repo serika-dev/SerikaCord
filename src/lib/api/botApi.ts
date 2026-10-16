@@ -164,9 +164,10 @@ function formatOAuthUser(user: Parameters<typeof formatUser>[0], scopes: readonl
 }
 
 /**
- * Who may call an application command route: the app's own bot, or a Bearer
- * token granted to that app with applications.commands.update (permissions
- * writes: applications.commands.permissions.update). Returns the app.
+ * Who may call an application command route: the app's own bot, a
+ * client_credentials Bearer token of that app with applications.commands.update,
+ * or (permissions writes) a user's token with
+ * applications.commands.permissions.update. Returns the app.
  */
 async function authenticateCommandsCaller(
   headers: Record<string, string | undefined>,
@@ -176,8 +177,10 @@ async function authenticateCommandsCaller(
   if (bot) return { app: bot.app, bearer: null };
   const bearer = await authenticateBearer(headers);
   if (!bearer) return null;
-  const { commandsScopeOk } = await import('@/lib/oauth/scopes');
-  if (!commandsScopeOk(bearer.grant.scopes, mode === 'read' ? 'write' : mode)) return null;
+  // Managing commands: client_credentials tokens only (a user's consent must
+  // never let them edit someone else's app); permissions: a user's token.
+  const { commandsGrantOk } = await import('@/lib/oauth/scopes');
+  if (!commandsGrantOk(bearer.grant, mode)) return null;
   return { app: bearer.app, bearer };
 }
 
@@ -1604,8 +1607,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 })
 .post('/oauth2/token', async ({ body, headers, request, set }) => {
   const { oauthTokenEndpoint } = await import('@/lib/api/developers');
-  const { grant_type, code, redirect_uri, refresh_token, scope, client_id, client_secret } = (body ?? {}) as Record<string, unknown>;
-  return oauthTokenEndpoint({ grant_type, code, redirect_uri, refresh_token, scope, client_id, client_secret }, headers, set, getClientIP(request));
+  const { grant_type, code, redirect_uri, refresh_token, scope, client_id, client_secret, code_verifier } = (body ?? {}) as Record<string, unknown>;
+  return oauthTokenEndpoint({ grant_type, code, redirect_uri, refresh_token, scope, client_id, client_secret, code_verifier }, headers, set, getClientIP(request));
 })
 .post('/oauth2/token/revoke', async ({ body, headers, request, set }) => {
   const { oauthRevokeEndpoint } = await import('@/lib/api/developers');
@@ -3717,6 +3720,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     else if (value && !standingHas(g.standing, bit)) return deny();
   }
   if (errs.length > 0) { set.status = 400; return invalidFormBodyAt(errs); }
+  // Same per-user server cap as invite joins.
+  if ((await ServerMember.countByUser(user.id)) >= config.MAX_SERVERS_PER_USER) {
+    set.status = 400;
+    return { code: 30001, message: `Maximum number of guilds reached (${config.MAX_SERVERS_PER_USER})` };
+  }
   // insertServerMember applies rules screening (pending) and sends GUILD_MEMBER_ADD.
   const { insertServerMember } = await import('@/lib/services/serverMembership');
   const { membership, created } = await insertServerMember(g.server.id, user.id, {

@@ -79,6 +79,9 @@ function AuthorizeForm() {
   const redirectUri = searchParams.get("redirect_uri") || "";
   const responseType = searchParams.get("response_type") || "code";
   const state = searchParams.get("state") || "";
+  // PKCE (RFC 7636): passed through to the server, which binds it to the code.
+  const codeChallenge = searchParams.get("code_challenge") || "";
+  const codeChallengeMethod = searchParams.get("code_challenge_method") || "";
 
   // Component States
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -190,6 +193,8 @@ function AuthorizeForm() {
           redirect_uri: validatedRedirect || undefined,
           state: state || undefined,
           response_type: responseType,
+          code_challenge: codeChallenge || undefined,
+          code_challenge_method: codeChallengeMethod || undefined,
         }),
       });
 

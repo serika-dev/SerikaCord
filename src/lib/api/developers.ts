@@ -115,7 +115,27 @@ function generateBotToken(appId: string): string {
   return `${appId}.${crypto.randomBytes(24).toString('hex')}`;
 }
 
-function sanitizeApp(app: any) {
+/** Which credentials a viewer of an application may see. */
+interface AppSecretsAccess { clientSecret: boolean; botToken: boolean }
+const NO_SECRETS: AppSecretsAccess = { clientSecret: false, botToken: false };
+const ALL_SECRETS: AppSecretsAccess = { clientSecret: true, botToken: true };
+
+/**
+ * Credentials `userId` may see on `app`: the owner sees both; team owner /
+ * admin / developer roles see the bot token (they manage the bot, like
+ * Discord); everyone else (read-only and free-form roles) sees neither. The
+ * client secret mints client_credentials tokens, so only the owner sees it.
+ */
+async function appSecretsFor(app: { ownerId: string; teamId?: string | null }, userId: string): Promise<AppSecretsAccess> {
+  if (app.ownerId === userId) return ALL_SECRETS;
+  if (!app.teamId) return NO_SECRETS;
+  const team = await DeveloperTeam.findById(app.teamId);
+  const member = (team?.members as ITeamMember[] | undefined)?.find((m) => m.userId === userId);
+  const manages = !!member && (member.role === 'owner' || member.role === 'admin' || member.role === 'developer');
+  return { clientSecret: false, botToken: manages };
+}
+
+function sanitizeApp(app: any, secrets: AppSecretsAccess = NO_SECRETS) {
   if (!app) return null;
   return {
     id: app.id,
@@ -126,9 +146,9 @@ function sanitizeApp(app: any) {
     botId: app.botId ?? null,
     botPublic: app.botPublic,
     botRequireCodeGrant: app.botRequireCodeGrant,
-    botToken: app.botToken,
+    botToken: secrets.botToken ? app.botToken : undefined,
     clientId: app.clientId,
-    clientSecret: app.clientSecret,
+    clientSecret: secrets.clientSecret ? app.clientSecret : undefined,
     redirectUris: app.redirectUris,
     scopes: app.scopes,
     installParams: app.installParams,
@@ -200,7 +220,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const botAvatarMap = new Map(botUsers.map((u: any) => [u.id, { avatar: u.avatar, username: u.username }]));
 
   const enriched = apps.map((a: any) => {
-    const sanitized = sanitizeApp(a);
+    const sanitized = sanitizeApp(a, ALL_SECRETS); // Application.find({ ownerId: user.id })
     const botInfo = a.botId ? botAvatarMap.get(a.botId) : null;
     return { ...sanitized, botAvatar: botInfo?.avatar ?? null, botUsername: botInfo?.username ?? null };
   });
@@ -245,7 +265,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const { recalculateUserBadges } = await import('@/lib/services/badges');
   void recalculateUserBadges(user.id).catch(() => {});
 
-  return { application: sanitizeApp(app) };
+  return { application: sanitizeApp(app, ALL_SECRETS) }; // just created by this owner
 })
 
 // Get application by ID
@@ -273,8 +293,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const emojiCount = emojis.length;
   const webhookCount = webhooks.length;
 
-  // Only the owner sees the client secret (it mints client_credentials tokens).
-  const sanitized = { ...sanitizeApp(app), clientSecret: isOwner ? app.clientSecret : undefined };
+  const sanitized = sanitizeApp(app, await appSecretsFor(app, user.id));
   let botAvatar: string | null = null;
   let botUsername: string | null = null;
   if (app.botId) {
@@ -341,7 +360,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     invalidateBotTokenCache();
   }
   const updated = await Application.findById(app.id);
-  return { application: sanitizeApp(updated) };
+  return { application: sanitizeApp(updated, await appSecretsFor(app, user.id)) };
 })
 
 // Delete application
@@ -422,7 +441,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   await ensureBotProvisioned(app);
 
   const updatedApp = await Application.findById(app.id);
-  return { application: sanitizeApp(updatedApp) };
+  return { application: sanitizeApp(updatedApp, ALL_SECRETS) }; // owner only (checked above)
 })
 
 // Set / verify the interactions endpoint URL. Discord-style: we send a signed
@@ -1351,7 +1370,7 @@ export async function oauthAuthorizeInfo(
 
   const clientId = typeof query.client_id === 'string' ? query.client_id : '';
   const { Application } = await import('@/lib/models');
-  let app = clientId ? await Application.findOne({ clientId }) : null;
+  const app = clientId ? await Application.findOne({ clientId }) : null;
   if (!app) {
     set.status = 404;
     return { error: 'Unknown application' };
@@ -1366,11 +1385,9 @@ export async function oauthAuthorizeInfo(
     return { error: 'invalid_redirect_uri', message: 'redirect_uri is not registered for this application' };
   }
 
+  // Read-only: the bot user is provisioned by the authenticated POST that
+  // actually installs it, never by this unauthenticated lookup.
   const scopes = (typeof query.scope === 'string' ? query.scope : '').split(' ').filter(Boolean);
-  if (scopes.includes('bot') && (!app.botId || !app.botToken)) {
-    const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
-    app = await ensureBotProvisioned(app);
-  }
 
   // The URL's permissions in Serika numbering (snowflake-format apps build
   // their links with Discord bit numbers), so the consent page shows and
@@ -1429,7 +1446,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     const authorizeLimit = await checkRateLimit('oauthAuthorize', user.id);
     if (!authorizeLimit.success) { set.status = 429; return { error: 'Too many requests', retryAfter: authorizeLimit.retryAfter }; }
 
-    const payload = body as { client_id?: string; serverId?: string; permissions?: string; permissions_numbering?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string };
+    const payload = body as { client_id?: string; serverId?: string; permissions?: string; permissions_numbering?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string; code_challenge?: string; code_challenge_method?: string };
     const clientId = payload.client_id || (query.client_id as string);
     const serverId = payload.serverId;
     let requestedPermissions = parsePermissionsParam(payload.permissions);
@@ -1441,6 +1458,11 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     const requestedRedirectUri = payload.redirect_uri || (query.redirect_uri as string);
     const state = payload.state || (query.state as string);
     const responseType = payload.response_type || (query.response_type as string) || 'code';
+    // PKCE (S256 only); never silently ignored.
+    const { parsePkceChallenge, userGrantScopes } = await import('@/lib/oauth/scopes');
+    const pkce = parsePkceChallenge(payload.code_challenge ?? query.code_challenge, payload.code_challenge_method ?? query.code_challenge_method);
+    if (!pkce.ok) { set.status = 400; return { error: 'invalid_request', message: pkce.error }; }
+    if (pkce.challenge && responseType === 'token') { set.status = 400; return { error: 'invalid_request', message: 'PKCE applies to response_type=code only' }; }
 
     if (!clientId) {
       set.status = 400;
@@ -1454,6 +1476,10 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
         return { error: 'invalid_scope', message: `Unknown scope: ${scope}` };
       }
     }
+    // What a user-consented token may carry (applications.commands.update is
+    // client_credentials-only; bot / webhook.incoming act at install time).
+    const userScopes = userGrantScopes(requestedScopes);
+    if (!userScopes.ok) { set.status = 400; return { error: 'invalid_scope', message: `Scope '${userScopes.scope}' is only available with the client_credentials grant` }; }
     // Check scope dependencies
     for (const scope of requestedScopes) {
       const deps = SCOPE_DEPENDENCIES[scope];
@@ -1641,7 +1667,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       // bound to this app, user, scope set and redirect URI; the implicit
       // token is stored hashed and works as a Bearer token on /api/v10.
       const { issueAuthorizationCode, mintToken } = await import('@/lib/services/oauth2Tokens');
-      const grantScopes = requestedScopes.filter((s) => s !== 'bot' && s !== 'webhook.incoming');
+      const grantScopes = userScopes.scopes;
       let callbackUrl = redirectUri;
       try {
         if (responseType === 'token') {
@@ -1650,7 +1676,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
           if (state) frag.set('state', state);
           callbackUrl = `${redirectUri.split('#')[0]}#${frag.toString()}`;
         } else {
-          const code = await issueAuthorizationCode({ applicationId: app.id, userId: user.id, scopes: grantScopes, redirectUri: requestedRedirectUri ? redirectUri : null });
+          const code = await issueAuthorizationCode({ applicationId: app.id, userId: user.id, scopes: grantScopes, redirectUri: requestedRedirectUri ? redirectUri : null, codeChallenge: pkce.challenge });
           const params: Record<string, string> = { code };
           if (state) params.state = state;
           callbackUrl = appendQuery(redirectUri, params);

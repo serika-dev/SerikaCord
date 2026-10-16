@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.20.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.21.
 
 ---
 
@@ -17,6 +17,22 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.21 — 2026-10-16
+
+**Tag:** `v2.1.21` · **Commit:** `eb2fabe`
+
+### Features
+- **Discord bot libraries just work** — discord.js and discord.py bots now see avatars and server icons, can change their own name and avatar, list their servers, and get voice and presence updates. New quick-start guides, a "Differences from Discord" page and a live compatibility table are in the developer docs.
+- **Bot status shows on profiles** — a bot's "Playing …" activity and custom status now appear like a person's.
+- **Sign in with SerikaCord works properly for apps** — apps that log people in can read their profile and server list, add them to servers when allowed, and use PKCE.
+- **Bots can move or disconnect people in voice**, with the same permissions a moderator needs.
+
+### Security
+- Sign in with SerikaCord now issues real, revocable tokens: codes can only be used once, removing an app under Authorized Apps cuts off its access everywhere at once, and a person's sign-in can never be used to change an app's commands.
+- Only an app's owner can see its client secret, and only owners, admins and developers on its team can see its bot token.
 
 ---
 

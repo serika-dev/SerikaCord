@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'bun:test';
+import { createHash } from 'crypto';
 import {
-  clientCredentialsOf, clientCredentialsScopes, commandsScopeOk, oauthError, parseBasicAuth, parseBearer, parseScopeParam,
+  clientCredentialsOf, clientCredentialsScopes, commandsGrantOk, oauthError, parseBasicAuth, parseBearer, parseScopeParam,
+  parsePkceChallenge, pkceVerifierOk, userGrantScopes,
 } from '../src/lib/oauth/scopes';
 
 const VALID = new Set(['identify', 'email', 'guilds', 'guilds.join', 'connections', 'bot', 'applications.commands', 'applications.commands.update', 'webhook.incoming']);
@@ -54,11 +56,37 @@ describe('scopes', () => {
     expect(clientCredentialsScopes(['identify', 'guilds'], VALID)).toEqual({ ok: false, scope: 'guilds' });
     expect(clientCredentialsScopes(['connections'], VALID)).toEqual({ ok: false, scope: 'connections' });
   });
-  test('command routes need applications.commands.update (permissions: .permissions.update)', () => {
-    expect(commandsScopeOk(['applications.commands.update'], 'write')).toBe(true);
-    expect(commandsScopeOk(['applications.commands'], 'write')).toBe(false);
-    expect(commandsScopeOk(['applications.commands.update'], 'permissions')).toBe(false);
-    expect(commandsScopeOk(['applications.commands.permissions.update'], 'permissions')).toBe(true);
+  test('command management is client_credentials-only (regression: user consent could edit any app)', () => {
+    const cc = { grantType: 'client_credentials', scopes: ['applications.commands.update'] };
+    expect(commandsGrantOk(cc, 'write')).toBe(true);
+    expect(commandsGrantOk(cc, 'read')).toBe(true);
+    for (const grantType of ['authorization_code', 'implicit', 'refresh_token']) {
+      expect(commandsGrantOk({ grantType, scopes: ['applications.commands.update'] }, 'write')).toBe(false);
+      expect(commandsGrantOk({ grantType, scopes: ['applications.commands.update'] }, 'read')).toBe(false);
+    }
+    expect(commandsGrantOk({ grantType: 'client_credentials', scopes: ['applications.commands'] }, 'write')).toBe(false);
+    // Permissions stay user-granted (the route checks MANAGE_GUILD + MANAGE_ROLES).
+    expect(commandsGrantOk({ grantType: 'authorization_code', scopes: ['applications.commands.permissions.update'] }, 'permissions')).toBe(true);
+    expect(commandsGrantOk({ grantType: 'authorization_code', scopes: ['applications.commands.update'] }, 'permissions')).toBe(false);
+  });
+  test('user-consented grants never get client_credentials-only scopes', () => {
+    expect(userGrantScopes(['identify', 'applications.commands.update'])).toEqual({ ok: false, scope: 'applications.commands.update' });
+    expect(userGrantScopes(['bot', 'identify', 'webhook.incoming', 'applications.commands'])).toEqual({ ok: true, scopes: ['identify', 'applications.commands'] });
+    expect(userGrantScopes(['applications.commands', 'applications.commands.permissions.update'])).toEqual({ ok: true, scopes: ['applications.commands', 'applications.commands.permissions.update'] });
+  });
+  test('PKCE: S256 only, verifier must match', () => {
+    const verifier = 'a'.repeat(43) + 'B-._~xyz';
+    const challenge = createHash('sha256').update(verifier).digest('base64url');
+    expect(parsePkceChallenge(undefined, undefined)).toEqual({ ok: true, challenge: null });
+    expect(parsePkceChallenge(challenge, 'S256')).toEqual({ ok: true, challenge });
+    expect(parsePkceChallenge(challenge, 'plain').ok).toBe(false);
+    expect(parsePkceChallenge(challenge, undefined).ok).toBe(false); // default method is plain
+    expect(parsePkceChallenge(undefined, 'S256').ok).toBe(false);
+    expect(parsePkceChallenge('short', 'S256').ok).toBe(false);
+    expect(pkceVerifierOk(verifier, challenge)).toBe(true);
+    expect(pkceVerifierOk(verifier + 'x', challenge)).toBe(false);
+    expect(pkceVerifierOk(undefined, challenge)).toBe(false);
+    expect(pkceVerifierOk('tooshort', challenge)).toBe(false);
   });
   test('oauthError shape', () => {
     expect(oauthError('invalid_grant', 'x')).toEqual({ error: 'invalid_grant', error_description: 'x' });
