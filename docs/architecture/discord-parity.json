@@ -15,19 +15,19 @@
  "summary": {
   "rest_all": {
    "total": 248,
-   "implemented": 58,
-   "partial": 39,
-   "missing": 151,
-   "coverage": 31.3,
-   "reachable": 39.1
+   "implemented": 161,
+   "partial": 32,
+   "missing": 55,
+   "coverage": 71.4,
+   "reachable": 77.8
   },
   "rest_bot": {
    "total": 243,
-   "implemented": 58,
-   "partial": 39,
-   "missing": 146,
-   "coverage": 31.9,
-   "reachable": 39.9
+   "implemented": 159,
+   "partial": 32,
+   "missing": 52,
+   "coverage": 72,
+   "reachable": 78.6
   },
   "deprecated_total": 4,
   "areas": [
@@ -47,11 +47,11 @@
     "title": "OAuth2 + linked roles",
     "wp": "WP6",
     "total": 12,
-    "implemented": 1,
-    "partial": 3,
-    "missing": 8,
-    "coverage": 20.8,
-    "reachable": 33.3
+    "implemented": 5,
+    "partial": 0,
+    "missing": 7,
+    "coverage": 41.7,
+    "reachable": 41.7
    },
    {
     "id": "gateway-meta",
@@ -91,22 +91,22 @@
     "title": "Monetization (entitlements, SKUs, subscriptions)",
     "wp": "WP7",
     "total": 9,
-    "implemented": 0,
+    "implemented": 9,
     "partial": 0,
-    "missing": 9,
-    "coverage": 0,
-    "reachable": 0
+    "missing": 0,
+    "coverage": 100,
+    "reachable": 100
    },
    {
     "id": "applications",
     "title": "Applications (app info, app emojis, activities)",
     "wp": "WP6",
     "total": 11,
-    "implemented": 2,
+    "implemented": 7,
     "partial": 2,
-    "missing": 7,
-    "coverage": 27.3,
-    "reachable": 36.4
+    "missing": 2,
+    "coverage": 72.7,
+    "reachable": 81.8
    },
    {
     "id": "webhooks",
@@ -135,11 +135,11 @@
     "title": "Threads + forums",
     "wp": "WP5",
     "total": 13,
-    "implemented": 0,
-    "partial": 0,
-    "missing": 13,
-    "coverage": 0,
-    "reachable": 0
+    "implemented": 9,
+    "partial": 4,
+    "missing": 0,
+    "coverage": 84.6,
+    "reachable": 100
    },
    {
     "id": "messages",
@@ -157,54 +157,54 @@
     "title": "Channels (settings, overwrites, invites, followers, group DM)",
     "wp": "WP4",
     "total": 12,
-    "implemented": 0,
-    "partial": 3,
-    "missing": 9,
-    "coverage": 12.5,
-    "reachable": 25
+    "implemented": 8,
+    "partial": 2,
+    "missing": 2,
+    "coverage": 75,
+    "reachable": 83.3
    },
    {
     "id": "events-stage",
     "title": "Scheduled events + stage instances",
     "wp": "WP4",
     "total": 15,
-    "implemented": 0,
-    "partial": 0,
-    "missing": 15,
-    "coverage": 0,
-    "reachable": 0
+    "implemented": 6,
+    "partial": 4,
+    "missing": 5,
+    "coverage": 53.3,
+    "reachable": 66.7
    },
    {
     "id": "voice",
     "title": "Voice (regions, voice states, soundboard)",
     "wp": "WP7",
     "total": 12,
-    "implemented": 0,
+    "implemented": 8,
     "partial": 1,
-    "missing": 11,
-    "coverage": 4.2,
-    "reachable": 8.3
+    "missing": 3,
+    "coverage": 70.8,
+    "reachable": 75
    },
    {
     "id": "expressions",
     "title": "Emojis + stickers",
     "wp": "WP4",
     "total": 13,
-    "implemented": 7,
+    "implemented": 13,
     "partial": 0,
-    "missing": 6,
-    "coverage": 53.8,
-    "reachable": 53.8
+    "missing": 0,
+    "coverage": 100,
+    "reachable": 100
    },
    {
     "id": "invites",
     "title": "Invites",
     "wp": "WP4",
     "total": 10,
-    "implemented": 2,
-    "partial": 1,
+    "implemented": 3,
+    "partial": 0,
     "missing": 7,
-    "coverage": 25,
+    "coverage": 30,
     "reachable": 30
    },
    {
@@ -212,44 +212,44 @@
     "title": "Audit log + AutoMod",
     "wp": "WP4",
     "total": 7,
-    "implemented": 0,
+    "implemented": 5,
     "partial": 1,
-    "missing": 6,
-    "coverage": 7.1,
-    "reachable": 14.3
+    "missing": 1,
+    "coverage": 78.6,
+    "reachable": 85.7
    },
    {
     "id": "members",
     "title": "Members, bans, prune, join requests",
     "wp": "WP4",
     "total": 18,
-    "implemented": 2,
-    "partial": 6,
-    "missing": 10,
-    "coverage": 27.8,
-    "reachable": 44.4
+    "implemented": 16,
+    "partial": 0,
+    "missing": 2,
+    "coverage": 88.9,
+    "reachable": 88.9
    },
    {
     "id": "users",
     "title": "Users + DMs",
     "wp": "WP1",
     "total": 8,
-    "implemented": 3,
+    "implemented": 7,
     "partial": 1,
-    "missing": 4,
-    "coverage": 43.8,
-    "reachable": 50
+    "missing": 0,
+    "coverage": 93.8,
+    "reachable": 100
    },
    {
     "id": "guilds",
     "title": "Guild settings (guild, roles, channels list, widget, onboarding, templates, ...)",
     "wp": "WP4",
     "total": 32,
-    "implemented": 3,
-    "partial": 6,
-    "missing": 23,
-    "coverage": 18.8,
-    "reachable": 28.1
+    "implemented": 27,
+    "partial": 2,
+    "missing": 3,
+    "coverage": 87.5,
+    "reachable": 90.6
    }
   ],
   "wps": [
@@ -257,11 +257,11 @@
     "wp": "WP1",
     "title": "Gateway core + event plumbing",
     "total": 10,
-    "implemented": 4,
+    "implemented": 8,
     "partial": 2,
-    "missing": 4,
-    "coverage": 50,
-    "reachable": 60
+    "missing": 0,
+    "coverage": 90,
+    "reachable": 100
    },
    {
     "wp": "WP2",
@@ -287,49 +287,49 @@
     "wp": "WP4",
     "title": "Guild resources (guild, channels, roles, members, bans, expressions, invites, moderation, events)",
     "total": 107,
-    "implemented": 14,
-    "partial": 17,
-    "missing": 76,
-    "coverage": 21,
-    "reachable": 29
+    "implemented": 78,
+    "partial": 9,
+    "missing": 20,
+    "coverage": 77.1,
+    "reachable": 81.3
    },
    {
     "wp": "WP5",
     "title": "Threads + forums",
     "total": 13,
-    "implemented": 0,
-    "partial": 0,
-    "missing": 13,
-    "coverage": 0,
-    "reachable": 0
+    "implemented": 9,
+    "partial": 4,
+    "missing": 0,
+    "coverage": 84.6,
+    "reachable": 100
    },
    {
     "wp": "WP6",
     "title": "Webhooks, applications, OAuth2, CDN compat",
     "total": 41,
-    "implemented": 14,
-    "partial": 10,
-    "missing": 17,
-    "coverage": 46.3,
-    "reachable": 58.5
+    "implemented": 23,
+    "partial": 7,
+    "missing": 11,
+    "coverage": 64.6,
+    "reachable": 73.2
    },
    {
     "wp": "WP7",
     "title": "Voice, stage, soundboard, monetization, Social SDK lobbies",
     "total": 41,
-    "implemented": 0,
+    "implemented": 17,
     "partial": 1,
-    "missing": 40,
-    "coverage": 1.2,
-    "reachable": 2.4
+    "missing": 23,
+    "coverage": 42.7,
+    "reachable": 43.9
    }
   ],
   "gateway": {
    "receive_events": {
     "total": 82,
-    "emitted": 35,
-    "partial": 2,
-    "defined_unused": 1
+    "emitted": 62,
+    "partial": 3,
+    "defined_unused": 0
    },
    "opcodes": {
     "total": 13,
@@ -341,12 +341,12 @@
    },
    "intents_defined": {
     "total": 21,
-    "defined": 16
+    "defined": 20
    }
   },
   "features": {
-   "total": 63,
-   "yes": 57
+   "total": 64,
+   "yes": 60
   }
  },
  "rest": [
@@ -364,7 +364,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 793,
+    "line": 1648,
     "path": "/api/v10/applications/:appId"
    },
    "notes": [],
@@ -393,7 +393,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 805,
+    "line": 1660,
     "path": "/api/v10/applications/:appId"
    },
    "notes": [
@@ -496,7 +496,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1904,
+    "line": 3223,
     "path": "/api/v10/applications/:appId/commands"
    },
    "notes": [],
@@ -528,7 +528,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1918,
+    "line": 3237,
     "path": "/api/v10/applications/:appId/commands"
    },
    "notes": [
@@ -572,7 +572,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1911,
+    "line": 3230,
     "path": "/api/v10/applications/:appId/commands"
    },
    "notes": [],
@@ -602,7 +602,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1941,
+    "line": 3260,
     "path": "/api/v10/applications/:appId/commands/:commandId"
    },
    "notes": [],
@@ -632,7 +632,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1925,
+    "line": 3244,
     "path": "/api/v10/applications/:appId/commands/:commandId"
    },
    "notes": [],
@@ -662,7 +662,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1933,
+    "line": 3252,
     "path": "/api/v10/applications/:appId/commands/:commandId"
    },
    "notes": [
@@ -701,8 +701,12 @@
    ],
    "area": "applications",
    "wp": "WP6",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3950,
+    "path": "/api/v10/applications/:appId/emojis"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -726,8 +730,12 @@
    ],
    "area": "applications",
    "wp": "WP6",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3964,
+    "path": "/api/v10/applications/:appId/emojis"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -738,7 +746,10 @@
      "image",
      "name"
     ],
-    "used": []
+    "used": [
+     "image",
+     "name"
+    ]
    },
    "multipart": false,
    "response": "EmojiResponse"
@@ -754,8 +765,12 @@
    ],
    "area": "applications",
    "wp": "WP6",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3980,
+    "path": "/api/v10/applications/:appId/emojis/:emojiId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -779,8 +794,12 @@
    ],
    "area": "applications",
    "wp": "WP6",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3957,
+    "path": "/api/v10/applications/:appId/emojis/:emojiId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -804,8 +823,12 @@
    ],
    "area": "applications",
    "wp": "WP6",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3972,
+    "path": "/api/v10/applications/:appId/emojis/:emojiId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -815,7 +838,9 @@
     "spec": [
      "name"
     ],
-    "used": []
+    "used": [
+     "name"
+    ]
    },
    "multipart": false,
    "response": "EmojiResponse"
@@ -832,8 +857,12 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4673,
+    "path": "/api/v10/applications/:appId/entitlements"
+   },
    "notes": [],
    "query": {
     "spec": [
@@ -847,7 +876,16 @@
      "exclude_deleted",
      "only_active"
     ],
-    "used": []
+    "used": [
+     "user_id",
+     "sku_ids",
+     "guild_id",
+     "before",
+     "after",
+     "limit",
+     "exclude_ended",
+     "exclude_deleted"
+    ]
    },
    "body": {
     "spec": [],
@@ -867,8 +905,12 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4692,
+    "path": "/api/v10/applications/:appId/entitlements"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -880,7 +922,11 @@
      "owner_type",
      "sku_id"
     ],
-    "used": []
+    "used": [
+     "owner_id",
+     "owner_type",
+     "sku_id"
+    ]
    },
    "multipart": false,
    "response": "EntitlementResponse"
@@ -897,8 +943,12 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4702,
+    "path": "/api/v10/applications/:appId/entitlements/:entitlementId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -923,8 +973,12 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4685,
+    "path": "/api/v10/applications/:appId/entitlements/:entitlementId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -949,8 +1003,12 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4709,
+    "path": "/api/v10/applications/:appId/entitlements/:entitlementId/consume"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -978,7 +1036,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1949,
+    "line": 3268,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands"
    },
    "notes": [],
@@ -1010,7 +1068,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1963,
+    "line": 3286,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands"
    },
    "notes": [
@@ -1054,7 +1112,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1956,
+    "line": 3277,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands"
    },
    "notes": [],
@@ -1084,7 +1142,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1996,
+    "line": 3327,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands/:commandId"
    },
    "notes": [],
@@ -1114,7 +1172,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1980,
+    "line": 3307,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands/:commandId"
    },
    "notes": [],
@@ -1144,7 +1202,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1988,
+    "line": 3317,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands/:commandId"
    },
    "notes": [
@@ -1187,7 +1245,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2004,
+    "line": 3337,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands/:commandId/permissions"
    },
    "notes": [],
@@ -1217,7 +1275,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2013,
+    "line": 3348,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands/:commandId/permissions"
    },
    "notes": [],
@@ -1249,7 +1307,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1973,
+    "line": 3298,
     "path": "/api/v10/applications/:appId/guilds/:guildId/commands/permissions"
    },
    "notes": [],
@@ -1350,8 +1408,12 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4667,
+    "path": "/api/v10/applications/:appId/skus"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -1378,7 +1440,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 783,
+    "line": 1638,
     "path": "/api/v10/applications/@me"
    },
    "notes": [],
@@ -1407,7 +1469,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 800,
+    "line": 1655,
     "path": "/api/v10/applications/@me"
    },
    "notes": [
@@ -1453,15 +1515,13 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 979,
+    "line": 2115,
     "path": "/api/v10/channels/:channelId"
    },
-   "notes": [
-    "no CHANNEL_DELETE / client refresh; threads + messages not cascaded through the shared deletion service"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -1487,7 +1547,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 951,
+    "line": 2080,
     "path": "/api/v10/channels/:channelId"
    },
    "notes": [
@@ -1515,17 +1575,13 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 960,
+    "line": 2089,
     "path": "/api/v10/channels/:channelId"
    },
-   "notes": [
-    "only name/topic/nsfw/rate_limit_per_user; position, parent_id, permission_overwrites, bitrate, user_limit, flags, tags ignored",
-    "no CHANNEL_UPDATE / client refresh",
-    "reads 4/26 body fields"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -1560,10 +1616,24 @@
      "video_quality_mode"
     ],
     "used": [
+     "available_tags",
+     "bitrate",
+     "default_auto_archive_duration",
+     "default_forum_layout",
+     "default_reaction_emoji",
+     "default_sort_order",
+     "default_thread_rate_limit_per_user",
+     "flags",
      "name",
      "nsfw",
+     "parent_id",
+     "permission_overwrites",
+     "position",
      "rate_limit_per_user",
-     "topic"
+     "rtc_region",
+     "topic",
+     "type",
+     "user_limit"
     ]
    },
    "multipart": false,
@@ -1580,11 +1650,13 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [
-    "web-session route exists: POST /api/channels/:channelId/followers (src/lib/api/announcements.ts:266), reuse its logic"
-   ],
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 2265,
+    "path": "/api/v10/channels/:channelId/followers"
+   },
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -1593,7 +1665,9 @@
     "spec": [
      "webhook_channel_id"
     ],
-    "used": []
+    "used": [
+     "webhook_channel_id"
+    ]
    },
    "multipart": false,
    "response": "ChannelFollowerResponse"
@@ -1609,8 +1683,12 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 2182,
+    "path": "/api/v10/channels/:channelId/invites"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -1634,8 +1712,12 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 2191,
+    "path": "/api/v10/channels/:channelId/invites"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -1653,7 +1735,12 @@
      "temporary",
      "unique"
     ],
-    "used": []
+    "used": [
+     "max_age",
+     "max_uses",
+     "temporary",
+     "unique"
+    ]
    },
    "multipart": true,
    "response": "FriendInviteResponse | GroupDMInviteResponse | GuildInviteResponse"
@@ -1673,7 +1760,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 992,
+    "line": 2308,
     "path": "/api/v10/channels/:channelId/messages"
    },
    "notes": [],
@@ -1712,7 +1799,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1053,
+    "line": 2369,
     "path": "/api/v10/channels/:channelId/messages"
    },
    "notes": [
@@ -1771,7 +1858,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1546,
+    "line": 2865,
     "path": "/api/v10/channels/:channelId/messages/:messageId"
    },
    "notes": [],
@@ -1800,7 +1887,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1043,
+    "line": 2359,
     "path": "/api/v10/channels/:channelId/messages/:messageId"
    },
    "notes": [],
@@ -1829,7 +1916,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1382,
+    "line": 2701,
     "path": "/api/v10/channels/:channelId/messages/:messageId"
    },
    "notes": [
@@ -1876,7 +1963,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1645,
+    "line": 2964,
     "path": "/api/v10/channels/:channelId/messages/:messageId/crosspost"
    },
    "notes": [],
@@ -1905,7 +1992,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1853,
+    "line": 3172,
     "path": "/api/v10/channels/:channelId/messages/:messageId/reactions"
    },
    "notes": [],
@@ -1934,7 +2021,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1828,
+    "line": 3147,
     "path": "/api/v10/channels/:channelId/messages/:messageId/reactions/:emoji"
    },
    "notes": [],
@@ -1963,7 +2050,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1803,
+    "line": 3122,
     "path": "/api/v10/channels/:channelId/messages/:messageId/reactions/:emoji"
    },
    "notes": [],
@@ -2000,7 +2087,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1794,
+    "line": 3113,
     "path": "/api/v10/channels/:channelId/messages/:messageId/reactions/:emoji/:userId"
    },
    "notes": [],
@@ -2029,7 +2116,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1787,
+    "line": 3106,
     "path": "/api/v10/channels/:channelId/messages/:messageId/reactions/:emoji/@me"
    },
    "notes": [],
@@ -2058,7 +2145,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1741,
+    "line": 3060,
     "path": "/api/v10/channels/:channelId/messages/:messageId/reactions/:emoji/@me"
    },
    "notes": [
@@ -2086,9 +2173,15 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4426,
+    "path": "/api/v10/channels/:channelId/messages/:messageId/threads"
+   },
+   "notes": [
+    "the thread gets its own id (Discord reuses the starter message id)"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -2099,7 +2192,11 @@
      "name",
      "rate_limit_per_user"
     ],
-    "used": []
+    "used": [
+     "auto_archive_duration",
+     "name",
+     "rate_limit_per_user"
+    ]
    },
    "multipart": false,
    "response": "ThreadResponse"
@@ -2118,7 +2215,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1583,
+    "line": 2902,
     "path": "/api/v10/channels/:channelId/messages/bulk-delete"
    },
    "notes": [],
@@ -2151,7 +2248,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1006,
+    "line": 2322,
     "path": "/api/v10/channels/:channelId/messages/pins"
    },
    "notes": [],
@@ -2186,7 +2283,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1036,
+    "line": 2352,
     "path": "/api/v10/channels/:channelId/messages/pins/:messageId"
    },
    "notes": [],
@@ -2215,7 +2312,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1029,
+    "line": 2345,
     "path": "/api/v10/channels/:channelId/messages/pins/:messageId"
    },
    "notes": [
@@ -2243,8 +2340,12 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 2157,
+    "path": "/api/v10/channels/:channelId/permissions/:overwriteId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -2268,8 +2369,12 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 2130,
+    "path": "/api/v10/channels/:channelId/permissions/:overwriteId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -2281,7 +2386,11 @@
      "deny",
      "type"
     ],
-    "used": []
+    "used": [
+     "allow",
+     "deny",
+     "type"
+    ]
    },
    "multipart": false,
    "response": "204 (empty)"
@@ -2300,7 +2409,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1716,
+    "line": 3035,
     "path": "/api/v10/channels/:channelId/pins"
    },
    "notes": [],
@@ -2329,7 +2438,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1732,
+    "line": 3051,
     "path": "/api/v10/channels/:channelId/pins/:messageId"
    },
    "notes": [],
@@ -2358,7 +2467,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1725,
+    "line": 3044,
     "path": "/api/v10/channels/:channelId/pins/:messageId"
    },
    "notes": [
@@ -2389,7 +2498,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1673,
+    "line": 2992,
     "path": "/api/v10/channels/:channelId/polls/:messageId/answers/:answerId"
    },
    "notes": [],
@@ -2424,7 +2533,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1697,
+    "line": 3016,
     "path": "/api/v10/channels/:channelId/polls/:messageId/expire"
    },
    "notes": [],
@@ -2450,8 +2559,12 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 2292,
+    "path": "/api/v10/channels/:channelId/recipients/:userId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -2475,9 +2588,15 @@
    ],
    "area": "channels",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 2284,
+    "path": "/api/v10/channels/:channelId/recipients/:userId"
+   },
+   "notes": [
+    "needs an OAuth2 gdm.join access token, which SerikaCord does not issue yet: 403 50025"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -2531,16 +2650,26 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4439,
+    "path": "/api/v10/channels/:channelId/thread-members"
+   },
+   "notes": [
+    "join_timestamp is the thread creation time (no per-member timestamp or flags)"
+   ],
    "query": {
     "spec": [
      "with_member",
      "limit",
      "after"
     ],
-    "used": []
+    "used": [
+     "with_member",
+     "limit",
+     "after"
+    ]
    },
    "body": {
     "spec": [],
@@ -2560,8 +2689,12 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4475,
+    "path": "/api/v10/channels/:channelId/thread-members/:userId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -2585,14 +2718,20 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4460,
+    "path": "/api/v10/channels/:channelId/thread-members/:userId"
+   },
    "notes": [],
    "query": {
     "spec": [
      "with_member"
     ],
-    "used": []
+    "used": [
+     "with_member"
+    ]
    },
    "body": {
     "spec": [],
@@ -2612,8 +2751,12 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4469,
+    "path": "/api/v10/channels/:channelId/thread-members/:userId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -2637,8 +2780,12 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4454,
+    "path": "/api/v10/channels/:channelId/thread-members/@me"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -2662,8 +2809,12 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4448,
+    "path": "/api/v10/channels/:channelId/thread-members/@me"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -2687,10 +2838,14 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4410,
+    "path": "/api/v10/channels/:channelId/threads"
+   },
    "notes": [
-    "web-session route exists: POST /api/channels/:channelId/threads (src/lib/api/channels.ts:2277), reuse its logic"
+    "forum posts send their first message through POST /channels/{id}/messages, so the bot also needs SEND_MESSAGES_IN_THREADS"
    ],
    "query": {
     "spec": [],
@@ -2706,7 +2861,15 @@
      "rate_limit_per_user",
      "type"
     ],
-    "used": []
+    "used": [
+     "applied_tags",
+     "auto_archive_duration",
+     "invitable",
+     "message",
+     "name",
+     "rate_limit_per_user",
+     "type"
+    ]
    },
    "multipart": true,
    "response": "CreatedThreadResponse"
@@ -2722,15 +2885,22 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4488,
+    "path": "/api/v10/channels/:channelId/threads/archived/private"
+   },
    "notes": [],
    "query": {
     "spec": [
      "before",
      "limit"
     ],
-    "used": []
+    "used": [
+     "before",
+     "limit"
+    ]
    },
    "body": {
     "spec": [],
@@ -2750,15 +2920,22 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4481,
+    "path": "/api/v10/channels/:channelId/threads/archived/public"
+   },
    "notes": [],
    "query": {
     "spec": [
      "before",
      "limit"
     ],
-    "used": []
+    "used": [
+     "before",
+     "limit"
+    ]
    },
    "body": {
     "spec": [],
@@ -2778,9 +2955,15 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4502,
+    "path": "/api/v10/channels/:channelId/threads/search"
+   },
+   "notes": [
+    "slop and min_id / max_id ignored; relevance sorts by last activity"
+   ],
    "query": {
     "spec": [
      "name",
@@ -2795,7 +2978,16 @@
      "limit",
      "offset"
     ],
-    "used": []
+    "used": [
+     "name",
+     "tag",
+     "tag_setting",
+     "archived",
+     "sort_by",
+     "sort_order",
+     "limit",
+     "offset"
+    ]
    },
    "body": {
     "spec": [],
@@ -2818,7 +3010,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 1879,
+    "line": 3198,
     "path": "/api/v10/channels/:channelId/typing"
    },
    "notes": [],
@@ -2844,15 +3036,22 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4495,
+    "path": "/api/v10/channels/:channelId/users/@me/threads/archived/private"
+   },
    "notes": [],
    "query": {
     "spec": [
      "before",
      "limit"
     ],
-    "used": []
+    "used": [
+     "before",
+     "limit"
+    ]
    },
    "body": {
     "spec": [],
@@ -2902,7 +3101,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2524,
+    "line": 4000,
     "path": "/api/v10/channels/:channelId/webhooks"
    },
    "notes": [],
@@ -2931,7 +3130,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2537,
+    "line": 4013,
     "path": "/api/v10/channels/:channelId/webhooks"
    },
    "notes": [],
@@ -2967,7 +3166,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 753,
+    "line": 1512,
     "path": "/api/v10/gateway"
    },
    "notes": [],
@@ -2996,7 +3195,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 754,
+    "line": 1513,
     "path": "/api/v10/gateway/bot"
    },
    "notes": [
@@ -3024,20 +3223,20 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 813,
+    "line": 1668,
     "path": "/api/v10/guilds/:guildId"
    },
-   "notes": [
-    "with_counts ignored; many GuildResponse fields missing (see Objects)"
-   ],
+   "notes": [],
    "query": {
     "spec": [
      "with_counts"
     ],
-    "used": []
+    "used": [
+     "with_counts"
+    ]
    },
    "body": {
     "spec": [],
@@ -3057,16 +3256,13 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 822,
+    "line": 1677,
     "path": "/api/v10/guilds/:guildId"
    },
-   "notes": [
-    "icon/banner stored as given (no image data URI handling); no GUILD_UPDATE",
-    "reads 5/21 body fields"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -3096,10 +3292,19 @@
      "verification_level"
     ],
     "used": [
+     "afk_channel_id",
+     "afk_timeout",
      "banner",
+     "default_message_notifications",
      "description",
+     "discovery_splash",
+     "explicit_content_filter",
      "icon",
      "name",
+     "public_updates_channel_id",
+     "rules_channel_id",
+     "splash",
+     "system_channel_id",
      "verification_level"
     ]
    },
@@ -3120,11 +3325,11 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2722,
+    "line": 4198,
     "path": "/api/v10/guilds/:guildId/audit-logs"
    },
    "notes": [
-    "users/webhooks/threads arrays always empty; before/after ignored"
+    "application_commands / guild_scheduled_events arrays stay empty (Serika logs neither change)"
    ],
    "query": {
     "spec": [
@@ -3137,7 +3342,10 @@
     ],
     "used": [
      "user_id",
+     "target_id",
      "action_type",
+     "before",
+     "after",
      "limit"
     ]
    },
@@ -3159,8 +3367,12 @@
    ],
    "area": "moderation",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4224,
+    "path": "/api/v10/guilds/:guildId/auto-moderation/rules"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3184,8 +3396,12 @@
    ],
    "area": "moderation",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4236,
+    "path": "/api/v10/guilds/:guildId/auto-moderation/rules"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3202,7 +3418,16 @@
      "trigger_metadata",
      "trigger_type"
     ],
-    "used": []
+    "used": [
+     "actions",
+     "enabled",
+     "event_type",
+     "exempt_channels",
+     "exempt_roles",
+     "name",
+     "trigger_metadata",
+     "trigger_type"
+    ]
    },
    "multipart": false,
    "response": "DefaultKeywordRuleResponse | KeywordRuleResponse | MLSpamRuleResponse | MentionSpamRuleResponse | UserProfileRuleResponse"
@@ -3218,8 +3443,12 @@
    ],
    "area": "moderation",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4250,
+    "path": "/api/v10/guilds/:guildId/auto-moderation/rules/:ruleId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3243,8 +3472,12 @@
    ],
    "area": "moderation",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4230,
+    "path": "/api/v10/guilds/:guildId/auto-moderation/rules/:ruleId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3268,8 +3501,12 @@
    ],
    "area": "moderation",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4243,
+    "path": "/api/v10/guilds/:guildId/auto-moderation/rules/:ruleId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3286,7 +3523,16 @@
      "trigger_metadata",
      "trigger_type"
     ],
-    "used": []
+    "used": [
+     "actions",
+     "enabled",
+     "event_type",
+     "exempt_channels",
+     "exempt_roles",
+     "name",
+     "trigger_metadata",
+     "trigger_type"
+    ]
    },
    "multipart": false,
    "response": "DefaultKeywordRuleResponse | KeywordRuleResponse | MLSpamRuleResponse | MentionSpamRuleResponse | UserProfileRuleResponse"
@@ -3302,23 +3548,24 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 924,
+    "line": 2045,
     "path": "/api/v10/guilds/:guildId/bans"
    },
-   "notes": [
-    "user objects are bare ids; before/after/limit ignored",
-    "reads 0/3 query params"
-   ],
+   "notes": [],
    "query": {
     "spec": [
      "limit",
      "before",
      "after"
     ],
-    "used": []
+    "used": [
+     "limit",
+     "before",
+     "after"
+    ]
    },
    "body": {
     "spec": [],
@@ -3338,15 +3585,13 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2367,
+    "line": 3850,
     "path": "/api/v10/guilds/:guildId/bans/:userId"
    },
-   "notes": [
-    "no GUILD_BAN_REMOVE"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -3372,7 +3617,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2356,
+    "line": 3838,
     "path": "/api/v10/guilds/:guildId/bans/:userId"
    },
    "notes": [],
@@ -3398,15 +3643,13 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2329,
+    "line": 3800,
     "path": "/api/v10/guilds/:guildId/bans/:userId"
    },
-   "notes": [
-    "no GUILD_BAN_ADD; delete_message_seconds handling unverified"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -3416,7 +3659,10 @@
      "delete_message_days",
      "delete_message_seconds"
     ],
-    "used": []
+    "used": [
+     "delete_message_days",
+     "delete_message_seconds"
+    ]
    },
    "multipart": false,
    "response": "204 (empty)"
@@ -3432,8 +3678,12 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3818,
+    "path": "/api/v10/guilds/:guildId/bulk-ban"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3444,7 +3694,10 @@
      "delete_message_seconds",
      "user_ids"
     ],
-    "used": []
+    "used": [
+     "delete_message_seconds",
+     "user_ids"
+    ]
    },
    "multipart": false,
    "response": "BulkBanUsersResponse"
@@ -3464,7 +3717,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 862,
+    "line": 1883,
     "path": "/api/v10/guilds/:guildId/channels"
    },
    "notes": [],
@@ -3490,8 +3743,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1893,
+    "path": "/api/v10/guilds/:guildId/channels"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3515,16 +3772,13 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2060,
+    "line": 3388,
     "path": "/api/v10/guilds/:guildId/channels"
    },
-   "notes": [
-    "permission_overwrites ignored; no CHANNEL_CREATE / client refresh",
-    "reads 7/19 body fields"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -3552,13 +3806,18 @@
      "video_quality_mode"
     ],
     "used": [
+     "bitrate",
+     "default_auto_archive_duration",
      "name",
      "nsfw",
      "parent_id",
+     "permission_overwrites",
      "position",
      "rate_limit_per_user",
+     "rtc_region",
      "topic",
-     "type"
+     "type",
+     "user_limit"
     ]
    },
    "multipart": false,
@@ -3578,7 +3837,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 907,
+    "line": 2037,
     "path": "/api/v10/guilds/:guildId/emojis"
    },
    "notes": [],
@@ -3607,7 +3866,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2402,
+    "line": 3872,
     "path": "/api/v10/guilds/:guildId/emojis"
    },
    "notes": [],
@@ -3644,7 +3903,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2459,
+    "line": 3886,
     "path": "/api/v10/guilds/:guildId/emojis/:emojiId"
    },
    "notes": [],
@@ -3673,7 +3932,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2384,
+    "line": 3866,
     "path": "/api/v10/guilds/:guildId/emojis/:emojiId"
    },
    "notes": [],
@@ -3702,7 +3961,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2434,
+    "line": 3879,
     "path": "/api/v10/guilds/:guildId/emojis/:emojiId"
    },
    "notes": [],
@@ -3762,8 +4021,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4396,
+    "path": "/api/v10/guilds/:guildId/integrations"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3787,8 +4050,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4402,
+    "path": "/api/v10/guilds/:guildId/integrations/:integrationId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3815,7 +4082,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 938,
+    "line": 2067,
     "path": "/api/v10/guilds/:guildId/invites"
    },
    "notes": [],
@@ -3841,15 +4108,13 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 878,
+    "line": 1986,
     "path": "/api/v10/guilds/:guildId/members"
    },
-   "notes": [
-    "Discord default limit is 1, Serika defaults to 100"
-   ],
+   "notes": [],
    "query": {
     "spec": [
      "limit",
@@ -3878,15 +4143,13 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2306,
+    "line": 3741,
     "path": "/api/v10/guilds/:guildId/members/:userId"
    },
-   "notes": [
-    "no GUILD_MEMBER_REMOVE"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -3912,7 +4175,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 895,
+    "line": 2025,
     "path": "/api/v10/guilds/:guildId/members/:userId"
    },
    "notes": [],
@@ -3938,15 +4201,13 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2220,
+    "line": 3645,
     "path": "/api/v10/guilds/:guildId/members/:userId"
    },
-   "notes": [
-    "no GUILD_MEMBER_UPDATE / client refresh"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -3962,8 +4223,10 @@
      "roles"
     ],
     "used": [
+     "channel_id",
      "communication_disabled_until",
      "deaf",
+     "flags",
      "mute",
      "nick",
      "roles"
@@ -3983,8 +4246,12 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3670,
+    "path": "/api/v10/guilds/:guildId/members/:userId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -3999,7 +4266,13 @@
      "nick",
      "roles"
     ],
-    "used": []
+    "used": [
+     "access_token",
+     "deaf",
+     "mute",
+     "nick",
+     "roles"
+    ]
    },
    "multipart": false,
    "response": "GuildMemberResponse"
@@ -4015,8 +4288,12 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3664,
+    "path": "/api/v10/guilds/:guildId/members/:userId/roles/:roleId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4040,8 +4317,12 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3659,
+    "path": "/api/v10/guilds/:guildId/members/:userId/roles/:roleId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4065,11 +4346,13 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [
-    "request is captured by PATCH /api/v10/guilds/:guildId/members/:userId (src/lib/api/botApi.ts:2220) and fails"
-   ],
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3638,
+    "path": "/api/v10/guilds/:guildId/members/@me"
+   },
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -4081,7 +4364,11 @@
      "bio",
      "nick"
     ],
-    "used": []
+    "used": [
+     "avatar",
+     "banner",
+     "nick"
+    ]
    },
    "multipart": false,
    "response": "PrivateGuildMemberResponse"
@@ -4100,7 +4387,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2295,
+    "line": 3652,
     "path": "/api/v10/guilds/:guildId/members/@me/nick"
    },
    "notes": [],
@@ -4126,17 +4413,22 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [
-    "request is captured by GET /api/v10/guilds/:guildId/members/:userId (src/lib/api/botApi.ts:895) and fails"
-   ],
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 2001,
+    "path": "/api/v10/guilds/:guildId/members/search"
+   },
+   "notes": [],
    "query": {
     "spec": [
      "limit",
      "query"
     ],
-    "used": []
+    "used": [
+     "limit",
+     "query"
+    ]
    },
    "body": {
     "spec": [],
@@ -4232,8 +4524,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4332,
+    "path": "/api/v10/guilds/:guildId/onboarding"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4257,9 +4553,15 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4338,
+    "path": "/api/v10/guilds/:guildId/onboarding"
+   },
+   "notes": [
+    "option channel_ids, default_channel_ids and mode are ignored (Serika options only grant roles)"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -4271,7 +4573,12 @@
      "mode",
      "prompts"
     ],
-    "used": []
+    "used": [
+     "default_channel_ids",
+     "enabled",
+     "mode",
+     "prompts"
+    ]
    },
    "multipart": false,
    "response": "GuildOnboardingResponse"
@@ -4290,7 +4597,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 843,
+    "line": 1771,
     "path": "/api/v10/guilds/:guildId/preview"
    },
    "notes": [],
@@ -4316,15 +4623,22 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3764,
+    "path": "/api/v10/guilds/:guildId/prune"
+   },
    "notes": [],
    "query": {
     "spec": [
      "days",
      "include_roles"
     ],
-    "used": []
+    "used": [
+     "days",
+     "include_roles"
+    ]
    },
    "body": {
     "spec": [],
@@ -4344,8 +4658,12 @@
    ],
    "area": "members",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3775,
+    "path": "/api/v10/guilds/:guildId/prune"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4357,7 +4675,11 @@
      "days",
      "include_roles"
     ],
-    "used": []
+    "used": [
+     "compute_prune_count",
+     "days",
+     "include_roles"
+    ]
    },
    "multipart": false,
    "response": "GuildPruneResponse"
@@ -4373,8 +4695,12 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1798,
+    "path": "/api/v10/guilds/:guildId/regions"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4459,7 +4785,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 870,
+    "line": 1954,
     "path": "/api/v10/guilds/:guildId/roles"
    },
    "notes": [],
@@ -4485,8 +4811,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3549,
+    "path": "/api/v10/guilds/:guildId/roles"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4510,15 +4840,13 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2146,
+    "line": 3490,
     "path": "/api/v10/guilds/:guildId/roles"
    },
-   "notes": [
-    "no GUILD_ROLE_CREATE / client refresh"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -4536,10 +4864,13 @@
     ],
     "used": [
      "color",
+     "colors",
      "hoist",
+     "icon",
      "mentionable",
      "name",
-     "permissions"
+     "permissions",
+     "unicode_emoji"
     ]
    },
    "multipart": false,
@@ -4556,15 +4887,13 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2203,
+    "line": 3610,
     "path": "/api/v10/guilds/:guildId/roles/:roleId"
    },
-   "notes": [
-    "no GUILD_ROLE_DELETE / client refresh"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -4587,8 +4916,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1979,
+    "path": "/api/v10/guilds/:guildId/roles/:roleId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4612,15 +4945,13 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2170,
+    "line": 3561,
     "path": "/api/v10/guilds/:guildId/roles/:roleId"
    },
-   "notes": [
-    "no GUILD_ROLE_UPDATE / client refresh"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -4638,10 +4969,13 @@
     ],
     "used": [
      "color",
+     "colors",
      "hoist",
+     "icon",
      "mentionable",
      "name",
-     "permissions"
+     "permissions",
+     "unicode_emoji"
     ]
    },
    "multipart": false,
@@ -4658,8 +4992,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1962,
+    "path": "/api/v10/guilds/:guildId/roles/member-counts"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4683,14 +5021,20 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4258,
+    "path": "/api/v10/guilds/:guildId/scheduled-events"
+   },
    "notes": [],
    "query": {
     "spec": [
      "with_user_count"
     ],
-    "used": []
+    "used": [
+     "with_user_count"
+    ]
    },
    "body": {
     "spec": [],
@@ -4710,8 +5054,12 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4265,
+    "path": "/api/v10/guilds/:guildId/scheduled-events"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4730,7 +5078,18 @@
      "scheduled_end_time",
      "scheduled_start_time"
     ],
-    "used": []
+    "used": [
+     "channel_id",
+     "description",
+     "entity_metadata",
+     "entity_type",
+     "image",
+     "name",
+     "privacy_level",
+     "recurrence_rule",
+     "scheduled_end_time",
+     "scheduled_start_time"
+    ]
    },
    "multipart": false,
    "response": "ExternalScheduledEventResponse | StageScheduledEventResponse | VoiceScheduledEventResponse"
@@ -4746,8 +5105,12 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4287,
+    "path": "/api/v10/guilds/:guildId/scheduled-events/:eventId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4771,14 +5134,20 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4272,
+    "path": "/api/v10/guilds/:guildId/scheduled-events/:eventId"
+   },
    "notes": [],
    "query": {
     "spec": [
      "with_user_count"
     ],
-    "used": []
+    "used": [
+     "with_user_count"
+    ]
    },
    "body": {
     "spec": [],
@@ -4798,8 +5167,12 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4279,
+    "path": "/api/v10/guilds/:guildId/scheduled-events/:eventId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -4819,7 +5192,19 @@
      "scheduled_start_time",
      "status"
     ],
-    "used": []
+    "used": [
+     "channel_id",
+     "description",
+     "entity_metadata",
+     "entity_type",
+     "image",
+     "name",
+     "privacy_level",
+     "recurrence_rule",
+     "scheduled_end_time",
+     "scheduled_start_time",
+     "status"
+    ]
    },
    "multipart": false,
    "response": "ExternalScheduledEventResponse | StageScheduledEventResponse | VoiceScheduledEventResponse"
@@ -4949,8 +5334,12 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4293,
+    "path": "/api/v10/guilds/:guildId/scheduled-events/:eventId/users"
+   },
    "notes": [],
    "query": {
     "spec": [
@@ -4959,7 +5348,12 @@
      "before",
      "after"
     ],
-    "used": []
+    "used": [
+     "with_member",
+     "limit",
+     "before",
+     "after"
+    ]
    },
    "body": {
     "spec": [],
@@ -5006,9 +5400,15 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4652,
+    "path": "/api/v10/guilds/:guildId/soundboard-sounds"
+   },
+   "notes": [
+    "always empty: Serika soundboard sounds have no Discord sound ids"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -5087,8 +5487,12 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4657,
+    "path": "/api/v10/guilds/:guildId/soundboard-sounds/:soundId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5145,7 +5549,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2473,
+    "line": 3894,
     "path": "/api/v10/guilds/:guildId/stickers"
    },
    "notes": [],
@@ -5171,8 +5575,12 @@
    ],
    "area": "expressions",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3906,
+    "path": "/api/v10/guilds/:guildId/stickers"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5185,7 +5593,12 @@
      "name",
      "tags"
     ],
-    "used": []
+    "used": [
+     "description",
+     "file",
+     "name",
+     "tags"
+    ]
    },
    "multipart": true,
    "response": "GuildStickerResponse"
@@ -5201,8 +5614,12 @@
    ],
    "area": "expressions",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3924,
+    "path": "/api/v10/guilds/:guildId/stickers/:stickerId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5229,7 +5646,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2491,
+    "line": 3900,
     "path": "/api/v10/guilds/:guildId/stickers/:stickerId"
    },
    "notes": [],
@@ -5255,8 +5672,12 @@
    ],
    "area": "expressions",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3917,
+    "path": "/api/v10/guilds/:guildId/stickers/:stickerId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5268,7 +5689,11 @@
      "name",
      "tags"
     ],
-    "used": []
+    "used": [
+     "description",
+     "name",
+     "tags"
+    ]
    },
    "multipart": false,
    "response": "GuildStickerResponse"
@@ -5284,8 +5709,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4364,
+    "path": "/api/v10/guilds/:guildId/templates"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5309,8 +5738,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4370,
+    "path": "/api/v10/guilds/:guildId/templates"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5321,7 +5754,10 @@
      "description",
      "name"
     ],
-    "used": []
+    "used": [
+     "description",
+     "name"
+    ]
    },
    "multipart": false,
    "response": "GuildTemplateResponse"
@@ -5337,8 +5773,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4390,
+    "path": "/api/v10/guilds/:guildId/templates/:code"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5362,8 +5802,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4383,
+    "path": "/api/v10/guilds/:guildId/templates/:code"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5374,7 +5818,10 @@
      "description",
      "name"
     ],
-    "used": []
+    "used": [
+     "description",
+     "name"
+    ]
    },
    "multipart": false,
    "response": "GuildTemplateResponse"
@@ -5390,8 +5837,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4377,
+    "path": "/api/v10/guilds/:guildId/templates/:code"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5415,8 +5866,12 @@
    ],
    "area": "threads",
    "wp": "WP5",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4509,
+    "path": "/api/v10/guilds/:guildId/threads/active"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5440,8 +5895,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1805,
+    "path": "/api/v10/guilds/:guildId/vanity-url"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5465,8 +5924,12 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4613,
+    "path": "/api/v10/guilds/:guildId/voice-states/:userId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5490,8 +5953,12 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4629,
+    "path": "/api/v10/guilds/:guildId/voice-states/:userId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5502,7 +5969,10 @@
      "channel_id",
      "suppress"
     ],
-    "used": []
+    "used": [
+     "channel_id",
+     "suppress"
+    ]
    },
    "multipart": false,
    "response": "204 (empty)"
@@ -5518,8 +5988,12 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4607,
+    "path": "/api/v10/guilds/:guildId/voice-states/@me"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5543,8 +6017,12 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4620,
+    "path": "/api/v10/guilds/:guildId/voice-states/@me"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5556,7 +6034,11 @@
      "request_to_speak_timestamp",
      "suppress"
     ],
-    "used": []
+    "used": [
+     "channel_id",
+     "request_to_speak_timestamp",
+     "suppress"
+    ]
    },
    "multipart": false,
    "response": "204 (empty)"
@@ -5575,7 +6057,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2513,
+    "line": 3989,
     "path": "/api/v10/guilds/:guildId/webhooks"
    },
    "notes": [],
@@ -5601,8 +6083,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4345,
+    "path": "/api/v10/guilds/:guildId/welcome-screen"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5626,8 +6112,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4351,
+    "path": "/api/v10/guilds/:guildId/welcome-screen"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5639,7 +6129,11 @@
      "enabled",
      "welcome_channels"
     ],
-    "used": []
+    "used": [
+     "description",
+     "enabled",
+     "welcome_channels"
+    ]
    },
    "multipart": false,
    "response": "GuildWelcomeScreenResponse"
@@ -5655,8 +6149,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1812,
+    "path": "/api/v10/guilds/:guildId/widget"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5680,8 +6178,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1820,
+    "path": "/api/v10/guilds/:guildId/widget"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5692,7 +6194,10 @@
      "channel_id",
      "enabled"
     ],
-    "used": []
+    "used": [
+     "channel_id",
+     "enabled"
+    ]
    },
    "multipart": false,
    "response": "WidgetSettingsResponse"
@@ -5709,9 +6214,15 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1864,
+    "path": "/api/v10/guilds/:guildId/widget.json"
+   },
+   "notes": [
+    "channels and members lists are empty; instant_invite only for partnered vanity links"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -5763,8 +6274,12 @@
    ],
    "area": "guilds",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4358,
+    "path": "/api/v10/guilds/templates/:code"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -5792,7 +6307,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2027,
+    "line": 3364,
     "path": "/api/v10/interactions/:interactionId/:interactionToken/callback"
    },
    "notes": [
@@ -5830,7 +6345,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2042,
+    "line": 3380,
     "path": "/api/v10/invites/:code"
    },
    "notes": [],
@@ -5857,16 +6372,13 @@
    ],
    "area": "invites",
    "wp": "WP4",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2034,
+    "line": 3372,
     "path": "/api/v10/invites/:code"
    },
-   "notes": [
-    "guild/channel are id-only stubs; approximate counts always 0; with_counts ignored",
-    "reads 0/4 query params"
-   ],
+   "notes": [],
    "query": {
     "spec": [
      "with_counts",
@@ -5874,7 +6386,10 @@
      "target_channel_id",
      "target_message_id"
     ],
-    "used": []
+    "used": [
+     "with_counts",
+     "guild_scheduled_event_id"
+    ]
    },
    "body": {
     "spec": [],
@@ -6497,8 +7012,12 @@
    ],
    "area": "oauth2",
    "wp": "WP6",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1618,
+    "path": "/api/v10/oauth2/@me"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -6525,7 +7044,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 788,
+    "line": 1643,
     "path": "/api/v10/oauth2/applications/@me"
    },
    "notes": [],
@@ -6551,15 +7070,13 @@
    ],
    "area": "oauth2",
    "wp": "WP6",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
-    "file": "src/lib/api/developers.ts",
-    "line": 1392,
-    "path": "/api/oauth2/authorize"
+    "file": "src/lib/api/botApi.ts",
+    "line": 1604,
+    "path": "/api/v10/oauth2/authorize"
    },
-   "notes": [
-    "only reachable without the /v10 prefix (/api/oauth2/authorize)"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -6608,15 +7125,13 @@
    ],
    "area": "oauth2",
    "wp": "WP6",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
-    "file": "src/lib/api/developers.ts",
-    "line": 1337,
-    "path": "/api/oauth2/token"
+    "file": "src/lib/api/botApi.ts",
+    "line": 1608,
+    "path": "/api/v10/oauth2/token"
    },
-   "notes": [
-    "only reachable without the /v10 prefix (/api/oauth2/token)"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -6639,15 +7154,13 @@
    ],
    "area": "oauth2",
    "wp": "WP6",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
-    "file": "src/lib/api/developers.ts",
-    "line": 1437,
-    "path": "/api/oauth2/token/revoke"
+    "file": "src/lib/api/botApi.ts",
+    "line": 1613,
+    "path": "/api/v10/oauth2/token/revoke"
    },
-   "notes": [
-    "only reachable without the /v10 prefix (/api/oauth2/token/revoke)"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -6840,8 +7353,12 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4725,
+    "path": "/api/v10/skus/:skuId/subscriptions"
+   },
    "notes": [],
    "query": {
     "spec": [
@@ -6850,7 +7367,12 @@
      "limit",
      "user_id"
     ],
-    "used": []
+    "used": [
+     "before",
+     "after",
+     "limit",
+     "user_id"
+    ]
    },
    "body": {
     "spec": [],
@@ -6871,8 +7393,12 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4732,
+    "path": "/api/v10/skus/:skuId/subscriptions/:subscriptionId"
+   },
    "notes": [],
    "query": {
     "spec": [
@@ -6898,8 +7424,12 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4647,
+    "path": "/api/v10/soundboard-default-sounds"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -6923,9 +7453,16 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4306,
+    "path": "/api/v10/stage-instances"
+   },
+   "notes": [
+    "stage instances are not supported yet: 501",
+    "reads 0/5 body fields"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -6954,9 +7491,15 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4324,
+    "path": "/api/v10/stage-instances/:channelId"
+   },
+   "notes": [
+    "stage instances are not supported yet: always 10067 Unknown Stage Instance"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -6979,9 +7522,15 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4312,
+    "path": "/api/v10/stage-instances/:channelId"
+   },
+   "notes": [
+    "stage instances are not supported yet: always 10067 Unknown Stage Instance"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -7004,9 +7553,15 @@
    ],
    "area": "events-stage",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4318,
+    "path": "/api/v10/stage-instances/:channelId"
+   },
+   "notes": [
+    "stage instances are not supported yet: always 10067 Unknown Stage Instance"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -7033,8 +7588,12 @@
    ],
    "area": "expressions",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3937,
+    "path": "/api/v10/sticker-packs"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -7058,8 +7617,12 @@
    ],
    "area": "expressions",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3942,
+    "path": "/api/v10/sticker-packs/:packId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -7083,8 +7646,12 @@
    ],
    "area": "expressions",
    "wp": "WP4",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 3930,
+    "path": "/api/v10/stickers/:stickerId"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -7111,7 +7678,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 770,
+    "line": 1587,
     "path": "/api/v10/users/:userId"
    },
    "notes": [],
@@ -7141,7 +7708,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 765,
+    "line": 1524,
     "path": "/api/v10/users/@me"
    },
    "notes": [],
@@ -7167,9 +7734,15 @@
    ],
    "area": "users",
    "wp": "WP1",
-   "status": "missing",
-   "serika": null,
-   "notes": [],
+   "status": "partial",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1535,
+    "path": "/api/v10/users/@me"
+   },
+   "notes": [
+    "username follows Serika handle rules (2-32 of a-z 0-9 _ .), not Discord display names"
+   ],
    "query": {
     "spec": [],
     "used": []
@@ -7180,7 +7753,11 @@
      "banner",
      "username"
     ],
-    "used": []
+    "used": [
+     "avatar",
+     "banner",
+     "username"
+    ]
    },
    "multipart": false,
    "response": "UserPIIResponse"
@@ -7196,15 +7773,21 @@
    ],
    "area": "monetization",
    "wp": "WP7",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 4716,
+    "path": "/api/v10/users/@me/applications/:appId/entitlements"
+   },
    "notes": [],
    "query": {
     "spec": [
      "sku_ids",
      "exclude_consumed"
     ],
-    "used": []
+    "used": [
+     "sku_ids"
+    ]
    },
    "body": {
     "spec": [],
@@ -7303,15 +7886,13 @@
    ],
    "area": "users",
    "wp": "WP1",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2762,
+    "line": 4528,
     "path": "/api/v10/users/@me/channels"
    },
-   "notes": [
-    "reads 1/3 body fields"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -7323,6 +7904,8 @@
      "recipient_id"
     ],
     "used": [
+     "access_tokens",
+     "nicks",
      "recipient_id"
     ]
    },
@@ -7341,8 +7924,12 @@
    ],
    "area": "users",
    "wp": "WP1",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1580,
+    "path": "/api/v10/users/@me/connections"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -7367,11 +7954,13 @@
    ],
    "area": "users",
    "wp": "WP1",
-   "status": "missing",
-   "serika": null,
-   "notes": [
-    "web-session route exists: GET /api/users/@me/guilds (src/lib/api/index.ts:1028), reuse its logic"
-   ],
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1548,
+    "path": "/api/v10/users/@me/guilds"
+   },
+   "notes": [],
    "query": {
     "spec": [
      "before",
@@ -7380,7 +7969,12 @@
      "shard",
      "with_counts"
     ],
-    "used": []
+    "used": [
+     "before",
+     "after",
+     "limit",
+     "with_counts"
+    ]
    },
    "body": {
     "spec": [],
@@ -7403,7 +7997,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2806,
+    "line": 4582,
     "path": "/api/v10/users/@me/guilds/:guildId"
    },
    "notes": [],
@@ -7429,8 +8023,12 @@
    ],
    "area": "users",
    "wp": "WP1",
-   "status": "missing",
-   "serika": null,
+   "status": "implemented",
+   "serika": {
+    "file": "src/lib/api/botApi.ts",
+    "line": 1565,
+    "path": "/api/v10/users/@me/guilds/:guildId/member"
+   },
    "notes": [],
    "query": {
     "spec": [],
@@ -7454,15 +8052,13 @@
    ],
    "area": "voice",
    "wp": "WP7",
-   "status": "partial",
+   "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2817,
+    "line": 4597,
     "path": "/api/v10/voice/regions"
    },
-   "notes": [
-    "static list"
-   ],
+   "notes": [],
    "query": {
     "spec": [],
     "used": []
@@ -7488,7 +8084,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2612,
+    "line": 4088,
     "path": "/api/v10/webhooks/:webhookId"
    },
    "notes": [],
@@ -7517,7 +8113,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2569,
+    "line": 4045,
     "path": "/api/v10/webhooks/:webhookId"
    },
    "notes": [],
@@ -7546,7 +8142,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2591,
+    "line": 4067,
     "path": "/api/v10/webhooks/:webhookId"
    },
    "notes": [
@@ -7583,7 +8179,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2665,
+    "line": 4141,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken"
    },
    "notes": [],
@@ -7613,7 +8209,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2646,
+    "line": 4122,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken"
    },
    "notes": [],
@@ -7643,7 +8239,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2659,
+    "line": 4135,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken"
    },
    "notes": [
@@ -7678,7 +8274,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2635,
+    "line": 4111,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken"
    },
    "notes": [
@@ -7782,7 +8378,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2710,
+    "line": 4186,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken/messages/:messageId"
    },
    "notes": [],
@@ -7816,7 +8412,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2689,
+    "line": 4165,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken/messages/:messageId"
    },
    "notes": [],
@@ -7850,7 +8446,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2699,
+    "line": 4175,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken/messages/:messageId"
    },
    "notes": [
@@ -7896,7 +8492,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2683,
+    "line": 4159,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken/messages/@original"
    },
    "notes": [],
@@ -7928,7 +8524,7 @@
    "status": "implemented",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2671,
+    "line": 4147,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken/messages/@original"
    },
    "notes": [],
@@ -7960,7 +8556,7 @@
    "status": "partial",
    "serika": {
     "file": "src/lib/api/botApi.ts",
-    "line": 2677,
+    "line": 4153,
     "path": "/api/v10/webhooks/:webhookId/:webhookToken/messages/@original"
    },
    "notes": [
@@ -8029,19 +8625,19 @@
    "method": "PATCH",
    "path": "/api/v10/guilds/:guildId/channels/:channelId",
    "file": "src/lib/api/botApi.ts",
-   "line": 2104
+   "line": 3467
   },
   {
    "method": "DELETE",
    "path": "/api/v10/guilds/:guildId/channels/:channelId",
    "file": "src/lib/api/botApi.ts",
-   "line": 2133
+   "line": 3477
   },
   {
    "method": "GET",
    "path": "/api/v10/users/@me/channels",
    "file": "src/lib/api/botApi.ts",
-   "line": 2751
+   "line": 4517
   },
   {
    "method": "GET",
@@ -8182,29 +8778,35 @@
    },
    {
     "event": "CHANNEL_CREATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
     "event": "CHANNEL_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
     "event": "CHANNEL_DELETE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
@@ -8228,57 +8830,70 @@
    },
    {
     "event": "THREAD_CREATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "emitThreadCreate() ×4",
+     "emitThreadMembersUpdate() ×1"
+    ],
     "note": null
    },
    {
     "event": "THREAD_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "emitThreadUpdate() ×5"
+    ],
     "note": null
    },
    {
     "event": "THREAD_DELETE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "emitThreadDelete() ×3"
+    ],
     "note": null
    },
    {
     "event": "THREAD_LIST_SYNC",
-    "status": "missing",
+    "status": "partial",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
-    "note": null
+    "evidence": [
+     "emitThreadListSync() ×1"
+    ],
+    "note": "sent by the instance that made the access change, and only when it held a recent audience snapshot of the guild"
    },
    {
     "event": "THREAD_MEMBER_UPDATE",
-    "status": "missing",
+    "status": "partial",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
-    "note": null
+    "evidence": [
+     "emitThreadMembersUpdate() ×1"
+    ],
+    "note": "only when the bot itself joins a thread (Serika has no per-member thread flags)"
    },
    {
     "event": "THREAD_MEMBERS_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS",
      "GUILD_MEMBERS"
     ],
-    "evidence": [],
+    "evidence": [
+     "emitThreadMembersUpdate() ×1"
+    ],
     "note": null
    },
    {
@@ -8316,11 +8931,13 @@
    },
    {
     "event": "GUILD_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
@@ -8347,78 +8964,90 @@
    },
    {
     "event": "GUILD_BAN_ADD",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_MODERATION"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
     "event": "GUILD_BAN_REMOVE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_MODERATION"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
     "event": "GUILD_EMOJIS_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_EXPRESSIONS"
     ],
-    "evidence": [],
+    "evidence": [
+     "emitGuildEmojisUpdate() ×4"
+    ],
     "note": null
    },
    {
     "event": "GUILD_STICKERS_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_EXPRESSIONS"
     ],
-    "evidence": [],
+    "evidence": [
+     "emitGuildStickersUpdate() ×4"
+    ],
     "note": null
    },
    {
     "event": "GUILD_INTEGRATIONS_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_INTEGRATIONS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
     "event": "GUILD_MEMBER_ADD",
-    "status": "partial",
+    "status": "emitted",
     "intents": [
      "GUILD_MEMBERS"
     ],
     "evidence": [
      "emitGuildMemberAdd() ×1"
     ],
-    "note": "only for the bot itself on install; human joins do not emit"
+    "note": null
    },
    {
     "event": "GUILD_MEMBER_REMOVE",
-    "status": "defined-unused",
+    "status": "emitted",
     "intents": [
      "GUILD_MEMBERS"
     ],
     "evidence": [
-     "emitGuildMemberRemove() has no callers"
+     "emitGuildMemberRemove() ×1"
     ],
     "note": null
    },
    {
     "event": "GUILD_MEMBER_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_MEMBERS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
@@ -8432,29 +9061,35 @@
    },
    {
     "event": "GUILD_ROLE_CREATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
     "event": "GUILD_ROLE_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
     "event": "GUILD_ROLE_DELETE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILDS"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
@@ -8577,11 +9212,13 @@
    },
    {
     "event": "INTEGRATION_DELETE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_INTEGRATIONS"
     ],
-    "evidence": [],
+    "evidence": [
+     "emitIntegrationDelete() ×1"
+    ],
     "note": null
    },
    {
@@ -8595,20 +9232,24 @@
    },
    {
     "event": "INVITE_CREATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_INVITES"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
     "event": "INVITE_DELETE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_INVITES"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/services/guildGatewayEvents.ts"
+    ],
     "note": null
    },
    {
@@ -8619,7 +9260,7 @@
      "DIRECT_MESSAGES"
     ],
     "evidence": [
-     "emitMessageCreate() ×15"
+     "emitMessageCreate() ×16"
     ],
     "note": null
    },
@@ -8654,7 +9295,7 @@
      "GUILD_MESSAGES"
     ],
     "evidence": [
-     "emitMessageDeleteBulk() ×2"
+     "emitMessageDeleteBulk() ×3"
     ],
     "note": null
    },
@@ -8708,11 +9349,13 @@
    },
    {
     "event": "PRESENCE_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_PRESENCES"
     ],
-    "evidence": [],
+    "evidence": [
+     "emitPresenceUpdate() ×3"
+    ],
     "note": null
    },
    {
@@ -8777,9 +9420,11 @@
    },
    {
     "event": "USER_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [],
-    "evidence": [],
+    "evidence": [
+     "emitUserUpdate() ×1"
+    ],
     "note": null
    },
    {
@@ -8811,18 +9456,23 @@
    },
    {
     "event": "VOICE_STATE_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [
      "GUILD_VOICE_STATES"
     ],
-    "evidence": [],
+    "evidence": [
+     "src/lib/gateway/core.ts",
+     "emitVoiceStateUpdate() ×1"
+    ],
     "note": null
    },
    {
     "event": "VOICE_SERVER_UPDATE",
-    "status": "missing",
+    "status": "emitted",
     "intents": [],
-    "evidence": [],
+    "evidence": [
+     "src/lib/gateway/core.ts"
+    ],
     "note": null
    },
    {
@@ -9076,7 +9726,7 @@
      "GUILD_SOUNDBOARD_SOUND_DELETE",
      "GUILD_SOUNDBOARD_SOUNDS_UPDATE"
     ],
-    "definedInSerika": false
+    "definedInSerika": true
    },
    {
     "name": "GUILD_INTEGRATIONS",
@@ -9088,7 +9738,7 @@
      "INTEGRATION_UPDATE",
      "INTEGRATION_DELETE"
     ],
-    "definedInSerika": false
+    "definedInSerika": true
    },
    {
     "name": "GUILD_WEBHOOKS",
@@ -9107,7 +9757,7 @@
      "INVITE_CREATE",
      "INVITE_DELETE"
     ],
-    "definedInSerika": false
+    "definedInSerika": true
    },
    {
     "name": "GUILD_VOICE_STATES",
@@ -9117,7 +9767,7 @@
      "VOICE_CHANNEL_EFFECT_SEND",
      "VOICE_STATE_UPDATE"
     ],
-    "definedInSerika": false
+    "definedInSerika": true
    },
    {
     "name": "GUILD_PRESENCES",
@@ -9379,7 +10029,7 @@
  "objects": [
   {
    "label": "User (REST)",
-   "where": "src/lib/api/botApi.ts:508 formatUser()",
+   "where": "src/lib/api/botApi.ts:655 formatUser()",
    "coverage": 79,
    "present": [
     "accent_color",
@@ -9410,7 +10060,7 @@
   },
   {
    "label": "User (gateway)",
-   "where": "src/lib/services/gatewayEvents.ts:176 toDiscordUser()",
+   "where": "src/lib/services/gatewayEvents.ts:180 toDiscordUser()",
    "coverage": 0,
    "present": [],
    "missing": [
@@ -9544,12 +10194,9 @@
   },
   {
    "label": "Guild channel",
-   "where": "src/lib/api/botApi.ts:529 formatChannel()",
-   "coverage": 8,
-   "present": [
-    "id",
-    "name"
-   ],
+   "where": "src/lib/api/botApi.ts:676 formatChannel()",
+   "coverage": 0,
+   "present": [],
    "missing": [
     "available_tags",
     "bitrate",
@@ -9561,8 +10208,10 @@
     "default_thread_rate_limit_per_user",
     "flags",
     "guild_id",
+    "id",
     "last_message_id",
     "last_pin_timestamp",
+    "name",
     "nsfw",
     "parent_id",
     "permission_overwrites",
@@ -9576,59 +10225,55 @@
     "video_quality_mode"
    ],
    "extra": [
-    "icon",
-    "description",
-    "owner_id",
-    "verification_level",
-    "member_count",
-    "premium_tier",
-    "features",
+    "widget_enabled",
+    "widget_channel_id",
     "roles",
     "emojis",
     "stickers",
-    "banner",
-    "joined_at"
+    "approximate_member_count",
+    "approximate_presence_count"
    ],
    "schema": "GuildChannelResponse"
   },
   {
    "label": "Guild",
-   "where": "src/lib/api/botApi.ts:534 formatGuild()",
-   "coverage": 29,
+   "where": "src/lib/api/botApi.ts:686 formatGuild()",
+   "coverage": 12,
    "present": [
-    "banner",
-    "description",
     "emojis",
-    "features",
-    "icon",
-    "id",
-    "name",
-    "owner_id",
-    "premium_tier",
     "roles",
     "stickers",
-    "verification_level"
+    "widget_channel_id",
+    "widget_enabled"
    ],
    "missing": [
     "afk_channel_id",
     "afk_timeout",
     "application_id",
+    "banner",
     "default_message_notifications",
+    "description",
     "discovery_splash",
     "explicit_content_filter",
+    "features",
     "home_header",
+    "icon",
+    "id",
     "incidents_data",
     "max_members",
     "max_presences",
     "max_stage_video_channel_users",
     "max_video_channel_users",
     "mfa_level",
+    "name",
     "nsfw",
     "nsfw_level",
+    "owner_id",
     "preferred_locale",
     "premium_progress_bar_enabled",
     "premium_progress_bar_enabled_user_updated_at",
     "premium_subscription_count",
+    "premium_tier",
     "public_updates_channel_id",
     "region",
     "rules_channel_id",
@@ -9637,58 +10282,51 @@
     "system_channel_flags",
     "system_channel_id",
     "vanity_url_code",
-    "widget_channel_id",
-    "widget_enabled"
+    "verification_level"
    ],
    "extra": [
-    "member_count",
-    "joined_at"
+    "approximate_member_count",
+    "approximate_presence_count"
    ],
    "schema": "GuildResponse"
   },
   {
    "label": "Role",
-   "where": "src/lib/api/botApi.ts:566 formatRole()",
-   "coverage": 15,
-   "present": [
-    "flags",
-    "permissions"
-   ],
+   "where": "src/lib/api/botApi.ts:715 formatRole()",
+   "coverage": 0,
+   "present": [],
    "missing": [
     "color",
     "colors",
+    "flags",
     "hoist",
     "icon",
     "id",
     "managed",
     "mentionable",
     "name",
+    "permissions",
     "position",
     "tags",
     "unicode_emoji"
    ],
    "extra": [
-    "user",
-    "nick",
-    "roles",
-    "joined_at",
-    "premium_since",
-    "deaf",
-    "mute",
-    "pending",
-    "communication_disabled_until",
-    "avatar",
-    "banner"
+    "user"
    ],
    "schema": "GuildRoleResponse"
   },
   {
    "label": "Guild member",
-   "where": "src/lib/api/botApi.ts:570 formatMember()",
-   "coverage": 86,
+   "where": "src/lib/api/botApi.ts:719 formatMember()",
+   "coverage": 7,
    "present": [
+    "user"
+   ],
+   "missing": [
     "avatar",
+    "avatar_decoration_data",
     "banner",
+    "collectibles",
     "communication_disabled_until",
     "deaf",
     "flags",
@@ -9697,21 +10335,14 @@
     "nick",
     "pending",
     "premium_since",
-    "roles",
-    "user"
+    "roles"
    ],
-   "missing": [
-    "avatar_decoration_data",
-    "collectibles"
-   ],
-   "extra": [
-    "permissions"
-   ],
+   "extra": [],
    "schema": "GuildMemberResponse"
   },
   {
    "label": "Invite",
-   "where": "src/lib/api/botApi.ts:590 formatInvite()",
+   "where": "src/lib/api/botApi.ts:1315 formatInvite()",
    "coverage": 50,
    "present": [
     "approximate_member_count",
@@ -9763,8 +10394,9 @@
    "status": "yes",
    "evidence": [
     "src/lib/api/botApi.ts",
-    "src/lib/botapi/errors.ts",
-    "src/lib/botapi/formErrors.ts"
+    "src/lib/botapi/threads.ts",
+    "src/lib/botapi/expressions.ts",
+    "src/lib/botapi/errors.ts"
    ],
    "inverted": false
   },
@@ -9784,6 +10416,8 @@
    "title": "429 body is { message, retry_after, global } (+ X-RateLimit-Scope)",
    "status": "yes",
    "evidence": [
+    "src/lib/api/botApi.ts",
+    "src/lib/botapi/threads.ts",
     "src/lib/security/botRateLimit.ts"
    ],
    "inverted": false
@@ -9792,8 +10426,10 @@
    "id": "auth.bearer",
    "wp": "WP6",
    "title": "OAuth2 Bearer tokens accepted on /api/v10 (users/@me, guilds, connections)",
-   "status": "no",
-   "evidence": [],
+   "status": "yes",
+   "evidence": [
+    "src/lib/api/botApi.ts"
+   ],
    "inverted": false
   },
   {
@@ -9802,7 +10438,20 @@
    "title": "Channel permission overwrites applied to bot actions (reuse computeChannelPermissions from src/lib/permissions/channelOverwrites.ts)",
    "status": "yes",
    "evidence": [
-    "src/lib/api/botApi.ts"
+    "src/lib/api/botApi.ts",
+    "src/lib/botapi/threads.ts",
+    "src/lib/botapi/expressions.ts",
+    "src/lib/botapi/automod.ts"
+   ],
+   "inverted": false
+  },
+  {
+   "id": "perm.discord_bits",
+   "wp": "WP0",
+   "title": "Permission bitfields in Discord v10 numbering (bits 42-46 permuted at the boundary for snowflake-format apps)",
+   "status": "yes",
+   "evidence": [
+    "src/lib/botapi/boundary.ts"
    ],
    "inverted": false
   },
@@ -9810,8 +10459,11 @@
    "id": "cdn.compat",
    "wp": "WP6",
    "title": "Discord CDN path compatibility (/avatars/{user_id}/{hash}.png, /icons/, /emojis/{id}.png, /embed/avatars/)",
-   "status": "no",
-   "evidence": [],
+   "status": "yes",
+   "evidence": [
+    "src/lib/botapi/cdnCompat.ts",
+    "server.ts"
+   ],
    "inverted": false
   },
   {
@@ -10049,6 +10701,7 @@
    "title": "multipart/form-data with files[n] + payload_json",
    "status": "yes",
    "evidence": [
+    "src/lib/api/botApi.ts",
     "src/lib/botapi/boundary.ts",
     "src/lib/chat/botMultipart.ts"
    ],
@@ -10105,6 +10758,7 @@
    "evidence": [
     "src/lib/api/botApi.ts",
     "src/lib/botapi/commands.ts",
+    "src/lib/botapi/threadRules.ts",
     "src/lib/chat/embedValidation.ts"
    ],
    "inverted": false
@@ -10115,7 +10769,8 @@
    "title": "GET messages honours before/after/around",
    "status": "yes",
    "evidence": [
-    "src/lib/api/botApi.ts"
+    "src/lib/api/botApi.ts",
+    "src/lib/botapi/users.ts"
    ],
    "inverted": false
   },
@@ -10138,6 +10793,7 @@
    "title": "sticker_ids on create / sticker_items in responses",
    "status": "yes",
    "evidence": [
+    "src/lib/botapi/permissionBits.ts",
     "src/lib/chat/discordMessage.ts"
    ],
    "inverted": false
@@ -10288,6 +10944,7 @@
    "title": "default_member_permissions / contexts / integration_types stored and enforced",
    "status": "yes",
    "evidence": [
+    "src/lib/botapi/permissionBits.ts",
     "src/lib/botapi/commands.ts",
     "src/lib/services/appCommands.ts",
     "src/lib/db/schema.ts"
@@ -10300,6 +10957,7 @@
    "title": "name_localizations / description_localizations",
    "status": "yes",
    "evidence": [
+    "src/lib/botapi/permissionBits.ts",
     "src/lib/botapi/commands.ts",
     "src/lib/db/schema.ts"
    ],
@@ -10341,7 +10999,8 @@
    "title": "client_credentials grant",
    "status": "yes",
    "evidence": [
-    "src/lib/api/developers.ts"
+    "src/lib/api/developers.ts",
+    "src/lib/services/oauth2Tokens.ts"
    ],
    "inverted": false
   },
