@@ -148,12 +148,8 @@ export async function createBotEvent(guildId: string, botId: string, body: Recor
   const mapped = fromDiscordEventBody(body, { create: true });
   if (!mapped.ok) return { status: 400, body: mapped.error };
   if (!(await ensureScheduledEventSchema())) return { status: 503, body: { code: 0, message: '503: Service Unavailable' } };
-  const fields = mapped.fields;
-  if ('image' in fields) {
-    const cover = await uploadCover(guildId, botId, fields.image);
-    if (!cover.ok) return cover.result;
-    fields.image = cover.url;
-  }
+  // Validate everything first; the cover is uploaded last so a refused event leaves no file behind.
+  const { image: rawImage, ...fields } = mapped.fields;
   const parsed = normalizeEventInput(fields, { imagePrefixes: [config.CDN_URL] });
   if ('error' in parsed) return { status: 400, body: { code: 50035, message: `Invalid Form Body (${parsed.error})`, errors: {} } };
   const input = parsed.value;
@@ -162,6 +158,11 @@ export async function createBotEvent(guildId: string, botId: string, body: Recor
   const [{ count }] = await db.select({ count: sql<number>`count(*)::int` }).from(ev)
     .where(and(eq(ev.serverId, guildId), inArray(ev.status, ['scheduled', 'active'])));
   if (Number(count) >= MAX_OPEN_EVENTS_PER_SERVER) return { status: 400, body: { code: 30038, message: 'Maximum number of guild scheduled events reached' } };
+  if (rawImage !== undefined && rawImage !== null) {
+    const cover = await uploadCover(guildId, botId, rawImage);
+    if (!cover.ok) return cover.result;
+    input.image = cover.url;
+  }
   const now = new Date();
   const [row] = await db.insert(ev).values({
     serverId: guildId, creatorId: botId, name: input.name, description: input.description,
@@ -183,16 +184,14 @@ export async function updateBotEvent(guildId: string, eventId: string, botId: st
   if (!mayManage) return { status: 403, body: MISSING_PERMISSIONS };
   const mapped = fromDiscordEventBody(body, { create: false, existingEntityType: row.entityType as EventEntityType });
   if (!mapped.ok) return { status: 400, body: mapped.error };
-  const { status: requestedStatus, ...fields } = mapped.fields;
+  const { status: requestedStatus, image: rawImage, ...fields } = mapped.fields;
   const from = (row.status as EventStatus) || 'scheduled';
   const now = new Date();
   const patch: Partial<typeof ev.$inferInsert> = { updatedAt: now };
-  if ('image' in fields) {
-    const cover = await uploadCover(guildId, botId, fields.image);
-    if (!cover.ok) return cover.result;
-    fields.image = cover.url;
-  }
-  const editing = Object.keys(fields).length > 0;
+  // A new cover is uploaded only after everything else validated (below).
+  const coverChange = 'image' in mapped.fields;
+  if (coverChange && rawImage === null) fields.image = null;
+  const editing = Object.keys(fields).length > 0 || coverChange;
   if (editing) {
     if (from !== 'scheduled' && from !== 'active') return { status: 400, body: { code: 180000, message: 'Cannot update a finished event' } };
     const parsed = normalizeEventInput(fields, {
@@ -225,6 +224,11 @@ export async function updateBotEvent(guildId: string, eventId: string, botId: st
   if (!editing && !to) {
     const [view] = await views([row], false);
     return { status: 200, body: view };
+  }
+  if (coverChange && rawImage !== null && rawImage !== undefined) {
+    const cover = await uploadCover(guildId, botId, rawImage);
+    if (!cover.ok) return cover.result;
+    patch.image = cover.url;
   }
   const [updated] = await db.update(ev).set(patch).where(and(eq(ev.id, row.id), eq(ev.status, from))).returning();
   if (!updated) return { status: 409, body: { code: 0, message: 'The event changed, try again' } };

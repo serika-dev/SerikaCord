@@ -75,7 +75,10 @@ export async function toDiscordInvite(inv: InviteRow, opts: { withCounts?: boole
     try {
       const { loadDiscordScheduledEvent } = await import('./scheduledEvents');
       const ev = await loadDiscordScheduledEvent(inv.serverId, opts.scheduledEventId);
-      if (ev) out.guild_scheduled_event = ev;
+      // Anyone may resolve an invite: only events anyone with it could see
+      // (somewhere else, or in the invite's own channel).
+      const evChannel = (ev as { channel_id?: string | null } | null)?.channel_id ?? null;
+      if (ev && (!evChannel || evChannel.toLowerCase() === inv.channelId.toLowerCase())) out.guild_scheduled_event = ev;
     } catch { /* optional */ }
   }
   return out;

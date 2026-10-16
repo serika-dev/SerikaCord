@@ -288,12 +288,17 @@ export async function prepareThreadSend(thread: IChannel, perms: bigint): Promis
   return null;
 }
 
-/** After a bot message landed in a thread: the bot (and whoever it mentioned) joins, the chip refreshes. */
-export function afterThreadSend(thread: IChannel, botId: string, mentionedUserIds: string[]): void {
+/**
+ * After a bot message landed in a thread: the bot (and whoever it mentioned)
+ * joins, the chip refreshes. A non-invitable private thread only takes the
+ * mentioned users when the bot moderates threads (mentions are an invite).
+ */
+export function afterThreadSend(thread: IChannel, botId: string, mentionedUserIds: string[], perms: bigint): void {
   if (!isThread(thread)) return;
   void (async () => {
     const { addThreadMembers, notifyThreadMembership, refreshThreadAfterMessage } = await import('@/lib/services/threads');
-    const toAdd = threadMembersToAdd(thread.threadMemberIds ?? [], botId, mentionedUserIds);
+    const mayInvite = !(thread.type === 'private_thread' && thread.threadInvitable === false) || can(perms, P.MANAGE_THREADS);
+    const toAdd = threadMembersToAdd(thread.threadMemberIds ?? [], botId, mayInvite ? mentionedUserIds : []);
     const joined = toAdd.length ? await addThreadMembers(thread.id, toAdd).catch(() => []) : [];
     if (joined.length) notifyThreadMembership(thread.serverId, thread.id, joined);
     refreshThreadAfterMessage(thread.id);
@@ -321,6 +326,8 @@ export async function patchBotThread(botId: string, channelId: string, body: unk
     parentType: String(parent.type),
     availableTagIds: new Set(forumTags(parent).map((t) => t.id)),
     flags: Number(thread.flags) || 0,
+    appliedTags: thread.appliedTags ?? [],
+    moderatedTagIds: new Set(forumTags(parent).filter((t) => t.moderated).map((t) => t.id)),
   }, {
     isOwner: same(thread.ownerId, botId),
     manageThreads: can(perms, P.MANAGE_THREADS),
@@ -540,7 +547,12 @@ export async function listArchivedThreads(botId: string, channelId: string, kind
   }
   if (beforeAt) conds.push(sql`${order} < ${beforeAt}`);
   const rows = await db.select().from(c).where(and(...conds)).orderBy(desc(order), desc(c.id)).limit(limit + 1);
-  const page = rows.slice(0, limit) as IChannel[];
+  // Same visibility as everywhere else (private threads: member, owner,
+  // ticket-access role or server-wide MANAGE_THREADS), on top of the
+  // channel-level MANAGE_THREADS Discord asks for.
+  const { listViewableServerChannels } = await import('@/lib/api/channels');
+  const visible = new Set(((await listViewableServerChannels(botId, parent.serverId)) ?? []).map((t) => t.id.toLowerCase()));
+  const page = (rows.slice(0, limit) as IChannel[]).filter((t) => visible.has(t.id.toLowerCase()));
   return { status: 200, body: { threads: page.map((t) => toDiscordChannel(t)), members: ownMembers(page, botId), has_more: rows.length > limit } };
 }
 

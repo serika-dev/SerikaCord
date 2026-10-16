@@ -155,6 +155,9 @@ export interface ThreadPatchState {
   parentType: string;
   availableTagIds: ReadonlySet<string>;
   flags: number;
+  /** Tags on the post now, and the forum's moderated tags (only moderators add or remove those). */
+  appliedTags?: readonly string[];
+  moderatedTagIds?: ReadonlySet<string>;
 }
 
 export interface ThreadPatchPlan {
@@ -222,6 +225,13 @@ export function planThreadPatch(body: unknown, state: ThreadPatchState, actor: T
   if (tags !== undefined) {
     if (!isForumPost) return { ok: false, status: 400, body: WRONG_CHANNEL_TYPE };
     if (!actor.isOwner && !mod) return { ok: false, status: 403, body: MISSING_PERMISSIONS };
+    if (!mod && state.moderatedTagIds?.size) {
+      const before = new Set((state.appliedTags ?? []).map((t) => t.toLowerCase()));
+      const after = new Set(tags.map((t) => t.toLowerCase()));
+      const changed = [...before].filter((t) => !after.has(t)).concat([...after].filter((t) => !before.has(t)));
+      const moderated = new Set([...state.moderatedTagIds].map((t) => t.toLowerCase()));
+      if (changed.some((t) => moderated.has(t))) return { ok: false, status: 403, body: MISSING_PERMISSIONS };
+    }
     updates.appliedTags = tags;
   }
   if (rateLimit !== undefined) {

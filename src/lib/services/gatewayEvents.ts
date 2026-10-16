@@ -627,7 +627,7 @@ export async function emitThreadDelete(thread: ChannelRowLike) {
 }
 
 /** Bot users among `ids` (thread membership events only matter to bots). */
-async function botIdsAmong(ids: string[]): Promise<string[]> {
+export async function botIdsAmong(ids: string[]): Promise<string[]> {
   if (ids.length === 0) return [];
   try {
     const { User } = await import('@/lib/models');
@@ -676,11 +676,16 @@ export async function emitThreadMembersUpdate(
     const selfBots = await botIdsAmong([...added, ...removed]);
     const self = new Set(selfBots.map((id) => id.toLowerCase()));
     const { channelAudience } = await import('./gatewayAudience');
-    const audience = (await channelAudience(thread.id, guildId)).filter((id) => !self.has(id.toLowerCase()));
+    const viewers = await channelAudience(thread.id, guildId);
+    const canSee = new Set(viewers.map((id) => id.toLowerCase()));
+    const audience = viewers.filter((id) => !self.has(id.toLowerCase()));
     if (audience.length > 0) await publish({ t: 'THREAD_MEMBERS_UPDATE', guildId, intent: Intents.GUILD_MEMBERS, audience, d });
     for (const botId of selfBots) {
+      const joined = added.some((id) => id.toLowerCase() === botId.toLowerCase());
+      // An added bot that still can't see the thread (no access to the parent) hears nothing about it.
+      if (joined && !canSee.has(botId.toLowerCase())) continue;
       await publish({ t: 'THREAD_MEMBERS_UPDATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d });
-      if (!added.some((id) => id.toLowerCase() === botId.toLowerCase())) continue;
+      if (!joined) continue;
       const own = toDiscordThreadMember(thread, botId);
       await publish({ t: 'THREAD_MEMBER_UPDATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d: { ...own, guild_id: guildId } });
       await publish({ t: 'THREAD_CREATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d: { ...toDiscordChannel(thread), member: own } });

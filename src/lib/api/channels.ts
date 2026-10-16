@@ -3168,7 +3168,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // fan-out below (which only reaches thread members), then the parent's
     // chip / browser get the new count.
     if (isThreadChannel) {
-      const toAdd = threadMembersToAdd(channel.threadMemberIds as string[] | null, user.id, mentionData.mentionedUserIds);
+      // A mention is an invite: a non-invitable private thread only takes it from thread moderators.
+      const mayInvite = !(channel.type === 'private_thread' && channel.threadInvitable === false)
+        || hasPermissionBit(await memberPermissionsIn(channel, user.id, membership), PERM_MANAGE_THREADS);
+      const toAdd = threadMembersToAdd(channel.threadMemberIds as string[] | null, user.id, mayInvite ? mentionData.mentionedUserIds : []);
       const joinedNow = toAdd.length > 0 ? await addThreadMembers(channel.id, toAdd).catch(() => []) : [];
       if (joinedNow.length > 0) channel.threadMemberIds = [...((channel.threadMemberIds as string[] | null) || []), ...joinedNow];
       notifyThreadMembership(

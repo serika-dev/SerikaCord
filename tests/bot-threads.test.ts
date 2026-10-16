@@ -117,6 +117,13 @@ describe("planThreadPatch", () => {
     expect(p.ok && p.plan.updates.flags).toBe(CHANNEL_FLAGS.PINNED);
     expect(planThreadPatch({ flags: 1 << 4 }, state({ parentType: "forum" }), mod).ok).toBe(false);
   });
+  test("moderated tags: only moderators add or remove them", () => {
+    const MOD_TAG = "33333333-3333-4333-8333-333333333333";
+    const s = state({ parentType: "forum", availableTagIds: new Set([TAG, MOD_TAG]), moderatedTagIds: new Set([MOD_TAG]), appliedTags: [MOD_TAG] });
+    expect(planThreadPatch({ applied_tags: [TAG] }, s, owner).ok).toBe(false);
+    expect(planThreadPatch({ applied_tags: [MOD_TAG, TAG] }, s, owner).ok).toBe(true);
+    expect(planThreadPatch({ applied_tags: [TAG] }, s, mod).ok).toBe(true);
+  });
   test("bad types are 50035", () => {
     const r = planThreadPatch({ archived: "yes" }, state(), mod);
     expect(!r.ok && r.body.code).toBe(50035);

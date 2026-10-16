@@ -210,11 +210,12 @@ export async function releaseThreadMessages(threadId: string, parentId: string):
 function announceMembershipToBots(row: IChannel, change: { added?: string[]; removed?: string[] }): void {
   if (!row.serverId) return;
   void (async () => {
-    if (row.type === 'private_thread') {
+    const { botIdsAmong, emitThreadMembersUpdate } = await import('@/lib/services/gatewayEvents');
+    // Only a bot's own membership changes what a bot may see (private threads).
+    if (row.type === 'private_thread' && (await botIdsAmong([...(change.added ?? []), ...(change.removed ?? [])])).length > 0) {
       const { invalidateServerAudience } = await import('@/lib/services/gatewayAudience');
       invalidateServerAudience(row.serverId);
     }
-    const { emitThreadMembersUpdate } = await import('@/lib/services/gatewayEvents');
     await emitThreadMembersUpdate(row, change);
   })().catch(() => { /* best-effort */ });
 }

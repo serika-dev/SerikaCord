@@ -1327,7 +1327,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       void scheduleOpenPoll(msg.id, poll.expiresAt);
     }
     // Threads: the bot (and whoever it mentioned) joins; the chip / count refreshes (WP5).
-    if (isThread) void import('@/lib/botapi/threads').then((m) => m.afterThreadSend(channel, botId, mentions.userIds)).catch(() => {});
+    if (isThread) void import('@/lib/botapi/threads').then((m) => m.afterThreadSend(channel, botId, mentions.userIds, c.perms)).catch(() => {});
 
     // Web clients: the internal message shape (createdAt, authorId, channelId), not Discord's.
     const author = auth.botUser;
