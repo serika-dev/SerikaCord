@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.18.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.19.
 
 ---
 
@@ -17,6 +17,22 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.19 — 2026-10-16
+
+**Tag:** `v2.1.19` · **Commit:** `c95e44d`
+
+### Features
+- **Bots can manage servers like on Discord** — bots can edit server settings and icons, channels and their permissions, roles and their order, members (nicknames, roles, timeouts) and bans (including bulk bans that remove recent messages), and prune inactive members.
+- **Bots see server changes live** — bots are told when the server, its channels, roles, members, bans or invites change, including changes made in the app.
+
+### Bug Fixes
+- Role changes made by a bot now take effect immediately.
+
+### Security
+- Bots no longer see private threads in a server's channel list, and can't hand out permissions or roles above their own.
 
 ---
 
