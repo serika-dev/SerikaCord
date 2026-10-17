@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.23.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.24.
 
 ---
 
@@ -17,6 +17,15 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.1.24 — 2026-10-17
+
+**Tag:** `v2.1.24` · **Commit:** `f96d3a6`
+
+### Security
+- Known child-abuse imagery scanning (PhotoDNA) works again: uploads were not being checked because the service was called in the wrong Microsoft datacenter.
 
 ---
 
