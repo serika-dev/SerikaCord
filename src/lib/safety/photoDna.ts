@@ -1,13 +1,17 @@
 // PhotoDNA Cloud Service "Match" response handling (pure). The network call is
 // in src/lib/services/photoDnaClient.ts.
 //
-//   POST https://api.microsoftmoderator.com/photodna/v1.0/Match
+//   POST https://eu-api.microsoftmoderator.com/photodna/v1.0/Match
 //   Ocp-Apim-Subscription-Key: <key>     body: the image (jpeg/png/gif/bmp/tiff)
 //   → { Status: { Code: 3000 }, IsMatch, MatchDetails: { MatchFlags: [{ Source, Violations, MatchDistance }] }, TrackingId }
 //
 // Images must be at least 160x160 and at most 4 MB; the client normalises.
 
-export const PHOTODNA_ENDPOINT = 'https://api.microsoftmoderator.com/photodna/v1.0/Match';
+// Accounts live in one datacenter and the others answer 401 "invalid
+// subscription key". Serika's account is in the EU one (PhotoDNA support,
+// Oct 2026); PHOTODNA_ENDPOINT overrides it.
+export const PHOTODNA_ENDPOINT =
+  process.env.PHOTODNA_ENDPOINT || 'https://eu-api.microsoftmoderator.com/photodna/v1.0/Match';
 export const PHOTODNA_MIN_SIDE = 160;
 export const PHOTODNA_MAX_BYTES = 4 * 1024 * 1024;
 
