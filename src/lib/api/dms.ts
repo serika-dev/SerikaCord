@@ -1417,7 +1417,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
   .get('/stream', async ({ headers, cookie }) => {
     const sseHeaders = {
       'Content-Type': 'text/event-stream',
-      'Cache-Control': 'no-cache, no-store, must-revalidate',
+      // no-transform: proxies/CDNs must not compress or buffer the stream.
+      'Cache-Control': 'no-cache, no-store, must-revalidate, no-transform',
       'Connection': 'keep-alive',
       'X-Accel-Buffering': 'no',
     };
@@ -1456,7 +1457,9 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               if (set.size === 0) activeDmListConnections.delete(userKey);
             }
           }
-        }, 30000);
+          // 15s like the other streams: clients treat ~45s of silence as a
+          // dead stream (mobile resume, NAT timeout) and reconnect.
+        }, 15000);
       },
       cancel() {
         if (pingInterval) clearInterval(pingInterval);
@@ -1533,27 +1536,29 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: authError || 'Unauthorized' };
     }
 
-    // Rate limit
-    const ip = getClientIP(request);
-    const rateLimit = await checkRateLimit('message', `${user.id}:${ip}`);
-    if (!rateLimit.success) {
-      set.status = 429;
-      return { error: 'Too many messages', retryAfter: rateLimit.retryAfter };
-    }
-    // Trust & Safety: a temporary chat restriction (e.g. after a scam-image strike).
-    const restricted = await chatRestrictionDenial(user.id);
-    if (restricted) {
-      set.status = restricted.status;
-      return restricted.body;
-    }
-
     if (!params.recipientId) {
       set.status = 400;
       return { error: 'Invalid recipient ID' };
     }
 
+    // Rate limit, Trust & Safety chat restriction (e.g. after a scam-image
+    // strike) and the recipient lookup are independent: one concurrent round.
+    const ip = getClientIP(request);
+    const [rateLimit, restricted, recipient] = await Promise.all([
+      checkRateLimit('message', `${user.id}:${ip}`),
+      chatRestrictionDenial(user.id),
+      User.findById(params.recipientId),
+    ]);
+    if (!rateLimit.success) {
+      set.status = 429;
+      return { error: 'Too many messages', retryAfter: rateLimit.retryAfter };
+    }
+    if (restricted) {
+      set.status = restricted.status;
+      return restricted.body;
+    }
+
     // Check if recipient exists
-    const recipient = await User.findById(params.recipientId);
     if (!recipient) {
       set.status = 404;
       return { error: 'User not found' };
@@ -1575,10 +1580,12 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const prepared = preparedResult.prepared;
     const { sanitizedContent, stickerData, attachments } = prepared;
 
-    // Get user's servers for emoji validation, create/get DM channel, and
-    // encrypt content — all three are independent and can run in parallel.
+    // Get user's servers for emoji validation (only when the message has a
+    // custom-emoji token; most don't), create/get DM channel, and encrypt
+    // content — all three are independent and can run in parallel.
+    const hasCustomEmoji = /<?a?:[a-zA-Z0-9_]{2,32}:[0-9a-f]{8}-[0-9a-f]{4}-/i.test(sanitizedContent);
     const [userServerMemberships, channel, encryptedContent] = await Promise.all([
-      ServerMember.find({ userId: user.id }),
+      hasCustomEmoji ? ServerMember.find({ userId: user.id }) : Promise.resolve([] as Array<{ serverId: string }>),
       getOrCreateDMChannel(user.id, params.recipientId),
       encryptForStorage(sanitizedContent),
     ]);
@@ -1629,10 +1636,16 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }
 
     // Message Requests: decided alongside the write (it doesn't depend on it).
-    const [{ message, messageData }, isMessageRequest] = await Promise.all([
-      persistDmMessage(user, channel, prepared, encryptedContent, userServerIds),
-      recordDmSend(channel.id, user, recipient),
-    ]);
+    // Only the DM-list bump below needs it, so the message is delivered to the
+    // open conversation as soon as it's stored (recordDmSend handles its own
+    // errors; the catch only keeps a rejection from going unhandled).
+    const isMessageRequestPromise = recordDmSend(channel.id, user, recipient).catch(() => false);
+    const { message, messageData } = await persistDmMessage(user, channel, prepared, encryptedContent, userServerIds);
+
+    // Deliver everywhere: local SSE + cross-instance Redis fan-out (non-blocking).
+    publishToDm(channel.id, { type: 'message', message: messageData });
+
+    const isMessageRequest = await isMessageRequestPromise;
 
     // A message request doesn't bump the recipient's DM list (it lives in
     // Message Requests until accepted).
@@ -1702,9 +1715,6 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       } catch { /* best-effort */ }
     })();
 
-    // Deliver everywhere: local SSE + cross-instance Redis fan-out (non-blocking).
-    publishToDm(channel.id, { type: 'message', message: messageData });
-
     return messageData;
   }, {
     params: t.Object({
@@ -1753,7 +1763,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     }
 
     // Set typing in Redis
-    await cache.setTyping(channel.id, user.id);
+    void cache.setTyping(channel.id, user.id).catch(() => {});
 
     // Publish typing event (local + cross-instance).
     publishToDm(channel.id, {

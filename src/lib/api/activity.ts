@@ -190,13 +190,15 @@ export async function notifyChannelActivity(input: ChannelActivityPayload): Prom
   void import('@/lib/services/pushNotifications')
     .then((m) => m.pushChannelActivity(payload))
     .catch(() => { /* best-effort */ });
-  await deliverLocally(payload);
+  // Other instances first: they filter their own recipients, so they needn't
+  // wait for this instance's permission checks.
   const pub = getPublisher();
   if (pub) {
     pub
       .publish(ACTIVITY_BUS, JSON.stringify({ originId: INSTANCE_ID, payload }))
       .catch(() => { /* best-effort cross-instance fan-out */ });
   }
+  await deliverLocally(payload);
 }
 
 function hasOverwrites(value: unknown): boolean {
@@ -232,14 +234,17 @@ async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
   // Members waiting in rules screening may have channels hidden from them
   // (restrictChannels): check those few individually even on open channels.
   const needsCheck = (id: string) => restricted || pendingIds.has(id);
-  if (recipients.some(needsCheck)) {
-    const { checkChannelAccess } = await import('@/lib/api/channels');
-    const allowed = await Promise.all(
-      recipients.map((id) => (needsCheck(id)
-        ? checkChannelAccess(id, payload.channelId).then((r) => r.hasAccess).catch(() => false)
-        : Promise.resolve(true))),
-    );
-    recipients = recipients.filter((_, i) => allowed[i]);
+  const toCheck = recipients.filter(needsCheck);
+  if (toCheck.length > 0) {
+    let allowed: Set<string>;
+    if (channel) {
+      // One batched membership query instead of checkChannelAccess per member.
+      const { filterUsersWhoCanViewChannel } = await import('@/lib/api/channels');
+      allowed = new Set(await filterUsersWhoCanViewChannel(channel, toCheck).catch(() => []));
+    } else {
+      allowed = new Set();
+    }
+    recipients = recipients.filter((id) => !needsCheck(id) || allowed.has(id));
   }
   if (recipients.length > 0) emitLocal(recipients, payload);
 }
@@ -275,13 +280,13 @@ export async function fanoutToUsers(target: FanoutTarget, payload: Record<string
       .then((m) => m.pushDmActivity(recipients, payload as Parameters<typeof m.pushDmActivity>[1]))
       .catch(() => { /* best-effort */ });
   }
-  await deliverUserFanout(target, payload);
   const pub = getPublisher();
   if (pub) {
     pub
       .publish(USER_FANOUT_BUS, JSON.stringify({ originId: INSTANCE_ID, target, payload }))
       .catch(() => { /* best-effort cross-instance fan-out */ });
   }
+  await deliverUserFanout(target, payload);
 }
 
 /** Notify a user's own open sessions that a channel was read (cross-device). */

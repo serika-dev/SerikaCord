@@ -505,7 +505,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
     if (!typingLimit.success) return { success: true };
     const channel = await loadGroupForMember(params.channelId, user.id);
     if (!channel) return { success: true };
-    await cache.setTyping(channel.id, user.id);
+    void cache.setTyping(channel.id, user.id).catch(() => {});
     publishToDm(channel.id, { type: 'typing', userId: user.id, username: user.username });
     emitDmListUpdate(channel.recipientIds || [], { type: 'typing', channelId: channel.id, userId: user.id, username: user.username });
     void import('@/lib/services/gatewayEvents')

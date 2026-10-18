@@ -95,7 +95,7 @@ export function prefetchChannelMessages(apiBase: string, force = false): Promise
 
   const task = (async () => {
     try {
-      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`, { cache: "no-store" });
       if (!response.ok) return;
       const data = await response.json();
       let raw: RawMessagePayload[] = Array.isArray(data) ? data : data.messages || [];
@@ -499,7 +499,7 @@ export function useChatSession<M extends ChatMessage>({
     if (!apiBase) return;
     const context = apiBase;
     try {
-      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`, { cache: "no-store" });
       if (!response.ok || activeFetchContextRef.current !== context) return;
       const data = await response.json();
       if (activeFetchContextRef.current !== context || hasMoreNewerRef.current) return;
@@ -1095,7 +1095,7 @@ export function useChatSession<M extends ChatMessage>({
     if (!apiBase) return false;
     const context = apiBase;
     try {
-      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`);
+      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`, { cache: "no-store" });
       if (!response.ok || activeFetchContextRef.current !== context) return false;
       const data = await response.json();
       if (activeFetchContextRef.current !== context) return false;

@@ -302,20 +302,21 @@ export async function checkCanSpeak(
   }
   // Trust & Safety: a platform chat restriction stops messages / threads
   // (reactions stay allowed).
-  const verificationActions = opts.verification ?? verificationActionsFor(actions);
-  if (verificationActions.some((a) => a === 'send' || a === 'attach' || a === 'threads' || a === 'links')) {
-    const restricted = await chatRestrictionDenial(userId);
-    if (restricted) return restricted;
-  }
   // Server verification level (verified email, account age, member age,
   // verified connection): blocks the actions the server chose to lock.
-  const unverified = await verificationDenial(channel.serverId, userId, membership ?? null, verificationActions);
+  // The lookups are independent, so they run together (this gate sits on
+  // every send); denials keep their order.
+  const verificationActions = opts.verification ?? verificationActionsFor(actions);
+  const checkRestriction = verificationActions.some((a) => a === 'send' || a === 'attach' || a === 'threads' || a === 'links');
+  const [restricted, unverified, source, serverOwnerId] = await Promise.all([
+    checkRestriction ? chatRestrictionDenial(userId) : Promise.resolve(null),
+    verificationDenial(channel.serverId, userId, membership ?? null, verificationActions),
+    actions.length > 0 ? permissionSourceFor(channel) : Promise.resolve(channel),
+    actions.length > 0 ? getServerOwnerIdCached(channel.serverId) : Promise.resolve(null),
+  ]);
+  if (restricted) return restricted;
   if (unverified) return unverified;
   if (actions.length === 0) return null;
-  const [source, serverOwnerId] = await Promise.all([
-    permissionSourceFor(channel),
-    getServerOwnerIdCached(channel.serverId),
-  ]);
   const perms = await computeMemberChannelPermissions(source, userId, membership ?? null, serverOwnerId);
   // Threads speak with SEND_MESSAGES_IN_THREADS (resolved on the parent), as in Discord.
   const inThread = channel.type === 'public_thread' || channel.type === 'private_thread';
@@ -933,6 +934,54 @@ export async function listViewableServerChannels(userId: string, serverId: strin
     if (canView) out.push(channel);
   }
   return out;
+}
+
+/**
+ * Batch `checkChannelAccess(userId, channel.id).hasAccess` for many users and
+ * one server channel (live unread fan-out). The per-user form ran ~3 queries
+ * per online member on every message in a private channel; this loads the
+ * memberships in one query and the parent / owner once, then computes each
+ * verdict from the cached role bitfields. Same rules as checkChannelAccess.
+ */
+export async function filterUsersWhoCanViewChannel(
+  channel: ViewableCandidate,
+  userIds: string[],
+): Promise<string[]> {
+  const serverId = channel.serverId;
+  if (!serverId || userIds.length === 0) return [];
+  const isThread = channel.type === 'public_thread' || channel.type === 'private_thread';
+  const [memberships, serverOwnerId, parent] = await Promise.all([
+    ServerMember.find({ serverId, userId: { in: userIds } }),
+    getServerOwnerIdCached(serverId).catch(() => null),
+    isThread && channel.parentId ? Channel.findById(channel.parentId).catch(() => null) : Promise.resolve(null),
+  ]);
+  const byUser = new Map(memberships.map((m) => [normalizeId(m.userId), m]));
+  const source = parent ?? channel;
+  const overwriteSource = { permissionOverwrites: (source.permissionOverwrites || []) as ChannelOverwrite[], serverId };
+  const verdicts = await Promise.all(userIds.map(async (userId): Promise<boolean> => {
+    const membership = byUser.get(normalizeId(userId));
+    if (!membership) return false;
+    const isServerOwner = Boolean(serverOwnerId && compareIds(serverOwnerId, userId));
+    if (channel.type === 'private_thread' && !isServerOwner) {
+      const isCreator = compareIds(channel.ownerId ?? '', userId);
+      const isMember = (channel.threadMemberIds || []).some((m) => compareIds(m, userId));
+      const accessRoles = (parent?.ticketAccessRoleIds || []) as string[];
+      const memberRoles = (membership.roles || []) as string[];
+      const hasAccessRole = accessRoles.length > 0 && memberRoles.some((r) => accessRoles.includes(r));
+      if (!isCreator && !isMember && !hasAccessRole) {
+        const canManage = serverOwnerId
+          ? await hasServerPermission({ id: serverId, ownerId: serverOwnerId }, userId, PERM_MANAGE_THREADS, membership).catch(() => false)
+          : false;
+        if (!canManage) return false;
+      }
+    }
+    if (membership.pending) {
+      const pendingAccess = await pendingChannelAccess(serverId, userId, membership).catch(() => null);
+      if (pendingAccess && !isChannelAccessibleWhilePending(channel, parent, pendingAccess)) return false;
+    }
+    return canViewChannel(overwriteSource, userId, membership, serverOwnerId).catch(() => false);
+  }));
+  return userIds.filter((_, i) => verdicts[i]);
 }
 
 type ViewableCandidate = {
@@ -2863,19 +2912,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const speakActions: SpeakAction[] = (body.attachments?.length ?? 0) > 0
       ? (isVoiceFlagRequested(body.flags) ? ['send', 'attach', 'voice'] : ['send', 'attach'])
       : ['send'];
-    const speakDenial = await checkCanSpeak(channel, membership, user.id, speakActions, {
+    const speakDenialPromise = checkCanSpeak(channel, membership, user.id, speakActions, {
       verification: [...verificationActionsFor(speakActions), ...(containsLink(body.content) ? ['links' as const] : [])],
     });
-    if (speakDenial) {
-      set.status = speakDenial.status;
-      return speakDenial.body;
-    }
-    // Blocks + DM privacy on DMs (and the same timeout/send gate on servers).
-    const postDenied = await checkCanPostInChannel(channel, user, membership);
-    if (postDenied) {
-      set.status = postDenied.status;
-      return postDenied.body;
-    }
+    // Blocks + DM privacy on DMs (and the timeout gate on servers; checkCanSpeak
+    // above already covers SEND_MESSAGES).
+    const postDeniedPromise = checkCanPostInChannel(channel, user, membership, { checkSendPermission: false });
 
     // Threads: a locked thread only takes messages from thread moderators; an
     // archived one is reopened by the message (Discord). The author (and anyone
@@ -2924,12 +2966,35 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return safety;
     })().catch(() => DEFAULT_SERVER_SAFETY);
 
-    const [rateLimit, globalRateLimit, serverOwnerId, safety] = await Promise.all([
+    // Duplicate-spam lookup (below) starts now so it overlaps the gates; it's
+    // only used for plain-text sends when the server has anti-spam on.
+    const recentOwnPromise = body.content && (body.attachments?.length ?? 0) === 0 && !body.sticker?.id
+      ? Message.find({
+          channelId: params.channelId,
+          authorId: user.id,
+          isDeleted: false,
+          _limit: DUPLICATE_SPAM_THRESHOLD,
+        }).catch(() => [])
+      : Promise.resolve([]);
+
+    // Every pre-send gate is independent: one round of concurrent lookups
+    // instead of a chain of them (this is the send-latency hot path).
+    const [speakDenial, postDenied, rateLimit, globalRateLimit, serverOwnerId, safety] = await Promise.all([
+      speakDenialPromise,
+      postDeniedPromise,
       checkRateLimit('message', `${user.id}:${params.channelId}`),
       checkRateLimit('messageGlobal', user.id),
       serverOwnerPromise,
       safetyPromise,
     ]);
+    if (speakDenial) {
+      set.status = speakDenial.status;
+      return speakDenial.body;
+    }
+    if (postDenied) {
+      set.status = postDenied.status;
+      return postDenied.body;
+    }
     if (!rateLimit.success) {
       set.status = 429;
       return { error: 'Message rate limited', retryAfter: rateLimit.retryAfter };
@@ -3085,12 +3150,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Owners can turn it off with the server's anti-spam setting.
     const spamFingerprint = normalizeForSpamCheck(sanitizedContent);
     if (safety.antiSpam && spamFingerprint && attachments.length === 0 && !stickerData) {
-      const recent = await Message.find({
-        channelId: params.channelId,
-        authorId: user.id,
-        isDeleted: false,
-        _limit: DUPLICATE_SPAM_THRESHOLD,
-      });
+      const recent = await recentOwnPromise;
       if (recent.length >= DUPLICATE_SPAM_THRESHOLD) {
         const recentContents = await Promise.all(
           recent.map((m: any) => (m.content ? decryptFromStorage(m.content) : Promise.resolve('')))
@@ -3166,6 +3226,31 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       ? flagSensitiveMedia(attachments)
       : attachments;
 
+    // The replied-to author is shown with the reply; look it up while the
+    // message is stored rather than after.
+    type RefAuthor = { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null };
+    const refAuthorPromise: Promise<RefAuthor | null> = reference?.authorId
+      ? (async () => {
+          const authorId = reference.authorId as string;
+          const found = await User.findById(authorId) as RefAuthor | null;
+          if (found) return found;
+          // Fall back to DiscordUser if not found in User table
+          const { DiscordUser } = await import('@/lib/models/DiscordUser');
+          const da = await DiscordUser.findById(authorId);
+          return da ? {
+            id: da.id,
+            username: da.username || `discord-${da.discordId}`,
+            displayName: da.displayName,
+            avatar: da.avatar,
+            isBot: da.isBot ?? false,
+            isVerified: false,
+          } : null;
+        })().catch(() => null)
+      : Promise.resolve(null);
+    const refContentPromise = reference?.content ? decryptFromStorage(reference.content) : Promise.resolve('');
+    // Not awaited yet: an insert failure must still surface as the route's error.
+    refContentPromise.catch(() => {});
+
     // Create message
     const message = await Message.create({
       channelId: params.channelId,
@@ -3225,23 +3310,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       | undefined;
 
     if (reference) {
-      let refAuthor: { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null = reference.authorId ? (await User.findById(reference.authorId) as { id: string; username: string; displayName: string | null; avatar: string | null; isBot: boolean | null; isVerified: boolean | null } | null) : null;
-      // Fall back to DiscordUser if not found in User table
-      if (!refAuthor && reference.authorId) {
-        const { DiscordUser } = await import('@/lib/models/DiscordUser');
-        const da = await DiscordUser.findById(reference.authorId);
-        if (da) {
-          refAuthor = {
-            id: da.id,
-            username: da.username || `discord-${da.discordId}`,
-            displayName: da.displayName,
-            avatar: da.avatar,
-            isBot: da.isBot ?? false,
-            isVerified: false,
-          };
-        }
-      }
-      const refDecrypted = reference.content ? await decryptFromStorage(reference.content) : '';
+      const [refAuthor, refDecrypted] = await Promise.all([refAuthorPromise, refContentPromise]);
       referencedMessage = {
         id: reference.id,
         content: refDecrypted,
@@ -4457,7 +4526,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     // Set typing in Redis
-    await cache.setTyping(params.channelId, user.id);
+    void cache.setTyping(params.channelId, user.id).catch(() => {});
 
 
     // Send to SSE connections

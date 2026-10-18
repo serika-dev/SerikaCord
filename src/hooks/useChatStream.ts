@@ -130,7 +130,13 @@ export function useChatStream({ url, onEvent, currentUsername, onReconnect }: Us
     const revive = () => {
       if (document.visibilityState !== "visible") return;
       const dead = !eventSource || eventSource.readyState === EventSource.CLOSED;
-      if (dead || Date.now() - lastEventAt > STALE_STREAM_MS) reconnectNow();
+      if (dead || Date.now() - lastEventAt > STALE_STREAM_MS) {
+        reconnectNow();
+        // Fetch what was missed now, alongside the reconnect, so it shows up
+        // without waiting for the new stream's auth + open; onopen fetches
+        // once more to cover anything sent in between.
+        if (hasConnected) onReconnectRef.current?.();
+      }
     };
     const watchdog = setInterval(() => {
       if (eventSource?.readyState === EventSource.OPEN && Date.now() - lastEventAt > STALE_STREAM_MS) {
@@ -140,6 +146,8 @@ export function useChatStream({ url, onEvent, currentUsername, onReconnect }: Us
     document.addEventListener("visibilitychange", revive);
     window.addEventListener("online", revive);
     window.addEventListener("focus", revive);
+    // Restored from the back/forward cache (mobile Safari does this a lot).
+    window.addEventListener("pageshow", revive);
 
     const timeouts = typingTimeoutsRef.current;
     return () => {
@@ -148,6 +156,7 @@ export function useChatStream({ url, onEvent, currentUsername, onReconnect }: Us
       document.removeEventListener("visibilitychange", revive);
       window.removeEventListener("online", revive);
       window.removeEventListener("focus", revive);
+      window.removeEventListener("pageshow", revive);
       eventSource?.close();
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
       Object.values(timeouts).forEach((timeout) => clearTimeout(timeout));

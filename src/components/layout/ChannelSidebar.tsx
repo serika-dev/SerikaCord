@@ -71,6 +71,7 @@ import { useUnread } from "@/contexts/UnreadContext";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
+import { useResilientStream } from "@/hooks/useStreamRevive";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { startGroupCall } from "@/lib/services/dmCallController";
 import { groupDisplayName } from "@/lib/chat/dmCall";
@@ -1061,7 +1062,10 @@ export function ChannelSidebar({
         // best-effort
       }
     }
-    setExternalVoiceParticipants(results);
+    // Same participants as last poll (the usual case): keep the old Map so the
+    // sidebar doesn't re-render every 5s for nothing.
+    const sig = JSON.stringify([...results.entries()]);
+    setExternalVoiceParticipants((prev) => (JSON.stringify([...prev.entries()]) === sig ? prev : results));
   }, [currentServer, voiceChannels]);
   usePolling(() => void fetchVoiceStates(), 5000, !!currentServer, currentServer?.id);
   // A moderator action (server mute, move, disconnect) shows up right away.
@@ -1072,10 +1076,14 @@ export function ChannelSidebar({
   }, [fetchVoiceStates]);
 
   // Fetch DM channels when no server is selected
-  const fetchDMChannels = useCallback(async () => {
+  // `fresh`: skip the shared/boot GET (after a stream event or reconnect the
+  // list must include what just happened, not a request already in flight).
+  const fetchDMChannels = useCallback(async (fresh = false) => {
     const issuedAt = Date.now();
     try {
-      const response = await sharedGet("/api/dms");
+      const response = fresh
+        ? await fetch("/api/dms", { credentials: "include", cache: "no-store" })
+        : await sharedGet("/api/dms");
       if (response.ok) {
         const data = await response.json();
         const channels = (data.channels || []) as DMChannel[];
@@ -1108,7 +1116,7 @@ export function ChannelSidebar({
 
   // Keep the DM list live while it's shown (no server selected): re-fetch on tab
   // focus/visibility as a resilient fallback for the SSE stream below.
-  usePolling(fetchDMChannels, 20000, !currentServer);
+  usePolling(() => void fetchDMChannels(), 20000, !currentServer);
 
   // Feed DM channels into the unread engine so DM rows get the same
   // read/unread treatment as server channels (bold + pill). The newest
@@ -1137,111 +1145,86 @@ export function ChannelSidebar({
   // `dm:list:update` over this stream, so a new conversation or reordered
   // conversation shows up instantly without waiting for the poll. Mirrors the
   // mobile MessagesView subscription. Only connected while the DM list is shown.
-  useEffect(() => {
-    if (currentServer) return;
-    let source: EventSource | null = null;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let attempts = 0;
-    let closed = false;
-
-    const connect = () => {
-      if (closed) return;
-      source = new EventSource("/api/dms/stream");
-      source.onopen = () => {
-        attempts = 0;
-      };
-      source.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          // A group was created / renamed / changed members: upsert its row.
-          if (data.type === "group:update" && data.group) {
-            const g = data.group as GroupInfo;
-            const me = (user?.id ?? "").toLowerCase();
-            setDmChannels((prev) => {
-              const idx = prev.findIndex((c) => c.id === g.id);
-              const row: DMChannel = {
-                ...(idx === -1 ? { updatedAt: new Date().toISOString() } : prev[idx]),
-                id: g.id,
-                type: "group_dm",
-                name: g.name,
-                icon: g.icon,
-                ownerId: g.ownerId,
-                recipients: g.members
-                  .filter((m) => m.id.toLowerCase() !== me)
-                  .map((m) => ({
-                    id: m.id,
-                    username: m.username,
-                    displayName: m.displayName || m.username,
-                    avatar: m.avatar ?? undefined,
-                    status: m.status || "offline",
-                  })),
-              };
-              if (idx === -1) return [row, ...prev];
-              const next = prev.slice();
-              next[idx] = row;
-              return next;
-            });
-            return;
-          }
-          // We left / were removed from a group.
-          if (data.type === "group:remove") {
-            const channelId = String(data.channelId ?? "");
-            setDmChannels((prev) => prev.filter((c) => c.id !== channelId));
-            return;
-          }
-          if (data.type === "dm:list:update") {
-            // Apply in place: bump the conversation to the top instantly. A
-            // full /api/dms refetch (recipients + decrypt) is only needed when
-            // the channel is one we've never seen (a brand-new conversation).
-            const channelId = String(data.channelId ?? "");
-            const createdAt = data.message?.createdAt;
-            // Live unread badge: messages from others count; your own (sent
-            // from another device) read the conversation.
-            if (channelId && data.message?.authorId) {
-              notifyDmActivity(
-                channelId,
-                typeof createdAt === "string" ? createdAt : undefined,
-                typeof data.message?.id === "string" ? data.message.id : undefined,
-                String(data.message.authorId),
-              );
-            }
-            setDmChannels((prev) => {
-              const idx = prev.findIndex((c) => c.id === channelId);
-              if (idx === -1) {
-                void fetchDMChannels();
-                return prev;
-              }
-              const updated: DMChannel = {
-                ...prev[idx],
-                lastMessageId: data.message?.id ?? prev[idx].lastMessageId,
-                lastMessage: data.message?.id
-                  ? { id: data.message.id, authorId: data.message.authorId, createdAt: typeof createdAt === "string" ? createdAt : undefined }
-                  : prev[idx].lastMessage,
-                updatedAt: typeof createdAt === "string" ? createdAt : new Date().toISOString(),
-              };
-              return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
-            });
-          }
-        } catch {
-          /* ignore malformed events */
+  // Self-healing (src/hooks/useStreamRevive.ts): reconnects right away when
+  // the tab / phone comes back and replaces silent half-open connections.
+  useResilientStream(currentServer ? null : "/api/dms/stream", {
+    // Anything sent while the stream was down never reached it.
+    onOpen: ({ reconnect }) => {
+      if (reconnect) void fetchDMChannels(true);
+    },
+    onMessage: (data) => {
+      // A group was created / renamed / changed members: upsert its row.
+      if (data.type === "group:update" && data.group) {
+        const g = data.group as GroupInfo;
+        const me = (user?.id ?? "").toLowerCase();
+        setDmChannels((prev) => {
+          const idx = prev.findIndex((c) => c.id === g.id);
+          const row: DMChannel = {
+            ...(idx === -1 ? { updatedAt: new Date().toISOString() } : prev[idx]),
+            id: g.id,
+            type: "group_dm",
+            name: g.name,
+            icon: g.icon,
+            ownerId: g.ownerId,
+            recipients: g.members
+              .filter((m) => m.id.toLowerCase() !== me)
+              .map((m) => ({
+                id: m.id,
+                username: m.username,
+                displayName: m.displayName || m.username,
+                avatar: m.avatar ?? undefined,
+                status: m.status || "offline",
+              })),
+          };
+          if (idx === -1) return [row, ...prev];
+          const next = prev.slice();
+          next[idx] = row;
+          return next;
+        });
+        return;
+      }
+      // We left / were removed from a group.
+      if (data.type === "group:remove") {
+        const channelId = String(data.channelId ?? "");
+        setDmChannels((prev) => prev.filter((c) => c.id !== channelId));
+        return;
+      }
+      if (data.type === "dm:list:update") {
+        // Apply in place: bump the conversation to the top instantly. A
+        // full /api/dms refetch (recipients + decrypt) is only needed when
+        // the channel is one we've never seen (a brand-new conversation).
+        const channelId = String(data.channelId ?? "");
+        const createdAt = data.message?.createdAt;
+        // Live unread badge: messages from others count; your own (sent
+        // from another device) read the conversation.
+        if (channelId && data.message?.authorId) {
+          notifyDmActivity(
+            channelId,
+            typeof createdAt === "string" ? createdAt : undefined,
+            typeof data.message?.id === "string" ? data.message.id : undefined,
+            String(data.message.authorId),
+          );
         }
-      };
-      source.onerror = () => {
-        source?.close();
-        if (closed) return;
-        const backoff = Math.min(1000 * 2 ** attempts, 30000);
-        attempts += 1;
-        reconnectTimer = setTimeout(connect, backoff);
-      };
-    };
-    connect();
-
-    return () => {
-      closed = true;
-      source?.close();
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-    };
-  }, [currentServer, fetchDMChannels, notifyDmActivity, user?.id]);
+        if (!dmChannels.some((c) => c.id === channelId)) {
+          void fetchDMChannels(true);
+          return;
+        }
+        setDmChannels((prev) => {
+          const idx = prev.findIndex((c) => c.id === channelId);
+          if (idx === -1) return prev;
+          const updated: DMChannel = {
+            ...prev[idx],
+            lastMessageId: data.message?.id ?? prev[idx].lastMessageId,
+            lastMessage: data.message?.id
+              ? { id: data.message.id, authorId: data.message.authorId, createdAt: typeof createdAt === "string" ? createdAt : undefined }
+              : prev[idx].lastMessage,
+            updatedAt: typeof createdAt === "string" ? createdAt : new Date().toISOString(),
+          };
+          return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+        });
+      }
+    },
+  });
 
   const statusColors: Record<string, string> = {
     online: "#23A559",

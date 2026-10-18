@@ -30,6 +30,7 @@ import { refreshMessageRequests } from "@/lib/social/messageRequestsStore";
 import { isBlockedAuthor } from "@/lib/chat/blocked";
 import { previewEncryptedMessage } from "@/lib/e2ee/client/previews";
 import { sharedGet } from "@/lib/bootFetch";
+import { openResilientStream } from "@/hooks/useStreamRevive";
 import {
   createContext,
   useContext,
@@ -266,13 +267,18 @@ function ancestorsOf(meta: Record<string, ChannelMeta>, channelId: string, paren
   return out;
 }
 
-/** Re-seed at most this often when the tab comes back (reconnects always do). */
 /** Seed GET: the shared boot prefetch normally, a fresh request after a gap. */
 function getSeed(url: string, fresh: boolean): Promise<Response> {
   return fresh ? fetch(url, { credentials: "include", cache: "no-store" }) : sharedGet(url);
 }
 
+/** Re-seed at most this often on a quick tab switch (reconnects always do). */
 const RESYNC_MIN_INTERVAL_MS = 30_000;
+/**
+ * Hidden at least this long (one server ping interval): the phone may have
+ * frozen the page and dropped events, so re-seed at once, unthrottled.
+ */
+const RESUME_RESYNC_AFTER_MS = 15_000;
 /** Server-channel types whose activity the channel-activity seed covers. */
 const SEEDED_CHANNEL_TYPES = new Set(["text", "announcement"]);
 
@@ -697,21 +703,10 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     if (!user) return;
     // Next tick: the seeds update state, which an effect body mustn't do directly.
+    // Coming back to the tab re-seeds through the activity stream's onResume.
     const first = window.setTimeout(() => void resync(), 0);
-    const onVisible = () => {
-      if (document.visibilityState !== "visible") return;
-      if (Date.now() - lastResyncRef.current < RESYNC_MIN_INTERVAL_MS) {
-        void syncReadStates();
-        return;
-      }
-      void resync();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    return () => {
-      window.clearTimeout(first);
-      document.removeEventListener("visibilitychange", onVisible);
-    };
-  }, [user, resync, syncReadStates]);
+    return () => window.clearTimeout(first);
+  }, [user, resync]);
 
   // Notification clicks route in-app instead of reloading the page.
   useEffect(() => {
@@ -728,22 +723,8 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
   // Live activity stream.
   useEffect(() => {
     if (!user) return;
-    let es: EventSource | null = null;
-    let closed = false;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let attempts = 0;
-    // The mount effect seeds once; every later (re)open re-seeds, because
-    // anything sent while disconnected (messages, reads on other devices,
-    // deletions) was missed.
-    let firstOpen = true;
 
-    const handleMessage = (ev: MessageEvent) => {
-      let data: ActivityEvent | { type: string };
-      try {
-        data = JSON.parse(ev.data);
-      } catch {
-        return;
-      }
+    const handleEvent = (data: ActivityEvent | { type: string }) => {
       const s = stringsRef.current;
       // Streamer Mode can hide message text in notifications.
       const showPreview = user.settings?.notifications?.showPreview !== false && !streamerHidesNow("notifications");
@@ -1074,59 +1055,39 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       });
     };
 
-    const connect = () => {
-      if (closed) return;
-      const source = new EventSource("/api/users/@me/activity", { withCredentials: true });
-      es = source;
-      source.onopen = () => {
-        attempts = 0;
-        if (firstOpen) {
-          // The mount seed may have used the boot prefetch, taken before this
-          // stream existed: anything read or sent on another device in between
-          // never reached us. Re-sync once, bypassing that cached data.
-          firstOpen = false;
+    // Self-healing stream (src/hooks/useStreamRevive.ts): backoff after
+    // errors, a watchdog for half-open connections (a resumed phone often
+    // keeps a dead socket that never errors), and an immediate check when the
+    // page comes back.
+    return openResilientStream("/api/users/@me/activity", {
+      onMessage: handleEvent,
+      onOpen: ({ reconnect }) => {
+        // First open: the mount seed may have used the boot prefetch, taken
+        // before this stream existed, so anything read or sent on another
+        // device in between never reached us. Every reopen: anything sent
+        // while disconnected (messages, reads elsewhere, deletions) was
+        // missed. Either way re-sync, bypassing cached data.
+        void resync(true);
+        if (reconnect) void loadNotificationPrefs();
+      },
+      onResume: ({ reconnecting, hiddenForMs }) => {
+        flushPendingAcks();
+        // Reconnecting: onOpen re-syncs once the stream is back.
+        if (reconnecting) return;
+        // Back after a real absence (phone locked, app switched): events may
+        // have been dropped while the page was frozen, so re-seed right away.
+        if (hiddenForMs >= RESUME_RESYNC_AFTER_MS) {
           void resync(true);
           return;
         }
-        void resync(true);
-        void loadNotificationPrefs();
-      };
-      source.onmessage = handleMessage;
-      source.onerror = () => {
-        // The browser retries dropped connections by itself, but gives up for
-        // good after an HTTP error (401 while a token refreshes, 502/503 while
-        // the server restarts). Reconnect ourselves when that happens, or the
-        // app silently stops receiving unread badges and notifications.
-        if (source.readyState !== EventSource.CLOSED) return;
-        source.close();
-        if (closed) return;
-        const delay = Math.min(1000 * 2 ** attempts, 30000);
-        attempts += 1;
-        retryTimer = setTimeout(connect, delay);
-      };
-    };
-    connect();
-
-    // Come back right away when the tab or the network returns.
-    const revive = () => {
-      if (closed || document.visibilityState !== "visible") return;
-      flushPendingAcks();
-      if (es && es.readyState !== EventSource.CLOSED) return;
-      if (retryTimer) clearTimeout(retryTimer);
-      attempts = 0;
-      connect();
-    };
-    window.addEventListener("online", revive);
-    document.addEventListener("visibilitychange", revive);
-
-    return () => {
-      closed = true;
-      if (retryTimer) clearTimeout(retryTimer);
-      window.removeEventListener("online", revive);
-      document.removeEventListener("visibilitychange", revive);
-      es?.close();
-    };
-  }, [user, resync, afterRead, registerChannels, flushPendingAcks, seedDms, seedMentionsFromApi]);
+        if (Date.now() - lastResyncRef.current < RESYNC_MIN_INTERVAL_MS) {
+          void syncReadStates();
+          return;
+        }
+        void resync();
+      },
+    });
+  }, [user, resync, syncReadStates, afterRead, registerChannels, flushPendingAcks, seedDms, seedMentionsFromApi]);
 
   // Effective mute per registered conversation (recomputed when settings change
   // or a timed mute runs out — `prefs.version`).

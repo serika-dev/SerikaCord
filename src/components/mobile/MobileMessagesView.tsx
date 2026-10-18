@@ -25,6 +25,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { previewEncryptedMessage, type EncryptedPreviewInput } from "@/lib/e2ee/client/previews";
 import { getRelationships } from "@/lib/social/relationshipsStore";
 import { isBlockedAuthor } from "@/lib/chat/blocked";
+import { useResilientStream } from "@/hooks/useStreamRevive";
 
 const MobileDmSheet = dynamic(() => import("@/components/mobile/MobileDmSheet").then((m) => m.MobileDmSheet), { ssr: false });
 
@@ -80,7 +81,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const gt = useGT();
   // Streamer Mode hides what people wrote.
   const hidePreviews = useStreamerHides("notifications");
-  const { isChannelUnread, registerChannels, getMentionCount, seedDmChannels } = useUnread();
+  const { isChannelUnread, registerChannels, getMentionCount, seedDmChannels, notifyDmActivity } = useUnread();
   const { user } = useAuth();
   const selfId = user?.id ?? null;
   const selfName = user?.displayName || user?.username || "";
@@ -96,9 +97,22 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const [sheetMessage, setSheetMessage] = useState<Message | null>(null);
   const rowPress = useLongPress<Message>(setSheetMessage);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
-  const eventSourceRef = useRef<EventSource | null>(null);
-  const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
-  const reconnectAttemptsRef = useRef(0);
+  // Live updates are applied in place; a full list fetch is debounced and
+  // only needed for rows we don't have (or after a reconnect / resume).
+  const refetchTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const fetchRef = useRef<(fresh?: boolean) => Promise<void>>(async () => {});
+  // Bumped by every in-place update: a list fetch that raced one refetches.
+  const liveEditsRef = useRef(0);
+  const scheduleRefetch = useCallback(() => {
+    if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+    refetchTimerRef.current = setTimeout(() => {
+      refetchTimerRef.current = null;
+      void fetchRef.current(true);
+    }, 250);
+  }, []);
+  useEffect(() => () => {
+    if (refetchTimerRef.current) clearTimeout(refetchTimerRef.current);
+  }, []);
 
   const formatTimestamp = useCallback((date: string | Date) => {
     if (!date) return "";
@@ -116,10 +130,15 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
     return d.toLocaleDateString();
   }, []);
 
-  const fetchMessages = useCallback(async () => {
+  // `fresh`: bypass the shared/boot GET (sharedGet may hand back a request
+  // that started before the event we're refetching for).
+  const fetchMessages = useCallback(async (fresh = false) => {
     const issuedAt = Date.now();
+    const editsAtStart = liveEditsRef.current;
     try {
-      const response = await sharedGet("/api/dms");
+      const response = fresh
+        ? await fetch("/api/dms", { credentials: "include", cache: "no-store" })
+        : await sharedGet("/api/dms");
       if (response.ok) {
         const data = await response.json();
         if (typeof data.messageRequestCount === "number") seedMessageRequestCount(data.messageRequestCount);
@@ -206,6 +225,8 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         const order = new Map(((data.channels || []) as ListChannel[]).map((c, i) => [c.id, i]));
         const list = [...seenRecipients.values(), ...groups].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
         setMessages(list);
+        // A live update landed while this request was out: it may predate it.
+        if (liveEditsRef.current !== editsAtStart) scheduleRefetch();
         if (selfId && encryptedJobs.length > 0) {
           const kept = new Set(list.map((m) => m.id));
           void decryptRowPreviews(
@@ -242,58 +263,103 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [formatTimestamp, registerChannels, seedDmChannels, selfId, selfName]);
+  }, [formatTimestamp, registerChannels, seedDmChannels, selfId, selfName, scheduleRefetch]);
+
+  useEffect(() => {
+    fetchRef.current = fetchMessages;
+  }, [fetchMessages]);
 
   useEffect(() => {
     fetchMessages();
   }, [fetchMessages]);
 
-  useEffect(() => {
-    const connectSSE = () => {
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
+  // A DM message (any author, any device) bumps its row to the top with the
+  // new preview, without refetching the whole list.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const applyListUpdate = (data: any) => {
+    const channelId = String(data.channelId ?? "");
+    const msg = data.message as
+      | { id?: string; content?: string; authorId?: string; createdAt?: string; encrypted?: boolean; e2ee?: unknown }
+      | undefined;
+    if (!channelId || !msg?.id) {
+      // No message (e.g. a request was accepted): the row may be new.
+      scheduleRefetch();
+      return;
+    }
+    const authorId = msg.authorId ? String(msg.authorId) : "";
+    const createdAt = typeof msg.createdAt === "string" ? msg.createdAt : new Date().toISOString();
+    if (authorId) notifyDmActivity(channelId, createdAt, msg.id, authorId);
+    const row = messages.find((m) => m.id === channelId);
+    if (!row) {
+      scheduleRefetch();
+      return;
+    }
+    let preview: string;
+    if (msg.encrypted) {
+      preview = decryptedPreviewsRef.current.get(`${channelId}|${msg.id}`) ?? gt("Encrypted message");
+      if (selfId && authorId && msg.e2ee && !isBlockedAuthor(authorId.toLowerCase(), getRelationships().blocked)) {
+        const names: Record<string, string> = { [selfId]: selfName };
+        if (row.type === "dm") names[row.recipientId] = row.name;
+        const messageId = msg.id;
+        void decryptRowPreviews(
+          [{
+            rowId: channelId,
+            input: { id: messageId, channelId, authorId, createdAt, e2ee: msg.e2ee },
+            dmPeer: row.type === "dm" ? row.recipientId : null,
+            names,
+          }],
+          selfId,
+          { attachment: gt("📎 Attachment"), sticker: gt("Sticker"), spoiler: gt("Spoiler") },
+          (rowId, text) => {
+            const cache = decryptedPreviewsRef.current;
+            cache.set(`${rowId}|${messageId}`, text);
+            if (cache.size > 300) cache.delete(cache.keys().next().value!);
+            setMessages((prev) => prev.map((m) => (m.id === rowId ? { ...m, lastMessage: text } : m)));
+          },
+        );
       }
+    } else {
+      preview = notificationPreview(msg.content, 120) || row.lastMessage;
+    }
+    liveEditsRef.current += 1;
+    setMessages((prev) => {
+      const idx = prev.findIndex((m) => m.id === channelId);
+      if (idx === -1) return prev;
+      const updated: Message = { ...prev[idx], lastMessage: preview, timestamp: formatTimestamp(createdAt) };
+      return [updated, ...prev.slice(0, idx), ...prev.slice(idx + 1)];
+    });
+  };
 
-      const source = new EventSource("/api/dms/stream");
-      eventSourceRef.current = source;
-
-      source.onopen = () => {
-        reconnectAttemptsRef.current = 0;
-      };
-
-      source.onmessage = (event) => {
-        try {
-          const data = JSON.parse(event.data);
-          if (data.type === "connected" || data.type === "ping") return;
-          if (data.type === "dm:list:update" || data.type === "group:update" || data.type === "group:remove") {
-            fetchMessages();
-          }
-        } catch {
-          // ignore malformed events
-        }
-      };
-
-      source.onerror = () => {
-        source.close();
-        const backoffMs = Math.min(1000 * Math.pow(2, reconnectAttemptsRef.current), 30000);
-        reconnectAttemptsRef.current += 1;
-        if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-        reconnectTimeoutRef.current = setTimeout(connectSSE, backoffMs);
-      };
-    };
-
-    connectSSE();
-
-    return () => {
-      if (eventSourceRef.current) eventSourceRef.current.close();
-      if (reconnectTimeoutRef.current) clearTimeout(reconnectTimeoutRef.current);
-    };
-  }, [fetchMessages]);
+  // DM list stream. Self-healing (src/hooks/useStreamRevive.ts): reconnects at
+  // once when the phone wakes the page, replaces silent half-open connections,
+  // and refetches whatever was sent while it was down.
+  useResilientStream("/api/dms/stream", {
+    onOpen: ({ reconnect }) => {
+      if (reconnect) scheduleRefetch();
+    },
+    onResume: ({ reconnecting, hiddenForMs }) => {
+      // Reconnecting: onOpen refetches. Back after a while: refresh the list
+      // (also brings the relative timestamps up to date).
+      if (!reconnecting && hiddenForMs >= 15_000) scheduleRefetch();
+    },
+    onMessage: (data) => {
+      if (data.type === "dm:list:update") {
+        applyListUpdate(data);
+      } else if (data.type === "group:remove") {
+        const channelId = String(data.channelId ?? "");
+        liveEditsRef.current += 1;
+        setMessages((prev) => prev.filter((m) => m.id !== channelId));
+      } else if (data.type === "group:update") {
+        // Group rows need member names / avatars: rebuild from the server.
+        scheduleRefetch();
+      }
+    },
+  });
 
   const handleRefresh = useCallback(async () => {
     if (isRefreshing) return;
     setIsRefreshing(true);
-    await fetchMessages();
+    await fetchMessages(true);
   }, [fetchMessages, isRefreshing]);
   const { pullDistance, pullHandlers } = usePullToRefresh(scrollContainerRef, handleRefresh);
 
