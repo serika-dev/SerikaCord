@@ -10,6 +10,7 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { useTouchOnlyInput } from "@/hooks/useVisualViewport";
 
 export interface ComposerEmoji {
   id: string;
@@ -128,6 +129,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
     ref
   ) {
     const gt = useGT();
+    // On-screen keyboards show a return key (newline) instead of "send".
+    const touchOnly = useTouchOnlyInput();
     const editorRef = useRef<HTMLDivElement>(null);
     const isEmptyRef = useRef(true);
     const [isEmpty, setIsEmpty] = useState(true);
@@ -453,7 +456,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         {isEmpty && placeholder && (
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 flex items-start pt-2.5 pl-10 sm:pl-14 text-sm sm:text-base text-[var(--app-muted-2)] truncate"
+            className="pointer-events-none absolute inset-0 flex items-start pt-2.5 pl-10 sm:pl-14 text-base text-[var(--app-muted-2)] truncate"
           >
             {placeholder}
           </span>
@@ -466,6 +469,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
           aria-label={ariaLabel ?? placeholder}
           contentEditable={!disabled}
           suppressContentEditableWarning
+          enterKeyHint={touchOnly ? "enter" : "send"}
           spellCheck
           onInput={handleInput}
           onPaste={handlePaste}
@@ -475,7 +479,9 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
           onKeyUp={reportCaret}
           onClick={reportCaret}
           className={cn(
-            "w-full min-h-[44px] max-h-[300px] overflow-y-auto py-2.5 pl-10 sm:pl-14 pr-24 sm:pr-36 bg-transparent text-[var(--text-primary)] text-sm sm:text-base outline-none whitespace-pre-wrap break-words",
+            // 16px at every width: smaller text makes iOS zoom in on focus.
+            // On phones the box stops at a third of the screen so the list stays visible.
+            "w-full min-h-[44px] max-h-[35dvh] md:max-h-[300px] overflow-y-auto py-2.5 pl-10 sm:pl-14 pr-24 sm:pr-36 bg-transparent text-[var(--text-primary)] text-base outline-none whitespace-pre-wrap break-words",
             className
           )}
         />

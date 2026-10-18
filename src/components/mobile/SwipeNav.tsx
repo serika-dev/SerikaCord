@@ -6,6 +6,9 @@ import { classifySwipe } from "@/lib/native/navigation";
 import { gestureAxis, GESTURE_IGNORE_SELECTOR, GESTURE_SETTLE_CLASS, resistedDrag, type GestureAxis } from "@/lib/mobile/gestures";
 import { isRowSwipe } from "@/components/chat/SwipeReplyRow";
 
+/** Touches this close to a screen edge belong to the OS (iOS edge-swipe back). */
+const EDGE_GUARD_PX = 20;
+
 /** Phone navigation follows a deliberate horizontal drag, then settles softly. */
 export function SwipeNav({
   children,
@@ -43,6 +46,8 @@ export function SwipeNav({
     if (target?.closest?.(GESTURE_IGNORE_SELECTOR)) return;
     if (document.querySelector('[data-message-sheet], [role="dialog"][data-state="open"]')) return;
     if (window.getSelection?.()?.isCollapsed === false) return;
+    const x = e.touches[0].clientX;
+    if (x < EDGE_GUARD_PX || x > window.innerWidth - EDGE_GUARD_PX) return;
     start.current = { x: e.touches[0].clientX, y: e.touches[0].clientY, t: performance.now() };
   };
 

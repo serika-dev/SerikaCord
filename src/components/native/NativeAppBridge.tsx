@@ -27,16 +27,36 @@ interface NativeInsets {
   keyboardVisible?: boolean;
 }
 
+let pendingInsets: NativeInsets | null = null;
+let insetsFrame: number | null = null;
+let lastInsetsKey = "";
+
+function writeInsets() {
+  insetsFrame = null;
+  const insets = pendingInsets;
+  pendingInsets = null;
+  if (!insets) return;
+  const px = (n: unknown) => `${Math.max(0, Math.round(Number(n) || 0))}px`;
+  const values = [px(insets.top), px(insets.bottom), px(insets.left), px(insets.right), px(insets.keyboard)];
+  const visible = Boolean(insets.keyboardVisible);
+  const key = `${values.join(",")}:${visible}`;
+  if (key === lastInsetsKey) return;
+  lastInsetsKey = key;
+  const root = document.documentElement;
+  root.style.setProperty("--native-inset-top", values[0]);
+  root.style.setProperty("--native-inset-bottom", values[1]);
+  root.style.setProperty("--native-inset-left", values[2]);
+  root.style.setProperty("--native-inset-right", values[3]);
+  root.style.setProperty("--native-keyboard", values[4]);
+  root.classList.toggle("keyboard-open", visible);
+}
+
+/** Inset updates arrive every frame while the keyboard animates: coalesce
+ *  them to one root style write per frame, skipped when nothing changed. */
 function applyInsets(insets: NativeInsets | null) {
   if (!insets) return;
-  const root = document.documentElement;
-  const px = (n: unknown) => `${Math.max(0, Math.round(Number(n) || 0))}px`;
-  root.style.setProperty("--native-inset-top", px(insets.top));
-  root.style.setProperty("--native-inset-bottom", px(insets.bottom));
-  root.style.setProperty("--native-inset-left", px(insets.left));
-  root.style.setProperty("--native-inset-right", px(insets.right));
-  root.style.setProperty("--native-keyboard", px(insets.keyboard));
-  root.classList.toggle("keyboard-open", Boolean(insets.keyboardVisible));
+  pendingInsets = insets;
+  if (insetsFrame === null) insetsFrame = requestAnimationFrame(writeInsets);
 }
 
 /** The app's background colour as the theme currently resolves it. */
@@ -187,6 +207,10 @@ export function NativeAppBridge() {
     return () => {
       cleanups.forEach((fn) => fn());
       w.__serikaSetBadge = previousBadge;
+      if (insetsFrame !== null) cancelAnimationFrame(insetsFrame);
+      insetsFrame = null;
+      pendingInsets = null;
+      lastInsetsKey = "";
       root.classList.remove("native-app", `native-${nativePlatform()}`, "keyboard-open");
     };
   }, []);

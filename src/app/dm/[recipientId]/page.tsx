@@ -37,6 +37,7 @@ import { useSlashCommands } from "@/hooks/useSlashCommands";
 import { playTts } from "@/lib/chat/tts";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { isTouchOnlyInput, useCoarsePointer } from "@/hooks/useVisualViewport";
 import type { ChatMessage, MessageAuthor } from "@/lib/chat/types";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { T, useGT } from "gt-next";
@@ -92,6 +93,8 @@ export default function DMConversationPage() {
   const { user, isLoading: authLoading, refresh } = useAuth();
   const { clearContext } = useServer();
   const isMobile = useIsMobile();
+  // Touch tablets (wider than the phone layout) still need long-press + swipe.
+  const coarsePointer = useCoarsePointer();
 
   // Paint the header instantly on revisit from the tab-lifetime profile cache;
   // the fetch below revalidates. Without this the name/avatar flash empty on
@@ -531,7 +534,8 @@ export default function DMConversationPage() {
       emitHotkey("mark-channel-read");
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Touch-only keyboards have no Shift: Enter is a newline, the send button sends.
+    if (e.key === "Enter" && !e.shiftKey && !isTouchOnlyInput()) {
       e.preventDefault();
       void handleSend();
     }
@@ -615,7 +619,7 @@ export default function DMConversationPage() {
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
-        <div className="h-14 sm:h-16 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)] safe-area-top">
+        <div className="min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/channels/messages"
@@ -777,7 +781,7 @@ export default function DMConversationPage() {
           actions={chat.actions}
           currentUserId={user.id}
           canPin
-          swipeEnabled={isMobile}
+          swipeEnabled={isMobile || coarsePointer}
           mentionUsers={mentionUsers}
           serverEmojis={availableServerEmojis}
           availableServerEmojis={availableServerEmojis}

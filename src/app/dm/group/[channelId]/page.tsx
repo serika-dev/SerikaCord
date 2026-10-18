@@ -53,6 +53,7 @@ import { useComposerSuggestions, type ComposerSuggestion } from "@/hooks/useComp
 import { useSlashCommands } from "@/hooks/useSlashCommands";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { isTouchOnlyInput, useCoarsePointer } from "@/hooks/useVisualViewport";
 import { playTts } from "@/lib/chat/tts";
 import type { ChatMessage } from "@/lib/chat/types";
 import { useMessageSearch, type SearchHit } from "@/hooks/useMessageSearch";
@@ -78,6 +79,8 @@ export default function GroupDMPage() {
   const { user, isLoading: authLoading, refresh } = useAuth();
   const { clearContext } = useServer();
   const isMobile = useIsMobile();
+  // Touch tablets (wider than the phone layout) still need long-press + swipe.
+  const coarsePointer = useCoarsePointer();
   const confirm = useConfirm();
 
   const [groupState, setGroup] = useState<GroupInfo | null>(() => getCachedGroup(channelId));
@@ -458,7 +461,8 @@ export default function GroupDMPage() {
       }
       emitHotkey("mark-channel-read");
     }
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Touch-only keyboards have no Shift: Enter is a newline, the send button sends.
+    if (e.key === "Enter" && !e.shiftKey && !isTouchOnlyInput()) {
       e.preventDefault();
       void handleSend();
     }
@@ -546,7 +550,7 @@ export default function GroupDMPage() {
     <div className="chat-shell flex-1 flex bg-[var(--bg-app)] animate-fade-in overflow-hidden">
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
-        <div className="h-14 sm:h-16 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)] safe-area-top">
+        <div className="min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/channels/messages"
@@ -671,7 +675,7 @@ export default function GroupDMPage() {
           actions={chat.actions}
           currentUserId={user.id}
           canPin
-          swipeEnabled={isMobile}
+          swipeEnabled={isMobile || coarsePointer}
           mentionUsers={mentionUsers}
           serverEmojis={availableServerEmojis}
           availableServerEmojis={availableServerEmojis}

@@ -36,9 +36,13 @@ export const metadata: Metadata = buildRootMetadata();
 export const viewport: Viewport = {
   width: "device-width",
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
-  themeColor: "#8B5CF6",
+  // Pinch zoom stays available (accessibility); text fields are 16px on phones
+  // so iOS doesn't auto-zoom on focus.
+  // Browser chrome matches the app background (--app-bg in globals.css).
+  themeColor: [
+    { media: "(prefers-color-scheme: dark)", color: "#05060a" },
+    { media: "(prefers-color-scheme: light)", color: "#f4f7fc" },
+  ],
   // Required for env(safe-area-inset-*) to be non-zero on notched devices
   viewportFit: "cover",
   // Have the on-screen keyboard resize the layout instead of overlaying it
@@ -99,10 +103,9 @@ export default function RootLayout({
       <head suppressHydrationWarning>
         <meta name="apple-mobile-web-app-capable" content="yes" />
         <meta name="mobile-web-app-capable" content="yes" />
-        <link rel="apple-touch-icon" href="/logo-icon.svg" />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: rtlBootstrapScript }} />
-        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "document.addEventListener('contextmenu',function(e){e.preventDefault();},false);" }} />
+        <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "document.addEventListener('contextmenu',function(e){if(e.defaultPrevented)return;var t=e.target;if(t&&t.closest&&t.closest('input,textarea,select,[contenteditable]:not([contenteditable=\"false\"]),.chat-message-body a[href],.chat-message-body img'))return;e.preventDefault();},false);" }} />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "if(window.__TAURI__){var _f=window.fetch;window.fetch=function(u,o){o=o||{};o.headers=o.headers||{};if(o.headers instanceof Headers){o.headers.set('x-serika-client','tauri');}else{o.headers['x-serika-client']='tauri';}return _f.call(window,u,o);};}" }} />
       </head>
       <body

@@ -1,65 +1,90 @@
 // SerikaCord Service Worker
 // Handles caching and local notifications
 
-const CACHE_NAME = 'serikacord-v1';
-const STATIC_ASSETS = [
-    '/',
-    '/manifest.json',
+// Bump CACHE_VERSION whenever the caching rules change: activate deletes every
+// other serikacord cache (v1 cached pages, RSC payloads and media).
+const CACHE_VERSION = 'v2';
+const STATIC_CACHE = `serikacord-static-${CACHE_VERSION}`;
+/** Entries kept in the runtime cache (oldest dropped first). */
+const STATIC_CACHE_LIMIT = 300;
+const PRECACHE = [
     '/icons/icon-192x192.png',
     '/icons/icon-512x512.png',
 ];
 
-// Install event - cache static assets
+// Install event - precache the notification / app icons
 self.addEventListener('install', (event) => {
     event.waitUntil(
-        caches.open(CACHE_NAME).then((cache) => {
-            return cache.addAll(STATIC_ASSETS);
-        })
+        caches.open(STATIC_CACHE)
+            .then((cache) => cache.addAll(PRECACHE))
+            .catch(() => { /* icons are a nicety, never block the update */ })
     );
     // Activate immediately
     self.skipWaiting();
 });
 
-// Activate event - clean old caches
+// Activate event - drop caches from older versions
 self.addEventListener('activate', (event) => {
     event.waitUntil(
-        caches.keys().then((cacheNames) => {
-            return Promise.all(
+        caches.keys()
+            .then((cacheNames) => Promise.all(
                 cacheNames
-                    .filter((name) => name !== CACHE_NAME)
+                    .filter((name) => name.startsWith('serikacord') && name !== STATIC_CACHE)
                     .map((name) => caches.delete(name))
-            );
-        })
+            ))
+            .then(() => self.clients.claim())
     );
-    // Take control of all clients immediately
-    self.clients.claim();
 });
 
-// Fetch event - network first, fall back to cache
+/**
+ * Only immutable, same-origin build assets and icons are cached. Pages
+ * (navigations), RSC payloads, the API, streams and media always go to the
+ * network: they are per-user and change constantly.
+ */
+function isCacheableRequest(request, url) {
+    if (request.method !== 'GET') return false;
+    if (url.origin !== self.location.origin) return false;
+    if (request.mode === 'navigate') return false;
+    if (request.headers.has('range')) return false;
+    if (request.headers.get('RSC') || url.searchParams.has('_rsc')) return false;
+    if (url.pathname.startsWith('/api/')) return false;
+    // Content-hashed build output and app icons.
+    return url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/');
+}
+
+async function trimCache(cache) {
+    const keys = await cache.keys();
+    const excess = keys.length - STATIC_CACHE_LIMIT;
+    for (let i = 0; i < excess; i++) await cache.delete(keys[i]);
+}
+
+async function cacheFirst(request) {
+    const cache = await caches.open(STATIC_CACHE);
+    const cached = await cache.match(request);
+    if (cached) return cached;
+    const response = await fetch(request);
+    // Only complete, same-origin successes (never 206 partials, errors or
+    // opaque responses).
+    if (response.ok && response.status === 200 && response.type === 'basic') {
+        const copy = response.clone();
+        cache.put(request, copy)
+            .then(() => trimCache(cache))
+            .catch(() => { /* quota / transient: just don't cache */ });
+    }
+    return response;
+}
+
+// Fetch event - cache-first for static assets, everything else untouched
 self.addEventListener('fetch', (event) => {
-    // Skip non-GET requests
-    if (event.request.method !== 'GET') return;
-
-    // Skip API requests - they should always be fresh
-    if (event.request.url.includes('/api/')) return;
-
-    // Skip non-http(s) requests (chrome-extension://, etc.) — Cache API can't handle them
-    if (!event.request.url.startsWith('http')) return;
-
-    event.respondWith(
-        fetch(event.request)
-            .then((response) => {
-                // Clone the response before caching
-                const responseClone = response.clone();
-                caches.open(CACHE_NAME).then((cache) => {
-                    cache.put(event.request, responseClone);
-                });
-                return response;
-            })
-            .catch(() => {
-                return caches.match(event.request);
-            })
-    );
+    const request = event.request;
+    let url;
+    try {
+        url = new URL(request.url);
+    } catch {
+        return;
+    }
+    if (!isCacheableRequest(request, url)) return;
+    event.respondWith(cacheFirst(request));
 });
 
 // Handle messages from the main app
@@ -71,7 +96,7 @@ self.addEventListener('message', (event) => {
             self.registration.showNotification(title, {
                 body,
                 icon: icon || '/icons/icon-192x192.png',
-                badge: '/icons/badge-72x72.png',
+                badge: '/icons/icon-72x72.png',
                 // One notification per conversation: a newer one replaces it.
                 tag: tag || 'serikacord-message',
                 renotify: Boolean(renotify && tag),

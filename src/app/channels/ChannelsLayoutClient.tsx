@@ -7,8 +7,6 @@ import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
 import { useAppHotkeys } from "@/hooks/useAppHotkeys";
 import { onHotkey } from "@/lib/keybinds";
-import { KeyboardShortcutsDialog } from "@/components/KeyboardShortcutsDialog";
-import { QuickSwitcher } from "@/components/QuickSwitcher";
 import { ServerSidebar } from "@/components/layout/ServerSidebar";
 import { ChannelSidebar } from "@/components/layout/ChannelSidebar";
 import { BottomNavigation } from "@/components/mobile";
@@ -28,6 +26,7 @@ import { toast } from "sonner";
 import { parseServerLinkReturn } from "@/lib/connections/serverOwned";
 import { ServerOnboardingAutoRoute } from "@/components/server/community/ServerOnboardingAutoRoute";
 import type { ServerSettingsTab } from "@/components/dialogs/ServerSettingsDialog";
+import { useVisualViewportVars } from "@/hooks/useVisualViewport";
 
 const dialogFallback = () => <div className="hidden" />;
 const mobileFallback = () => <div className="flex-1 bg-[var(--bg-app)]" />;
@@ -55,6 +54,15 @@ const ServerSettingsDialog = dynamic(
 const ChannelSettingsDialog = dynamic(
   () => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog),
   { loading: dialogFallback }
+);
+// Keyboard-only (Ctrl+/, Ctrl+K): desktop layout only, loaded after first paint.
+const KeyboardShortcutsDialog = dynamic(
+  () => import("@/components/KeyboardShortcutsDialog").then((m) => m.KeyboardShortcutsDialog),
+  { ssr: false }
+);
+const QuickSwitcher = dynamic(
+  () => import("@/components/QuickSwitcher").then((m) => m.QuickSwitcher),
+  { ssr: false }
 );
 
 // Phone layout breakpoint, read synchronously (no desktop-first render that
@@ -301,6 +309,8 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
   // Track if we're on mobile
   const isMobile = useSyncExternalStore(subscribeMobile, getMobileSnapshot, getMobileServerSnapshot);
+  // iOS keyboard: track the visual viewport so the phone shell shrinks with it.
+  useVisualViewportVars(isMobile);
 
   const mobileView: "servers" | "messages" | "notifications" | "profile" = pathname?.includes("/messages")
     ? "messages"
@@ -338,7 +348,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // Mobile Layout
   if (isMobile) {
     return (
-      <div className="flex h-dvh bg-[var(--bg-app)] overflow-hidden">
+      <div className="flex h-[var(--app-height,100dvh)] bg-[var(--bg-app)] overflow-hidden">
         {/* Mobile Server List - Only show in servers view when not in a channel */}
         {mobileView === "servers" && !isInChannel && !isSettingsRoute && (
           <MobileServerList 
@@ -426,9 +436,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         {/* Bottom Navigation */}
         <BottomNavigation />
 
-        {/* Dialogs */}
-        <KeyboardShortcutsDialog />
-        <QuickSwitcher />
+        {/* Dialogs (keyboard shortcut dialogs are desktop-only) */}
         <MountWhenOpened open={showCreateServer}>
           <CreateServerDialog
             open={showCreateServer}

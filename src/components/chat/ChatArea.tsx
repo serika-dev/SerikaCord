@@ -59,6 +59,7 @@ import { playTts } from "@/lib/chat/tts";
 import { useSlashCommands } from "@/hooks/useSlashCommands";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { isTouchOnlyInput, useCoarsePointer } from "@/hooks/useVisualViewport";
 import { decodeHtmlEntities, formatMessageTimestamp } from "@/lib/chat/messages";
 import { quoteSearchValue } from "@/lib/chat/searchQuery";
 import { useMessageSearch, type SearchHit, type SearchHitChannel } from "@/hooks/useMessageSearch";
@@ -257,6 +258,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   const canPinMessages = canModerateMessages || perms.can("PIN_MESSAGES");
   const router = useRouter();
   const isMobile = useIsMobile();
+  // Touch tablets (≥768px) still need long-press menus and swipe-to-reply.
+  const coarsePointer = useCoarsePointer();
   const messageBarRef = useRef<MessageBarHandle>(null);
   const messageListRef = useRef<MessageListHandle>(null);
   const searchBarRef = useRef<MessageSearchBarHandle>(null);
@@ -1779,7 +1782,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       else emitHotkey("mark-channel-read");
     }
 
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Touch-only keyboards have no Shift: Enter is a newline, the send button sends.
+    if (e.key === "Enter" && !e.shiftKey && !isTouchOnlyInput()) {
       e.preventDefault();
       void handleSend();
     }
@@ -2094,7 +2098,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         canPin={canPinMessages}
         serverId={currentServer?.id}
         serverName={currentServer?.name}
-        swipeEnabled={isMobile}
+        swipeEnabled={isMobile || coarsePointer}
         mentionUsers={mentionUsers}
         mentionRoles={mentionRoles}
         userRoleColorMap={userRoleColorMap}

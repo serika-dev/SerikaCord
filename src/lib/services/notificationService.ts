@@ -42,6 +42,19 @@ export async function registerServiceWorker(): Promise<ServiceWorkerRegistration
         return null;
     }
 
+    // Capacitor app: notifications are native (LocalNotifications + FCM) and
+    // the WebView loads the live site, so a worker would only add a stale
+    // cache. Drop one an older build registered.
+    if (isMobileApp()) {
+        void navigator.serviceWorker
+            .getRegistrations()
+            .then((regs) => regs.forEach((reg) => {
+                if ((reg.active ?? reg.waiting ?? reg.installing)?.scriptURL.endsWith('/sw.js')) void reg.unregister();
+            }))
+            .catch(() => { /* best-effort */ });
+        return null;
+    }
+
     try {
         swRegistration = await navigator.serviceWorker.register('/sw.js', {
             scope: '/',
@@ -87,7 +100,28 @@ let unreadCount = 0;
 let notificationPermission: NotificationPermission | 'granted' | null = null;
 
 /**
- * Request notification permissions
+ * Pick up a permission the user already granted, without prompting. Browsers
+ * only allow the prompt from a user gesture (iOS rejects it otherwise and
+ * Chrome on Android quietly blocks the site), so on the web the prompt only
+ * comes from requestNotificationPermission() behind an explicit control
+ * (Settings > Notifications > "Enable Desktop & Push Notifications").
+ */
+export function syncNotificationPermission(): boolean {
+    if (isElectron() || isDesktopShell()) {
+        notificationPermission = 'granted';
+        return true;
+    }
+    if (typeof Notification === 'undefined') return false;
+    if (Notification.permission === 'granted') {
+        notificationPermission = 'granted';
+        return true;
+    }
+    return false;
+}
+
+/**
+ * Request notification permissions. On the web this shows the browser prompt:
+ * call it only from a user action (a click / tap handler).
  */
 export async function requestNotificationPermission(): Promise<boolean> {
     // Native shells handle notifications themselves
@@ -522,8 +556,10 @@ export async function initNotificationService(): Promise<void> {
     // Register service worker (for web)
     await registerServiceWorker();
 
-    // Request permissions
-    await requestNotificationPermission();
+    // Permissions: the native app asks through its own permission flow; the
+    // web never prompts on load (see syncNotificationPermission).
+    if (isMobileApp()) await requestNotificationPermission();
+    else syncNotificationPermission();
 
     // Setup Capacitor LocalNotification listeners for mobile
     if (isMobileApp()) {

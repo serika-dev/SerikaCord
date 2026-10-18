@@ -9,10 +9,18 @@
 ### Features
 
 ### Changes
+- **Enter adds a new line on phones** — on touch keyboards Enter now starts a new line and the send button sends, like Discord mobile. Keyboards with Shift keep Enter-to-send.
 
 ### Bug Fixes
+- **Messages arrive right after you unlock your phone** — chats, the DM list, unread badges and notifications reconnect as soon as the app comes back to the screen and fetch anything missed, instead of sitting on a dead connection.
+- **Mobile keyboard no longer hides the chat** — the composer stays above the keyboard on iPhone and Android, the newest messages stay in view, the header stays on screen, and tapping send keeps the keyboard open.
+- **Better touch controls** — bigger composer buttons, long-press menus and swipe-to-reply on tablets, no invisible hover buttons stealing taps, native copy/save menus on links, images and text fields, and the back gesture closes sheets in the mobile browser.
+- **Pinch-to-zoom works again** on mobile, and the composer text no longer makes iPhones zoom in.
+- **DMs open straight into the phone layout** instead of flashing the desktop one first.
 
 ### Performance
+- **Faster message delivery** — sending a message runs its permission, rate-limit and safety checks at the same time instead of one after another, DMs are delivered before the message-request bookkeeping finishes, and new-message badges in private channels reach everyone without a database lookup per member.
+- **Lighter mobile app** — desktop-only dialogs no longer load on phones, the DM sidebar stops re-rendering every 5 seconds, and the offline cache only keeps app files instead of every request.
 
 ### Security
 

@@ -1353,7 +1353,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     <button
                       type="button"
                       disabled={disabled}
-                      className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors z-10 disabled:opacity-50"
+                      className="absolute left-0 sm:left-3 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center sm:block sm:h-auto sm:w-auto text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors z-10 disabled:opacity-50"
                       title={gt("More options")}
                       aria-label={gt("More options")}
                     >
@@ -1377,7 +1377,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               <button
                 type="button"
                 onClick={() => fileInputRef.current?.click()}
-                className="absolute left-2 sm:left-3 top-1/2 -translate-y-1/2 text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors z-10"
+                className="absolute left-0 sm:left-3 top-1/2 -translate-y-1/2 flex h-10 w-10 items-center justify-center sm:block sm:h-auto sm:w-auto text-[var(--app-muted)] hover:text-[var(--text-primary)] transition-colors z-10"
                 title={gt("Upload file")}
               >
                 <PlusCircle className="w-5 sm:w-6 h-5 sm:h-6" />
@@ -1411,7 +1411,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               />
 
               {/* Right-side buttons (pinned to editor row) */}
-              <div className="absolute right-2 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
+              {/* Phones: each icon sits in a 40px touch target (no gap needed). */}
+              <div className="absolute right-0 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-0 sm:gap-4 text-[var(--app-muted)]">
               {/* GIF / Image picker button */}
               <button
                 type="button"
@@ -1454,7 +1455,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 <PopoverTrigger asChild>
                   <button
                     type="button"
-                    className="hover:text-[var(--text-primary)] transition-colors"
+                    className="flex h-10 w-10 items-center justify-center sm:block sm:h-auto sm:w-auto hover:text-[var(--text-primary)] transition-colors"
                     onClick={() => setPickerTab("emoji")}
                   >
                     <Smile className="w-5 sm:w-6 h-5 sm:h-6" />
@@ -1494,7 +1495,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     if (e.detail === 0 && !voiceSession) setVoiceSession({ hold: null });
                   }}
                   onContextMenu={(e) => e.preventDefault()}
-                  className="hover:text-[var(--text-primary)] transition-colors touch-none select-none"
+                  className="flex h-10 w-10 items-center justify-center sm:block sm:h-auto sm:w-auto hover:text-[var(--text-primary)] transition-colors touch-none select-none"
                   title={gt("Hold to record a voice message")}
                   aria-label={gt("Record voice message")}
                 >
@@ -1506,10 +1507,12 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               {(canSend || isSending || isUploading) && (
                 <button
                   type="button"
+                  // Keep focus (and the phone keyboard) in the composer when tapped.
+                  onPointerDown={(e) => e.preventDefault()}
                   onClick={onSend}
                   disabled={isUploading}
                   aria-label={isUploading ? gt("Uploading attachments") : isSending ? gt("Sending") : gt("Send message")}
-                  className="text-[var(--app-accent)] hover:text-[var(--accent-hover)] transition-colors disabled:opacity-70"
+                  className="flex h-10 w-10 items-center justify-center sm:block sm:h-auto sm:w-auto text-[var(--app-accent)] hover:text-[var(--accent-hover)] transition-colors disabled:opacity-70"
                 >
                   {isSending || isUploading ? (
                     <Loader size={20} className="sm:w-6 sm:h-6" />

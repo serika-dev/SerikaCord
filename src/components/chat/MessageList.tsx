@@ -676,11 +676,16 @@ function MessageListInner<M extends ChatMessage>(
   // asynchronously and grow the scroll height under us. Without this, the
   // initial scroll-to-bottom lands mid-list once that media loads, and the
   // resulting near-top scrollTop spuriously fires top-pagination.
+  // The scroll container itself is observed too: when it shrinks (on-screen
+  // keyboard opening, composer growing, reply bar appearing) scrollTop stays
+  // put and the newest messages would slide under the composer.
   useEffect(() => {
     const content = contentRef.current;
+    const scroller = viewportRef.current;
     if (!content || typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(() => {
-      if (!stickToBottomRef.current) return;
+    const ro = new ResizeObserver((entries) => {
+      const viewportResized = entries.some((entry) => entry.target === scroller);
+      if (!stickToBottomRef.current && !(viewportResized && isAtBottomRef.current)) return;
       const viewport = viewportRef.current;
       if (!viewport) return;
       if (pendingScrollRestoreRef.current) return; // top-pagination owns scroll
@@ -692,6 +697,7 @@ function MessageListInner<M extends ChatMessage>(
       tryAck();
     });
     ro.observe(content);
+    if (scroller) ro.observe(scroller);
     return () => ro.disconnect();
   }, [tryAck]);
 

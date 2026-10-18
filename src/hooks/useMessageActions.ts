@@ -7,6 +7,7 @@ import type { ChatMessage } from "@/lib/chat/types";
 import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
 import { reinsertMessage } from "@/lib/chat/messageWindow";
 import { contextTargetOf } from "@/lib/chat/imageActions";
+import { isTouchOnlyInput } from "@/hooks/useVisualViewport";
 
 export interface MessageContextMenuState<M extends ChatMessage = ChatMessage> {
   message: M;
@@ -147,7 +148,9 @@ export function useMessageActions<M extends ChatMessage>({
       // Enter / Escape that confirm or cancel an IME candidate (Japanese,
       // Chinese, Korean input) belong to the IME, not the edit box.
       if ((e.nativeEvent as KeyboardEvent).isComposing || e.keyCode === 229) return;
-      if (e.key === "Enter" && !e.shiftKey) {
+      // Touch-only devices have no Shift: Enter is a newline there and the
+      // Save button saves.
+      if (e.key === "Enter" && !e.shiftKey && !isTouchOnlyInput()) {
         e.preventDefault();
         void submitEdit();
       }

@@ -50,7 +50,8 @@
   --radius: 0.625rem;
   /* Mobile layout variables */
   --keyboard-height: 0px;
-  --bottom-nav-height: 60px;
+  /* BottomNavigation: 56px row + 1px top border (safe area added separately). */
+  --bottom-nav-height: 57px;
   /* Safe areas: the browser's env() values, or what the native app measured
      (--native-inset-*, set by NativeAppBridge; bottom includes the keyboard
      when the WebView is drawn edge to edge and isn't resized for it). */
@@ -488,6 +489,17 @@ textarea::selection,
     -webkit-tap-highlight-color: transparent;
     -webkit-touch-callout: none;
   }
+
+  /* ...except where the native long-press callout is useful: text fields
+     (paste, select) and links / images inside message content. */
+  input,
+  textarea,
+  [contenteditable]:not([contenteditable="false"]),
+  [contenteditable]:not([contenteditable="false"]) *,
+  .chat-message-body a[href],
+  .chat-message-body img {
+    -webkit-touch-callout: default;
+  }
   
   input, textarea, button, a {
     touch-action: manipulation;
@@ -537,6 +549,10 @@ textarea::selection,
    right on the keyboard. */
 html.keyboard-open {
   --bottom-nav-height: 0px;
+  /* The home indicator is under the keyboard: no safe-area gap below the
+     composer. The native app's measured inset (which may include the
+     keyboard itself when the WebView isn't resized) still applies. */
+  --safe-area-bottom: var(--native-inset-bottom, 0px);
 }
 html.keyboard-open .mobile-bottom-nav {
   display: none;
@@ -563,6 +579,13 @@ html.keyboard-open .mobile-bottom-nav {
   .mobile-screen-push {
     animation: none;
   }
+}
+
+/* No pull-to-refresh / rubber-band on the page itself (Chrome would reload
+   the app). Inner scrollers keep scrolling; they contain their own overscroll. */
+html,
+body {
+  overscroll-behavior-y: none;
 }
 
 /* Native app: no rubber-band overscroll or long-press text callouts on chrome. */

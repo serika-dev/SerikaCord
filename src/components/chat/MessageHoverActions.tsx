@@ -18,6 +18,7 @@ import dynamic from "next/dynamic";
 import type { ChatMessage, MessageCustomEmoji } from "@/lib/chat/types";
 import { isForwardable } from "@/lib/chat/forward";
 import { requestForward } from "@/lib/chat/forwardBus";
+import { useCoarsePointer } from "@/hooks/useVisualViewport";
 
 // Lazy-loaded so the reaction picker's code/data only load on first open,
 // keeping it out of every rendered message's bundle.
@@ -78,12 +79,15 @@ export function MessageHoverActions<M extends ChatMessage>({
   serverName,
 }: MessageHoverActionsProps<M>) {
   const gt = useChatGt();
+  // Touch screens have no hover: the long-press sheet replaces this toolbar.
+  const coarse = useCoarsePointer();
   const [shiftHeld, setShiftHeld] = useState(false);
   // Discord's hover bar: your three most-used reactions, one click away.
   const frecent = useFrecentEmojis();
   const quick = message.pending || message.ephemeral ? [] : quickReactions(frecent, 3);
 
   useEffect(() => {
+    if (coarse) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Shift") setShiftHeld(true);
     };
@@ -99,7 +103,7 @@ export function MessageHoverActions<M extends ChatMessage>({
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
     };
-  }, []);
+  }, [coarse]);
 
   const forwardable = isForwardable(message);
   // Polls and forwards have no text of their own to edit (like Discord).
@@ -118,13 +122,16 @@ export function MessageHoverActions<M extends ChatMessage>({
     onAddReaction(message.id, emojiStr);
   };
 
+  // On touch, an invisible toolbar would swallow taps on the message. It only
+  // renders while its reaction picker is open (the picker anchors to it).
+  if (coarse && !reactionPickerOpen) return null;
+
   return (
     <div
       className={cn(
         "absolute -top-3 right-4 transition-opacity z-[100]",
         reactionPickerOpen ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"
       )}
-    style={{ transform: 'translateZ(0)', willChange: 'opacity, transform' }}
     >
       <div className="flex items-center bg-[var(--app-surface-alt)] border border-[var(--app-border)] rounded-md shadow-lg">
         {quick.map((emoji, i) => (
