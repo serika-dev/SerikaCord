@@ -17,6 +17,10 @@
 - **Better touch controls** — bigger composer buttons, long-press menus and swipe-to-reply on tablets, no invisible hover buttons stealing taps, native copy/save menus on links, images and text fields, and the back gesture closes sheets in the mobile browser.
 - **Pinch-to-zoom works again** on mobile, and the composer text no longer makes iPhones zoom in.
 - **DMs open straight into the phone layout** instead of flashing the desktop one first.
+- **Double space types a period on Android** — tapping space twice after a word now inserts ". " in the message box, like other apps. (CORD-62)
+- **Unread DMs badge the Messages tab, not Home** — on phones the Home button opens Friends, so it no longer shows the DM count. (CORD-63)
+- **Connecting Twitch in the desktop app finishes** — the login no longer gets stuck on Twitch's page; relaunching the app also brings you back if a login was abandoned. (CORD-65)
+- **macOS desktop app is properly signed** — the build is signed (and notarized once Apple credentials are configured) so macOS no longer reports it as damaged. (CORD-66)
 
 ### Performance
 - **Faster message delivery** — sending a message runs its permission, rate-limit and safety checks at the same time instead of one after another, DMs are delivered before the message-request bookkeeping finishes, and new-message badges in private channels reach everyone without a database lookup per member.

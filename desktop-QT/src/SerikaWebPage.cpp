@@ -27,6 +27,17 @@ bool SerikaWebPage::acceptNavigationRequest(const QUrl &url, NavigationType type
     }
     if (SerikaConfig::isInAppNavigation(url)) return true;
 
+    // Already on an outside page (an OAuth provider reached by redirect, e.g.
+    // Twitch login): let its own links and form posts run in the window so the
+    // flow can finish and redirect back. Handing them to the browser left the
+    // window stuck on the provider (CORD-65).
+    const QUrl current = this->url();
+    if (!current.isEmpty()
+        && (current.scheme() == QLatin1String("http") || current.scheme() == QLatin1String("https"))
+        && !SerikaConfig::isInAppNavigation(current)) {
+        return true;
+    }
+
     // A user clicked/typed a link that leaves the app: open it in the browser.
     if (type == NavigationTypeLinkClicked || type == NavigationTypeTyped
         || type == NavigationTypeFormSubmitted) {

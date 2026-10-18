@@ -172,18 +172,91 @@ jobs:
           7z a "SerikaCord-${VERSION}-qt-windows.zip" .
 
       # ── macOS packaging ──────────────────────────────────────────────────────
+      # An unsigned (or broken ad-hoc signed) app downloaded from a browser is
+      # reported as "damaged" by Gatekeeper on Apple Silicon (CORD-66).
+      # With the Apple secrets set the app is Developer ID signed, notarized
+      # and stapled; without them it is ad-hoc signed so the signature is at
+      # least valid (users then need right-click > Open, or
+      # `xattr -dr com.apple.quarantine /Applications/SerikaCord.app`).
+      # Secrets: MACOS_CERTIFICATE (base64 .p12 of a "Developer ID
+      # Application" cert), MACOS_CERTIFICATE_PASSWORD, and for notarization
+      # APPLE_ID, APPLE_APP_PASSWORD (app-specific password), APPLE_TEAM_ID.
       - name: Package macOS
         if: matrix.name == 'macos'
         working-directory: desktop-QT/build
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
+          set -euo pipefail
           TAG="${{ inputs.tag || github.ref_name }}"
           VERSION="${TAG#v}"
+          APP=SerikaCord.app
+          DMG="SerikaCord-${VERSION}-qt.dmg"
+          ENTITLEMENTS="$GITHUB_WORKSPACE/desktop-QT/entitlements.plist"
           # CMake already builds the SerikaCord.app bundle (MACOSX_BUNDLE).
-          test -x SerikaCord.app/Contents/MacOS/SerikaCord
-          mkdir -p SerikaCord.app/Contents/Resources
-          cp ../src/resources/icons/app-icon.png SerikaCord.app/Contents/Resources/
-          macdeployqt SerikaCord.app
-          hdiutil create -volname "SerikaCord" -srcfolder SerikaCord.app -ov -format UDZO "SerikaCord-${VERSION}-qt.dmg"
+          test -x "$APP/Contents/MacOS/SerikaCord"
+          mkdir -p "$APP/Contents/Resources"
+
+          # Info.plist names app-icon.icns: build it from the PNG.
+          ICONSET="$RUNNER_TEMP/app-icon.iconset"
+          mkdir -p "$ICONSET"
+          SRC=../src/resources/icons/app-icon.png
+          for size in 16 32 128 256 512; do
+            sips -z $size $size "$SRC" --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+            sips -z $((size * 2)) $((size * 2)) "$SRC" --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns -o "$APP/Contents/Resources/app-icon.icns" "$ICONSET"
+          cp "$SRC" "$APP/Contents/Resources/"
+
+          macdeployqt "$APP"
+
+          IDENTITY="-"
+          if [ -n "${MACOS_CERTIFICATE:-}" ]; then
+            KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+            KEYCHAIN_PASSWORD="$(openssl rand -hex 16)"
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+            echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+            security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+            rm -f "$RUNNER_TEMP/cert.p12"
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" >/dev/null
+            security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+            IDENTITY="$(security find-identity -v -p codesigning "$KEYCHAIN" | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.*)"/\1/')"
+            if [ -z "$IDENTITY" ]; then echo "No Developer ID Application identity in MACOS_CERTIFICATE"; exit 1; fi
+            SIGN=(codesign --force --timestamp --options runtime -s "$IDENTITY")
+          else
+            echo "MACOS_CERTIFICATE not set: ad-hoc signing (Gatekeeper will still warn)"
+            SIGN=(codesign --force -s -)
+          fi
+
+          # Inside out: everything, then Chromium's helper with its JIT
+          # entitlements, then the framework and app that contain it.
+          "${SIGN[@]}" --deep "$APP"
+          WEBENGINE="$APP/Contents/Frameworks/QtWebEngineCore.framework"
+          HELPER="$(find "$WEBENGINE" -name QtWebEngineProcess.app -type d | head -1 || true)"
+          if [ -n "$HELPER" ]; then
+            "${SIGN[@]}" --entitlements "$ENTITLEMENTS" "$HELPER"
+            "${SIGN[@]}" "$WEBENGINE"
+          fi
+          "${SIGN[@]}" --entitlements "$ENTITLEMENTS" "$APP"
+          codesign --verify --deep --strict --verbose=2 "$APP"
+
+          hdiutil create -volname "SerikaCord" -srcfolder "$APP" -ov -format UDZO "$DMG"
+
+          if [ "$IDENTITY" != "-" ]; then
+            codesign --force --timestamp -s "$IDENTITY" "$DMG"
+            if [ -n "${APPLE_ID:-}" ] && [ -n "${APPLE_APP_PASSWORD:-}" ] && [ -n "${APPLE_TEAM_ID:-}" ]; then
+              xcrun notarytool submit "$DMG" --apple-id "$APPLE_ID" --password "$APPLE_APP_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+              xcrun stapler staple "$DMG"
+            else
+              echo "APPLE_ID / APPLE_APP_PASSWORD / APPLE_TEAM_ID not set: skipping notarization"
+            fi
+          fi
 
       # ── Upload artifacts ──────────────────────────────────────────────────────
       - name: Upload Linux artifacts

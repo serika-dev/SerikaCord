@@ -51,7 +51,9 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
   const isClient = useIsClient();
   const { servers, currentServer, setCurrentServer, setCurrentChannel, prefetchServer } = useServer();
   // Same unread/mention sources as the desktop ServerSidebar.
-  const { isServerUnread, getServerMentionCount, totalDmUnreadCount } = useUnread();
+  // DM unreads badge the bottom nav's Messages tab, not Home: on phones Home
+  // opens Friends (CORD-63).
+  const { isServerUnread, getServerMentionCount } = useUnread();
   const { isMuted } = useServerMutes();
   const [sheetServer, setSheetServer] = useState<RailServer | null>(null);
   const serverPress = useLongPress<RailServer>(setSheetServer);
@@ -86,7 +88,7 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
     >
       <div className="flex-1 overflow-y-auto overscroll-contain scrollbar-hide pt-2.5 pb-[calc(var(--mobile-content-pb)+0.75rem)]">
         <div className="flex flex-col items-center gap-2.5 px-3">
-          {/* Home (friends + DMs) */}
+          {/* Home (friends) */}
           <div className="relative">
             <RailPill state={!currentServer ? "active" : null} />
             <button
@@ -103,11 +105,6 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
               <svg className="h-6 w-6" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
                 <path d="M19.73 4.87l-3.5-1.7a1 1 0 00-.87 0L12 4.86 8.64 3.17a1 1 0 00-.87 0l-3.5 1.7A1 1 0 004 5.74v12.52a1 1 0 00.63.93l3.5 1.4a1 1 0 00.74 0L12 19.2l3.13 1.39a1 1 0 00.74 0l3.5-1.4a1 1 0 00.63-.93V5.74a1 1 0 00-.27-.87zM11 17.67l-3 1.33V6.73l3 1.33zm5 1.33l-3-1.33V8.06l3-1.33z" />
               </svg>
-              {totalDmUnreadCount > 0 && (
-                <span className="absolute -bottom-0.5 -right-0.5 flex h-[18px] min-w-[18px] items-center justify-center rounded-full border-[3px] border-[var(--bg-sidebar)] bg-red-500 px-1 text-[10px] font-bold text-white">
-                  {totalDmUnreadCount > 99 ? "99+" : totalDmUnreadCount}
-                </span>
-              )}
             </button>
           </div>
 

@@ -33,6 +33,7 @@ public:
 
     void loadUrl(const QString &url);
     void showAndFocus();
+    void returnToAppIfAway();
     void toggleVisibility();
     void setZoom(double factor);
     void toggleFullscreen();

@@ -10,7 +10,8 @@ import {
 } from "react";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
-import { useTouchOnlyInput } from "@/hooks/useVisualViewport";
+import { isTouchOnlyInput, useTouchOnlyInput } from "@/hooks/useVisualViewport";
+import { shouldInsertDoubleSpacePeriod } from "@/lib/chat/doubleSpacePeriod";
 
 export interface ComposerEmoji {
   id: string;
@@ -324,6 +325,32 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       selection?.addRange(range);
       emitChange();
     }, [posToDom, emitChange]);
+
+    // Android's "double space for period" (CORD-62): the keyboard can't do it
+    // in a contentEditable, so replay it. Native beforeinput, because React's
+    // synthetic onBeforeInput has no inputType.
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor || !/Android/i.test(navigator.userAgent)) return;
+      let lastSpaceAt = 0;
+      const onBeforeInput = (e: InputEvent) => {
+        if (e.inputType !== "insertText" || e.data !== " " || e.isComposing) {
+          lastSpaceAt = 0;
+          return;
+        }
+        const now = performance.now();
+        const sinceLast = lastSpaceAt ? now - lastSpaceAt : Infinity;
+        lastSpaceAt = now;
+        if (!e.cancelable || !isTouchOnlyInput()) return;
+        const caret = getCaret();
+        if (!shouldInsertDoubleSpacePeriod(serialize().slice(0, caret), sinceLast)) return;
+        e.preventDefault();
+        lastSpaceAt = 0;
+        domReplaceRange(caret - 1, caret, document.createTextNode(". "));
+      };
+      editor.addEventListener("beforeinput", onBeforeInput);
+      return () => editor.removeEventListener("beforeinput", onBeforeInput);
+    }, [getCaret, serialize, domReplaceRange]);
 
     useImperativeHandle(ref, () => ({
       focus: () => {

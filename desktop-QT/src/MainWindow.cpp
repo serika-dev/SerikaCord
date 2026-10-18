@@ -1,5 +1,6 @@
 #include "MainWindow.h"
 
+#include "AppConfig.h"
 #include "AppSettings.h"
 #include "AutoStart.h"
 #include "DeepLinkHandler.h"
@@ -483,6 +484,16 @@ void MainWindow::showAndFocus() {
     activateWindow();
     setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
     if (QWindow *w = windowHandle()) w->requestActivate();
+}
+
+void MainWindow::returnToAppIfAway() {
+    // Relaunching the app while the window sits on an outside page (an
+    // abandoned OAuth login) brings back the app instead of that page.
+    const QUrl current = m_view->url();
+    if ((current.scheme() == QLatin1String("http") || current.scheme() == QLatin1String("https"))
+        && !SerikaConfig::isInAppNavigation(current)) {
+        loadUrl(SerikaConfig::appUrl() + QString::fromLatin1(SerikaConfig::START_PATH));
+    }
 }
 
 void MainWindow::toggleVisibility() {

@@ -149,7 +149,12 @@ int main(int argc, char *argv[]) {
     QObject::connect(&single, &SingleInstance::anotherInstanceStarted, &mainWindow,
                      [&mainWindow, &deepLinks](const QString &msg) {
         if (msg.isEmpty()) return;
-        if (msg == QLatin1String(SHOW_MESSAGE) || !deepLinks.handleLink(msg)) mainWindow.showAndFocus();
+        if (msg == QLatin1String(SHOW_MESSAGE)) {
+            mainWindow.returnToAppIfAway();
+            mainWindow.showAndFocus();
+        } else if (!deepLinks.handleLink(msg)) {
+            mainWindow.showAndFocus();
+        }
     });
 
     const QString startPath = launchLink.isEmpty()
