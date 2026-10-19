@@ -28,6 +28,7 @@ import {
   ONBOARDING_QUESTIONS_MAX,
   ONBOARDING_ROLES_PER_OPTION,
   ONBOARDING_TITLE_MAX,
+  incompleteOnboardingQuestions,
 } from "@/lib/servers/onboarding";
 
 // The admin preview of the join flow loads on first open.
@@ -119,6 +120,12 @@ function fromApi(raw: unknown): Draft {
 }
 
 /** What the server keeps: untitled entries and option-less questions are dropped on save. */
+/** A question with no text at all (an "Add a question" that was never filled in). */
+function isBlankQuestionAt(questions: OnboardingQuestionView[], index: number): boolean {
+  const q = questions[index];
+  return !q.title.trim() && !q.description.trim() && q.options.every((o) => !o.title.trim() && !o.description.trim());
+}
+
 function savableQuestions(questions: OnboardingQuestionView[]): OnboardingQuestionView[] {
   return questions
     .map((q) => ({ ...q, options: q.options.filter((o) => o.title.trim()) }))
@@ -743,6 +750,10 @@ export default function ServerOnboardingPanel({ serverId, roles }: { serverId: s
   const setGuide = (guide: ServerGuideView) => setDraft({ ...draft, guide });
   const validQuestions = savableQuestions(draft.questions);
   const canEnable = validQuestions.length > 0;
+  // Half-finished questions would be dropped on save (CORD-68): block it and
+  // say which one. Completely blank questions are left out of the save.
+  const incomplete = incompleteOnboardingQuestions(draft.questions);
+  const firstIncomplete = incomplete.length > 0 ? incomplete[0] + 1 : null;
   const guide = draft.guide;
   const guideHasContent = guide.welcomeMessage.trim().length > 0 || guide.todos.length > 0 || guide.resources.length > 0;
 
@@ -757,7 +768,7 @@ export default function ServerOnboardingPanel({ serverId, roles }: { serverId: s
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           enabled: draft.enabled && canEnable,
-          questions: draft.questions,
+          questions: draft.questions.filter((_, i) => !isBlankQuestionAt(draft.questions, i)),
           guide: draft.guide,
         }),
       });
@@ -989,7 +1000,13 @@ export default function ServerOnboardingPanel({ serverId, roles }: { serverId: s
         </div>
       </section>
 
-      <div className="sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-app)]">
+      <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-app)]">
+        {firstIncomplete !== null && (
+          <p role="alert" className="mr-auto flex items-center gap-1.5 text-sm text-red-500">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            {gt("Question {number} needs a title and at least one option before you can save.", { number: firstIncomplete })}
+          </p>
+        )}
         <button
           type="button"
           disabled={!dirty || saving}
@@ -1000,7 +1017,7 @@ export default function ServerOnboardingPanel({ serverId, roles }: { serverId: s
         </button>
         <button
           type="button"
-          disabled={!dirty || saving}
+          disabled={!dirty || saving || firstIncomplete !== null}
           onClick={() => void save()}
           className="h-10 px-4 rounded-md bg-[var(--app-accent)] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-40"
         >

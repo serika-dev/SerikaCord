@@ -106,6 +106,30 @@ export interface OnboardingContext {
 }
 
 /** Normalizes a stored or submitted onboarding config against the server's channels and roles. */
+/**
+ * Questions that were started but can't be saved: they have some text but no
+ * title, or no option with a title. normalizeOnboardingConfig drops those, so
+ * the editor and the API refuse them instead of losing them silently
+ * (CORD-68). Completely blank questions aren't listed (they're just dropped).
+ * Returns their indexes in `questions`.
+ */
+export function incompleteOnboardingQuestions(questions: unknown): number[] {
+  if (!Array.isArray(questions)) return [];
+  const out: number[] = [];
+  questions.forEach((q, i) => {
+    if (!q || typeof q !== 'object') return;
+    const qr = q as Record<string, unknown>;
+    const options = (Array.isArray(qr.options) ? qr.options : [])
+      .filter((o): o is Record<string, unknown> => Boolean(o) && typeof o === 'object');
+    const title = str(qr.title, ONBOARDING_TITLE_MAX);
+    const titledOptions = options.filter((o) => str(o.title, ONBOARDING_TITLE_MAX));
+    const hasAnyText = Boolean(title || str(qr.description, ONBOARDING_DESCRIPTION_MAX)
+      || options.some((o) => str(o.title, ONBOARDING_TITLE_MAX) || str(o.description, ONBOARDING_DESCRIPTION_MAX)));
+    if (hasAnyText && (!title || titledOptions.length === 0)) out.push(i);
+  });
+  return out;
+}
+
 export function normalizeOnboardingConfig(input: unknown, ctx: OnboardingContext = {}): OnboardingConfig {
   if (!input || typeof input !== 'object') return { ...EMPTY_ONBOARDING, questions: [], guide: { ...EMPTY_GUIDE, todos: [], resources: [] } };
   const raw = input as Record<string, unknown>;

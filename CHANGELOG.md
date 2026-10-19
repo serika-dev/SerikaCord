@@ -34,6 +34,7 @@
 - **Enter adds a new line on phones** — on touch keyboards Enter now starts a new line and the send button sends, like Discord mobile. Keyboards with Shift keep Enter-to-send.
 
 ### Bug Fixes
+- **Onboarding questions no longer vanish on save** — a question that still needs a title or an option now blocks saving with a message saying which one, instead of being silently dropped. (CORD-68)
 - **Messages arrive right after you unlock your phone** — chats, the DM list, unread badges and notifications reconnect as soon as the app comes back to the screen and fetch anything missed, instead of sitting on a dead connection.
 - **Mobile keyboard no longer hides the chat** — the composer stays above the keyboard on iPhone and Android, the newest messages stay in view, the header stays on screen, and tapping send keeps the keyboard open.
 - **Better touch controls** — bigger composer buttons, long-press menus and swipe-to-reply on tablets, no invisible hover buttons stealing taps, native copy/save menus on links, images and text fields, and the back gesture closes sheets in the mobile browser.

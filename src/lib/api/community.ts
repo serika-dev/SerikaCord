@@ -53,6 +53,7 @@ import {
   isOnboardingVisible,
   isSafeOnboardingRole,
   normalizeLinkedConnectionIds,
+  incompleteOnboardingQuestions,
   normalizeOnboardingConfig,
   rolesWithUnsafeChannelGrants,
   validateOnboardingSelection,
@@ -442,6 +443,12 @@ export const communityRoutes = new Elysia()
     const safe = new Set((await Role.find({ serverId: access.server.id })).filter((r) => isSafeOnboardingRole(r)).map((r) => r.id));
     const roleIds = new Set([...keepable].filter((r) => safe.has(r)));
     const sanitized = sanitizeDeep(body) as Record<string, unknown>;
+    // Refuse half-finished questions instead of silently dropping them (CORD-68).
+    const incomplete = incompleteOnboardingQuestions(sanitized.questions);
+    if (incomplete.length > 0) {
+      set.status = 400;
+      return { error: 'Each question needs a title and at least one option', code: 'incomplete_question', questionIndex: incomplete[0] };
+    }
     const config = normalizeOnboardingConfig(
       { enabled: body.enabled ?? current.enabled, questions: sanitized.questions ?? current.questions, guide: sanitized.guide ?? current.guide },
       { channelIds, roleIds },
