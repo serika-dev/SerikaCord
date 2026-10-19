@@ -41,7 +41,8 @@ export type UploadCategory =
   | 'audio'
   | 'app-icons'
   | 'group-icons'
-  | 'event-covers';
+  | 'event-covers'
+  | 'webhook-avatars';
 
 interface UploadResult {
   url: string;
@@ -79,6 +80,7 @@ function validateFileType(category: UploadCategory, contentType: string): boolea
     banners: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'server-icons': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'group-icons': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    'webhook-avatars': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'event-covers': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'server-banners': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     emojis: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
@@ -104,6 +106,7 @@ function getMaxSize(category: UploadCategory): number {
     audio: 20 * 1024 * 1024, // 20MB
     'app-icons': config.MAX_AVATAR_SIZE,
     'group-icons': config.MAX_AVATAR_SIZE,
+    'webhook-avatars': config.MAX_AVATAR_SIZE,
     'event-covers': config.MAX_BANNER_SIZE,
   };
 

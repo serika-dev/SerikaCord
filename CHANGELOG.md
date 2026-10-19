@@ -7,12 +7,16 @@
 ## Unreleased
 
 ### Features
+- **Spaces and capitals in every channel name** — text and forum channels can now be called "General Chat" just like voice channels and categories; typing #general-chat still finds it. (CORD-56)
+- **Age-restrict a whole category** — categories have their own NSFW toggle; every channel in an age-restricted category, including new ones and ones moved into it, is age-restricted too. (CORD-60)
+- **Webhook avatars and editing** — give a webhook a profile picture, rename it, or move it to another channel from Channel Settings → Integrations. (CORD-67)
 
 - **Date dividers in chat** — a line with the date now marks where a new day starts between messages, in channels and DMs, shown in your language. When the unread "New" line falls on the same spot, they merge into one. (CORD-41)
 - **Reply and edit with the keyboard** — Ctrl+Up / Ctrl+Down (Cmd on Mac) in the message box picks the message to reply to and highlights it; going past the newest message or pressing Escape cancels. Ctrl+Shift+Up / Ctrl+Shift+Down steps through your own messages to edit them. The message you are replying to is now highlighted. (CORD-11)
 - **Turn off TTS sound effects** — new Voice & Video settings: "Play text-to-speech from others" mutes other people’s /tts messages, and "TTS sound effects" turns off sound triggers and loud effects like [vol:EAR] (trigger words are spoken instead and volume stays at 100%). (CORD-35)
 
 ### Changes
+- **Enter creates the channel** — pressing Enter in the new channel name box creates it (or moves to the access step for a private channel), and the box is focused when the dialog opens. (CORD-25)
 - **Enter adds a new line on phones** — on touch keyboards Enter now starts a new line and the send button sends, like Discord mobile. Keyboards with Shift keep Enter-to-send.
 
 ### Bug Fixes

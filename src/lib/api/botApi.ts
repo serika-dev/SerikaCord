@@ -3430,12 +3430,19 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     pos = max === null || max === undefined ? 0 : Number(max) + 1;
   }
 
+  // A channel created in an age-restricted category is age-restricted (CORD-60).
+  let parentNsfw = false;
+  if (values.parentId && channelType !== 'category') {
+    const [parentRow] = await db.select({ nsfw: schema.channels.nsfw }).from(schema.channels).where(eq(schema.channels.id, normalizeId(values.parentId))).limit(1);
+    parentNsfw = Boolean(parentRow?.nsfw);
+  }
+
   const channel = await Channel.create({
     serverId: g.server.id,
     name: values.name ?? 'channel',
     type: channelType,
     topic: values.topic ?? null,
-    nsfw: channelType === 'category' ? false : (values.nsfw ?? false),
+    nsfw: channelType === 'category' ? false : (values.nsfw ?? false) || parentNsfw,
     parentId: values.parentId ?? null,
     rateLimitPerUser: values.rateLimitPerUser ?? 0,
     position: pos,

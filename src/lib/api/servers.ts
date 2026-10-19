@@ -21,6 +21,7 @@ import { canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleCha
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
 import { insertServerMember, removeServerBan, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 import { copyPermissionOverwrites, ensureSoundboardIds, sameId, validateChannelReorder } from '@/lib/servers/guards';
+import { normalizeChannelName, resolveChannelNsfw } from '@/lib/servers/channelRules';
 import { audit, listAuditLogs } from '@/lib/services/auditLog';
 import { AuditLogEvent, GUILD_AUDIT_KEYS, ROLE_AUDIT_KEYS, auditReason, diffChanges, diffMemberRoles, isAuditLogEventType, snapshotChanges } from '@/lib/audit/auditLog';
 import { invalidateServerGate, memberVerificationState, pendingChannelAccess } from '@/lib/services/serverGate';
@@ -645,7 +646,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const { name, type = 'text', parentId, nsfw, forumMode } = body;
-    const sanitizedName = sanitizeInput(name);
+    // Spaces and capitals are allowed in every channel type (CORD-56); only
+    // control characters and extra whitespace are cleaned up.
+    const cleanName = normalizeChannelName(name);
+    if (!cleanName) {
+      set.status = 400;
+      return { error: 'Channel name cannot be empty' };
+    }
+    const sanitizedName = sanitizeInput(cleanName);
 
     if (type === 'category' && parentId) {
       set.status = 400;
@@ -700,7 +708,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       type,
       position,
       parentId: parentId || null,
-      nsfw: type !== 'category' ? Boolean(nsfw) : false,
+      // A channel created inside an age-restricted category is age-restricted (CORD-60).
+      nsfw: resolveChannelNsfw({ type, requested: nsfw, parentNsfw: parentChannel?.nsfw }),
       // Permissions are copied, not inherited: a channel created inside a
       // private category starts synced with it instead of being public.
       permissionOverwrites: initialOverwrites,
@@ -778,10 +787,19 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: reorderError };
     }
 
-    // Bulk update each channel's position and parentId
+    // Bulk update each channel's position and parentId. A channel dropped
+    // into an age-restricted category becomes age-restricted too (CORD-60).
+    const byId = new Map(ownChannels.map((c) => [String(c.id).toLowerCase(), c]));
     for (const update of channelUpdates) {
       const updates: Record<string, unknown> = { position: update.position };
-      if (update.parentId !== undefined) updates.parentId = update.parentId || null;
+      if (update.parentId !== undefined) {
+        updates.parentId = update.parentId || null;
+        const moved = byId.get(String(update.id).toLowerCase());
+        const parent = update.parentId ? byId.get(String(update.parentId).toLowerCase()) : undefined;
+        if (moved && moved.type !== 'category' && !moved.nsfw && parent?.type === 'category' && parent.nsfw) {
+          updates.nsfw = true;
+        }
+      }
       await Channel.updateById(update.id, updates);
     }
 
