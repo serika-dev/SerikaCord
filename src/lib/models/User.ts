@@ -112,6 +112,10 @@ export interface IUserSettings {
     ttsRate?: number;
     /** Preferred TTS voice gender. Default 'auto'. */
     ttsVoice?: 'auto' | 'female' | 'male';
+    /** Play /tts messages other people send. Default true. */
+    ttsFromOthers?: boolean;
+    /** TTS sound triggers and loud modifiers ([vol:EAR], [vol:BASS]). Default true. */
+    ttsSoundEffects?: boolean;
   };
   voiceVideo: {
     inputVolume: number;

@@ -87,8 +87,54 @@ export function messageGroupKey(message: Pick<ChatMessage, "authorId" | "webhook
 }
 
 /**
+ * True when two timestamps fall on different calendar days in the viewer's
+ * local time zone (the date divider between them). Invalid dates never split.
+ */
+export function isDifferentDay(a: string | number | Date, b: string | number | Date): boolean {
+  const da = new Date(a);
+  const db = new Date(b);
+  if (Number.isNaN(da.getTime()) || Number.isNaN(db.getTime())) return false;
+  return (
+    da.getFullYear() !== db.getFullYear() ||
+    da.getMonth() !== db.getMonth() ||
+    da.getDate() !== db.getDate()
+  );
+}
+
+/**
+ * Whether the group at `index` starts a new day and gets a date divider above
+ * it. The first loaded group only gets one at the start of the history
+ * (`atHistoryStart`); otherwise the day it belongs to may continue in the
+ * older, not yet loaded page.
+ */
+export function startsNewDay(
+  groups: ReadonlyArray<{ timestamp: string }>,
+  index: number,
+  atHistoryStart = false,
+): boolean {
+  const group = groups[index];
+  if (!group) return false;
+  if (index === 0) return atHistoryStart && !Number.isNaN(new Date(group.timestamp).getTime());
+  return isDifferentDay(groups[index - 1].timestamp, group.timestamp);
+}
+
+/** "October 18, 2026" in the viewer's locale, for the date divider. */
+export function formatDayDivider(timestamp: string, locale?: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  const opts: Intl.DateTimeFormatOptions = { year: "numeric", month: "long", day: "numeric" };
+  try {
+    return date.toLocaleDateString(locale || undefined, opts);
+  } catch {
+    return date.toLocaleDateString(undefined, opts);
+  }
+}
+
+/**
  * Deduplicate by id and group consecutive messages from the same author
- * posted within a 5 minute window (Discord-style message grouping).
+ * posted within a 5 minute window (Discord-style message grouping). A group
+ * never spans two calendar days, so the date divider always sits between
+ * groups.
  */
 export function groupMessages<M extends ChatMessage>(messages: M[]): MessageGroupData<M>[] {
   const seen = new Set<string>();
@@ -108,8 +154,9 @@ export function groupMessages<M extends ChatMessage>(messages: M[]): MessageGrou
     const withinWindow =
       !!lastMessage &&
       new Date(message.createdAt).getTime() - new Date(lastMessage.createdAt).getTime() < GROUP_WINDOW_MS;
+    const sameDay = !!lastMessage && !isDifferentDay(lastMessage.createdAt, message.createdAt);
 
-    if (sameAuthor && withinWindow) {
+    if (sameAuthor && withinWindow && sameDay) {
       lastGroup.messages.push(message);
     } else {
       groups.push({ author: message.author, timestamp: message.createdAt, messages: [message] });

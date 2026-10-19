@@ -15,7 +15,7 @@ interface MessageEditFormProps {
 export function MessageEditForm({ value, onChange, onKeyDown, onCancel, onSave }: MessageEditFormProps) {
   const gt = useGT();
   return (
-    <div className="mt-1">
+    <div className="mt-1" data-message-edit-form="true">
       <Textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}

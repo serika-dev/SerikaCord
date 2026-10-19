@@ -41,7 +41,9 @@ import { PollResultRow } from "@/components/chat/PollResultRow";
 import { isGroupDmEventType } from "@/lib/chat/groupDm";
 import type { CallGroup } from "@/lib/chat/dmCall";
 import { MessageSkeleton } from "@/components/ui/skeleton";
-import { formatMessageTimestamp } from "@/lib/chat/messages";
+import { formatDayDivider, formatMessageTimestamp, startsNewDay } from "@/lib/chat/messages";
+import { isEditableOwnMessage, stepMessageTarget } from "@/lib/chat/messageTargets";
+import { DateDivider } from "./DateDivider";
 import type { PickerEmoji } from "@/components/chat/MessageHoverActions";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import type { useMessageActions } from "@/hooks/useMessageActions";
@@ -293,6 +295,12 @@ function MessageListInner<M extends ChatMessage>(
   const formattedTimestamps = useMemo(
     () => groups.map((g) => formatMessageTimestamp(g.timestamp, gt, locale)),
     [groups, gt, locale],
+  );
+  // Day breaks: the localized date above the first group of each day (and
+  // above the very first message once the whole history is loaded).
+  const dayLabels = useMemo(
+    () => groups.map((g, i) => (startsNewDay(groups, i, !hasMoreOlder) ? formatDayDivider(g.timestamp, locale) : "")),
+    [groups, hasMoreOlder, locale],
   );
   const firstMessageId = groups[0]?.messages[0]?.id;
   const lastGroupMessages = groups[groups.length - 1]?.messages;
@@ -845,6 +853,45 @@ function MessageListInner<M extends ChatMessage>(
   // Escape: mark this conversation read (the global hotkey broadcasts it).
   useEffect(() => (secondary ? undefined : onHotkey("mark-channel-read", markRead)), [markRead, secondary]);
 
+  // Ctrl+Up / Ctrl+Down: pick the message to reply to (past the newest cancels);
+  // Ctrl+Shift+Up / Ctrl+Shift+Down: step through your own messages to edit.
+  // Escape in the composer cancels the reply (handled by the containers).
+  useEffect(() => {
+    if (secondary) return;
+    const reveal = (id: string) =>
+      document.getElementById("message-" + id)?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    const stepReply = (dir: 1 | -1) => {
+      const a = latestRef.current.actions;
+      const target = stepMessageTarget(unreadRef.current.allMessages, a.replyToMessage?.id, dir);
+      if (target === undefined) return;
+      a.setReplyToMessage(target);
+      if (target) reveal(target.id);
+      latestRef.current.onReplyFocus?.();
+    };
+    const stepEdit = (dir: 1 | -1) => {
+      const a = latestRef.current.actions;
+      const selfId = unreadRef.current.currentUserId;
+      const target = stepMessageTarget(unreadRef.current.allMessages, a.editingMessage?.id, dir, (m) =>
+        isEditableOwnMessage(m, selfId),
+      );
+      if (target === undefined) return;
+      if (!target) {
+        a.cancelEditing();
+        latestRef.current.onReplyFocus?.();
+        return;
+      }
+      a.startEditing(target);
+      reveal(target.id);
+    };
+    const unsubs = [
+      onHotkey("reply-prev", () => stepReply(-1)),
+      onHotkey("reply-next", () => stepReply(1)),
+      onHotkey("edit-prev", () => stepEdit(-1)),
+      onHotkey("edit-next", () => stepEdit(1)),
+    ];
+    return () => unsubs.forEach((u) => u());
+  }, [secondary]);
+
   const showUnreadBar = Boolean(divider) && !barDismissed && !isLoading;
   const dividerId = divider?.firstUnreadId ?? newMessageStartId;
   const pillCount = newMessagesCount > 0 ? newMessagesCount : awayFromBottom && showUnreadBar ? divider?.count ?? 0 : 0;
@@ -864,7 +911,7 @@ function MessageListInner<M extends ChatMessage>(
     });
   }, []);
 
-  const renderGroup = (group: MessageGroupData<M>, idx: number) => {
+  const renderGroup = (group: MessageGroupData<M>, idx: number, skipDay = false) => {
     const shouldAnimate = animateIn && idx < 12;
     const isLastGroup = idx === groups.length - 1;
     const shouldSlideIn = !animateIn && isBottomAppend.current && isLastGroup && isAtBottomRef.current;
@@ -877,7 +924,11 @@ function MessageListInner<M extends ChatMessage>(
         : undefined;
     return (
     <Fragment key={`group-${group.messages[0].id}`}>
-    {showNewSeparator && <UnreadDivider label={gt("New")} className="mx-4" />}
+    {dayLabels[idx] && !skipDay ? (
+      <DateDivider label={dayLabels[idx]} unreadLabel={showNewSeparator ? gt("New") : undefined} className="mx-4" />
+    ) : (
+      showNewSeparator && <UnreadDivider label={gt("New")} className="mx-4" />
+    )}
     <div
       className={cn(
         "msg-group-cv",
@@ -956,6 +1007,7 @@ function MessageListInner<M extends ChatMessage>(
       onJumpToMessage={jumpToMessage}
       formattedTimestamp={formattedTimestamps[idx]}
       newSeparatorBeforeId={midGroupSeparatorId}
+      replyTargetId={actions.replyToMessage?.id}
       canCreateThread={canCreateThread}
       onCreateThread={onCreateThread}
       onOpenThread={onOpenThread}
@@ -1010,14 +1062,17 @@ function MessageListInner<M extends ChatMessage>(
               listItems.map((item) => {
                 if (item.kind === "group") return renderGroup(item.group, item.index);
                 const open = revealedBlocked.has(item.key);
+                // A collapsed run that starts a new day keeps its date line above the row.
+                const firstDay = dayLabels[item.groups[0]?.index ?? -1];
                 return (
                   <Fragment key={item.key}>
+                    {firstDay && <DateDivider label={firstDay} className="mx-4" />}
                     <BlockedMessagesRow
                       count={item.count}
                       open={open}
                       onToggle={() => toggleBlocked(item.key)}
                     />
-                    {open && item.groups.map(({ group, index }) => renderGroup(group, index))}
+                    {open && item.groups.map(({ group, index }, i) => renderGroup(group, index, i === 0))}
                   </Fragment>
                 );
               })

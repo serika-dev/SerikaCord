@@ -686,6 +686,22 @@ function VoiceVideoTab({
               <ToggleSwitch size="sm" checked={ttsEnabled} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), tts: checked } }, "voice-video")} />
             </label>
 
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-[var(--text-primary)] font-medium">{gt("Play text-to-speech from others")}</p>
+                <p className="text-sm text-[var(--text-secondary)]">{gt("Read /tts messages other people send aloud")}</p>
+              </div>
+              <ToggleSwitch size="sm" checked={userSettings.accessibility?.ttsFromOthers !== false} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsFromOthers: checked } }, "voice-video")} />
+            </label>
+
+            <label className="flex items-center justify-between cursor-pointer">
+              <div>
+                <p className="text-[var(--text-primary)] font-medium">{gt("TTS sound effects")}</p>
+                <p className="text-sm text-[var(--text-secondary)]">{gt("Play sound triggers and loud effects like [vol:EAR] and [vol:BASS]. When off, trigger words are spoken and volume is capped at 100%.")}</p>
+              </div>
+              <ToggleSwitch size="sm" checked={userSettings.accessibility?.ttsSoundEffects !== false} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsSoundEffects: checked } }, "voice-video")} />
+            </label>
+
             {/* TTS Usage Guide */}
             <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/50 p-3 space-y-1.5">
               <p className="text-xs font-semibold text-[var(--app-accent)]">{gt("TTS Usage Guide")}</p>

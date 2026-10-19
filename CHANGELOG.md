@@ -8,6 +8,10 @@
 
 ### Features
 
+- **Date dividers in chat** — a line with the date now marks where a new day starts between messages, in channels and DMs, shown in your language. When the unread "New" line falls on the same spot, they merge into one. (CORD-41)
+- **Reply and edit with the keyboard** — Ctrl+Up / Ctrl+Down (Cmd on Mac) in the message box picks the message to reply to and highlights it; going past the newest message or pressing Escape cancels. Ctrl+Shift+Up / Ctrl+Shift+Down steps through your own messages to edit them. The message you are replying to is now highlighted. (CORD-11)
+- **Turn off TTS sound effects** — new Voice & Video settings: "Play text-to-speech from others" mutes other people’s /tts messages, and "TTS sound effects" turns off sound triggers and loud effects like [vol:EAR] (trigger words are spoken instead and volume stays at 100%). (CORD-35)
+
 ### Changes
 
 ### Bug Fixes

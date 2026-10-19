@@ -1,5 +1,6 @@
 "use client";
 
+import { shouldAutoPlayTts, ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { isMessageRead } from "@/lib/unread/engine";
 import { getUnreadState } from "@/lib/unread/store";
 import { getJsonCached } from "@/lib/swrJson";
@@ -787,14 +788,12 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       // Auto TTS: speak incoming messages when the listener has TTS enabled, or
       // whenever the message was explicitly sent with the /tts prefix (so a
       // /tts message is heard by everyone in the channel — web and desktop).
-      const ttsEnabled = user?.settings?.accessibility?.tts === true;
-      const hasTtsPrefix = typeof message.content === "string" && message.content.startsWith("/tts ");
-      if ((ttsEnabled || hasTtsPrefix) && message.content) {
+      // /tts messages from others respect "Play text-to-speech from others" (CORD-35).
+      if (shouldAutoPlayTts(user?.settings?.accessibility, message.content)) {
         void playTts({
           content: message.content,
           authorName,
-          rate: user?.settings?.accessibility?.ttsRate,
-          voiceGender: user?.settings?.accessibility?.ttsVoice,
+          ...ttsPlaybackOptions(user?.settings?.accessibility),
         });
       }
     },
@@ -922,8 +921,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           composer?.clear();
           void playTts({
             content: result.ttsText,
-            rate: user?.settings?.accessibility?.ttsRate,
-            voiceGender: user?.settings?.accessibility?.ttsVoice,
+            ...ttsPlaybackOptions(user?.settings?.accessibility),
           });
           await chat.sendMessage({ contentOverride: `/tts ${result.ttsText}` });
         } else if (result.sendAsMessage) {

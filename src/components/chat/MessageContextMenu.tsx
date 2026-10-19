@@ -1,5 +1,6 @@
 "use client";
 
+import { ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { useLayoutEffect, useRef, useState, useEffect } from "react";
 import { Blocks, Copy, Link2, MessagesSquare, Pencil, Pin, Reply, Smile, Trash2, Hash, CornerUpRight, Download, ExternalLink, EyeOff, Flag, Image as ImageIcon, SmilePlus, Volume2, Megaphone } from "lucide-react";
 import { isCrossposted, isCrosspostCopy } from "@/lib/chat/announcements";
@@ -181,8 +182,7 @@ export function MessageContextMenu<M extends ChatMessage>({
         playTts({
           content: text,
           authorName: message.author?.displayName || message.author?.username,
-          rate: user?.settings?.accessibility?.ttsRate,
-          voiceGender: user?.settings?.accessibility?.ttsVoice,
+          ...ttsPlaybackOptions(user?.settings?.accessibility),
         }),
       )
       .catch(() => toast.error(gt("Text-to-speech isn't available here.")));

@@ -146,6 +146,8 @@ export interface MessageGroupProps<M extends ChatMessage> {
   /** Id of a message in the middle of this group that starts the unread run;
    *  a "New" divider is drawn above that row. Undefined for every other group. */
   newSeparatorBeforeId?: string;
+  /** The message the composer is replying to: highlighted like Discord. */
+  replyTargetId?: string;
 }
 
 /**
@@ -193,6 +195,7 @@ function MessageGroupInner<M extends ChatMessage>({
   onOpenThread,
   formattedTimestamp,
   newSeparatorBeforeId,
+  replyTargetId,
 }: MessageGroupProps<M>) {
   const gt = useChatGt();
   const { user } = useAuth();
@@ -290,7 +293,9 @@ function MessageGroupInner<M extends ChatMessage>({
               id={`message-${message.id}`}
               className={cn(
                 "flex gap-4 relative group/message rounded transition-colors -mx-1 px-1 hover:z-50",
-                pingsMe ? "chat-mention-row" : "hover:bg-[var(--app-surface-alt)]/80",
+                replyTargetId === message.id
+                  ? "chat-reply-target"
+                  : pingsMe ? "chat-mention-row" : "hover:bg-[var(--app-surface-alt)]/80",
                 message.pending && "opacity-60",
                 message.ephemeral && "chat-ephemeral"
               )}
@@ -627,6 +632,14 @@ function arePropsEqual<M extends ChatMessage>(
     ) {
       return false;
     }
+  }
+
+  // Reply highlight only matters when its target is (or was) in this group.
+  if (
+    prev.replyTargetId !== next.replyTargetId &&
+    (groupHasMessage(pm, prev.replyTargetId) || groupHasMessage(nm, next.replyTargetId))
+  ) {
+    return false;
   }
 
   // Reaction-picker state only matters when its target is in this group.
