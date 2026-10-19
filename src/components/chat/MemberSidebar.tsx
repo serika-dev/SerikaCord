@@ -1,5 +1,6 @@
 "use client";
 
+import { ServerTagPill } from "@/components/user/ServerTagPill";
 import { useMemo, memo } from "react";
 import { Crown, Play, Pause, Music2, Gamepad2, Code2, Bot, Check, Clock } from "lucide-react";
 import { useServer, useServerMembers } from "@/contexts/ServerContext";
@@ -52,6 +53,8 @@ interface Member {
   /** Highest role with an icon (Discord shows it after the name). */
   iconRole?: RoleIconData | null;
   customization?: {
+    /** Resolved server tag (CORD-53). */
+    serverTag?: unknown;
     profileColor?: string;
     profileAccentColor?: string;
     profileGradient?: string[];
@@ -284,6 +287,7 @@ function MemberItemImpl({ member, serverId }: MemberItemProps) {
               <div className={cn("flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]", styleClasses)} style={hasCustomStyle ? styleInline : (roleColor ? { color: roleColor } : undefined)}>
                 <span className="truncate">{member.displayName || member.username || gt("Unknown")}</span>
                 <RoleIcon role={member.iconRole} size={16} />
+                <ServerTagPill customization={member.customization} />
                 {member.isOwner && (
                   <Crown className="w-3.5 h-3.5 flex-shrink-0 text-[#F59E0B]" />
                 )}

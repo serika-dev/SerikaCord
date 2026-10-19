@@ -1,5 +1,6 @@
 "use client";
 
+import { ServerTagPill } from "@/components/user/ServerTagPill";
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -441,6 +442,7 @@ export function ProfileCard({
             >
               {displayName}
             </h3>
+            <ServerTagPill customization={user.customization} size="md" />
             {user.isBot && !user.isSystem && (
               <span className={cn(
                 "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase",

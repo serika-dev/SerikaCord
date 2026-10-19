@@ -112,6 +112,7 @@ const ServerConnectionsPanel = dynamic(() => import("@/components/server/communi
 const ServerWelcomeScreenPanel = dynamic(() => import("@/components/server/community/ServerWelcomeScreenPanel"), { ssr: false });
 const ServerScreeningPanel = dynamic(() => import("@/components/server/community/ServerScreeningPanel"), { ssr: false });
 const ServerTemplatePanel = dynamic(() => import("@/components/server/community/ServerTemplatePanel"), { ssr: false });
+const ServerProfileSettings = dynamic(() => import("@/components/settings/ServerProfileSettings").then((m) => m.ServerProfileSettings), { ssr: false });
 
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
@@ -249,6 +250,7 @@ type SettingsTab =
   | "access"
   | "applications"
   | "app_discovery"
+  | "server_profile"
   | "onboarding"
   | "welcome"
   | "screening"
@@ -619,6 +621,14 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         isAgeGated: false,
         discoveryDescription: "",
         discoveryCategories: [],
+        "serverTag.enabled": false,
+        "serverTag.tag": "",
+        "serverTag.icon": "star",
+        "serverTag.color": "#8B5CF6",
+        "serverTag.emoji": "",
+        "serverTag.emojiId": "",
+        discoveryTags: [],
+        games: [],
       };
       try {
         const res = await fetch(`/api/servers/${currentServer.id}/settings`);
@@ -655,6 +665,14 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           base.isAgeGated = Boolean(s.isAgeGated);
           base.discoveryDescription = s.discoveryDescription || "";
           base.discoveryCategories = s.discoveryCategories || [];
+          base["serverTag.enabled"] = s.serverTag?.enabled === true;
+          base["serverTag.tag"] = s.serverTag?.tag || "";
+          base["serverTag.icon"] = s.serverTag?.icon || "star";
+          base["serverTag.color"] = s.serverTag?.color || "#8B5CF6";
+          base["serverTag.emoji"] = s.serverTag?.emoji || "";
+          base["serverTag.emojiId"] = s.serverTag?.emojiId || "";
+          base.discoveryTags = Array.isArray(s.discoveryTags) ? s.discoveryTags : [];
+          base.games = Array.isArray(s.games) ? s.games : [];
         }
       } catch {
         // Defaults stay in place; a failed load must not block the dialog
@@ -1027,6 +1045,14 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     "soundboard.enabled": gt("Soundboard"),
     "soundboard.volume": gt("Soundboard volume"),
     "access.joinMode": gt("Server access"),
+    "serverTag.enabled": gt("Server tag"),
+    "serverTag.tag": gt("Server tag"),
+    "serverTag.icon": gt("Server tag badge"),
+    "serverTag.color": gt("Server tag color"),
+    "serverTag.emoji": gt("Server tag emoji"),
+    "serverTag.emojiId": gt("Server tag emoji"),
+    discoveryTags: gt("Traits"),
+    games: gt("Games"),
     isAgeGated: gt("Age-restricted server"),
   };
 
@@ -1964,6 +1990,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       title: gt("Access"),
       items: [
         { id: "access" as SettingsTab, label: gt("Access"), icon: Lock },
+        { id: "server_profile" as SettingsTab, label: gt("Server Profile"), icon: BadgeCheck },
       ],
     },
     {
@@ -4592,6 +4619,15 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         return renderSafetySetup();
       case "integrations":
         return renderIntegrations();
+      case "server_profile":
+        return (
+          <ServerProfileSettings
+            serverId={currentServer.id}
+            serverName={currentServer.name}
+            settingsDraft={settingsDraft}
+            fieldErrors={fieldErrors}
+          />
+        );
       case "access":
         return renderAccess();
       case "onboarding":

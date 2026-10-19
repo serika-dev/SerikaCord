@@ -29,6 +29,8 @@ interface Server {
   afkTimeout?: number;
   /** Server theme (CORD-50), validated server-side; see ServerThemeSync. */
   theme?: ServerTheme | null;
+  /** Enabled server tag (CORD-53); null when the server has none. */
+  serverTag?: import("@/lib/servers/serverProfile").ServerTagConfig | null;
 }
 
 type ChannelType =

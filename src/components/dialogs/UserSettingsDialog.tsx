@@ -88,6 +88,7 @@ import { BadgeIcon } from "@/components/ui/BadgeIcon";
 import { badgeLabel } from "@/components/ui/badges";
 import { NAMEPLATE_PRESETS, getNameplateBackground, type NameplateCustomization } from "@/lib/constants/nameplates";
 import { NameplateImagePicker } from "@/components/settings/NameplateImagePicker";
+import { ServerTagPicker } from "@/components/settings/ServerTagPicker";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
 import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
 import { DesktopSettingsPanel } from "@/components/settings/DesktopSettingsPanel";
@@ -2749,6 +2750,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                 </div>
                               </div>
                             </div>
+
+                            {/* Server tag (CORD-53) */}
+                            <ServerTagPicker />
 
                             {/* Nameplate */}
                             <div className="mt-8">

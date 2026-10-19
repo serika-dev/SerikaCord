@@ -5,6 +5,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Crown, Check, Clock } from "lucide-react";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { StaffPill } from "@/components/chat/StaffPill";
+import { ServerTagPill } from "@/components/user/ServerTagPill";
 import { SystemPill } from "@/components/chat/SystemPill";
 import { useTheme } from "@/contexts/ThemeContext";
 import { useServerMembers } from "@/contexts/ServerContext";
@@ -171,6 +172,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
         </span>
       )}
       <StaffPill badges={author.badges} />
+      <ServerTagPill customization={author.customization} />
       {settings.showTimestamps && (
         <span className="text-[10px] leading-none text-[var(--text-muted)] whitespace-nowrap">{formattedTimestamp}</span>
       )}

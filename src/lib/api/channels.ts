@@ -1,3 +1,4 @@
+import { customizationWithTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
 import { Elysia, t } from 'elysia';
 import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings, type IUserSettings } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
@@ -2722,6 +2723,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       loadMessageExtras(messages as IMessage[], user.id).catch(() => new Map()),
     ]);
     const authorMap = new Map((authors as any[]).map((a: any) => [a.id, a]));
+    // Chosen server tags next to author names (CORD-53); cached, usually no query.
+    const serverTags = await resolveServerTags(authors as Array<{ id: string; customization?: unknown }>);
     const refMap = new Map((refMessages as any[]).map((r: any) => [r.id, r]));
     const refAuthorIds = Array.from(new Set((refMessages as any[]).map((r: any) => r.authorId).filter(Boolean))) as string[];
     const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));
@@ -2871,7 +2874,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           isBot: populatedAuthor.isBot,
           isVerified: populatedAuthor.isVerified,
           isDiscord: populatedAuthor.isDiscord || false,
-          customization: populatedAuthor.customization || null,
+          customization: customizationWithTag(serverTags, populatedAuthor.id, populatedAuthor.customization || null),
         } : null,
         channelId: msg.channelId,
         serverId: msg.serverId,
@@ -3434,7 +3437,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         isBot: Boolean(author.isBot),
         isVerified: Boolean(author.isVerified),
         isDiscord: author.username?.startsWith('discord-') || false,
-        customization: author.customization || null,
+        customization: (await resolveCustomization(author)) ?? null,
       } : null,
       channelId: message.channelId,
       serverId: message.serverId,

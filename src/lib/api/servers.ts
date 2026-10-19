@@ -36,6 +36,8 @@ import { normalizeRoleIconInput, pickIconRole } from '@/lib/roles/roleIcon';
 import { parseSoundVolume } from '@/lib/servers/soundboardVolume';
 // Bot gateway events for guild resources (GUILD_UPDATE, CHANNEL_*, GUILD_ROLE_*, GUILD_MEMBER_UPDATE, INVITE_*).
 import * as guildEvents from '@/lib/services/guildGatewayEvents';
+import { hasDiscoveryTag, isHexColor, isServerTagIcon, normalizeDiscoveryTags, normalizeServerGames, readDiscoveryTags, readServerGames, readServerTagConfig, validateServerTagText, validateTagEmoji } from '@/lib/servers/serverProfile';
+import { customizationWithTag, invalidateServerTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -86,10 +88,13 @@ const MEMBER_USER_COLUMNS = {
 
 async function findMemberUsers(userIds: string[]) {
   if (userIds.length === 0) return [];
-  return db
+  const rows = await db
     .select(MEMBER_USER_COLUMNS)
     .from(schema.users)
     .where(inArray(schema.users.id, userIds.map((id) => normalizeId(id))));
+  // Swap each chosen server tag pointer for the resolved tag (CORD-53).
+  const tags = await resolveServerTags(rows);
+  return rows.map((r) => ({ ...r, customization: customizationWithTag(tags, r.id, r.customization) }));
 }
 
 // Helper function for auth
@@ -950,6 +955,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         theme: readServerTheme(server.settings),
         discoveryDescription: server.discoveryDescription || '',
         discoveryCategories: server.discoveryCategories || [],
+        serverTag: (server.settings as IServerSettings | undefined)?.serverTag ?? null,
+        discoveryTags: readDiscoveryTags(server.settings),
+        games: readServerGames(server.settings),
       },
     };
   }, {
@@ -985,6 +993,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const payload = body as { settings?: Partial<IServerSettings> & { discoveryDescription?: string; discoveryCategories?: string[] }; isAgeGated?: boolean; [key: string]: unknown };
     const serverSettings = server.settings as IServerSettings | undefined || {};
     const settingsPayload = payload.settings || {};
+    // Validated fields only change through the bulk route (CORD-51/52/53).
+    delete (settingsPayload as Record<string, unknown>).serverTag;
+    delete (settingsPayload as Record<string, unknown>).discoveryTags;
+    delete (settingsPayload as Record<string, unknown>).games;
     // The Discord link and its webhook/channel maps are written only by the
     // verified link + sync routes, never directly by clients.
     if (settingsPayload.integrations) {
@@ -1439,6 +1451,70 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           }
           break;
         }
+        case 'discoveryTags': {
+          const parsed = normalizeDiscoveryTags(changes[key]);
+          if (!parsed.ok) fieldErrors[key] = parsed.error;
+          else staged.push(() => { (settings() as Record<string, unknown>).discoveryTags = parsed.value; });
+          break;
+        }
+        case 'games': {
+          const parsed = normalizeServerGames(changes[key]);
+          if (!parsed.ok) fieldErrors[key] = parsed.error;
+          else staged.push(() => { (settings() as Record<string, unknown>).games = parsed.value; });
+          break;
+        }
+        case 'serverTag.enabled': {
+          const v = expectBoolean(key);
+          if (v !== undefined) staged.push(() => { section('serverTag').enabled = v; });
+          break;
+        }
+        case 'serverTag.tag': {
+          const value = changes[key];
+          if (value === '' || value === null) {
+            staged.push(() => { section('serverTag').tag = ''; });
+            break;
+          }
+          const parsed = validateServerTagText(value);
+          if (!parsed.ok) fieldErrors[key] = parsed.error;
+          else staged.push(() => { section('serverTag').tag = parsed.value; });
+          break;
+        }
+        case 'serverTag.icon': {
+          const value = changes[key];
+          if (!isServerTagIcon(value)) fieldErrors[key] = 'Unknown badge icon';
+          else staged.push(() => { section('serverTag').icon = value; });
+          break;
+        }
+        case 'serverTag.color': {
+          const value = changes[key];
+          if (!isHexColor(value)) fieldErrors[key] = 'Must be a #RRGGBB color';
+          else staged.push(() => { section('serverTag').color = value.toUpperCase(); });
+          break;
+        }
+        case 'serverTag.emoji': {
+          const value = changes[key];
+          if (value === '' || value === null) {
+            staged.push(() => { section('serverTag').emoji = null; });
+            break;
+          }
+          const parsed = validateTagEmoji(value);
+          if (!parsed.ok) fieldErrors[key] = parsed.error;
+          else staged.push(() => { section('serverTag').emoji = parsed.value; });
+          break;
+        }
+        case 'serverTag.emojiId': {
+          const value = changes[key];
+          if (value === '' || value === null) {
+            staged.push(() => { const st = section('serverTag'); st.emojiId = null; st.emojiUrl = null; });
+            break;
+          }
+          if (typeof value !== 'string' || !isValidObjectId(value)) { fieldErrors[key] = 'Invalid emoji'; break; }
+          // Only this server's own emojis; the URL comes from our upload record, never the client.
+          const emoji = await ServerEmoji.findOne({ id: value, serverId: server.id });
+          if (!emoji || !emoji.imageUrl) { fieldErrors[key] = 'Emoji not found in this server'; break; }
+          staged.push(() => { const st = section('serverTag'); st.emojiId = emoji.id; st.emojiUrl = emoji.imageUrl; });
+          break;
+        }
         case 'isAgeGated': {
           const v = expectBoolean(key);
           if (v !== undefined) staged.push(() => {
@@ -1467,6 +1543,17 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     // All valid: apply everything, then persist
     for (const apply of staged) apply();
 
+    // An enabled server tag needs valid text (decided on the final state).
+    const stagedTag = (server.settings as IServerSettings | undefined)?.serverTag as Record<string, unknown> | undefined;
+    if (stagedTag && Object.keys(changes).some((k) => k.startsWith('serverTag.'))) {
+      if (!stagedTag.icon) stagedTag.icon = 'star';
+      if (!stagedTag.color) stagedTag.color = '#8B5CF6';
+      if (stagedTag.enabled === true && !readServerTagConfig(stagedTag)) {
+        set.status = 400;
+        return { error: 'Some settings are invalid', fieldErrors: { 'serverTag.tag': 'Enter a 2 to 4 character tag to turn it on' } };
+      }
+    }
+
     // Age-gated servers can never be discoverable, whatever order the keys
     // arrived in. Decided on the final state after every staged change.
     if (server.isAgeGated && (server.joinMode === 'discoverable' || server.isDiscoverable)) {
@@ -1485,6 +1572,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     const { id: _sid, ...serverUpdates } = server;
     await Server.updateById(server.id, serverUpdates);
+    invalidateServerTag(server.id);
     await cache.del(`server:${server.id}`);
     await cache.del(`server:safety:${server.id}`);
     await invalidateServerGate(server.id);
@@ -1868,6 +1956,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         });
       }
     }
+    if (populatedUser) populatedUser.customization = (await resolveCustomization(populatedUser)) ?? null;
     const populatedMember = { ...member, userId: populatedUser, roles: populatedRoles };
 
     return {
@@ -1978,6 +2067,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       rawMember.userId ? User.findById(rawMember.userId) : null,
       rawMember.roles && rawMember.roles.length > 0 ? Role.find({ id: { in: rawMember.roles }, serverId: params.serverId }) : [],
     ]);
+    if (populatedUser) populatedUser.customization = (await resolveCustomization(populatedUser)) ?? null;
     const member = { ...rawMember, userId: populatedUser, roles: populatedRoles };
 
     const normalized = normalizeMemberDto(member as unknown as {
@@ -5034,7 +5124,9 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       // Anonymous endpoint: cache whole responses briefly (not free-text
       // searches, whose key space is unbounded) to blunt polling.
       const hasCategory = Boolean(query.category && query.category !== 'all');
-      const responseCacheKey = query.search
+      // Free-form trait filter (CORD-52); exact, case-insensitive.
+      const tagFilter = (query.tag || '').trim().slice(0, 32);
+      const responseCacheKey = query.search || tagFilter
         ? null
         : `discoverable:v1:${hasCategory ? query.category : 'all'}:${query.sort || 'popular'}:${query.limit || '100'}`;
       if (responseCacheKey) {
@@ -5052,12 +5144,18 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       const listed = (await Server.find(filter)).filter((s) => !s.isAgeGated);
       let servers = listed;
 
+      if (tagFilter) {
+        servers = servers.filter((s) => hasDiscoveryTag(readDiscoveryTags(s.settings), tagFilter));
+      }
+
       if (query.search) {
         const searchLower = query.search.toLowerCase();
         servers = servers.filter((s: any) =>
           (s.name || '').toLowerCase().includes(searchLower) ||
           (s.description || '').toLowerCase().includes(searchLower) ||
-          (s.discoveryDescription || '').toLowerCase().includes(searchLower)
+          (s.discoveryDescription || '').toLowerCase().includes(searchLower) ||
+          readDiscoveryTags(s.settings).some((tag) => tag.toLowerCase().includes(searchLower)) ||
+          readServerGames(s.settings).some((g) => g.name.toLowerCase().includes(searchLower))
         );
       }
 
@@ -5122,6 +5220,8 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           joinMode: s.joinMode || 'invite_only',
           category: s.discoveryCategories?.[0] ?? null,
           tags: s.discoveryCategories ?? [],
+          traits: readDiscoveryTags(s.settings),
+          games: readServerGames(s.settings).slice(0, 6),
           vanityUrlCode: s.vanityUrlCode ?? null,
           createdAt: s.createdAt ?? null,
         })),
@@ -5140,6 +5240,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
     query: t.Object({
       category: t.Optional(t.String()),
       search: t.Optional(t.String()),
+      tag: t.Optional(t.String({ maxLength: 64 })),
       sort: t.Optional(t.Union([t.Literal('popular'), t.Literal('new'), t.Literal('trending')])),
       limit: t.Optional(t.String()),
     }),
@@ -5796,6 +5897,8 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
         joinMode: server.joinMode || 'invite_only',
         createdAt: server.createdAt ?? null,
         connections,
+        traits: readDiscoveryTags(server.settings),
+        games: readServerGames(server.settings).slice(0, 6),
       },
       expiresAt: resolved.kind === 'invite' ? resolved.invite.expiresAt : null,
     };

@@ -31,6 +31,8 @@ export interface MessageAuthor {
       color?: string;
       gradient?: string[];
     };
+    /** Resolved server tag (CORD-53), see lib/servers/serverProfile. */
+    serverTag?: unknown;
   } | null;
 }
 

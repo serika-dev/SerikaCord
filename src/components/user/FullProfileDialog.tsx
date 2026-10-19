@@ -1,5 +1,6 @@
 "use client";
 
+import { ServerTagPill } from "@/components/user/ServerTagPill";
 import { useState, useEffect } from "react";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
@@ -383,6 +384,7 @@ export function FullProfileDialog({
                   >
                     {displayName}
                   </h3>
+                  <ServerTagPill customization={fullUser.customization} size="md" />
                 </div>
                 <button
                   onClick={handleCopyUsername}
