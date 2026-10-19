@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { readServerTagConfig, stripServerTagWrite } from '@/lib/servers/serverProfile';
+import { readServerTagConfig, stripServerTagWrite, withoutServerTag } from '@/lib/servers/serverProfile';
 import { resolveCustomization } from '@/lib/services/serverTags';
 import { acceptsFriendRequests, friendRequestAllowedFrom, friendRequestSources } from '@/lib/settings/privacy';
 import { cors } from '@elysiajs/cors';
@@ -1057,7 +1057,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
           // Server theme (CORD-50), re-validated on the way out.
           theme: readServerTheme(server.settings),
           // Enabled server tag, for the "display a server tag" picker (CORD-53).
-          serverTag: readServerTagConfig((server.settings as Record<string, unknown> | null)?.serverTag),
+          serverTag: readServerTagConfig((server.settings as Record<string, unknown> | null)?.serverTag, config.CDN_URL),
           joinedAt: m.joinedAt,
           roles: m.roles,
           nickname: m.nickname,
@@ -2736,7 +2736,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       avatar: f.avatar,
       status: getPublicPresenceStatus(f),
       customStatus: f.customStatus,
-      customization: f.customization,
+      customization: withoutServerTag(f.customization),
     }));
   }, {
     params: t.Object({
@@ -3051,7 +3051,7 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
         avatar: u.avatar,
         status: getPublicPresenceStatus(u),
         customStatus: u.customStatus,
-        customization: u.customization || null,
+        customization: withoutServerTag(u.customization || null),
         isPremium: u.isPremium,
         badges: u.badges || [],
         createdAt: u.createdAt,

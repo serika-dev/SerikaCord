@@ -31,6 +31,7 @@ import {
   parseCallData,
   type CallMessageData,
 } from '@/lib/voice/callMessage';
+import { withoutServerTag } from '@/lib/servers/serverProfile';
 
 /** Which conversation a call room belongs to. */
 type CallTarget = { kind: 'dm'; peers: [string, string] } | { kind: 'group'; channelId: string };
@@ -254,7 +255,7 @@ async function createCallMessage(target: CallTarget, caller: CallJoiner, message
       avatar: caller.avatar ?? undefined,
       badges: caller.badges || [],
       isPremium: Boolean(caller.isPremium),
-      customization: caller.customization || null,
+      customization: withoutServerTag(caller.customization || null),
     },
     channelId: channel.id,
     createdAt: message.createdAt,

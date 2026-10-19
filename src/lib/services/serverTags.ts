@@ -9,6 +9,7 @@
  * a page of messages costs at most one servers query and one memberships
  * query, and usually none.
  */
+import { config } from '@/lib/config';
 import { and, eq, inArray, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { normalizeId } from '@/lib/db/normalizeId';
@@ -59,7 +60,7 @@ async function loadServerTags(serverIds: string[]): Promise<Map<string, Resolved
     const byId = new Map(rows.map((r) => [normalizeId(r.id), r]));
     for (const id of missing) {
       const row = byId.get(id);
-      const cfg = row ? readServerTagConfig((row.settings as Record<string, unknown> | null)?.serverTag) : null;
+      const cfg = row ? readServerTagConfig((row.settings as Record<string, unknown> | null)?.serverTag, config.CDN_URL) : null;
       const value: ResolvedServerTag | null = row && cfg
         ? {
             serverId: id,

@@ -8,6 +8,7 @@ import { Channel, Message, User } from '@/lib/models';
 import { encryptForStorage } from '@/lib/security';
 import { groupDisplayName } from '@/lib/chat/dmCall';
 import { groupEventPreview, isGroupOwner, type GroupDmEventType } from '@/lib/chat/groupDm';
+import { withoutServerTag } from '@/lib/servers/serverProfile';
 
 // ─── Boot-time schema ensure ──────────────────────────────────────────────────
 // Mirrors drizzle/manual_group_dms.sql. Additive + idempotent. ADD VALUE can't
@@ -68,7 +69,7 @@ function publicMember(u: PublicUser) {
     isBot: Boolean(u.isBot),
     isVerified: Boolean(u.isVerified),
     badges: u.badges || [],
-    customization: u.customization || null,
+    customization: withoutServerTag(u.customization || null),
   };
 }
 
@@ -173,7 +174,7 @@ export async function postGroupEvent(
       displayName: actorName,
       avatar: actor.avatar ?? undefined,
       badges: actor.badges || [],
-      customization: actor.customization || null,
+      customization: withoutServerTag(actor.customization || null),
     },
     channelId: channel.id,
     createdAt: message.createdAt,

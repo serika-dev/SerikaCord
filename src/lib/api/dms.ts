@@ -45,6 +45,7 @@ import {
   storedEnvelope,
 } from '@/lib/services/e2ee';
 import { backupRecipientId, envelopeForRecipients, type Envelope } from '@/lib/e2ee';
+import { withoutServerTag } from '@/lib/servers/serverProfile';
 
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -1310,7 +1311,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
               isSystem: r.isSystem || false,
               isBot: Boolean(r.isBot),
               isVerified: Boolean(r.isVerified),
-              customization: r.customization || null,
+              customization: withoutServerTag(r.customization || null),
             })),
             lastMessageId: channel.lastMessageId,
             lastMessage,
@@ -1376,7 +1377,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
           displayName: u.displayName,
           avatar: u.avatar,
           status: getPublicPresenceStatus(u),
-          customization: u.customization || null,
+          customization: withoutServerTag(u.customization || null),
         },
         lastMessage: last ? { id: last.id, content: preview.slice(0, 180), authorId: last.authorId, createdAt: last.createdAt } : null,
       };

@@ -30,6 +30,7 @@ import {
   type StoredPoll,
 } from '@/lib/chat/polls';
 import { forwardJumpHref, parseStoredForward, type ForwardOrigin, type ForwardView, type StoredForward } from '@/lib/chat/forward';
+import { withoutServerTag } from '@/lib/servers/serverProfile';
 
 type MessageRow = typeof schema.messages.$inferSelect;
 type ConversationRef = { id: string; serverId?: string | null; type?: string | null; name?: string | null; recipientIds?: string[] | null };
@@ -279,7 +280,7 @@ export async function finalizePoll(messageId: string, opts: { early?: boolean } 
         isBot: Boolean(author.isBot),
         isSystem: Boolean(author.isSystem),
         isVerified: Boolean(author.isVerified),
-        customization: author.customization || null,
+        customization: withoutServerTag(author.customization || null),
       } : { id: row.authorId, username: 'unknown', displayName: 'Unknown' },
       channelId: row.channelId,
       serverId: row.serverId,

@@ -57,6 +57,7 @@ import {
   resolveForwardOrigin,
   scheduleOpenPoll,
 } from '@/lib/services/messageExtras';
+import { withoutServerTag } from '@/lib/servers/serverProfile';
 
 type Cookie = Record<string, { value?: unknown }>;
 type AuthUser = NonNullable<Awaited<ReturnType<typeof authenticateRequest>>['user']>;
@@ -187,7 +188,7 @@ async function postConversationMessage(
       isSystem: user.isSystem || false,
       isBot: Boolean(user.isBot),
       isVerified: Boolean(user.isVerified),
-      customization: user.customization || null,
+      customization: withoutServerTag(user.customization || null),
     },
     channelId: channel.id,
     serverId: channel.serverId ?? null,

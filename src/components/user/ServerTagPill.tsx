@@ -7,7 +7,7 @@ import {
 } from "lucide-react";
 import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
-import { resolvedTagOf, type ResolvedServerTag, type ServerTagIcon } from "@/lib/servers/serverProfile";
+import { resolvedTagOf, type ResolvedServerTag, type ServerTagIcon, isCdnEmojiUrl } from "@/lib/servers/serverProfile";
 
 export const SERVER_TAG_ICON_COMPONENTS: Record<ServerTagIcon, LucideIcon> = {
   leaf: Leaf,
@@ -34,7 +34,7 @@ export const SERVER_TAG_ICON_COMPONENTS: Record<ServerTagIcon, LucideIcon> = {
 
 /** The badge glyph of a server tag: server emoji, unicode emoji, or preset icon. */
 export function ServerTagBadge({ tag, size = 12 }: { tag: Pick<ResolvedServerTag, "icon" | "color" | "emoji" | "emojiUrl">; size?: number }) {
-  if (tag.emojiUrl) {
+  if (isCdnEmojiUrl(tag.emojiUrl)) {
     return <img src={tag.emojiUrl} alt="" width={size} height={size} className="shrink-0 object-contain" style={{ width: size, height: size }} loading="lazy" />;
   }
   if (tag.emoji) {

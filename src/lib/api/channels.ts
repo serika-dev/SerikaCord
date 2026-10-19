@@ -1,3 +1,4 @@
+import { withoutServerTag } from '@/lib/servers/serverProfile';
 import { customizationWithTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
 import { Elysia, t } from 'elysia';
 import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings, type IUserSettings } from '@/lib/models';
@@ -2806,7 +2807,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         displayName: authorData.displayName,
         avatar: authorData.avatar,
         status: authorData.status,
-        customization: authorData.customization,
+        customization: withoutServerTag(authorData.customization),
         badges: authorData.badges,
         isSystem: authorData.isSystem,
         isBot: Boolean(authorData.isBot),

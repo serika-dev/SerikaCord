@@ -11,6 +11,7 @@
  * payloads (see services/serverTags.ts), so clients only ever render resolved
  * tags and a stale or forged pointer renders nothing.
  */
+import { DEFAULT_CDN_URL } from '@/lib/appearance/customization';
 
 // ── Server tag (CORD-53) ────────────────────────────────────────────────────
 
@@ -97,7 +98,7 @@ export function validateTagEmoji(raw: unknown): Result<string> {
  * Read a stored server tag config defensively. Returns null when the server
  * has no usable, enabled tag (bad data never renders).
  */
-export function readServerTagConfig(raw: unknown): ServerTagConfig | null {
+export function readServerTagConfig(raw: unknown, cdnUrl: string = DEFAULT_CDN_URL): ServerTagConfig | null {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   if (r.enabled !== true) return null;
@@ -111,8 +112,26 @@ export function readServerTagConfig(raw: unknown): ServerTagConfig | null {
     color: isHexColor(r.color) ? r.color : SERVER_TAG_COLORS[0],
     emoji: emoji && emoji.ok ? emoji.value : null,
     emojiId: typeof r.emojiId === 'string' && r.emojiId ? r.emojiId : null,
-    emojiUrl: typeof r.emojiUrl === 'string' && /^https:\/\//.test(r.emojiUrl) ? r.emojiUrl : null,
+    emojiUrl: isCdnEmojiUrl(r.emojiUrl, cdnUrl) ? r.emojiUrl : null,
   };
+}
+
+/**
+ * Server emoji images live on our CDN; anything else is refused so a forged
+ * tag can't make every viewer load an outside image (and leak their IP).
+ */
+export function isCdnEmojiUrl(url: unknown, cdnUrl: string = DEFAULT_CDN_URL): url is string {
+  if (typeof url !== 'string' || url.length > 1024) return false;
+  const base = cdnUrl.replace(/\/+$/, '');
+  return url.startsWith(`${base}/`) && !/[\s"'()\\]/.test(url);
+}
+
+/**
+ * User payloads that don't resolve server tags (see services/serverTags.ts)
+ * drop the stored value entirely, so only resolved tags ever reach clients.
+ */
+export function withoutServerTag<T>(customization: T): T {
+  return stripServerTagWrite(customization);
 }
 
 /** The serverId a user's customization points at, if any. */
@@ -246,7 +265,7 @@ export function readServerGames(settings: unknown): ServerGame[] {
  * The resolved tag carried in a payload's customization, or null. Validates
  * every field so a client never renders malformed data.
  */
-export function resolvedTagOf(customization: unknown): ResolvedServerTag | null {
+export function resolvedTagOf(customization: unknown, cdnUrl: string = DEFAULT_CDN_URL): ResolvedServerTag | null {
   if (!customization || typeof customization !== 'object') return null;
   const st = (customization as Record<string, unknown>).serverTag;
   if (!st || typeof st !== 'object') return null;
@@ -261,6 +280,6 @@ export function resolvedTagOf(customization: unknown): ResolvedServerTag | null 
     icon: isServerTagIcon(r.icon) ? r.icon : 'star',
     color: isHexColor(r.color) ? r.color : SERVER_TAG_COLORS[0],
     emoji: emoji && emoji.ok ? emoji.value : null,
-    emojiUrl: typeof r.emojiUrl === 'string' && /^https:\/\//.test(r.emojiUrl) ? r.emojiUrl : null,
+    emojiUrl: isCdnEmojiUrl(r.emojiUrl, cdnUrl) ? r.emojiUrl : null,
   };
 }

@@ -14,6 +14,8 @@ import {
   validateTagEmoji,
   withServerTag,
   type ResolvedServerTag,
+  isCdnEmojiUrl,
+  withoutServerTag,
 } from "../src/lib/servers/serverProfile";
 
 const COVER = "https://images.igdb.com/igdb/image/upload/t_cover_big/co1wyy.jpg";
@@ -121,5 +123,25 @@ describe("server games (CORD-51)", () => {
   });
   test("reading drops bad entries", () => {
     expect(readServerGames({ games: [{ igdbId: 1, name: "A" }, { igdbId: "x", name: "B" }] })).toEqual([{ igdbId: 1, name: "A", coverUrl: null }]);
+  });
+});
+
+describe("forged server tags", () => {
+  test("badge images must be on our CDN", () => {
+    expect(isCdnEmojiUrl("https://cdn.serika.chat/emojis/abc.webp")).toBe(true);
+    expect(isCdnEmojiUrl("https://attacker.example/x.png")).toBe(false);
+    expect(isCdnEmojiUrl("https://cdn.serika.chat.attacker.example/x.png")).toBe(false);
+    expect(isCdnEmojiUrl("https://cdn.serika.chat/x.png\") url(evil")).toBe(false);
+    expect(isCdnEmojiUrl("https://cdn.example/x.png", "https://cdn.example/")).toBe(true);
+  });
+
+  test("a stored tag with an outside image renders without it", () => {
+    const tag = resolvedTagOf({ serverTag: { serverId: "s1", tag: "MODS", emojiUrl: "https://attacker.example/x.png" } });
+    expect(tag?.emojiUrl).toBeNull();
+  });
+
+  test("unresolved payloads drop the stored tag", () => {
+    expect(withoutServerTag({ serverTag: { serverId: "s1", tag: "MODS" }, nameplate: { type: "none" } })).toEqual({ nameplate: { type: "none" } });
+    expect(withoutServerTag(null)).toBeNull();
   });
 });

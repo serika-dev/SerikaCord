@@ -49,6 +49,7 @@
 - **Lighter mobile app** — desktop-only dialogs no longer load on phones, the DM sidebar stops re-rendering every 5 seconds, and the offline cache only keeps app files instead of every request.
 
 ### Security
+- **Server tags can't be forged** — a server tag only shows when it comes from a server you're in that has tags on, and tag badges only load images from Serika's own CDN. (CORD-53)
 - **Stricter nameplate values** — nameplate colours, gradients and presets are now validated when your profile is saved, so only real colours reach the page. (CORD-44)
 
 ### Removed

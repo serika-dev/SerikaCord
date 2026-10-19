@@ -90,6 +90,7 @@ import { config } from '@/lib/config';
 import { getRedis } from '@/lib/db/redis';
 import { PIN_PBKDF2_ITERATIONS, verifyRecoveryRemoval } from '@/lib/e2ee/pin';
 import { beginPin, clearPinBackup, commitPin, getPinRow, pinParams, pinSummary, unlockPin } from '@/lib/services/e2eePin';
+import { withoutServerTag } from '@/lib/servers/serverProfile';
 
 type Cookie = Record<string, { value?: unknown }>;
 
@@ -849,7 +850,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
         displayName: user.displayName || user.username,
         avatar: user.avatar ?? undefined,
         badges: user.badges || [],
-        customization: user.customization || null,
+        customization: withoutServerTag(user.customization || null),
       },
       channelId: channel.id,
       createdAt: notice.createdAt,
@@ -932,7 +933,7 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
         displayName: user.displayName || user.username,
         avatar: user.avatar ?? undefined,
         badges: user.badges || [],
-        customization: user.customization || null,
+        customization: withoutServerTag(user.customization || null),
       },
       channelId: channel.id,
       createdAt: notice.createdAt,
