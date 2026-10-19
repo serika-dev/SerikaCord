@@ -18,7 +18,8 @@ import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
 import { computeChannelPermissions, DEFAULT_EVERYONE_PERMISSIONS, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
 import { publicServerSettings, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
 import { getRolePermissions, getActorRoleContext, hasServerPermission, invalidateRolePerms, primeRolePermissions } from '@/lib/permissions/serverPermissions';
-import { canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
+import { canAssignRole, canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type ActorRoleContext, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
+import { addedRoleLinkTargets, expandLinkedRoles, isLinkableRole, normalizeRoleLinks, readRoleLinks, type RoleLinks } from '@/lib/roles/roleLinks';
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
 import { insertServerMember, removeServerBan, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 import { copyPermissionOverwrites, ensureSoundboardIds, sameId, validateChannelReorder } from '@/lib/servers/guards';
@@ -28,10 +29,11 @@ import { AuditLogEvent, GUILD_AUDIT_KEYS, ROLE_AUDIT_KEYS, auditReason, diffChan
 import { invalidateServerGate, memberVerificationState, pendingChannelAccess } from '@/lib/services/serverGate';
 import { isChannelAccessibleWhilePending, validateApplicationAnswers } from '@/lib/servers/community';
 import { admitScreenedMember, getScreeningConfig } from '@/lib/services/serverCommunity';
-import { fanoutToUsers } from '@/lib/api/activity';
+import { fanoutToUsers, invalidateServerMemberCache } from '@/lib/api/activity';
 import { VERIFICATION_ACTIONS, VERIFICATION_MAX_MINUTES, normalizeVerificationOptions, type VerificationAction } from '@/lib/servers/verification';
 import { normalizeOverwrites } from '@/lib/permissions/overwriteEditor';
 import { normalizeRoleIconInput, pickIconRole } from '@/lib/roles/roleIcon';
+import { parseSoundVolume } from '@/lib/servers/soundboardVolume';
 // Bot gateway events for guild resources (GUILD_UPDATE, CHANNEL_*, GUILD_ROLE_*, GUILD_MEMBER_UPDATE, INVITE_*).
 import * as guildEvents from '@/lib/services/guildGatewayEvents';
 
@@ -78,6 +80,8 @@ const MEMBER_USER_COLUMNS = {
   isSystem: schema.users.isSystem,
   isPremium: schema.users.isPremium,
   isVerified: schema.users.isVerified,
+  // Account age, shown in Server Settings → Members (CORD-54).
+  createdAt: schema.users.createdAt,
 };
 
 async function findMemberUsers(userIds: string[]) {
@@ -317,6 +321,7 @@ interface PopulatedMemberUser {
   isSystem?: boolean;
   isVerified?: boolean;
   presenceLastHeartbeatAt?: Date | null;
+  createdAt?: Date | null;
   customization?: {
     profileColor?: string;
     profileAccentColor?: string;
@@ -436,6 +441,7 @@ function normalizeMemberDto(member: {
     isOwner: ownerId ? ownerId === userData?.id : false,
     customization: userData?.customization || null,
     joinedAt: member.joinedAt || null,
+    accountCreatedAt: userData?.createdAt || null,
     communicationDisabledUntil: member.communicationDisabledUntil || null,
     roles: memberRoles,
     highestRole,
@@ -999,6 +1005,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       nextTheme = result.theme;
       delete (settingsPayload as Record<string, unknown>).theme;
     }
+    // Linked roles go through PUT /roles/:roleId/links (hierarchy checks).
+    delete (settingsPayload as Record<string, unknown>).roleLinks;
     const nextSettings = {
       ...serverSettings,
       ...settingsPayload,
@@ -1797,9 +1805,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // Role hierarchy: non-owners may only add/remove roles below their own
     // highest role, on members ranked below them (or themselves).
+    const serverRoles = (await Role.find({ serverId: params.serverId })) as HierarchyRole[];
+    let actorCtx: ActorRoleContext | null = null;
     if (server.ownerId !== user.id) {
-      const serverRoles = (await Role.find({ serverId: params.serverId })) as HierarchyRole[];
       const actor = await getActorRoleContext(server, user.id, serverRoles);
+      actorCtx = actor;
       const currentRoleIds = (member.roles || []) as string[];
       const hierarchyError = actor
         ? checkMemberRoleChange({
@@ -1817,6 +1827,22 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         set.status = 403;
         return { error: hierarchyError };
       }
+    }
+
+    // Linked roles (CORD-57): newly granted roles pull in the roles they link
+    // to, limited to roles this actor could assign themselves.
+    {
+      const rolesById = new Map(serverRoles.map((r) => [normalizeId(r.id), r]));
+      const expanded = expandLinkedRoles({
+        current: ((member.roles || []) as string[]).map(normalizeId),
+        next: requestedWithEveryone.map(normalizeId),
+        links: readRoleLinks(server.settings, serverRoles),
+        canAdd: (id) => {
+          const role = rolesById.get(id);
+          return Boolean(role) && (!actorCtx || canAssignRole(actorCtx, role!));
+        },
+      });
+      for (const id of expanded.slice(requestedWithEveryone.length)) requestedWithEveryone.push(rolesById.get(id)?.id ?? id);
     }
 
     await ServerMember.updateById(member.id, { roles: requestedWithEveryone });
@@ -2434,8 +2460,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You are not a member of this server' };
     }
 
-    const roles = await getNormalizedRoles(params.serverId);
-    return { roles };
+    const [roles, server] = await Promise.all([getNormalizedRoles(params.serverId), Server.findById(params.serverId)]);
+    return { roles, roleLinks: readRoleLinks(server?.settings, roles) };
   }, {
     params: t.Object({
       serverId: t.String(),
@@ -2663,6 +2689,142 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       mentionable: t.Optional(t.Boolean()),
       icon: t.Optional(t.Union([t.String({ maxLength: 512 }), t.Null()])),
       unicodeEmoji: t.Optional(t.Union([t.String({ maxLength: 32 }), t.Null()])),
+    }),
+  })
+  // Linked roles (CORD-57): members who get this role also get `roleIds`
+  // (one way). Stored in servers.settings.roleLinks; current holders of the
+  // role get newly linked roles right away.
+  .put('/:serverId/roles/:roleId/links', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    if (!isValidObjectId(params.serverId) || !isValidObjectId(params.roleId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+    const rl = await checkRateLimit('roleLinks', user.id);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: rl.retryAfter };
+    }
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+    if (!(await canManageRoles(server, user.id))) {
+      set.status = 403;
+      return { error: 'You need Manage Roles permission to link roles' };
+    }
+    const serverRoles = (await Role.find({ serverId: params.serverId })) as Array<HierarchyRole & { name: string }>;
+    const rolesById = new Map(serverRoles.map((r) => [normalizeId(r.id), r]));
+    const sourceId = normalizeId(params.roleId);
+    const source = rolesById.get(sourceId);
+    if (!source) {
+      set.status = 404;
+      return { error: 'Role not found' };
+    }
+    if (!isLinkableRole(source)) {
+      set.status = 400;
+      return { error: 'This role cannot have linked roles' };
+    }
+    const requested = Array.from(new Set(body.roleIds.filter((id) => isValidObjectId(id)).map(normalizeId)));
+    if (requested.some((id) => !isLinkableRole(rolesById.get(id)))) {
+      set.status = 400;
+      return { error: 'One or more linked roles are invalid' };
+    }
+    const before = readRoleLinks(server.settings, serverRoles);
+    const previousTargets = before[sourceId] ?? [];
+
+    // Hierarchy: non-owners may only link a role they can assign, to roles
+    // they can assign; links they add or remove must all be below them.
+    const actor = server.ownerId === user.id ? null : await getActorRoleContext(server, user.id, serverRoles);
+    if (server.ownerId !== user.id) {
+      const changed = [...requested.filter((id) => !previousTargets.includes(id)), ...previousTargets.filter((id) => !requested.includes(id))];
+      if (!actor || !canAssignRole(actor, source) || changed.some((id) => !canAssignRole(actor, rolesById.get(id)!))) {
+        set.status = 403;
+        return { error: 'You can only link roles below your highest role' };
+      }
+    }
+
+    const next: RoleLinks = { ...before };
+    if (requested.length > 0) next[sourceId] = requested;
+    else delete next[sourceId];
+    const after = normalizeRoleLinks(next, serverRoles);
+    if (requested.length > 0 && (after[sourceId]?.length ?? 0) !== requested.length) {
+      set.status = 400;
+      return { error: 'Too many linked roles' };
+    }
+
+    // Atomic write of just this key, so a concurrent settings save keeps it.
+    await db
+      .update(schema.servers)
+      .set({ settings: sql`jsonb_set(COALESCE(${schema.servers.settings}, '{}'::jsonb), '{roleLinks}', ${JSON.stringify(after)}::jsonb, true)`, updatedAt: new Date() })
+      .where(eq(schema.servers.id, normalizeId(server.id)));
+    await cache.del(`server:${server.id}`).catch(() => {});
+
+    // Give newly linked roles to members who already hold this role (and
+    // whom the actor could edit), following links transitively.
+    const fresh = addedRoleLinkTargets(before, after)[sourceId] ?? [];
+    let applied = 0;
+    if (fresh.length > 0) {
+      const holders = await db
+        .select({ id: schema.serverMembers.id, userId: schema.serverMembers.userId, roles: schema.serverMembers.roles })
+        .from(schema.serverMembers)
+        .where(and(
+          eq(schema.serverMembers.serverId, normalizeId(server.id)),
+          sql`${sourceId}::uuid = ANY(${schema.serverMembers.roles})`,
+        ))
+        .limit(10_000);
+      const canAdd = (id: string) => {
+        const role = rolesById.get(id);
+        return Boolean(role) && (!actor || canAssignRole(actor, role!));
+      };
+      const updates: Array<{ id: string; userId: string; roles: string[] }> = [];
+      for (const m of holders) {
+        const current = ((m.roles || []) as string[]).map(normalizeId);
+        if (normalizeId(m.userId) === normalizeId(server.ownerId) && server.ownerId !== user.id) continue;
+        if (actor && normalizeId(m.userId) !== normalizeId(user.id) && topRolePosition(current, serverRoles) >= actor.topPosition) continue;
+        // Treat the source role as just granted so its links fire.
+        const expanded = expandLinkedRoles({ current: current.filter((id) => id !== sourceId), next: current, links: after, canAdd });
+        if (expanded.length > current.length) updates.push({ id: m.id, userId: m.userId, roles: expanded });
+      }
+      for (let i = 0; i < updates.length; i += 50) {
+        await Promise.all(updates.slice(i, i + 50).map((u) => ServerMember.updateById(u.id, { roles: u.roles })));
+      }
+      applied = updates.length;
+      for (const u of updates) void guildEvents.emitMemberUpdate(server.id, u.userId);
+      if (applied > 0) invalidateServerMemberCache(server.id);
+    }
+
+    const names = new Map(serverRoles.map((r) => [normalizeId(r.id), r.name] as const));
+    const toRefs = (ids: string[]) => ids.map((id) => ({ id, name: names.get(id) ?? id }));
+    const added = (after[sourceId] ?? []).filter((id) => !previousTargets.includes(id));
+    const removed = previousTargets.filter((id) => !(after[sourceId] ?? []).includes(id));
+    if (added.length > 0 || removed.length > 0) {
+      audit({
+        serverId: server.id,
+        userId: user.id,
+        actionType: AuditLogEvent.ROLE_UPDATE,
+        targetId: source.id,
+        changes: [
+          ...(added.length > 0 ? [{ key: 'linked_roles_$add', new: toRefs(added) }] : []),
+          ...(removed.length > 0 ? [{ key: 'linked_roles_$remove', new: toRefs(removed) }] : []),
+        ],
+        options: { role_name: source.name },
+        reason: auditReason(headers['x-audit-log-reason']),
+      });
+    }
+    return { roleLinks: after, applied };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      roleId: t.String(),
+    }),
+    body: t.Object({
+      roleIds: t.Array(t.String({ maxLength: 64 }), { maxItems: 50 }),
     }),
   })
   // Reorder server roles
@@ -3559,7 +3721,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Only the server owner can add soundboard sounds' };
     }
 
-    const { name, url, emoji } = body as { name: string; url: string; emoji?: string };
+    const { name, url, emoji, volume } = body as { name: string; url: string; emoji?: string; volume?: number };
 
     if (!name || !url) {
       set.status = 400;
@@ -3578,6 +3740,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       name: name.substring(0, 32),
       url,
       emoji: emoji || '🔊',
+      // Per-sound volume, 0..1 like Discord (CORD-31).
+      volume: parseSoundVolume(volume) ?? 1,
       uploadedBy: user.id,
     });
 
@@ -3595,6 +3759,66 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       name: t.String({ minLength: 1, maxLength: 32 }),
       url: t.String(),
       emoji: t.Optional(t.String()),
+      volume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
+    }),
+  })
+  // Edit a soundboard sound: name, emoji and its own volume (CORD-31)
+  .patch('/:serverId/soundboard/:soundId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    if (!isValidObjectId(params.serverId) || !isValidObjectId(params.soundId)) {
+      set.status = 400;
+      return { error: 'Invalid ID' };
+    }
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+    // Same managers as adding / deleting sounds.
+    if (server.ownerId !== user.id) {
+      set.status = 403;
+      return { error: 'Only the server owner can edit soundboard sounds' };
+    }
+    const { sounds } = ensureSoundboardIds<Record<string, unknown>>(server.soundboardSounds, isValidObjectId, randomUUID);
+    const idx = sounds.findIndex((s) => sameId(s.id, params.soundId));
+    if (idx === -1) {
+      set.status = 404;
+      return { error: 'Sound not found' };
+    }
+    const prev = sounds[idx] as Record<string, unknown> & { id: string };
+    const next: Record<string, unknown> & { id: string } = { ...prev };
+    if (body.name !== undefined) {
+      const name = sanitizeInput(body.name).trim().substring(0, 32);
+      if (!name) {
+        set.status = 400;
+        return { error: 'Name is required' };
+      }
+      next.name = name;
+    }
+    if (body.emoji !== undefined) next.emoji = body.emoji.trim().substring(0, 32) || '🔊';
+    if (body.volume !== undefined) next.volume = parseSoundVolume(body.volume) ?? 1;
+    sounds[idx] = next;
+    await Server.updateById(server.id, { soundboardSounds: sounds });
+    const changes = (['name', 'emoji', 'volume'] as const)
+      .filter((k) => prev[k] !== next[k])
+      .map((k) => ({ key: k, old: prev[k], new: next[k] }));
+    if (changes.length > 0) {
+      audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.SOUNDBOARD_SOUND_UPDATE, targetId: next.id, changes });
+    }
+    return { sound: next };
+  }, {
+    params: t.Object({
+      serverId: t.String(),
+      soundId: t.String(),
+    }),
+    body: t.Object({
+      name: t.Optional(t.String({ minLength: 1, maxLength: 32 })),
+      emoji: t.Optional(t.String({ maxLength: 32 })),
+      volume: t.Optional(t.Number({ minimum: 0, maximum: 1 })),
     }),
   })
   // Delete soundboard sound

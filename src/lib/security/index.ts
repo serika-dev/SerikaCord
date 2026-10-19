@@ -134,6 +134,8 @@ export const rateLimiters_config = {
   messageRequest: { points: 60, duration: 60 },
   // Changing another member's nickname, per user
   memberNickname: { points: 30, duration: 60 },
+  // Linked roles edits (each may update every holder of the role), per user
+  roleLinks: { points: 20, duration: 60 },
   // Scheduled events: create / edit / cancel / interested, per user
   scheduledEvent: { points: 30, duration: 60 },
   // Announcement channels: publishing to followers, per channel (Discord: 10/hour)

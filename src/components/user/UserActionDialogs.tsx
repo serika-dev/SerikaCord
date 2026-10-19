@@ -256,6 +256,7 @@ function RemoveMemberDialog({ request, onClose }: { request: UserActionRequest; 
       }
       toast.success(isBan ? gt("{name} was banned", { name }) : gt("{name} was kicked", { name }));
       void fetchMembers(serverId);
+      target.onDone?.();
       onClose();
     } catch {
       toast.error(isBan ? gt("Failed to ban member") : gt("Failed to kick member"));
@@ -345,6 +346,7 @@ function TimeoutDialog({ request, onClose }: { request: UserActionRequest; onClo
       }
       toast.success(durationMs > 0 ? gt("{name} was timed out", { name }) : gt("Timeout removed"));
       void fetchMembers(serverId);
+      target.onDone?.();
       onClose();
     } catch {
       toast.error(gt("Failed to update timeout"));

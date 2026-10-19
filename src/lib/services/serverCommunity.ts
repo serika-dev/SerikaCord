@@ -27,7 +27,8 @@ import {
   rolesWithUnsafeChannelGrants,
   type OnboardingConfig,
 } from '@/lib/servers/onboarding';
-import { Channel, Role, ServerMember } from '@/lib/models';
+import { Channel, Role, Server, ServerMember } from '@/lib/models';
+import { expandLinkedRoles, readRoleLinks } from '@/lib/roles/roleLinks';
 import { invalidateServerMemberCache } from '@/lib/api/activity';
 import { requestUserChannelStreamRecheck } from '@/lib/realtime/channelStreams';
 import { audit } from '@/lib/services/auditLog';
@@ -346,7 +347,16 @@ export async function applyMemberOnboardingRoles(serverId: string, userId: strin
   const changes = onboardingRoleChanges(config, response.optionIds);
   const grant = new Set([...changes.grant].filter((r) => safe.has(r)));
   const current = (member.roles || []) as string[];
-  const next = applyOnboardingRoles(current, { grant, managed: changes.managed });
+  let next = applyOnboardingRoles(current, { grant, managed: changes.managed });
+  // Linked roles (CORD-57): picks pull in the roles they link to, as long as
+  // those are just as safe to self-assign.
+  const server = await Server.findById(serverId);
+  next = expandLinkedRoles({
+    current: current.map(normalizeId),
+    next: next.map(normalizeId),
+    links: readRoleLinks(server?.settings, serverRoles),
+    canAdd: (id) => safe.has(id),
+  });
   const changed = next.length !== current.length || next.some((r) => !current.includes(r));
   if (changed) {
     await ServerMember.updateById(member.id, { roles: next });

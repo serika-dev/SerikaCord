@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { effectiveSoundPercent } from '@/lib/servers/soundboardVolume';
 import { authenticateRequest } from '@/lib/services/auth';
 import { config } from '@/lib/config';
 import { cache, getPublisher } from '@/lib/db';
@@ -1157,15 +1158,15 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
         set.status = 403;
         return { error: 'Soundboard is disabled in this server' };
       }
-      volume = (server.settings as IServerSettings | undefined)?.soundboard?.volume ?? 100;
-
-      const sound = ((server.soundboardSounds as Array<{ name: string; soundId: string; url: string }> | undefined) || []).find(
+      const sound = ((server.soundboardSounds as Array<{ name: string; soundId: string; url: string; volume?: unknown }> | undefined) || []).find(
         (s: { url: string }) => s.url === body.soundUrl
       );
       if (!sound) {
         set.status = 400;
         return { error: 'That sound does not exist in this server' };
       }
+      // Server soundboard volume × this sound's own volume (CORD-31).
+      volume = effectiveSoundPercent((server.settings as IServerSettings | undefined)?.soundboard?.volume, sound);
     }
 
     broadcastToRoom(params.roomId, {

@@ -19,6 +19,8 @@ export interface UserActionTarget {
   serverId?: string | null;
   /** Current timeout end, so Timeout can offer "Remove Timeout". */
   communicationDisabledUntil?: string | null;
+  /** Called after a kick / ban / timeout succeeds (e.g. Server Settings → Members refreshes its list). */
+  onDone?: () => void;
 }
 
 export interface UserActionRequest {
