@@ -42,7 +42,9 @@ export type UploadCategory =
   | 'app-icons'
   | 'group-icons'
   | 'event-covers'
-  | 'webhook-avatars';
+  | 'webhook-avatars'
+  | 'backgrounds'
+  | 'nameplates';
 
 interface UploadResult {
   url: string;
@@ -83,6 +85,8 @@ function validateFileType(category: UploadCategory, contentType: string): boolea
     'webhook-avatars': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'event-covers': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'server-banners': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    backgrounds: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    nameplates: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     emojis: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     stickers: ['image/png', 'image/apng', 'image/gif', 'application/json'], // JSON for Lottie
     audio: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm'],
@@ -108,6 +112,8 @@ function getMaxSize(category: UploadCategory): number {
     'group-icons': config.MAX_AVATAR_SIZE,
     'webhook-avatars': config.MAX_AVATAR_SIZE,
     'event-covers': config.MAX_BANNER_SIZE,
+    backgrounds: config.MAX_BANNER_SIZE,
+    nameplates: config.MAX_BANNER_SIZE,
   };
 
   return categorySizes[category] ?? config.MAX_FILE_SIZE;

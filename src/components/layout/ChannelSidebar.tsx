@@ -50,7 +50,7 @@ import {
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
-import { getNameplateBackground } from "@/lib/constants/nameplates";
+import { getNameplateBackground, type NameplateCustomization } from "@/lib/constants/nameplates";
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -116,6 +116,7 @@ interface DMChannel {
         color?: string;
         gradient?: string[];
       };
+      nameplate?: NameplateCustomization | null;
     } | null;
   }[];
   lastMessageId?: string;
@@ -1315,6 +1316,7 @@ export function ChannelSidebar({
                   const isActive = pathname === href;
                   const unread = !isActive && isChannelUnread(channel.id);
                   const dmMentions = isActive ? 0 : getMentionCount(channel.id);
+                  const dmNameplate = !isGroup && recipient ? getNameplateBackground(recipient.customization) : null;
 
                   return (
                     <Link
@@ -1334,6 +1336,13 @@ export function ChannelSidebar({
                         !isActive && isChannelMuted(channel.id) && "opacity-50"
                       )}
                     >
+                      {dmNameplate && (
+                        <div
+                          aria-hidden
+                          className="pointer-events-none absolute inset-0 rounded-md"
+                          style={{ background: dmNameplate, opacity: 0.4, WebkitMaskImage: "linear-gradient(90deg, #000 55%, transparent 100%)", maskImage: "linear-gradient(90deg, #000 55%, transparent 100%)" }}
+                        />
+                      )}
                       {/* Unread pill: white bar on the far left, Discord-style. */}
                       {unread && (
                         <span className="absolute -left-2 top-1/2 -translate-y-1/2 w-1 h-2 rounded-r-full bg-[var(--text-primary)]" />

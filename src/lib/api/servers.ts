@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { readServerTheme, sanitizeServerTheme, type ServerTheme } from '@/lib/appearance/customization';
 import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, Message, ServerMemberApplication, type IServerSettings, type IRole, type IMessage, type IServer } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
@@ -940,6 +941,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           joinMode: (server.settings as IServerSettings | undefined)?.access?.joinMode || server.joinMode || 'invite_only',
         },
         isAgeGated: Boolean(server.isAgeGated),
+        theme: readServerTheme(server.settings),
         discoveryDescription: server.discoveryDescription || '',
         discoveryCategories: server.discoveryCategories || [],
       },
@@ -986,6 +988,17 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       delete integ.discordChannelsMap;
       settingsPayload.integrations = integ as IServerSettings['integrations'];
     }
+    // Server theme (CORD-50): colours only, validated; null clears it.
+    let nextTheme: ServerTheme | null | undefined;
+    if ('theme' in settingsPayload) {
+      const result = sanitizeServerTheme((settingsPayload as Record<string, unknown>).theme);
+      if ('error' in result) {
+        set.status = 400;
+        return { error: 'Some settings are invalid', fieldErrors: { theme: result.error } };
+      }
+      nextTheme = result.theme;
+      delete (settingsPayload as Record<string, unknown>).theme;
+    }
     const nextSettings = {
       ...serverSettings,
       ...settingsPayload,
@@ -1014,6 +1027,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         ...(settingsPayload.access || {}),
       },
     } as IServerSettings;
+    if (nextTheme !== undefined) {
+      if (nextTheme) (nextSettings as Record<string, unknown>).theme = nextTheme;
+      else delete (nextSettings as Record<string, unknown>).theme;
+    }
 
     if (nextSettings.moderation?.verificationLevel) {
       server.verificationLevel = nextSettings.moderation.verificationLevel;

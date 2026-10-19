@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef, memo } from "react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useServer } from "@/contexts/ServerContext";
+import { ServerThemeSettings } from "@/components/settings/ServerThemeSettings";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -2041,6 +2042,11 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           <T>Display your server rules in Community servers</T>
         </p>
       </div>
+
+      {/* Server theme (CORD-50) */}
+      {currentServer && canManageServer && (
+        <ServerThemeSettings key={currentServer.id} serverId={currentServer.id} theme={currentServer.theme} onSaved={fetchServers} />
+      )}
 
       {/* Danger Zone */}
       {isOwner && (

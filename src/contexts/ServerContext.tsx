@@ -9,6 +9,7 @@ import { BoundedMap } from "@/lib/utils/boundedMap";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { notifyServersChanged } from "@/lib/notifyServersChanged";
 import { onThreadsChanged } from "@/lib/chat/threadPanelStore";
+import type { ServerTheme } from "@/lib/appearance/customization";
 
 interface Server {
   id: string;
@@ -26,6 +27,8 @@ interface Server {
   rulesChannelId?: string | null;
   afkChannelId?: string | null;
   afkTimeout?: number;
+  /** Server theme (CORD-50), validated server-side; see ServerThemeSync. */
+  theme?: ServerTheme | null;
 }
 
 type ChannelType =

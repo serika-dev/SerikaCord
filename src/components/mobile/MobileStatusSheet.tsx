@@ -1,8 +1,10 @@
 "use client";
 
 import { useGT } from "gt-next";
-import { Check, SmilePlus } from "lucide-react";
+import { Check, SmilePlus, Target } from "lucide-react";
 import { useAuth } from "@/contexts/AuthContext";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { useFocusMode } from "@/hooks/useFocusMode";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 import { MobileSheet, SheetGroup } from "./MobileSheet";
 
@@ -25,6 +27,7 @@ export function MobileStatusSheet({ onClose, onCustomStatus }: { onClose: () => 
   const gt = useGT();
   const { user, setOnlineStatus } = useAuth();
   const current = (user?.status ?? "online") as Presence;
+  const { focusMode, setFocusMode } = useFocusMode();
 
   const descriptions: Partial<Record<Presence, string>> = {
     dnd: gt("You will not receive desktop notifications"),
@@ -58,6 +61,17 @@ export function MobileStatusSheet({ onClose, onCustomStatus }: { onClose: () => 
             {p === current && <Check className="h-5 w-5 shrink-0 text-[var(--app-accent)]" />}
           </button>
         ))}
+      </SheetGroup>
+      {/* Focus Mode (CORD-13): same setting as Notifications → Focus Mode */}
+      <SheetGroup>
+        <label className="flex min-h-12 w-full touch-manipulation items-center gap-3 px-4 py-2.5 text-left active:bg-[var(--bg-hover)]">
+          <Target className="h-5 w-5 shrink-0 text-[var(--text-secondary)]" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-[15px] font-medium text-[var(--text-primary)]">{gt("Focus Mode")}</span>
+            <span className="block text-xs text-[var(--text-muted)]">{gt("Only direct mentions and DMs notify you")}</span>
+          </span>
+          <ToggleSwitch checked={focusMode} onCheckedChange={(checked) => void setFocusMode(checked)} aria-label={gt("Focus Mode")} />
+        </label>
       </SheetGroup>
       <SheetGroup>
         <button

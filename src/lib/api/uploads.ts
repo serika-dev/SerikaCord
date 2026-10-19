@@ -241,6 +241,70 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       file: t.File(),
     }),
   })
+  // Appearance images (CORD-46 app background, CORD-44 nameplate image).
+  // Only uploads the file: the URL is saved through the settings / profile
+  // PATCH, which accepts only `<CDN>/<folder>/<this user>/<file>`.
+  .post('/appearance/:kind', async ({ headers, cookie, params, body, request, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const category = params.kind === 'background' ? 'backgrounds' : params.kind === 'nameplate' ? 'nameplates' : null;
+    if (!category) {
+      set.status = 404;
+      return { error: 'Unknown upload kind' };
+    }
+
+    const ip = getClientIP(request);
+    const rateLimit = await checkRateLimit('upload', `${user.id}:${ip}`);
+    if (!rateLimit.success) {
+      set.status = 429;
+      return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter };
+    }
+
+    const { file } = body;
+    if (!file) {
+      set.status = 400;
+      return { error: 'No file provided' };
+    }
+    if (!isValidImageType(file.type)) {
+      set.status = 400;
+      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
+    }
+    if (file.size > config.MAX_BANNER_SIZE) {
+      set.status = 400;
+      return { error: `File too large. Maximum size is ${config.MAX_BANNER_SIZE / 1024 / 1024}MB.` };
+    }
+
+    try {
+      // The stored name's extension comes from the checked type, never the
+      // client's filename, so the URL always matches the appearance URL rule.
+      const ext = file.type === 'image/jpeg' ? 'jpg' : file.type.slice('image/'.length);
+      const result = await storage.upload({
+        category,
+        contentType: file.type,
+        data: Buffer.from(await file.arrayBuffer()),
+        size: file.size,
+        filename: `image.${ext}`,
+        userId: user.id,
+        ip,
+      });
+      return { success: true, url: result.url };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Failed to upload image';
+      console.error('Appearance upload error:', error);
+      set.status = uploadErrorStatus(error);
+      return { error: message };
+    }
+  }, {
+    params: t.Object({
+      kind: t.String(),
+    }),
+    body: t.Object({
+      file: t.File(),
+    }),
+  })
   // Upload banner
   .post('/banner', async ({ headers, cookie, body, request, set }) => {
     const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);

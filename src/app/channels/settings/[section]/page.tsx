@@ -14,7 +14,9 @@ import Link from "next/link";
 import { getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
-import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
+import { NAMEPLATE_PRESETS, getNameplateBackground, type NameplateCustomization } from "@/lib/constants/nameplates";
+import { NameplateImagePicker } from "@/components/settings/NameplateImagePicker";
+import { AppearanceCustomizationPanel } from "@/components/settings/AppearanceCustomizationPanel";
 import { T, useGT } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
 import { Loader } from "@/components/ui/Loader";
@@ -154,6 +156,8 @@ export default function MobileSettingsSectionPage() {
   const section = (params.section as string) || "privacy";
 
   const [settings, setSettings] = useState<SettingsObject | null>(null);
+  const appearanceSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const appearancePending = useRef<Record<string, unknown>>({});
   const [apps, setApps] = useState<any[]>([]);
   const [devices, setDevices] = useState<any[]>([]);
   const [connections, setConnections] = useState<any[]>([]);
@@ -187,12 +191,7 @@ export default function MobileSettingsSectionPage() {
   const [profileCardBorderColor, setProfileCardBorderColor] = useState("");
   const [profileCardBorderGlow, setProfileCardBorderGlow] = useState(false);
   const [profileCardBorderWidth, setProfileCardBorderWidth] = useState(1);
-  const [nameplate, setNameplate] = useState<{
-    type?: 'none' | 'color' | 'gradient' | 'preset';
-    color?: string;
-    gradient?: string[];
-    presetId?: string;
-  }>({ type: 'none' });
+  const [nameplate, setNameplate] = useState<NameplateCustomization>({ type: 'none' });
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
@@ -522,6 +521,33 @@ export default function MobileSettingsSectionPage() {
               />
             </div>
             <ToggleRow label={gt("Compact mode")} checked={Boolean(settings.appearance?.compactMode)} onChange={(checked) => saveSettings({ appearance: { ...(settings.appearance || {}), compactMode: checked } })} />
+            {/* Font, background image, server themes (CORD-45/46/50) */}
+            <AppearanceCustomizationPanel
+              values={{
+                fontFamily: typeof settings.appearance?.fontFamily === "string" ? settings.appearance.fontFamily : "",
+                backgroundImage: typeof settings.appearance?.backgroundImage === "string" ? settings.appearance.backgroundImage : "",
+                backgroundDim: typeof settings.appearance?.backgroundDim === "number" ? settings.appearance.backgroundDim : 50,
+                backgroundBlur: typeof settings.appearance?.backgroundBlur === "number" ? settings.appearance.backgroundBlur : 0,
+                useServerThemes: settings.appearance?.useServerThemes !== false,
+              }}
+              profileBanner={user?.banner}
+              save={(patch, opts) => {
+                if (!opts?.debounce) {
+                  void saveSettings({ appearance: patch });
+                  return;
+                }
+                // Sliders: preview live, save once they settle.
+                setSettings((prev) => ({ ...(prev || {}), appearance: { ...(prev?.appearance || {}), ...patch } }));
+                applyUserSettingsPatch({ appearance: patch });
+                appearancePending.current = { ...appearancePending.current, ...patch };
+                if (appearanceSaveTimer.current) clearTimeout(appearanceSaveTimer.current);
+                appearanceSaveTimer.current = setTimeout(() => {
+                  const pending = appearancePending.current;
+                  appearancePending.current = {};
+                  void saveSettings({ appearance: pending });
+                }, 300);
+              }}
+            />
           </div>
         )}
 
@@ -1181,6 +1207,7 @@ export default function MobileSettingsSectionPage() {
                   { id: "color", label: gt("Solid") },
                   { id: "gradient", label: gt("Gradient") },
                   { id: "preset", label: gt("Presets") },
+                  { id: "image", label: gt("Image") },
                 ] as const).map((opt) => (
                   <button
                     key={opt.id}
@@ -1262,6 +1289,13 @@ export default function MobileSettingsSectionPage() {
                   </div>
                 );
               })()}
+
+              {nameplate.type === "image" && (
+                <NameplateImagePicker
+                  hasImage={Boolean(nameplate.imageUrl)}
+                  onUploaded={(url) => setNameplate({ type: "image", imageUrl: url })}
+                />
+              )}
 
               {/* Presets */}
               {nameplate.type === "preset" && (

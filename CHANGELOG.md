@@ -14,6 +14,11 @@
 - **Date dividers in chat** — a line with the date now marks where a new day starts between messages, in channels and DMs, shown in your language. When the unread "New" line falls on the same spot, they merge into one. (CORD-41)
 - **Reply and edit with the keyboard** — Ctrl+Up / Ctrl+Down (Cmd on Mac) in the message box picks the message to reply to and highlights it; going past the newest message or pressing Escape cancels. Ctrl+Shift+Up / Ctrl+Shift+Down steps through your own messages to edit them. The message you are replying to is now highlighted. (CORD-11)
 - **Turn off TTS sound effects** — new Voice & Video settings: "Play text-to-speech from others" mutes other people’s /tts messages, and "TTS sound effects" turns off sound triggers and loud effects like [vol:EAR] (trigger words are spoken instead and volume stays at 100%). (CORD-35)
+- **Custom app background** — Settings → Appearance lets you upload a background image (or use your profile banner) with dim and blur sliders; panels turn see-through so it shows, in light and dark themes. (CORD-46)
+- **Use any font** — pick an app font from presets, type any installed font's name, or browse your installed fonts in Chromium browsers. (CORD-45)
+- **Server themes** — server managers can set an accent colour and background tint under Server Settings → Overview; members see it while inside the server, and can turn it off with "Use server themes". (CORD-50)
+- **Image nameplates** — nameplates can now use an uploaded image, shown in the member list, DM list and your user panel. (CORD-44)
+- **Focus Mode in the status menu** — toggle Focus Mode straight from the status picker on desktop and the status sheet on mobile. (CORD-13)
 
 ### Changes
 - **Enter creates the channel** — pressing Enter in the new channel name box creates it (or moves to the access step for a private channel), and the box is focused when the dialog opens. (CORD-25)
@@ -35,6 +40,7 @@
 - **Lighter mobile app** — desktop-only dialogs no longer load on phones, the DM sidebar stops re-rendering every 5 seconds, and the offline cache only keeps app files instead of every request.
 
 ### Security
+- **Stricter nameplate values** — nameplate colours, gradients and presets are now validated when your profile is saved, so only real colours reach the page. (CORD-44)
 
 ### Removed
 

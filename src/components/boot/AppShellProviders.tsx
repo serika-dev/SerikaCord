@@ -2,6 +2,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { ServerProvider } from "@/contexts/ServerContext";
+import { ServerThemeSync } from "@/components/boot/ServerThemeSync";
 import { UnreadProvider } from "@/contexts/UnreadContext";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
 import { NotificationHosts } from "@/components/notifications/NotificationHosts";
@@ -65,6 +66,7 @@ export default function AppShellProviders({ children }: { children: ReactNode })
       <UnreadProvider>
         <ConfirmProvider>
           {children}
+          <ServerThemeSync />
           <NotificationHosts />
           <ForwardDialogHost />
           <InteractionModalHost />
