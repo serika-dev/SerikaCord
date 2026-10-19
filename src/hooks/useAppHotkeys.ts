@@ -20,11 +20,22 @@ const COMPOSER_ONLY_WHILE_TYPING = new Set<HotkeyAction>([
   "toggle-gifs",
   "toggle-stickers",
   "upload-file",
+  // Ctrl(+Shift)+Up/Down pick a message to reply to / edit (CORD-11): from the
+  // composer only, so they never steal caret movement in other text fields.
+  "reply-prev",
+  "reply-next",
+  "edit-prev",
+  "edit-next",
 ]);
 
 /** True if the focused element is (inside) the chat message composer. */
 function isMessageComposer(el: Element | null): boolean {
   return !!el?.closest?.('[data-message-composer="true"]');
+}
+
+/** True if the focused element is (inside) a message's inline edit box. */
+function isMessageEditForm(el: Element | null): boolean {
+  return !!el?.closest?.('[data-message-edit-form="true"]');
 }
 
 /** True if the focused element is an editable text field. */
@@ -152,7 +163,13 @@ export function useAppHotkeys() {
       // Composer-scoped chat shortcuts (emoji/GIF/sticker/upload) may open while
       // typing, but only from the message composer itself — never from other
       // text fields like the bug-report form or settings inputs.
-      if (typing && COMPOSER_ONLY_WHILE_TYPING.has(hk.action) && !isMessageComposer(document.activeElement)) return;
+      if (
+        typing &&
+        COMPOSER_ONLY_WHILE_TYPING.has(hk.action) &&
+        !isMessageComposer(document.activeElement) &&
+        // Stepping through your own messages also works from the inline edit box.
+        !((hk.action === "edit-prev" || hk.action === "edit-next") && isMessageEditForm(document.activeElement))
+      ) return;
       // Tab → focus composer must not clobber normal focus traversal: only
       // grab it when nothing is focused yet (activeElement is <body>).
       if (hk.action === "focus-composer" && document.activeElement !== document.body) return;

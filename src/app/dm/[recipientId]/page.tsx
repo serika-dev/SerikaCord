@@ -1,5 +1,6 @@
 "use client";
 
+import { shouldAutoPlayTts, ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { getJsonCached } from "@/lib/swrJson";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
@@ -139,15 +140,13 @@ export default function DMConversationPage() {
     onIncomingMessage: (message) => {
       // Auto TTS for DMs: speak when the listener has TTS enabled or the
       // message carries the /tts prefix (so both parties hear a /tts message).
-      const ttsEnabled = user?.settings?.accessibility?.tts === true;
-      const hasTtsPrefix = typeof message.content === "string" && message.content.startsWith("/tts ");
-      if ((ttsEnabled || hasTtsPrefix) && message.content) {
+      // /tts messages from others respect "Play text-to-speech from others" (CORD-35).
+      if (shouldAutoPlayTts(user?.settings?.accessibility, message.content)) {
         const authorName = message.author?.displayName || message.author?.username || gt("Someone");
         void playTts({
           content: message.content,
           authorName,
-          rate: user?.settings?.accessibility?.ttsRate,
-          voiceGender: user?.settings?.accessibility?.ttsVoice,
+          ...ttsPlaybackOptions(user?.settings?.accessibility),
         });
       }
     },
@@ -240,8 +239,7 @@ export default function DMConversationPage() {
           composer?.clear();
           void playTts({
             content: result.ttsText,
-            rate: user?.settings?.accessibility?.ttsRate,
-            voiceGender: user?.settings?.accessibility?.ttsVoice,
+            ...ttsPlaybackOptions(user?.settings?.accessibility),
           });
           await chat.sendMessage({ contentOverride: `/tts ${result.ttsText}` });
         } else if (result.sendAsMessage) {

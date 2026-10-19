@@ -51,7 +51,11 @@ export type HotkeyAction =
   | "answer-call"
   | "decline-call"
   | "return-to-voice"
-  | "edit-last-message";
+  | "edit-last-message"
+  | "reply-prev"
+  | "reply-next"
+  | "edit-prev"
+  | "edit-next";
 
 export interface Hotkey {
   action: HotkeyAction;
@@ -113,6 +117,10 @@ export const HOTKEYS: Hotkey[] = [
   { action: "search-channel", key: "f", ctrl: true, worksWhileTyping: true, label: "Search within current channel", category: "Chat" },
   { action: "search-all", key: "f", ctrl: true, shift: true, worksWhileTyping: true, label: "Search across all channels", category: "Chat" },
   { action: "edit-last-message", key: "arrowup", shift: true, worksWhileTyping: false, label: "Edit your last message", category: "Chat" },
+  { action: "reply-prev", key: "arrowup", ctrl: true, worksWhileTyping: true, label: "Reply to the previous message", category: "Chat" },
+  { action: "reply-next", key: "arrowdown", ctrl: true, worksWhileTyping: true, label: "Reply to the next message (past the newest cancels)", category: "Chat" },
+  { action: "edit-prev", key: "arrowup", ctrl: true, shift: true, worksWhileTyping: true, label: "Edit your previous message", category: "Chat" },
+  { action: "edit-next", key: "arrowdown", ctrl: true, shift: true, worksWhileTyping: true, label: "Edit your next message (past the newest cancels)", category: "Chat" },
 
   // ---- Voice ----
   { action: "toggle-mute", key: "m", ctrl: true, shift: true, worksWhileTyping: true, label: "Toggle mute", category: "Voice" },

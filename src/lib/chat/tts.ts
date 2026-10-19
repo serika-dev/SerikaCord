@@ -16,6 +16,8 @@
  * Everything runs in the browser (Web Speech + HTMLAudio + FishAudio proxy).
  */
 
+import { tameSegmentEffects } from "./ttsPrefs";
+
 export type TtsVoiceGender = "auto" | "female" | "male";
 
 // ─── Voice persona system ───────────────────────────────────────────────────
@@ -261,6 +263,11 @@ export interface PlayTtsOptions {
   voiceGender?: TtsVoiceGender;
   /** Speak the message text after any sound triggers. Default true. */
   speak?: boolean;
+  /**
+   * Sound triggers and loud modifiers ([vol:EAR], [vol:BASS], volume over
+   * 100%). Default true; the listener can turn them off (ttsPrefs.ts).
+   */
+  soundEffects?: boolean;
 }
 
 // ─── Sound-trigger cache ────────────────────────────────────────────────────
@@ -912,7 +919,7 @@ function delay(ms: number): Promise<void> {
  */
 export async function playTts(opts: PlayTtsOptions): Promise<void> {
   if (typeof window === "undefined") return;
-  const { content, authorName, rate = 1, voiceGender = "auto", speak: shouldSpeak = true } = opts;
+  const { content, authorName, rate = 1, voiceGender = "auto", speak: shouldSpeak = true, soundEffects = true } = opts;
 
   // Fetch voice presets from API (cached for 1 min).
   const voices = await getTtsVoices();
@@ -926,7 +933,8 @@ export async function playTts(opts: PlayTtsOptions): Promise<void> {
   }
 
   // Fetch sound triggers (best-effort).
-  const sounds = await getTtsSounds();
+  // Sound effects off: trigger words are simply spoken.
+  const sounds = soundEffects ? await getTtsSounds() : [];
 
   // Find the admin-configured default voice (used for Firefox fallback and
   // language-not-found fallback).
@@ -942,9 +950,10 @@ export async function playTts(opts: PlayTtsOptions): Promise<void> {
 
     const segRate = segment.rate ?? rate;
     const segPitch = segment.pitch ?? 1;
-    const segVolume = segment.volume ?? 1;
-    const segBass = segment.bassBoost;
-    const segEar = segment.earRape;
+    const tamed = tameSegmentEffects(segment, soundEffects);
+    const segVolume = tamed.volume;
+    const segBass = tamed.bassBoost;
+    const segEar = tamed.earRape;
 
     // Prepend author name to the first segment only.
     const text = segIdx === 0 && authorName
