@@ -7,6 +7,9 @@
 ## Unreleased
 
 ### Features
+- **Server tags** — server owners can set a short 2–4 character tag with a badge (preset icon and color, an emoji, or one of the server's own emojis) under Server Settings → Server Profile. Members can pick one of their servers in Profile settings to show its tag next to their name in chat, the member list and profile cards; it disappears if they leave that server. (CORD-53)
+- **Server traits in Discovery** — servers can add up to 5 short traits like "Chill" or "Speedrunning". They show on discovery cards and invites, are included in discovery search, and clicking one lists every server with that trait. (CORD-52)
+- **Games on servers** — server owners can list up to 10 games their community plays, picked from the game catalog. Their covers show on the server's discovery card and invite page. (CORD-51)
 
 ### Changes
 - **Enter adds a new line on phones** — on touch keyboards Enter now starts a new line and the send button sends, like Discord mobile. Keyboards with Shift keep Enter-to-send.

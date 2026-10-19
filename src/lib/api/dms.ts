@@ -1,3 +1,4 @@
+import { customizationWithTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
 import { Elysia, t } from 'elysia';
 import { and, eq, sql } from 'drizzle-orm';
 import { chatRestrictionDenial } from '@/lib/services/trustSafety';
@@ -435,6 +436,8 @@ export async function loadDmMessagesPage(
   ]);
   const authorMap = new Map(authors.map(a => [a.id, a]));
   const refMap = new Map(refMsgs.map((m) => [m.id, m]));
+  // Chosen server tags next to author names (CORD-53).
+  const serverTags = await resolveServerTags(authors);
 
   // Decrypt main and referenced contents together, then batch emoji parse.
   const refDecryptEntries = msgs
@@ -499,7 +502,7 @@ export async function loadDmMessagesPage(
         isSystem: author.isSystem || false,
         isBot: Boolean(author.isBot),
         isVerified: Boolean(author.isVerified),
-        customization: author.customization || null,
+        customization: customizationWithTag(serverTags, author.id, author.customization || null),
       } : null,
       channelId: msg.channelId,
       attachments: msg.attachments,
@@ -702,9 +705,10 @@ export async function persistDmMessage(
   const { sanitizedContent, stickerData, attachments, replyTo } = prepared;
   // Parse custom emojis and look up the reply target concurrently — they're
   // independent, and each can cost a DB round-trip.
-  const [emojiResult, replyMsg] = await Promise.all([
+  const [emojiResult, replyMsg, authorCustomization] = await Promise.all([
     parseCustomEmojis(sanitizedContent, undefined, userServerIds),
     replyTo ? Message.findOne({ id: replyTo, channelId: channel.id, isDeleted: false }) : Promise.resolve(null),
+    resolveCustomization(user),
   ]);
 
   // Store parsed emoji data for the message response
@@ -776,7 +780,7 @@ export async function persistDmMessage(
       isSystem: user.isSystem || false,
       isBot: Boolean(user.isBot),
       isVerified: Boolean(user.isVerified),
-      customization: user.customization || null,
+      customization: authorCustomization ?? null,
     },
     channelId: channel.id,
     createdAt: message.createdAt,

@@ -76,6 +76,8 @@ export async function removeServerMember(serverId: string, userId: string): Prom
   await adjustServerMemberCount(serverId, -deleted.length);
   await afterMembershipChange(serverId);
   requestUserChannelStreamRecheck(normalizeId(userId));
+  // A server tag only shows while you're a member of its server (CORD-53).
+  void import('@/lib/services/serverTags').then((m) => m.clearServerTagOnLeave(serverId, userId)).catch(() => {});
   // A kicked / banned / departed bot's gateway session must stop receiving this
   // server's events now, not at its next reconnect (targeted, so it only ever
   // reaches a bot connection with that user id).

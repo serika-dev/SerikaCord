@@ -48,6 +48,9 @@ interface InviteInfo {
     joinMode?: string;
     createdAt?: string | null;
     connections?: ServerConnectionView[];
+    /** Discovery traits (CORD-52) and games (CORD-51). */
+    traits?: string[];
+    games?: { igdbId: number; name: string; coverUrl: string | null }[];
   };
   expiresAt?: string;
 }
@@ -523,6 +526,29 @@ export default function InvitePage() {
                 )}
                 {invite.server.connections && invite.server.connections.length > 0 && (
                   <ServerConnectionsList connections={invite.server.connections} variant="chips" className="mt-3" />
+                )}
+                {invite.server.traits && invite.server.traits.length > 0 && (
+                  <div className="flex flex-wrap justify-center gap-1.5 mt-3">
+                    {invite.server.traits.map((trait) => (
+                      <span key={trait} className="px-2 py-0.5 text-[11px] font-medium rounded-full border border-[var(--border-subtle)] text-[var(--text-secondary)]">
+                        #{trait}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                {invite.server.games && invite.server.games.length > 0 && (
+                  <div className="mt-3">
+                    <p className="text-[11px] uppercase tracking-wide font-semibold text-[var(--text-muted)] mb-1.5">{gt("Games we play")}</p>
+                    <div className="flex flex-wrap justify-center gap-1.5">
+                      {invite.server.games.map((game) =>
+                        game.coverUrl ? (
+                          <img key={game.igdbId} src={game.coverUrl} alt={game.name} title={game.name} loading="lazy" className="w-8 h-10 rounded object-cover border border-[var(--border-subtle)]" />
+                        ) : (
+                          <span key={game.igdbId} title={game.name} className="px-2 py-1 text-[11px] rounded bg-[var(--bg-hover)] text-[var(--text-secondary)]">{game.name}</span>
+                        ),
+                      )}
+                    </div>
+                  </div>
                 )}
 
                 {/* Expiry */}

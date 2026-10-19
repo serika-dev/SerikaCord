@@ -37,6 +37,12 @@ export interface IServerSettings {
   soundboard?: { enabled: boolean; volume: number };
   access?: { joinMode?: string };
   invites?: { lockToVanity?: boolean };
+  /** Server tag members can show next to their name (CORD-53, lib/servers/serverProfile). */
+  serverTag?: import('@/lib/servers/serverProfile').ServerTagConfig;
+  /** Free-form discovery traits (CORD-52). */
+  discoveryTags?: string[];
+  /** Games the community plays, from the IGDB catalog (CORD-51). */
+  games?: import('@/lib/servers/serverProfile').ServerGame[];
 }
 
 export const Server = {

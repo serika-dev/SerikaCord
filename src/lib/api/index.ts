@@ -1,4 +1,6 @@
 import { Elysia, t } from 'elysia';
+import { readServerTagConfig, stripServerTagWrite } from '@/lib/servers/serverProfile';
+import { resolveCustomization } from '@/lib/services/serverTags';
 import { acceptsFriendRequests, friendRequestAllowedFrom, friendRequestSources } from '@/lib/settings/privacy';
 import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
@@ -1024,6 +1026,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
           afkChannelId: server.afkChannelId ?? null,
           afkTimeout: server.afkTimeout ?? 300,
           isAgeGated: server.isAgeGated ?? false,
+          // Enabled server tag, for the "display a server tag" picker (CORD-53).
+          serverTag: readServerTagConfig((server.settings as Record<string, unknown> | null)?.serverTag),
           joinedAt: m.joinedAt,
           roles: m.roles,
           nickname: m.nickname,
@@ -1674,7 +1678,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
         updateFields.settings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {}));
       }
       if (customization !== undefined && typeof customization === 'object') {
-        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization as Record<string, unknown>);
+        // serverTag is only set through PUT /users/@me/server-tag (membership-checked).
+        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, stripServerTagWrite(customization as Record<string, unknown>));
       }
       const statusPatch = applyCustomStatusPatch(user, { customStatus, customStatusEmoji, customStatusExpiresAt }, updateFields);
       if (statusPatch.error) {
@@ -1821,7 +1826,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
         }
       }
       if (customization !== undefined && typeof customization === 'object') {
-        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization as Record<string, unknown>);
+        // serverTag is only set through PUT /users/@me/server-tag (membership-checked).
+        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, stripServerTagWrite(customization as Record<string, unknown>));
       }
       const statusPatch = applyCustomStatusPatch(user, { customStatus, customStatusEmoji, customStatusExpiresAt }, updateFields);
       if (statusPatch.error) {
@@ -2538,6 +2544,44 @@ const userRoutes = new Elysia({ prefix: '/users' })
     params: t.Object({ userId: t.String() }),
     body: t.Object({ note: t.String({ maxLength: 2048 }) }),
   })
+  // Choose the server whose tag shows next to your name (CORD-53), or clear it.
+  // Only a server you are a member of, with its tag turned on.
+  .put('/@me/server-tag', async ({ headers, cookie, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const current = await User.findById(user.id);
+    if (!current) {
+      set.status = 404;
+      return { error: 'User not found' };
+    }
+    const base = { ...((current.customization || {}) as Record<string, unknown>) };
+    const serverId = body.serverId ?? null;
+    if (serverId === null) {
+      delete base.serverTag;
+      await User.updateById(user.id, { customization: base });
+      await invalidateUserCache(user.id);
+      return { serverTag: null };
+    }
+    if (!isValidObjectId(serverId)) {
+      set.status = 400;
+      return { error: 'Invalid server ID' };
+    }
+    const { canAdoptServerTag } = await import('@/lib/services/serverTags');
+    const tag = await canAdoptServerTag(serverId, user.id);
+    if (!tag) {
+      set.status = 400;
+      return { error: 'That server has no tag, or you are not a member of it' };
+    }
+    base.serverTag = { serverId: tag.serverId };
+    await User.updateById(user.id, { customization: base });
+    await invalidateUserCache(user.id);
+    return { serverTag: tag };
+  }, {
+    body: t.Object({ serverId: t.Union([t.String({ maxLength: 64 }), t.Null()]) }),
+  })
   .get('/:userId', async ({ params, headers, cookie, set }) => {
     const targetUser = await User.findById(params.userId);
 
@@ -2606,7 +2650,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       isSystem: targetUser.isSystem || false,
       isBot: Boolean(targetUser.isBot),
       isVerified: Boolean(targetUser.isVerified),
-      customization: targetUser.customization || {},
+      customization: (await resolveCustomization(targetUser)) || {},
       createdAt: targetUser.createdAt,
       connections,
       isFriend,

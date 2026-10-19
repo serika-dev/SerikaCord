@@ -26,6 +26,8 @@ interface Server {
   rulesChannelId?: string | null;
   afkChannelId?: string | null;
   afkTimeout?: number;
+  /** Enabled server tag (CORD-53); null when the server has none. */
+  serverTag?: import("@/lib/servers/serverProfile").ServerTagConfig | null;
 }
 
 type ChannelType =

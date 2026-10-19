@@ -91,6 +91,10 @@ interface Server {
   joinMode?: string;
   category?: string;
   tags?: string[];
+  /** Free-form traits (CORD-52). */
+  traits?: string[];
+  /** Games the community plays (CORD-51). */
+  games?: { igdbId: number; name: string; coverUrl: string | null }[];
   createdAt?: string;
   vanityUrlCode?: string | null;
 }
@@ -175,12 +179,14 @@ function ServerCard({
   onJoin,
   joining,
   isJoined,
+  onTraitClick,
 }: {
   server: Server;
   featured?: boolean;
   onJoin: () => void;
   joining: boolean;
   isJoined: boolean;
+  onTraitClick?: (trait: string) => void;
 }) {
   const gt = useGT();
   const gradient = getServerGradient(server.id + server.name);
@@ -299,6 +305,54 @@ function ServerCard({
               })}
             </div>
           )}
+          {/* Traits — click to filter discovery by one (CORD-52) */}
+          {server.traits && server.traits.length > 0 && (
+            <div className="flex gap-1.5 mt-2 flex-wrap justify-center">
+              {server.traits.map((trait) => (
+                <button
+                  key={trait}
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onTraitClick?.(trait);
+                  }}
+                  className="px-2 py-0.5 text-[11px] font-medium rounded-full border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
+                  title={gt("Show servers tagged {tag}", { tag: trait })}
+                >
+                  #{trait}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Games the community plays (CORD-51) */}
+          {server.games && server.games.length > 0 && (
+            <div className="flex items-center gap-1 mt-3 justify-center" aria-label={gt("Games")}>
+              {server.games.slice(0, 5).map((game) => (
+                game.coverUrl ? (
+                  <img
+                    key={game.igdbId}
+                    src={game.coverUrl}
+                    alt={game.name}
+                    title={game.name}
+                    loading="lazy"
+                    className="w-7 h-9 rounded object-cover border border-[var(--border-subtle)]"
+                  />
+                ) : (
+                  <span
+                    key={game.igdbId}
+                    title={game.name}
+                    className="w-7 h-9 rounded bg-[var(--bg-hover)] border border-[var(--border-subtle)] flex items-center justify-center"
+                  >
+                    <Gamepad2 className="w-3.5 h-3.5 text-[var(--text-muted)]" />
+                  </span>
+                )
+              ))}
+              {server.games.length > 5 && (
+                <span className="text-[11px] text-[var(--text-muted)] ml-1">+{server.games.length - 5}</span>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Join button */}
@@ -338,6 +392,7 @@ export default function ExplorePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [sortMode, setSortMode] = useState<SortMode>("popular");
+  const [traitFilter, setTraitFilter] = useState<string | null>(null);
   const [servers, setServers] = useState<Server[]>([]);
   const [categoryCounts, setCategoryCounts] = useState<Record<string, number>>({});
   const [stats, setStats] = useState({ totalServers: 0, totalMembers: 0, totalOnline: 0 });
@@ -365,6 +420,7 @@ export default function ExplorePage() {
     const params = new URLSearchParams();
     if (selectedCategory !== "all") params.set("category", selectedCategory);
     if (debouncedSearch) params.set("search", debouncedSearch);
+    if (traitFilter) params.set("tag", traitFilter);
     params.set("sort", sortMode);
     fetch(`/api/servers/discoverable?${params.toString()}`)
       .then((r) => r.json())
@@ -379,7 +435,7 @@ export default function ExplorePage() {
       })
       .catch(() => setServers([]))
       .finally(() => setIsLoading(false));
-  }, [selectedCategory, debouncedSearch, sortMode]);
+  }, [selectedCategory, debouncedSearch, sortMode, traitFilter]);
 
   const handleJoinServer = useCallback(async (serverId: string) => {
     const server = servers.find((s) => s.id === serverId);
@@ -472,7 +528,7 @@ export default function ExplorePage() {
   // "Popular / All" view. On every other view (a specific category, a search, or the
   // Trending / New sorts) partnered servers stay inline with everyone else so nothing
   // silently disappears.
-  const showFeatured = selectedCategory === "all" && !debouncedSearch && sortMode === "popular";
+  const showFeatured = selectedCategory === "all" && !debouncedSearch && !traitFilter && sortMode === "popular";
 
   const featuredServers = useMemo(
     () => (showFeatured ? servers.filter((s) => s.isPartnered).slice(0, 3) : []),
@@ -487,7 +543,9 @@ export default function ExplorePage() {
 
   const selectedCat = categories.find((c) => c.id === selectedCategory);
 
-  const sectionTitle = debouncedSearch
+  const sectionTitle = traitFilter
+    ? gt("Tagged {tag}", { tag: `#${traitFilter}` })
+    : debouncedSearch
     ? `${gt("Results for")} "${debouncedSearch}"`
     : selectedCategory === "all"
     ? sortMode === "new" ? gt("Newest Communities") : sortMode === "trending" ? gt("Trending Now") : gt("Popular Communities")
@@ -621,7 +679,19 @@ export default function ExplorePage() {
           {/* Sort tabs + section title */}
           <div className="flex items-end justify-between mb-6 flex-wrap gap-4">
             <div>
-              <h2 className="text-xl md:text-2xl font-bold text-[var(--text-primary)]">{sectionTitle}</h2>
+              <h2 className="text-xl md:text-2xl font-bold text-[var(--text-primary)] flex items-center gap-2">
+                {sectionTitle}
+                {traitFilter && (
+                  <button
+                    type="button"
+                    onClick={() => setTraitFilter(null)}
+                    className="p-1 rounded-full hover:bg-[var(--bg-hover)]"
+                    aria-label={gt("Clear tag filter")}
+                  >
+                    <X className="w-4 h-4 text-[var(--text-muted)]" />
+                  </button>
+                )}
+              </h2>
               <p className="text-sm text-[var(--text-muted)] mt-1">
                 {filteredServers.length} {filteredServers.length === 1 ? gt("community") : gt("communities")}
                 {selectedCategory === "all" && !debouncedSearch && ` • ${formatMemberCount(stats.totalMembers)} ${gt("total members")}`}
@@ -671,6 +741,7 @@ export default function ExplorePage() {
                     server={server}
                     featured
                     onJoin={() => handleJoinServer(server.id)}
+                    onTraitClick={setTraitFilter}
                     joining={joiningServerId === server.id}
                     isJoined={joinedServerIds.has(server.id)}
                   />
@@ -728,6 +799,7 @@ export default function ExplorePage() {
                     key={server.id}
                     server={server}
                     onJoin={() => handleJoinServer(server.id)}
+                    onTraitClick={setTraitFilter}
                     joining={joiningServerId === server.id}
                     isJoined={joinedServerIds.has(server.id)}
                   />
