@@ -14,6 +14,7 @@ import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent, CHANNEL_AUDIT_KEYS, diffChanges, diffOverwrites, snapshotChanges } from '@/lib/audit/auditLog';
 import { childrenToResync, normalizeOverwrites, overwritesInSync, type EditableOverwrite } from '@/lib/permissions/overwriteEditor';
 import { captureChannelViewers, emitChannelDelete, emitChannelUpdates } from '@/lib/services/guildGatewayEvents';
+import { channelsToMarkNsfw } from '@/lib/servers/channelRules';
 
 type ChannelRow = typeof schema.channels.$inferSelect;
 
@@ -84,6 +85,23 @@ export async function updateGuildChannel(opts: {
   await publishTopic('channel:update', { channelId: channel.id, serverId, updates });
   for (const id of resync) await publishTopic('channel:update', { channelId: id, serverId, updates: { permissionOverwrites: updates.permissionOverwrites } });
 
+  // Marking a category age-restricted marks its channels, like the web route (CORD-60).
+  const nsfwCascade: string[] = [];
+  if (channel.type === 'category' && updates.nsfw === true && !channel.nsfw) {
+    const children = await db.select().from(schema.channels)
+      .where(and(eq(schema.channels.serverId, normalizeId(serverId)), eq(schema.channels.parentId, channel.id)));
+    for (const child of channelsToMarkNsfw(channel.id, children)) {
+      await db.update(schema.channels).set({ nsfw: true, updatedAt: new Date() }).where(eq(schema.channels.id, child.id));
+      await publishTopic('channel:update', { channelId: child.id, serverId, updates: { nsfw: true } });
+      audit({
+        serverId, userId: actorId, actionType: AuditLogEvent.CHANNEL_UPDATE, targetId: child.id,
+        changes: [{ key: 'nsfw', old: false, new: true }],
+        options: { channel_name: child.name, channel_type: child.type }, reason,
+      });
+      nsfwCascade.push(child.id);
+    }
+  }
+
   const changes = diffChanges(channel as Record<string, unknown>, updates as Record<string, unknown>, CHANNEL_AUDIT_KEYS);
   if (changes.length > 0) {
     audit({
@@ -101,7 +119,7 @@ export async function updateGuildChannel(opts: {
     }
   }
 
-  void emitChannelUpdates(serverId, [channel.id, ...resync], before);
+  void emitChannelUpdates(serverId, [channel.id, ...resync, ...nsfwCascade], before);
   return updated ?? null;
 }
 

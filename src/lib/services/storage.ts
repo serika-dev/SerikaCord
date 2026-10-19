@@ -59,6 +59,8 @@ interface UploadOptions {
   userId?: string;
   serverId?: string;
   channelId?: string;
+  /** Channel recorded on Trust & Safety incidents when channelId is only a path segment. */
+  scanChannelId?: string;
   filename?: string;
   contentType: string;
   data: Buffer | Uint8Array | ReadableStream<Uint8Array>;
@@ -235,7 +237,7 @@ export class StorageService {
           userId: scanUser,
           fileName: filename,
           category,
-          channelId: options.channelId ?? null,
+          channelId: options.scanChannelId ?? options.channelId ?? null,
           ip: options.ip ?? null,
         });
         if (verdict.blocked) throw new ContentBlockedError(verdict.kind, verdict.message);
@@ -403,7 +405,7 @@ export class StorageService {
   async uploadFromFormData(
     file: File,
     category: UploadCategory,
-    options: { userId?: string; serverId?: string; channelId?: string; contentType?: string; ip?: string; scanUserId?: string } = {}
+    options: { userId?: string; serverId?: string; channelId?: string; scanChannelId?: string; contentType?: string; ip?: string; scanUserId?: string } = {}
   ): Promise<UploadResult> {
     const buffer = Buffer.from(await file.arrayBuffer());
     

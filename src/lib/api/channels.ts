@@ -432,8 +432,9 @@ async function loadManageableWebhook(
   if (!webhook || !compareIds(webhook.channelId, channel.id)) return { error: 'Webhook not found', status: 404 };
   // An application's webhook belongs to that app (its token sends the app's components).
   if ((webhook as { applicationId?: string | null }).applicationId) return { error: 'This webhook is managed by an application', status: 403 };
-  const isCreator = Boolean(webhook.creatorId && compareIds(webhook.creatorId, userId));
-  if (!isCreator && !(await canManageWebhooksInServer(channel.serverId, userId, membership))) {
+  // Editing needs MANAGE_WEBHOOKS, as in Discord: a creator who lost it can't
+  // keep restyling the webhook (deleting their own still works, see DELETE).
+  if (!(await canManageWebhooksInServer(channel.serverId, userId, membership))) {
     return { error: 'Missing MANAGE_WEBHOOKS permission', status: 403 };
   }
   return { channel, webhook };
@@ -1938,18 +1939,22 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
       updateData.name = sanitizeInput(cleanName);
     }
-    if (topic !== undefined) updateData.topic = sanitizeInput(topic);
-    if (nsfw !== undefined) updateData.nsfw = nsfw;
+    // A thread's creator may rename it, but its settings (age restriction,
+    // slowmode, position...) are for thread moderators, as in Discord.
+    // Non-thread channels only get here with MANAGE_CHANNELS.
+    const mayEditSettings = !isThread || canModerateThreads || canManageChannel;
+    if (topic !== undefined && mayEditSettings) updateData.topic = sanitizeInput(topic);
+    if (nsfw !== undefined && mayEditSettings) updateData.nsfw = nsfw;
     // Only text ⇄ announcement conversions are allowed (voice/category are fixed)
     if (type !== undefined && (channel.type === 'text' || channel.type === 'announcement')) {
       if (type === 'text' || type === 'announcement') {
         updateData.type = type;
       }
     }
-    if (rateLimitPerUser !== undefined) updateData.rateLimitPerUser = rateLimitPerUser;
+    if (rateLimitPerUser !== undefined && mayEditSettings) updateData.rateLimitPerUser = rateLimitPerUser;
     if (bitrate !== undefined) updateData.bitrate = bitrate;
     if (userLimit !== undefined) updateData.userLimit = userLimit;
-    if (position !== undefined) updateData.position = position;
+    if (position !== undefined && mayEditSettings) updateData.position = position;
 
     if (permissionOverwrites !== undefined) {
       const cleaned = normalizeOverwrites(permissionOverwrites).filter((o) => isValidObjectId(o.id));
@@ -4915,7 +4920,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }),
   })
   // Edit a webhook from channel settings (CORD-67): name, avatar removal and
-  // the channel it posts to. Needs MANAGE_WEBHOOKS (or being its creator), and
+  // the channel it posts to. Needs MANAGE_WEBHOOKS, and
   // MANAGE_WEBHOOKS in the destination channel's server for a move.
   .patch('/:channelId/webhooks/:webhookId', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
@@ -4923,6 +4928,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const managed = await loadManageableWebhook(user.id, params.channelId, params.webhookId);
     if ('error' in managed) { set.status = managed.status; return { error: managed.error }; }
     const { channel, webhook } = managed;
+    const editLimit = await checkRateLimit('webhookToken', webhook.id);
+    if (!editLimit.success) { set.status = 429; return { error: 'Rate limited', retryAfter: editLimit.retryAfter }; }
 
     const input = body as { name?: string; avatar?: null; channelId?: string };
     const patch: { name?: string; avatar?: null; channel_id?: string } = {};
@@ -5006,7 +5013,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const { storage, ContentBlockedError } = await import('@/lib/services/storage');
     let url: string;
     try {
-      const uploaded = await storage.uploadFromFormData(file, 'webhook-avatars', { channelId: webhook.id, scanUserId: user.id, ip });
+      const uploaded = await storage.uploadFromFormData(file, 'webhook-avatars', { channelId: webhook.id, scanChannelId: channel.id, scanUserId: user.id, ip });
       url = uploaded.url;
     } catch (error: unknown) {
       set.status = error instanceof ContentBlockedError ? 403 : 500;
