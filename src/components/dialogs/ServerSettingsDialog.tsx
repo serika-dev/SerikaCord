@@ -56,6 +56,10 @@ import {
 import { cn, cdnImage } from "@/lib/utils";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
 import { hasPermissionBit, setPermissionBit } from "@/lib/roles/bitfield";
+import { moveRoleId } from "@/lib/roles/reorder";
+import { effectiveSoundPercent, soundVolume } from "@/lib/servers/soundboardVolume";
+import { filterAndSortMembers, type MemberSort } from "@/lib/servers/memberView";
+import { openUserAction, type UserActionKind } from "@/lib/social/userActions";
 import { useSettingsDraft, type SettingsDraft } from "@/hooks/useSettingsDraft";
 import { UnsavedChangesBar } from "@/components/ui/unsaved-changes-bar";
 import { AudioTrimmerDialog } from "@/components/dialogs/AudioTrimmerDialog";
@@ -319,6 +323,9 @@ interface ServerMember {
   highestRole?: Role | null;
   highestHoistedRole?: Role | null;
   joinedAt: string;
+  accountCreatedAt?: string | null;
+  communicationDisabledUntil?: string | null;
+  isBot?: boolean;
 }
 
 interface ServerEmoji {
@@ -432,6 +439,11 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const [roleSearch, setRoleSearch] = useState("");
   const [permissionSearch, setPermissionSearch] = useState("");
   const [draggingRoleId, setDraggingRoleId] = useState<string | null>(null);
+  // Where the dragged role would land: above or below this row (CORD-32).
+  // Linked roles (CORD-57): role id (lowercase) → role ids members also get.
+  const [roleLinks, setRoleLinks] = useState<Record<string, string[]>>({});
+  const [isSavingRoleLinks, setIsSavingRoleLinks] = useState(false);
+  const [roleDropTarget, setRoleDropTarget] = useState<{ roleId: string; mode: "before" | "after" } | null>(null);
   const [isSavingRole, setIsSavingRole] = useState(false);
   const [isReorderingRoles, setIsReorderingRoles] = useState(false);
   const [invites, setInvites] = useState<Invite[]>([]);
@@ -444,6 +456,8 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const [bans, setBans] = useState<BannedUser[]>([]);
   const [members, setMembers] = useState<ServerMember[]>([]);
   const [memberSearch, setMemberSearch] = useState("");
+  const [memberSort, setMemberSort] = useState<MemberSort>("joined_desc");
+  const [memberRoleFilter, setMemberRoleFilter] = useState<string>("");
   const [emojis, setEmojis] = useState<ServerEmoji[]>([]);
   const [stickers, setStickers] = useState<ServerSticker[]>([]);
   const [emojiSearch, setEmojiSearch] = useState("");
@@ -452,7 +466,9 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const [emojiRenameValue, setEmojiRenameValue] = useState("");
   const [renamingStickerId, setRenamingStickerId] = useState<string | null>(null);
   const [stickerRenameValue, setStickerRenameValue] = useState("");
-  const [soundboardSounds, setSoundboardSounds] = useState<{ id: string; name: string; url: string; emoji: string }[]>([]);
+  const [soundboardSounds, setSoundboardSounds] = useState<{ id: string; name: string; url: string; emoji: string; volume?: number }[]>([]);
+  // Debounced saves of per-sound volume sliders (CORD-31), keyed by sound id.
+  const soundVolumeTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [isUploadingSound, setIsUploadingSound] = useState(false);
   const [trimmerOpen, setTrimmerOpen] = useState(false);
   const [trimmerFile, setTrimmerFile] = useState<File | null>(null);
@@ -675,6 +691,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     const data = await rolesRes.json();
     const nextRoles = (data.roles || []) as Role[];
     setRoles(nextRoles);
+    setRoleLinks(data.roleLinks && typeof data.roleLinks === "object" ? data.roleLinks : {});
   }, [serverId]);
 
   const fetchMembersData = useCallback(async () => {
@@ -1074,6 +1091,8 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Escape" && open) {
+        // A dialog opened on top (e.g. kick / ban / timeout from Members) closes first.
+        if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
         void handleRequestClose();
       }
     };
@@ -1194,17 +1213,21 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     setMobileNav((nav) => openMobileSection(nav, tab));
   };
 
-  const handleRoleDrop = async (targetRoleId: string) => {
-    if (!draggingRoleId || !currentServer || draggingRoleId === targetRoleId) return;
+  const handleRoleDrop = async (targetRoleId: string, mode: "before" | "after") => {
+    setRoleDropTarget(null);
+    if (!draggingRoleId || !currentServer || draggingRoleId === targetRoleId) {
+      setDraggingRoleId(null);
+      return;
+    }
 
-    const reorderable = roles.filter((role) => !role.isDefault);
-    const fromIndex = reorderable.findIndex((role) => role.id === draggingRoleId);
-    const toIndex = reorderable.findIndex((role) => role.id === targetRoleId);
-    if (fromIndex < 0 || toIndex < 0) return;
-
-    const reordered = [...reorderable];
-    const [movedRole] = reordered.splice(fromIndex, 1);
-    reordered.splice(toIndex, 0, movedRole);
+    const reorderable = roles.filter((role) => !role.isDefault).sort((a, b) => b.position - a.position);
+    const orderedIds = moveRoleId(reorderable.map((role) => role.id), draggingRoleId, targetRoleId, mode);
+    if (!orderedIds) {
+      setDraggingRoleId(null);
+      return;
+    }
+    const byId = new Map(reorderable.map((role) => [role.id, role]));
+    const reordered = orderedIds.map((id) => byId.get(id)!);
 
     const reorderedWithPositions = reordered.map((role, index) => ({
       ...role,
@@ -1236,6 +1259,42 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     } finally {
       setIsReorderingRoles(false);
       setDraggingRoleId(null);
+    }
+  };
+
+  // Linked roles: save the full list for one role; the server gives newly
+  // linked roles to current holders and returns the cleaned map.
+  const handleSetRoleLinks = async (roleId: string, linkedIds: string[]) => {
+    if (!currentServer) return;
+    const key = roleId.toLowerCase();
+    const previous = roleLinks;
+    setRoleLinks((prev) => {
+      const next = { ...prev };
+      if (linkedIds.length > 0) next[key] = linkedIds.map((id) => id.toLowerCase());
+      else delete next[key];
+      return next;
+    });
+    setIsSavingRoleLinks(true);
+    try {
+      const response = await fetch(`/api/servers/${currentServer.id}/roles/${roleId}/links`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ roleIds: linkedIds }),
+      });
+      const data = await response.json().catch(() => null);
+      if (!response.ok) throw new Error(data?.error || gt("Failed to update linked roles"));
+      setRoleLinks((data?.roleLinks ?? {}) as Record<string, string[]>);
+      if (typeof data?.applied === "number" && data.applied > 0) {
+        toast.success(gt("Linked roles saved and given to {count} members", { count: data.applied }));
+        void fetchRolesData();
+      } else {
+        toast.success(gt("Linked roles saved"));
+      }
+    } catch (error) {
+      setRoleLinks(previous);
+      toast.error(error instanceof Error ? error.message : gt("Failed to update linked roles"));
+    } finally {
+      setIsSavingRoleLinks(false);
     }
   };
 
@@ -1348,6 +1407,8 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       const data = await response.json();
       const updatedMember = data.member as ServerMember;
       setMembers((prev) => prev.map((entry) => (entry.id === updatedMember.id ? updatedMember : entry)));
+      // Linked roles were added too: refresh role member counts.
+      if (updatedMember.roles?.some((role) => !currentRoleIds.has(role.id))) void fetchRolesData();
     } catch (error) {
       setMembers(previousMembers);
       setRoles(previousRoles);
@@ -1664,10 +1725,37 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     }
   };
 
-  const playSound = (sound: { id: string; url: string }) => {
+  // Per-sound volume (0..1, CORD-31): update locally right away, save after
+  // the slider settles.
+  const handleSoundVolumeChange = (soundId: string, volume: number) => {
+    if (!currentServer) return;
+    const serverIdForSave = currentServer.id;
+    setSoundboardSounds((prev) => prev.map((s) => (s.id === soundId ? { ...s, volume } : s)));
+    const timers = soundVolumeTimersRef.current;
+    const pending = timers.get(soundId);
+    if (pending) clearTimeout(pending);
+    timers.set(soundId, setTimeout(() => {
+      timers.delete(soundId);
+      void fetch(`/api/servers/${serverIdForSave}/soundboard/${soundId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ volume }),
+      })
+        .then(async (res) => {
+          if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            toast.error(data?.error || gt("Failed to update sound volume"));
+          }
+        })
+        .catch(() => toast.error(gt("Failed to update sound volume")));
+    }, 400));
+  };
+
+  const playSound = (sound: { id: string; url: string; volume?: number }) => {
     const audio = new Audio(sound.url);
-    // Audio.volume caps at 1.0; values above 100% previously threw IndexSizeError
-    audio.volume = Math.min(Math.max(draftNumber("soundboard.volume", 100), 0) / 100, 1);
+    // Server volume × this sound's volume. Audio.volume caps at 1.0; values
+    // above 100% previously threw IndexSizeError.
+    audio.volume = Math.min(Math.max(effectiveSoundPercent(draftNumber("soundboard.volume", 100), sound), 0) / 100, 1);
     audio.play().catch(() => toast.error(gt("Failed to play sound")));
     setPlayingSoundId(sound.id);
     audio.onended = () => setPlayingSoundId(null);
@@ -2097,8 +2185,20 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         </div>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-          {/* Role list sidebar */}
-          <div className={cn("space-y-2", mobileRoleDetail && "hidden")}>
+          {/* Role list sidebar. Drops in the gaps between rows use the last
+              insertion bar shown, so it doesn't flicker between rows. */}
+          <div
+            className={cn("space-y-2", mobileRoleDetail && "hidden")}
+            onDragOver={(event) => {
+              if (draggingRoleId) event.preventDefault();
+            }}
+            onDrop={(event) => {
+              if (!draggingRoleId) return;
+              event.preventDefault();
+              if (roleDropTarget) void handleRoleDrop(roleDropTarget.roleId, roleDropTarget.mode);
+              else setDraggingRoleId(null);
+            }}
+          >
             {roles.length > 0 && (
               <div className="relative mb-2">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
@@ -2118,19 +2218,40 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 const isSelected = role.id === selectedRoleId;
                 // No HTML5 drag-and-drop on touch screens.
                 const canDrag = !isMobile && !role.isDefault && !role.managed;
+                const isDragged = draggingRoleId === role.id;
+                const dropMode = roleDropTarget?.roleId === role.id ? roleDropTarget.mode : null;
                 return (
                   <div
                     key={role.id}
                     draggable={canDrag}
-                    onDragStart={() => setDraggingRoleId(role.id)}
-                    onDragEnd={() => setDraggingRoleId(null)}
+                    onDragStart={(event) => {
+                      event.dataTransfer.effectAllowed = "move";
+                      event.dataTransfer.setData("text/plain", role.id);
+                      setDraggingRoleId(role.id);
+                    }}
+                    onDragEnd={() => {
+                      setDraggingRoleId(null);
+                      setRoleDropTarget(null);
+                    }}
                     onDragOver={(event) => {
-                      if (!canDrag) return;
+                      // @everyone stays at the bottom: it is never a drop target.
+                      if (!draggingRoleId || role.isDefault) return;
                       event.preventDefault();
+                      event.dataTransfer.dropEffect = "move";
+                      const rect = event.currentTarget.getBoundingClientRect();
+                      const mode = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
+                      const ids = roles.filter((r) => !r.isDefault).sort((a, b) => b.position - a.position).map((r) => r.id);
+                      const next = moveRoleId(ids, draggingRoleId, role.id, mode) ? { roleId: role.id, mode } as const : null;
+                      if (next?.roleId !== roleDropTarget?.roleId || next?.mode !== roleDropTarget?.mode) setRoleDropTarget(next);
                     }}
                     onDrop={(event) => {
                       event.preventDefault();
-                      void handleRoleDrop(role.id);
+                      event.stopPropagation();
+                      if (dropMode) void handleRoleDrop(role.id, dropMode);
+                      else {
+                        setRoleDropTarget(null);
+                        setDraggingRoleId(null);
+                      }
                     }}
                     onClick={() => {
                       setSelectedRoleId(role.id);
@@ -2141,16 +2262,26 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                       isSelected && !isMobile
                         ? "bg-[var(--bg-active)] border-[var(--app-accent)] shadow-[0_0_12px_rgba(139,92,246,0.15)]"
                         : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] hover:border-[var(--border-strong)] active:bg-[var(--bg-active)]",
-                      canDrag && "cursor-move",
-                      draggingRoleId === role.id && "opacity-50"
+                      "relative",
+                      canDrag && "cursor-grab active:cursor-grabbing",
+                      isDragged && "opacity-40 border-dashed border-[var(--app-accent)] bg-[var(--bg-hover)]"
                     )}
                   >
-                    <GripVertical className="w-4 h-4 flex-shrink-0 text-[var(--text-muted)] max-md:hidden" />
+                    {/* Insertion bar where the dragged role will land (CORD-32) */}
+                    {dropMode === "before" && (
+                      <span aria-hidden className="pointer-events-none absolute -top-[5px] left-1 right-1 h-1 rounded-full bg-[var(--app-accent)] shadow-[0_0_6px_var(--app-accent)]" />
+                    )}
+                    {dropMode === "after" && (
+                      <span aria-hidden className="pointer-events-none absolute -bottom-[5px] left-1 right-1 h-1 rounded-full bg-[var(--app-accent)] shadow-[0_0_6px_var(--app-accent)]" />
+                    )}
+                    <GripVertical className={cn("w-4 h-4 flex-shrink-0 max-md:hidden", isDragged ? "text-[var(--app-accent)]" : "text-[var(--text-muted)]")} />
                     <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: role.color || "#888888" }} />
                     <div className="flex-1 min-w-0">
                       <p className="text-[var(--text-primary)] text-sm max-md:text-[15px] font-medium truncate flex items-center gap-1"><span className="truncate">{role.name}</span><RoleIcon role={role} size={14} /></p>
                       <p className="text-[11px] text-[var(--text-muted)]">
-                        {role.memberCount ?? 0} members{role.isDefault ? " • default" : role.managed ? " • managed" : ""}
+                        {gt("{count} members", { count: role.memberCount ?? 0 })}
+                        {role.isDefault ? ` • ${gt("default")}` : role.managed ? ` • ${gt("managed")}` : ""}
+                        {(roleLinks[role.id.toLowerCase()]?.length ?? 0) > 0 && ` • ${gt("{count} linked", { count: roleLinks[role.id.toLowerCase()].length })}`}
                       </p>
                     </div>
                     {!role.isDefault && (
@@ -2276,6 +2407,68 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                       />
                     </label>
                   </div>
+
+                  {/* Linked roles (CORD-57) */}
+                  {!selectedRole.isDefault && !selectedRole.managed && (() => {
+                    const linked = roleLinks[selectedRole.id.toLowerCase()] ?? [];
+                    const linkable = roles
+                      .filter((r) => !r.isDefault && !r.managed && r.id !== selectedRole.id)
+                      .sort((a, b) => b.position - a.position);
+                    const linkedRoles = linked
+                      .map((id) => roles.find((r) => r.id.toLowerCase() === id))
+                      .filter((r): r is Role => Boolean(r));
+                    const available = linkable.filter((r) => !linked.includes(r.id.toLowerCase()));
+                    return (
+                      <div className="space-y-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <h4 className="text-sm font-semibold text-[var(--text-primary)]"><T>Linked roles</T></h4>
+                            <p className="text-xs text-[var(--text-muted)] mt-0.5">
+                              <T>Members who get this role also get these roles. It only works one way, and removing this role later keeps the linked roles.</T>
+                            </p>
+                          </div>
+                          {isSavingRoleLinks && <Loader size={16} />}
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {linkedRoles.length === 0 && (
+                            <span className="text-xs text-[var(--text-muted)]"><T>No linked roles yet.</T></span>
+                          )}
+                          {linkedRoles.map((r) => (
+                            <span key={r.id} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)] pl-2 pr-1 py-0.5 text-xs text-[var(--text-primary)]">
+                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: r.color || "#888888" }} />
+                              {r.name}
+                              <button
+                                type="button"
+                                disabled={isSavingRoleLinks}
+                                onClick={() => void handleSetRoleLinks(selectedRole.id, linkedRoles.filter((x) => x.id !== r.id).map((x) => x.id))}
+                                aria-label={gt("Unlink role {role}", { role: r.name })}
+                                className="p-0.5 rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
+                              >
+                                <X className="w-3 h-3" />
+                              </button>
+                            </span>
+                          ))}
+                        </div>
+                        {available.length > 0 && linked.length < 10 && (
+                          <select
+                            value=""
+                            disabled={isSavingRoleLinks}
+                            onChange={(event) => {
+                              const id = event.target.value;
+                              if (id) void handleSetRoleLinks(selectedRole.id, [...linkedRoles.map((x) => x.id), id]);
+                            }}
+                            aria-label={gt("Add a linked role")}
+                            className="h-9 w-full sm:w-64 px-2 rounded-md bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--app-accent)] disabled:opacity-50"
+                          >
+                            <option value="">{gt("Add a linked role...")}</option>
+                            {available.map((r) => (
+                              <option key={r.id} value={r.id}>{r.name}</option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                    );
+                  })()}
 
                   {/* Permissions */}
                   <div className="space-y-3">
@@ -2608,12 +2801,40 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     </div>
   );
 
-  const renderMembers = () => (
+  const renderMembers = () => {
+    const visibleMembers = filterAndSortMembers(members, { search: memberSearch, roleId: memberRoleFilter || null, sort: memberSort });
+    const canKick = can("KICK_MEMBERS");
+    const canBan = can("BAN_MEMBERS");
+    const canTimeout = can("MODERATE_MEMBERS");
+    const formatDate = (value?: string | null) => {
+      if (!value) return null;
+      const d = new Date(value);
+      return Number.isFinite(d.getTime()) ? d.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" }) : null;
+    };
+    const openAction = (kind: UserActionKind, member: ServerMember) => {
+      if (!currentServer) return;
+      openUserAction(kind, {
+        id: member.id,
+        username: member.username,
+        displayName: member.displayName ?? null,
+        avatar: member.avatar ?? null,
+        isBot: member.isBot,
+        serverId: currentServer.id,
+        communicationDisabledUntil: member.communicationDisabledUntil ?? null,
+        onDone: () => void fetchMembersData(),
+      });
+    };
+    const selectClass = "h-9 px-2 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--app-accent)]";
+    return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Members</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]">{members.length} {gt('members')}</p>
+          <p className="text-sm text-[var(--text-secondary)]">
+            {visibleMembers.length === members.length
+              ? gt("{count} members", { count: members.length })
+              : gt("Showing {shown} of {count} members", { shown: visibleMembers.length, count: members.length })}
+          </p>
         </div>
         <Input
           placeholder={gt("Search members...")}
@@ -2623,24 +2844,46 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         />
       </div>
 
+      {/* Sort + role filter (CORD-54) */}
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+          <T>Sort by</T>
+          <select value={memberSort} onChange={(event) => setMemberSort(event.target.value as MemberSort)} className={selectClass}>
+            <option value="joined_desc">{gt("Joined server (newest)")}</option>
+            <option value="joined_asc">{gt("Joined server (oldest)")}</option>
+            <option value="created_desc">{gt("Account created (newest)")}</option>
+            <option value="created_asc">{gt("Account created (oldest)")}</option>
+            <option value="name_asc">{gt("Name (A to Z)")}</option>
+            <option value="name_desc">{gt("Name (Z to A)")}</option>
+          </select>
+        </label>
+        <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
+          <T>Role</T>
+          <select value={memberRoleFilter} onChange={(event) => setMemberRoleFilter(event.target.value)} className={selectClass}>
+            <option value="">{gt("All roles")}</option>
+            {roles
+              .filter((r) => !r.isDefault)
+              .sort((a, b) => b.position - a.position)
+              .map((r) => (
+                <option key={r.id} value={r.id}>{r.name}</option>
+              ))}
+          </select>
+        </label>
+      </div>
+
       {isLoading ? (
         <div className="flex items-center justify-center py-12">
           <Loader size={32} />
         </div>
+      ) : visibleMembers.length === 0 ? (
+        <p className="text-sm text-[var(--text-muted)] text-center py-8"><T>No members match these filters.</T></p>
       ) : (
         <div className="space-y-1">
-          {members
-            .filter((member) => {
-              const needle = memberSearch.trim().toLowerCase();
-              if (!needle) return true;
-              const name = (member.displayName || member.username || "").toLowerCase();
-              const username = member.username.toLowerCase();
-              return name.includes(needle) || username.includes(needle);
-            })
+          {visibleMembers
             .map((member, index) => (
               <div
                 key={member.id || `member-${index}`}
-                className="flex items-center gap-3 p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-strong)]"
+                className="flex items-center max-md:flex-wrap gap-3 p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-strong)]"
               >
                 <Avatar className="w-10 h-10">
                   <AvatarImage src={cdnImage(member.avatar || undefined)} />
@@ -2658,6 +2901,13 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                     )}
                   </div>
                   <span className="text-sm text-[var(--text-secondary)]">@{member.username}</span>
+                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-muted)]">
+                    {formatDate(member.joinedAt) && <span>{gt("Joined {date}", { date: formatDate(member.joinedAt) })}</span>}
+                    {formatDate(member.accountCreatedAt) && <span>{gt("Account created {date}", { date: formatDate(member.accountCreatedAt) })}</span>}
+                    {member.communicationDisabledUntil && new Date(member.communicationDisabledUntil).getTime() > Date.now() && (
+                      <span className="text-red-500">{gt("Timed out")}</span>
+                    )}
+                  </div>
                   <div className="flex flex-wrap gap-1 mt-1 items-center">
                     {member.roles
                       .filter(r => !r.isDefault)
@@ -2728,12 +2978,45 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                     </DropdownMenu>
                   </div>
                 </div>
+                {/* Moderation (the server re-checks permissions and role hierarchy) */}
+                {member.id !== user?.id && member.id !== currentServer?.ownerId && (canKick || canBan || canTimeout) && (
+                  <div className="flex items-center gap-1 shrink-0 max-md:w-full max-md:justify-end">
+                    {canTimeout && (
+                      <button
+                        type="button"
+                        onClick={() => openAction("timeout", member)}
+                        className="px-2 py-1 max-md:py-2 rounded text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-colors"
+                      >
+                        {gt("Timeout")}
+                      </button>
+                    )}
+                    {canKick && (
+                      <button
+                        type="button"
+                        onClick={() => openAction("kick", member)}
+                        className="px-2 py-1 max-md:py-2 rounded text-xs text-red-500 hover:bg-red-500/10 transition-colors"
+                      >
+                        {gt("Kick")}
+                      </button>
+                    )}
+                    {canBan && (
+                      <button
+                        type="button"
+                        onClick={() => openAction("ban", member)}
+                        className="px-2 py-1 max-md:py-2 rounded text-xs text-red-500 hover:bg-red-500/10 transition-colors"
+                      >
+                        {gt("Ban")}
+                      </button>
+                    )}
+                  </div>
+                )}
               </div>
             ))}
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const renderEmoji = () => {
     const filteredEmojis = emojiSearch.trim()
@@ -3887,7 +4170,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             aria-label="Enable soundboard"
           />
         </div>
-        <p className="text-xs text-[var(--text-muted)] mt-2"><T>Playback volume is now a personal preference in User Settings → Voice &amp; Video.</T></p>
+        <p className="text-xs text-[var(--text-muted)] mt-2"><T>Each sound has its own volume below, which applies for everyone in the server. How loud sounds play for you is a personal preference in User Settings → Voice &amp; Video.</T></p>
       </div>
 
       {/* Sound list */}
@@ -3947,6 +4230,20 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 <div className="flex-1 min-w-0">
                   <p className="text-sm text-[var(--text-primary)] truncate">{sound.name}</p>
                   <p className="text-xs text-[var(--text-muted)]">{sound.emoji}</p>
+                  <div className="flex items-center gap-1.5 mt-1">
+                    <Volume2 className="w-3 h-3 shrink-0 text-[var(--text-muted)]" />
+                    <input
+                      type="range"
+                      min={0}
+                      max={100}
+                      step={5}
+                      value={Math.round(soundVolume(sound) * 100)}
+                      onChange={(event) => handleSoundVolumeChange(sound.id, Number(event.target.value) / 100)}
+                      aria-label={gt("Volume for {sound}", { sound: sound.name })}
+                      className="w-full min-w-0 h-1 accent-[var(--app-accent)] cursor-pointer"
+                    />
+                    <span className="text-[10px] tabular-nums text-[var(--text-muted)] w-8 text-right">{Math.round(soundVolume(sound) * 100)}%</span>
+                  </div>
                 </div>
                 <button
                   onClick={() => handleDeleteSound(sound.id)}

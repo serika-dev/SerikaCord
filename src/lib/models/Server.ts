@@ -37,6 +37,8 @@ export interface IServerSettings {
   soundboard?: { enabled: boolean; volume: number };
   access?: { joinMode?: string };
   invites?: { lockToVanity?: boolean };
+  /** Linked roles (CORD-57): role id → role ids members also get. See src/lib/roles/roleLinks.ts. */
+  roleLinks?: Record<string, string[]>;
 }
 
 export const Server = {

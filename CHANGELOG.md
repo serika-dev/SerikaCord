@@ -7,8 +7,12 @@
 ## Unreleased
 
 ### Features
+- **Linked roles** — in Server Settings → Roles you can link a role to other roles, so anyone who gets it (by hand, by a bot or through onboarding) also gets the linked roles. It only works one way, and people who already have the role get the new linked roles right away. (CORD-57)
+- **Better member view** — Server Settings → Members now shows when each person joined the server and when their account was created, can sort by join date, account age or name, filter by role, and has Timeout, Kick and Ban buttons for moderators. (CORD-54)
+- **Volume per soundboard sound** — each server sound has its own volume slider in Server Settings → Soundboard, so a loud sound can be turned down for everyone. Your own soundboard volume in User Settings still applies on top. (CORD-31)
 
 ### Changes
+- **Clearer role dragging** — moving a role in Server Settings now shows a line where it will land and highlights the role you're dragging, like reordering servers. (CORD-32)
 - **Enter adds a new line on phones** — on touch keyboards Enter now starts a new line and the send button sends, like Discord mobile. Keyboards with Shift keep Enter-to-send.
 
 ### Bug Fixes

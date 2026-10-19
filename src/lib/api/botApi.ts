@@ -64,6 +64,7 @@ import {
 } from '@/lib/chat/messagePagination';
 import { clientEmojiString, parseReactionEmojiParam } from '@/lib/chat/reactionEmoji';
 import { nonceKey, normalizeNonce } from '@/lib/chat/messageNonce';
+import { expandLinkedRoles, readRoleLinks } from '@/lib/roles/roleLinks';
 import type { StoredForward } from '@/lib/chat/forward';
 
 /** Audit-log a bot's moderation action (reason from X-Audit-Log-Reason, like Discord). */
@@ -1097,6 +1098,14 @@ async function patchBotMember(
           if (r.isDefault || r.managed || !outranks(g.standing, r.position ?? 0)) return deny();
         }
         const ids = [...after].map((id) => roleById.get(id)!.id);
+        // Linked roles (CORD-57): newly granted roles add the roles they link to,
+        // when the bot could assign those itself.
+        for (const id of expandLinkedRoles({
+          current: [...before],
+          next: [...after],
+          links: readRoleLinks(g.server.settings, g.roles),
+          canAdd: (id) => { const r = roleById.get(id); return Boolean(r) && !r!.isDefault && !r!.managed && outranks(g.standing, r!.position ?? 0); },
+        }).slice(after.size)) ids.push(roleById.get(id)!.id);
         updates.roles = everyone ? [everyone, ...ids] : ids;
         const names = new Map(g.roles.map((r) => [r.id, r.name] as const));
         roleChanges = diffMemberRoles([...before].map((id) => roleById.get(id)?.id ?? id), ids, names);
@@ -1228,10 +1237,23 @@ async function changeMemberRole(
   const everyone = g.roles.find((r) => r.isDefault)?.id ?? null;
   let next = op === 'add' ? [...current, role.id] : current.filter((r) => !compareIds(r, role.id));
   if (everyone && !next.some((r) => compareIds(r, everyone))) next = [everyone, ...next];
+  let linked: typeof g.roles = [];
+  if (op === 'add') {
+    // Linked roles (CORD-57), limited to roles the bot could assign itself.
+    const byId = new Map(g.roles.map((r) => [normalizeId(r.id), r]));
+    const expanded = expandLinkedRoles({
+      current: current.map(normalizeId),
+      next: next.map(normalizeId),
+      links: readRoleLinks(g.server.settings, g.roles),
+      canAdd: (id) => { const r = byId.get(id); return Boolean(r) && !r!.isDefault && !r!.managed && outranks(g.standing, r!.position ?? 0); },
+    });
+    linked = expanded.slice(next.length).map((id) => byId.get(id)!).filter(Boolean);
+    next = [...next, ...linked.map((r) => r.id)];
+  }
   await ServerMember.updateById(member.id, { roles: next });
   audit({
     serverId: g.server.id, userId: auth.botUser.id, actionType: AuditLogEvent.MEMBER_ROLE_UPDATE, targetId: member.userId,
-    changes: [{ key: op === 'add' ? '$add' : '$remove', new: [{ id: role.id, name: role.name }] }],
+    changes: [{ key: op === 'add' ? '$add' : '$remove', new: [role, ...linked].map((r) => ({ id: r.id, name: r.name })) }],
     reason: auditReason(headers['x-audit-log-reason']),
   });
   afterMemberChange(g.server.id, member.userId, { roles: true });
@@ -3727,6 +3749,17 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   }
   // insertServerMember applies rules screening (pending) and sends GUILD_MEMBER_ADD.
   const { insertServerMember } = await import('@/lib/services/serverMembership');
+  if (roleIds.length > 0) {
+    // Linked roles (CORD-57), limited to roles the bot could assign itself.
+    const byId = new Map(g.roles.map((r) => [normalizeId(r.id), r]));
+    const expanded = expandLinkedRoles({
+      current: [],
+      next: roleIds.map(normalizeId),
+      links: readRoleLinks(g.server.settings, g.roles),
+      canAdd: (id) => { const r = byId.get(id); return Boolean(r) && !r!.isDefault && !r!.managed && outranks(g.standing, r!.position ?? 0); },
+    });
+    for (const id of expanded.slice(roleIds.length)) roleIds.push(byId.get(id)!.id);
+  }
   const { membership, created } = await insertServerMember(g.server.id, user.id, {
     roles: everyone ? [everyone, ...roleIds] : roleIds,
     ...(nickname ? { nickname } : {}),
