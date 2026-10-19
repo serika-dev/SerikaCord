@@ -7,8 +7,12 @@
 ## Unreleased
 
 ### Features
+- **Spaces and capitals in every channel name** — text and forum channels can now be called "General Chat" just like voice channels and categories; typing #general-chat still finds it. (CORD-56)
+- **Age-restrict a whole category** — categories have their own NSFW toggle; every channel in an age-restricted category, including new ones and ones moved into it, is age-restricted too. (CORD-60)
+- **Webhook avatars and editing** — give a webhook a profile picture, rename it, or move it to another channel from Channel Settings → Integrations. (CORD-67)
 
 ### Changes
+- **Enter creates the channel** — pressing Enter in the new channel name box creates it (or moves to the access step for a private channel), and the box is focused when the dialog opens. (CORD-25)
 - **Enter adds a new line on phones** — on touch keyboards Enter now starts a new line and the send button sends, like Discord mobile. Keyboards with Shift keep Enter-to-send.
 
 ### Bug Fixes

@@ -26,6 +26,7 @@ import { T, useGT } from "gt-next";
 import { useServerMembersOptional } from "@/contexts/ServerContext";
 import { usePermissions } from "@/hooks/usePermissions";
 import { normalizeOverwrites, setPrivateChannel } from "@/lib/permissions/overwriteEditor";
+import { normalizeChannelName } from "@/lib/servers/channelRules";
 
 type CreatableChannelType = "text" | "voice" | "category" | "forum";
 
@@ -113,11 +114,14 @@ export function CreateChannelDialog({
     });
   };
 
-  // Text & forum channels use lowercase-hyphenated names
-  const isSlugType = channelType === "text" || channelType === "forum";
+  // A channel created in an age-restricted category is age-restricted too.
+  const parentIsNsfw = channelType !== "category" && !!parentId && !!channels.find((c) => c.id === parentId)?.isNsfw;
+  const effectiveNsfw = nsfw || parentIsNsfw;
 
   const handleCreate = async () => {
-    if (!channelName.trim() || !currentServer) return;
+    // Spaces and capitals are kept for every channel type (CORD-56).
+    const formattedName = normalizeChannelName(channelName);
+    if (!formattedName || !currentServer || isLoading) return;
     if (isPrivate && !privateOverwrites()) {
       setError(gt("Roles are still loading. Try again in a moment."));
       return;
@@ -125,10 +129,6 @@ export function CreateChannelDialog({
 
     setIsLoading(true);
     setError("");
-
-    const formattedName = isSlugType
-      ? channelName.toLowerCase().replace(/\s+/g, "-")
-      : channelName.trim();
 
     try {
       const response = await fetch(`/api/servers/${currentServer.id}/channels`, {
@@ -138,7 +138,7 @@ export function CreateChannelDialog({
           name: formattedName,
           type: channelType,
           parentId: channelType !== "category" ? parentId || null : undefined,
-          nsfw: channelType !== "category" ? nsfw : undefined,
+          nsfw: effectiveNsfw,
           forumMode: channelType === "forum" ? (forumTickets ? "tickets" : "posts") : undefined,
           permissionOverwrites: isPrivate ? privateOverwrites() : undefined,
         }),
@@ -377,7 +377,7 @@ export function CreateChannelDialog({
           {/* Channel Name */}
           <div className="space-y-2">
             <Label htmlFor="channelName" className="text-xs font-bold uppercase text-[var(--text-secondary)]">
-              {gt("Channel Name")}
+              {channelType === "category" ? gt("Category Name") : gt("Channel Name")}
             </Label>
             <div className="relative">
               <div className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)]">
@@ -394,14 +394,17 @@ export function CreateChannelDialog({
               <Input
                 id="channelName"
                 value={channelName}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (isSlugType) {
-                    setChannelName(val.toLowerCase().replace(/\s+/g, "-"));
-                  } else {
-                    setChannelName(val);
-                  }
+                onChange={(e) => setChannelName(e.target.value)}
+                onKeyDown={(e) => {
+                  // Enter creates the channel (or goes to the access step of a private one).
+                  if (e.key !== "Enter" || e.nativeEvent.isComposing || !normalizeChannelName(channelName)) return;
+                  e.preventDefault();
+                  if (isPrivate) goToAccessStep();
+                  else void handleCreate();
                 }}
+                autoFocus
+                maxLength={100}
+                enterKeyHint="done"
                 placeholder={
                   channelType === "text"
                     ? "new-channel"
@@ -441,24 +444,27 @@ export function CreateChannelDialog({
             </div>
           )}
 
-          {/* NSFW Checkbox (if channel is not category) */}
-          {channelType !== "category" && (
-            <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)]">
-              <div className="space-y-0.5">
-                <Label htmlFor="nsfw-toggle" className="font-medium cursor-pointer text-sm">
-                  <T>Age-Restricted Channel (NSFW)</T>
-                </Label>
-                <div className="text-xs text-[var(--text-muted)] max-w-[280px]">
-                  <T>Users will need to confirm they are of legal age to view this channel.</T>
-                </div>
+          {/* Age restriction. A category's applies to every channel in it. */}
+          <div className="flex items-center justify-between p-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)]">
+            <div className="space-y-0.5">
+              <Label htmlFor="nsfw-toggle" className="font-medium cursor-pointer text-sm">
+                {channelType === "category" ? gt("Age-Restricted Category (NSFW)") : gt("Age-Restricted Channel (NSFW)")}
+              </Label>
+              <div className="text-xs text-[var(--text-muted)] max-w-[280px]">
+                {channelType === "category"
+                  ? gt("Every channel in this category will be age-restricted.")
+                  : parentIsNsfw
+                    ? gt("This category is age-restricted, so every channel in it is too.")
+                    : gt("Users will need to confirm they are of legal age to view this channel.")}
               </div>
-              <ToggleSwitch
-                checked={nsfw}
-                onCheckedChange={setNsfw}
-                aria-label="Age-restricted channel"
-              />
             </div>
-          )}
+            <ToggleSwitch
+              checked={effectiveNsfw}
+              onCheckedChange={setNsfw}
+              disabled={parentIsNsfw}
+              aria-label={gt("Age-restricted channel")}
+            />
+          </div>
 
           {/* Private channel / category (Discord): @everyone loses View
               Channel; the next step picks who keeps access. */}
@@ -514,7 +520,7 @@ export function CreateChannelDialog({
           {isPrivate ? (
             <Button
               onClick={goToAccessStep}
-              disabled={!channelName.trim()}
+              disabled={!normalizeChannelName(channelName)}
               className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
             >
               {gt("Next")}
@@ -522,10 +528,10 @@ export function CreateChannelDialog({
           ) : (
             <Button
               onClick={handleCreate}
-              disabled={!channelName.trim() || isLoading}
+              disabled={!normalizeChannelName(channelName) || isLoading}
               className="bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
             >
-              {isLoading ? gt("Creating...") : gt("Create Channel")}
+              {isLoading ? gt("Creating...") : channelType === "category" ? gt("Create Category") : gt("Create Channel")}
             </Button>
           )}
         </div>

@@ -46,6 +46,17 @@ export async function updateGuildChannel(opts: {
     if (parent) updates.permissionOverwrites = normalizeOverwrites(parent.permissionOverwrites);
   }
 
+  // A channel inside an age-restricted category stays age-restricted (CORD-60).
+  const isThreadRow = channel.type === 'public_thread' || channel.type === 'private_thread';
+  if (channel.type !== 'category' && !isThreadRow) {
+    const finalParentId = updates.parentId !== undefined ? updates.parentId : channel.parentId;
+    const mayLoseNsfw = updates.nsfw === false || (updates.parentId !== undefined && !channel.nsfw && updates.nsfw !== true);
+    if (finalParentId && mayLoseNsfw) {
+      const [parent] = await db.select().from(schema.channels).where(eq(schema.channels.id, normalizeId(finalParentId))).limit(1);
+      if (parent?.type === 'category' && parent.nsfw) updates.nsfw = true;
+    }
+  }
+
   // Category edits re-sync children that were in sync with the old overwrites.
   let resync: string[] = [];
   if (channel.type === 'category' && updates.permissionOverwrites !== undefined) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { isMessageRead } from "@/lib/unread/engine";
+import { channelNameMatches } from "@/lib/servers/channelRules";
 import { getUnreadState } from "@/lib/unread/store";
 import { getJsonCached } from "@/lib/swrJson";
 import dynamic from "next/dynamic";
@@ -1441,10 +1442,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
 
         const channelSuggestions = channels
           .filter((ch) => ch.type !== "category" && ch.type !== "voice")
-          .filter((ch) => {
-            const chName = ch.name.toLowerCase();
-            return query.length === 0 || chName.includes(query);
-          })
+          // Names may contain spaces (CORD-56): "#general-chat" matches "General Chat".
+          .filter((ch) => channelNameMatches(ch.name, query))
           .sort((a, b) => a.name.localeCompare(b.name))
           .slice(0, 8)
           .map((ch) => ({

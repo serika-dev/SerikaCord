@@ -23,9 +23,11 @@ import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn, cdnImage } from "@/lib/utils";
+import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { normalizeOverwrites } from "@/lib/permissions/overwriteEditor";
+import { normalizeChannelName } from "@/lib/servers/channelRules";
+import { WebhookCard } from "@/components/dialogs/WebhookCard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -468,9 +470,12 @@ export function ChannelSettingsDialog({
     try {
       const updates: Record<string, unknown> = {};
       if (name !== channel.name) {
-        const formattedName = (!isVoice && !isCategory)
-          ? name.toLowerCase().replace(/\s+/g, "-").trim()
-          : name.trim();
+        // Spaces and capitals are allowed for every channel type (CORD-56).
+        const formattedName = normalizeChannelName(name);
+        if (!formattedName) {
+          toast.error(gt("Channel name cannot be empty"));
+          return;
+        }
         updates.name = formattedName;
       }
       if (topic !== (channel.topic || "")) updates.topic = topic;
@@ -482,6 +487,10 @@ export function ChannelSettingsDialog({
       if (slowmode !== (channel.rateLimitPerUser || 0)) updates.rateLimitPerUser = slowmode;
 
       await updateChannel(channel.id, updates);
+      // Marking a category age-restricted (or moving into one) changes other
+      // channels' flags server-side: refresh the list.
+      const nsfwSideEffects = (isCategory && updates.nsfw === true) || updates.parentId !== undefined;
+      if (nsfwSideEffects && currentServer) await fetchChannels(currentServer.id);
       toast.success(gt("Channel settings saved"));
       setHasChanges(false);
     } catch (err) {
@@ -506,6 +515,12 @@ export function ChannelSettingsDialog({
 
   const isVoice = channel.type === "voice";
   const isCategory = channel.type === "category";
+  // Where a webhook may be moved to (CORD-67).
+  const webhookChannelOptions = channels
+    .filter((c) => c.type === "text" || c.type === "announcement" || c.type === "forum")
+    .map((c) => ({ id: c.id, name: c.name }));
+  // The selected category (saved or pending) forces the age restriction on.
+  const parentIsNsfw = !isCategory && !!parentId && !!channels.find((c) => c.id === parentId && c.type === "category")?.isNsfw;
 
   const tabs = [
     { id: "overview" as const, label: gt("Overview"), icon: Settings },
@@ -559,14 +574,7 @@ export function ChannelSettingsDialog({
               </span>
               <Input
                 value={name}
-                onChange={(e) => {
-                  const val = e.target.value;
-                  if (!isVoice && !isCategory) {
-                    setName(val.toLowerCase().replace(/\s+/g, "-"));
-                  } else {
-                    setName(val);
-                  }
-                }}
+                onChange={(e) => setName(e.target.value)}
                 maxLength={100}
                 className="pl-9 bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--app-accent)] h-10"
               />
@@ -720,24 +728,29 @@ export function ChannelSettingsDialog({
         )}
 
         {/* Additional Toggles */}
-        {!isCategory && (
           <div className="space-y-4 mt-6">
-            {/* NSFW Toggle */}
+            {/* NSFW Toggle. A category's applies to every channel in it (CORD-60). */}
             <div className="flex items-center justify-between gap-3 p-4 sm:p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
               <div className="space-y-1">
                 <span className="text-sm font-semibold text-[var(--text-primary)]">
-                  {gt("Age-Restricted Channel")}
+                  {isCategory ? gt("Age-Restricted Category") : gt("Age-Restricted Channel")}
                 </span>
                 <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                  {gt("Users must verify their age to view content in this channel. This channel will be marked with an age-restricted badge in lists.")}
+                  {isCategory
+                    ? gt("Every channel in this category, including new ones and ones moved into it, will be age-restricted. Turning this off keeps the channels age-restricted until you change them one by one.")
+                    : parentIsNsfw
+                      ? gt("This channel's category is age-restricted, so this channel is too. Move it out of the category to change this.")
+                      : gt("Users must verify their age to view content in this channel. This channel will be marked with an age-restricted badge in lists.")}
                 </p>
               </div>
               <ToggleSwitch
-                checked={nsfw}
+                checked={nsfw || parentIsNsfw}
                 onCheckedChange={setNsfw}
+                disabled={parentIsNsfw}
                 aria-label={gt("Toggle NSFW")}
               />
             </div>
+            {!isCategory && (<>
 
             {/* Announcement toggle — only meaningful for text channels */}
             {(channel.type === "text" || channel.type === "announcement") && (
@@ -886,8 +899,8 @@ export function ChannelSettingsDialog({
                 </SelectContent>
               </Select>
             </div>
+            </>)}
           </div>
-        )}
       </div>
     )}
 
@@ -968,37 +981,15 @@ export function ChannelSettingsDialog({
         ) : (
           <div className="space-y-3">
             {webhooks.map((w) => (
-              <div
+              <WebhookCard
                 key={w.id}
-                className="p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-full bg-[var(--bg-sidebar)] flex items-center justify-center border border-[var(--border-subtle)] shrink-0">
-                      {w.avatar ? (
-                        <img src={cdnImage(w.avatar)} alt={w.name} className="w-full h-full rounded-full object-cover" />
-                      ) : (
-                        <Radio className="w-5 h-5 text-[var(--text-secondary)]" />
-                      )}
-                    </div>
-                    <span className="font-semibold text-sm text-[var(--text-primary)] block truncate">
-                      {w.name}
-                    </span>
-                  </div>
-
-                  <button
-                    onClick={() => handleDeleteWebhook(w.id)}
-                    className="p-2 max-md:p-3 rounded hover:bg-red-500/20 text-[var(--text-muted)] hover:text-red-400 transition-colors shrink-0"
-                    title={gt("Delete Webhook")}
-                  >
-                    <Trash2 className="w-4 h-4" />
-                  </button>
-                </div>
-
-                {w.url && (
-                  <WebhookUrlField url={w.url} label={gt("Webhook URL copied")} />
-                )}
-              </div>
+                webhook={w}
+                channelId={channel.id}
+                channelOptions={webhookChannelOptions}
+                urlField={w.url ? <WebhookUrlField url={w.url} label={gt("Webhook URL copied")} /> : null}
+                onDelete={() => void handleDeleteWebhook(w.id)}
+                onChanged={() => void fetchWebhooks()}
+              />
             ))}
           </div>
         )}

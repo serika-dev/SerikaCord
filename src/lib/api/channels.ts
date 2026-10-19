@@ -3,6 +3,7 @@ import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, isValidObjectId } from '@/lib/security';
+import { channelsToMarkNsfw, normalizeChannelName } from '@/lib/servers/channelRules';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { cache, getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
@@ -407,6 +408,46 @@ async function canManageWebhooksInServer(
     if ((perms & PERM_MANAGE_WEBHOOKS) === PERM_MANAGE_WEBHOOKS) return true;
   }
   return false;
+}
+
+/**
+ * A channel's webhook the user may edit from channel settings: a server
+ * webhook (not an application's own), reachable through this channel, and
+ * the user has MANAGE_WEBHOOKS there or created it (like DELETE).
+ */
+async function loadManageableWebhook(
+  userId: string,
+  channelId: string,
+  webhookId: string,
+): Promise<
+  | { channel: IChannel; webhook: NonNullable<Awaited<ReturnType<typeof import('@/lib/models').ChannelWebhook.findById>>> }
+  | { error: string; status: number }
+> {
+  if (!isValidObjectId(channelId) || !isValidObjectId(webhookId)) return { error: 'Webhook not found', status: 404 };
+  const { hasAccess, channel, membership } = await checkChannelAccess(userId, channelId);
+  if (!hasAccess || !channel) return { error: 'Access denied', status: 403 };
+  if (!channel.serverId) return { error: 'Webhook not found', status: 404 };
+  const { ChannelWebhook } = await import('@/lib/models');
+  const webhook = await ChannelWebhook.findById(webhookId);
+  if (!webhook || !compareIds(webhook.channelId, channel.id)) return { error: 'Webhook not found', status: 404 };
+  // An application's webhook belongs to that app (its token sends the app's components).
+  if ((webhook as { applicationId?: string | null }).applicationId) return { error: 'This webhook is managed by an application', status: 403 };
+  const isCreator = Boolean(webhook.creatorId && compareIds(webhook.creatorId, userId));
+  if (!isCreator && !(await canManageWebhooksInServer(channel.serverId, userId, membership))) {
+    return { error: 'Missing MANAGE_WEBHOOKS permission', status: 403 };
+  }
+  return { channel, webhook };
+}
+
+/** Best-effort delete of a replaced webhook avatar (only our own webhook-avatars/<id>/ objects). */
+function cleanupWebhookAvatar(webhookId: string, oldUrl: string | null | undefined, newUrl: string): void {
+  if (!oldUrl || oldUrl === newUrl) return;
+  void (async () => {
+    const { storage, keyFromUrl } = await import('@/lib/services/storage');
+    const { isOwnedMediaKey } = await import('@/lib/utils/ownedMedia');
+    const key = keyFromUrl(oldUrl);
+    if (isOwnedMediaKey(key, `webhook-avatars/${webhookId}/`)) await storage.delete(key);
+  })().catch(() => {});
 }
 
 /**
@@ -1888,7 +1929,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     const updateData: Record<string, any> = {};
-    if (name !== undefined) updateData.name = sanitizeInput(name);
+    if (name !== undefined && !isThread) {
+      // Any channel type may use spaces and capitals (CORD-56).
+      const cleanName = normalizeChannelName(name);
+      if (!cleanName) {
+        set.status = 400;
+        return { error: 'Channel name cannot be empty' };
+      }
+      updateData.name = sanitizeInput(cleanName);
+    }
     if (topic !== undefined) updateData.topic = sanitizeInput(topic);
     if (nsfw !== undefined) updateData.nsfw = nsfw;
     // Only text ⇄ announcement conversions are allowed (voice/category are fixed)
@@ -1947,6 +1996,23 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         // Discord's lock_permissions: moving into a category syncs with it.
         if (body.lockPermissions && permissionOverwrites === undefined) {
           updateData.permissionOverwrites = normalizeOverwrites(parentChannel.permissionOverwrites);
+        }
+      }
+    }
+
+    // A channel inside an age-restricted category is age-restricted (CORD-60):
+    // moving one in marks it, and it can't be unmarked while it stays there.
+    if (!isThread && channel.type !== 'category') {
+      const finalParentId = updateData.parentId !== undefined ? updateData.parentId : channel.parentId;
+      const mayLoseNsfw = updateData.nsfw === false || (updateData.parentId !== undefined && !channel.nsfw && updateData.nsfw !== true);
+      if (finalParentId && mayLoseNsfw) {
+        const parent = isValidObjectId(finalParentId) ? await Channel.findById(finalParentId) : null;
+        if (parent?.type === 'category' && parent.nsfw) {
+          if (nsfw === false) {
+            set.status = 400;
+            return { error: 'Channels in an age-restricted category are always age-restricted' };
+          }
+          updateData.nsfw = true;
         }
       }
     }
@@ -2028,13 +2094,34 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         resyncedIds.push(...toSync);
       }
     }
+    // Marking a category age-restricted marks every channel in it (CORD-60).
+    // Turning it off leaves the channels as they are, so nothing is unmarked
+    // by surprise; they can then be changed one by one.
+    const nsfwCascadeIds: string[] = [];
+    if (channel.type === 'category' && channel.serverId && updateData.nsfw === true) {
+      const children = await Channel.find({ serverId: channel.serverId, parentId: channel.id });
+      const toMark = channelsToMarkNsfw(channel.id, children as Array<{ id: string; type?: string | null; parentId?: string | null; nsfw?: boolean | null }>);
+      await Promise.all(toMark.map((c) => Channel.updateById(c.id, { nsfw: true })));
+      for (const c of toMark) {
+        nsfwCascadeIds.push(c.id);
+        audit({
+          serverId: channel.serverId,
+          userId: user.id,
+          actionType: AuditLogEvent.CHANNEL_UPDATE,
+          targetId: c.id,
+          changes: [{ key: 'nsfw', old: false, new: true }],
+          options: { channel_name: (c as { name?: string }).name ?? '', channel_type: c.type ?? 'text' },
+          reason: auditReason(headers['x-audit-log-reason']),
+        });
+      }
+    }
     // Bot gateway audiences (who may see which channel) follow overwrites.
     if (channel.serverId && updateData.permissionOverwrites !== undefined) {
       void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(channel.serverId)).catch(() => {});
     }
     // CHANNEL_UPDATE (or CREATE / DELETE when a bot gained or lost view). Threads: thread routes.
     if (!isThread && channel.serverId) {
-      void emitChannelUpdates(channel.serverId, [...new Set([channel.id, ...resyncedIds, ...viewerIds])], viewersBefore);
+      void emitChannelUpdates(channel.serverId, [...new Set([channel.id, ...resyncedIds, ...nsfwCascadeIds, ...viewerIds])], viewersBefore);
     }
 
     // Publish update event
@@ -2084,7 +2171,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
-    return { success: true, channel: updated, resyncedChannelIds: resyncedIds };
+    return { success: true, channel: updated, resyncedChannelIds: resyncedIds, nsfwChannelIds: nsfwCascadeIds };
   }, {
     params: t.Object({
       channelId: t.String(),
@@ -4775,8 +4862,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (channel.serverId && !(await canManageWebhooksInServer(channel.serverId, user.id, membership))) {
       set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' };
     }
-    const { name, avatar } = body as { name: string; avatar?: string };
+    const { name, avatar } = body as { name: string; avatar?: unknown };
     if (!name || typeof name !== 'string') { set.status = 400; return { error: 'Name is required' }; }
+    // Same avatar rule as the token PATCH route: an https image URL or nothing
+    // (uploads go through POST /webhooks/:id/avatar).
+    let avatarUrl: string | null = null;
+    if (avatar !== undefined && avatar !== null && avatar !== '') {
+      const { cleanWebhookAvatarUrl } = await import('@/lib/chat/webhook');
+      avatarUrl = cleanWebhookAvatarUrl(avatar);
+      if (!avatarUrl) { set.status = 400; return { error: 'Avatar must be an https image URL' }; }
+    }
     // Same name rules as webhook overrides: no posing as the platform or staff.
     const { blockedWebhookWord } = await import('@/lib/chat/webhook');
     const blockedWord = blockedWebhookWord(name);
@@ -4787,7 +4882,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       channelId: params.channelId,
       serverId: channel.serverId ?? undefined,
       name: name.trim(),
-      avatar: avatar ?? null,
+      avatar: avatarUrl,
       token,
       url: `${config.API_BASE_URL}/api/webhooks/${params.channelId}/${token}`,
       creatorId: user.id,
@@ -4816,8 +4911,124 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
   }, {
     body: t.Object({
       name: t.String({ minLength: 1, maxLength: 80 }),
-      avatar: t.Optional(t.Any()),
+      avatar: t.Optional(t.Union([t.String({ maxLength: 2048 }), t.Null()])),
     }),
+  })
+  // Edit a webhook from channel settings (CORD-67): name, avatar removal and
+  // the channel it posts to. Needs MANAGE_WEBHOOKS (or being its creator), and
+  // MANAGE_WEBHOOKS in the destination channel's server for a move.
+  .patch('/:channelId/webhooks/:webhookId', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const managed = await loadManageableWebhook(user.id, params.channelId, params.webhookId);
+    if ('error' in managed) { set.status = managed.status; return { error: managed.error }; }
+    const { channel, webhook } = managed;
+
+    const input = body as { name?: string; avatar?: null; channelId?: string };
+    const patch: { name?: string; avatar?: null; channel_id?: string } = {};
+    if (input.name !== undefined) patch.name = input.name;
+    // Setting an avatar goes through the upload route; here it can only be removed.
+    if (input.avatar === null) patch.avatar = null;
+    let target: IChannel | null = null;
+    if (input.channelId !== undefined && !compareIds(input.channelId, channel.id)) {
+      if (!isValidObjectId(input.channelId)) { set.status = 400; return { error: 'Invalid channel' }; }
+      const access = await checkChannelAccess(user.id, input.channelId);
+      target = access.hasAccess ? access.channel ?? null : null;
+      if (
+        !target
+        || !target.serverId
+        || !channel.serverId
+        || !compareIds(target.serverId, channel.serverId)
+        || !['text', 'announcement', 'forum'].includes(String(target.type))
+      ) {
+        set.status = 400; return { error: 'Webhooks can only move to a text, announcement or forum channel in this server' };
+      }
+      if (!(await canManageWebhooksInServer(target.serverId, user.id, access.membership))) {
+        set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' };
+      }
+      patch.channel_id = target.id;
+    }
+
+    const { patchWebhook } = await import('@/lib/services/channelWebhooks');
+    const result = await patchWebhook(webhook, patch, { allowChannel: async () => Boolean(target) });
+    if (result.status !== 200) {
+      set.status = result.status;
+      const errBody = result.body as { message?: string; errors?: unknown };
+      return { error: errBody?.message || 'Invalid webhook update', details: errBody?.errors };
+    }
+    const next = result.body as { name: string; avatar: string | null; channel_id: string };
+    if (channel.serverId) {
+      const changes: Array<{ key: string; old?: unknown; new?: unknown }> = [];
+      if (next.name !== webhook.name) changes.push({ key: 'name', old: webhook.name, new: next.name });
+      if ((next.avatar ?? null) !== (webhook.avatar ?? null)) changes.push({ key: 'avatar_hash', old: webhook.avatar ?? null, new: next.avatar ?? null });
+      if (!compareIds(next.channel_id, webhook.channelId)) changes.push({ key: 'channel_id', old: webhook.channelId, new: next.channel_id });
+      if (changes.length > 0) {
+        audit({
+          serverId: channel.serverId,
+          userId: user.id,
+          actionType: AuditLogEvent.WEBHOOK_UPDATE,
+          targetId: webhook.id,
+          changes,
+          options: { channel_name: (target ?? channel).name, webhook_name: next.name },
+        });
+      }
+    }
+    if (patch.avatar === null) cleanupWebhookAvatar(webhook.id, webhook.avatar, '');
+    return result.body;
+  }, {
+    params: t.Object({ channelId: t.String(), webhookId: t.String() }),
+    body: t.Object({
+      name: t.Optional(t.String({ minLength: 1, maxLength: 80 })),
+      avatar: t.Optional(t.Null()),
+      channelId: t.Optional(t.String()),
+    }),
+  })
+  // Upload a webhook avatar (CORD-67): image types and size like server icons,
+  // stored under webhook-avatars/<webhookId>/ through StorageService (sniffing
+  // and Trust & Safety scanning happen there).
+  .post('/:channelId/webhooks/:webhookId/avatar', async ({ headers, cookie, params, body, request, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const managed = await loadManageableWebhook(user.id, params.channelId, params.webhookId);
+    if ('error' in managed) { set.status = managed.status; return { error: managed.error }; }
+    const { channel, webhook } = managed;
+    const { getClientIP } = await import('@/lib/security');
+    const ip = getClientIP(request);
+    const limit = await checkRateLimit('upload', `${user.id}:${ip}`);
+    if (!limit.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: limit.retryAfter }; }
+    const { file } = body;
+    if (!config.ALLOWED_IMAGE_TYPES.includes(file.type as typeof config.ALLOWED_IMAGE_TYPES[number])) {
+      set.status = 400; return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
+    }
+    if (file.size > config.MAX_AVATAR_SIZE) {
+      set.status = 400; return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
+    }
+    const { storage, ContentBlockedError } = await import('@/lib/services/storage');
+    let url: string;
+    try {
+      const uploaded = await storage.uploadFromFormData(file, 'webhook-avatars', { channelId: webhook.id, scanUserId: user.id, ip });
+      url = uploaded.url;
+    } catch (error: unknown) {
+      set.status = error instanceof ContentBlockedError ? 403 : 500;
+      return { error: error instanceof Error ? error.message : 'Failed to upload avatar' };
+    }
+    const { ChannelWebhook } = await import('@/lib/models');
+    await ChannelWebhook.updateById(webhook.id, { avatar: url });
+    cleanupWebhookAvatar(webhook.id, webhook.avatar, url);
+    if (channel.serverId) {
+      audit({
+        serverId: channel.serverId,
+        userId: user.id,
+        actionType: AuditLogEvent.WEBHOOK_UPDATE,
+        targetId: webhook.id,
+        changes: [{ key: 'avatar_hash', old: webhook.avatar ?? null, new: url }],
+        options: { channel_name: channel.name, webhook_name: webhook.name },
+      });
+    }
+    return { success: true, avatar: url };
+  }, {
+    params: t.Object({ channelId: t.String(), webhookId: t.String() }),
+    body: t.Object({ file: t.File() }),
   })
   .delete('/:channelId/webhooks/:webhookId', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);

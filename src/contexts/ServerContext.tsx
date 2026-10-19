@@ -551,7 +551,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       // reorder response is unfiltered (includes threads) and lacks
       // permissionOverwrites/lastMessageAt, so replacing the list with it
       // dropped overwrites (and a later permissions save wiped them).
-      type ReorderedChannel = { id?: string; _id?: string; position: number; parentId?: string | null };
+      type ReorderedChannel = { id?: string; _id?: string; position: number; parentId?: string | null; nsfw?: boolean };
       const byId = new Map(
         (data.channels as ReorderedChannel[]).map((c) => [c.id || c._id, c] as const)
       );
@@ -559,7 +559,8 @@ export function ServerProvider({ children }: { children: ReactNode }) {
         list
           .map((c) => {
             const u = byId.get(c.id);
-            return u ? { ...c, position: u.position, parentId: u.parentId || undefined } : c;
+            // nsfw: dropping a channel into an age-restricted category marks it.
+            return u ? { ...c, position: u.position, parentId: u.parentId || undefined, isNsfw: Boolean(u.nsfw) || c.isNsfw } : c;
           })
           .sort((a, b) => (a.position ?? 0) - (b.position ?? 0));
       const cached = channelCacheRef.current.get(serverId);
