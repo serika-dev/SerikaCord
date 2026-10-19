@@ -27,8 +27,11 @@ import {
   Check,
   Clock,
   Smile,
+  Target,
   X,
 } from "lucide-react";
+import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { useFocusMode } from "@/hooks/useFocusMode";
 import { cn, cdnImage } from "@/lib/utils";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -129,6 +132,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
 
   const currentStatusOption = statusOptions.find(s => s.value === currentStatus) || statusOptions[0];
   const isMobile = useIsMobile();
+  const { focusMode, setFocusMode } = useFocusMode();
 
   const renderBadges = () => {
     if (!user?.badges || user.badges.length === 0) return null;
@@ -316,6 +320,16 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                     )}
                   </button>
                 ))}
+                {/* Focus Mode (CORD-13): same setting as Notifications → Focus Mode */}
+                <div className="border-t border-[var(--border-subtle)]">
+                  <label className="w-full flex items-center justify-between gap-2 px-3 py-2 cursor-pointer hover:bg-[var(--bg-hover)] transition-colors">
+                    <span className="flex items-center gap-2 min-w-0">
+                      <Target className="w-3.5 h-3.5 shrink-0 text-[var(--text-secondary)]" />
+                      <span className="text-sm text-[var(--text-primary)] truncate">{gt("Focus Mode")}</span>
+                    </span>
+                    <ToggleSwitch size="sm" checked={focusMode} onCheckedChange={(checked) => void setFocusMode(checked)} aria-label={gt("Focus Mode")} />
+                  </label>
+                </div>
               </PopoverContent>
             </Popover>
 

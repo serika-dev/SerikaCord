@@ -3,6 +3,8 @@ import { acceptsFriendRequests, friendRequestAllowedFrom, friendRequestSources }
 import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
+import { readServerTheme, sanitizeAppearanceSettingsPatch } from '@/lib/appearance/customization';
+import { sanitizeNameplate } from '@/lib/constants/nameplates';
 import { connectDB, cache } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, isGlobalRateLimitExempt, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
@@ -183,8 +185,16 @@ function normalizeUserSettingsShape(settings: Record<string, any>) {
   return next;
 }
 
-function normalizeSettingsPatch(patch: Record<string, any>) {
+function normalizeSettingsPatch(patch: Record<string, any>, userId: string) {
   const nextPatch: Record<string, any> = mergeDeep({}, patch || {});
+  if (nextPatch.appearance && typeof nextPatch.appearance === 'object') {
+    // Background image, font and server-theme opt-out reach CSS: validate them.
+    const cleaned = sanitizeAppearanceSettingsPatch(nextPatch.appearance, { userId, cdnUrl: config.CDN_URL });
+    if ('error' in cleaned) {
+      return { error: cleaned.error, patch: null as typeof nextPatch | null };
+    }
+    nextPatch.appearance = cleaned.patch;
+  }
   const appearancePatch = nextPatch.appearance;
   if (appearancePatch && typeof appearancePatch === 'object') {
     const requestedTheme = appearancePatch.theme ?? appearancePatch.themeStyle;
@@ -201,6 +211,24 @@ function normalizeSettingsPatch(patch: Record<string, any>) {
   }
 
   return { error: null as string | null, patch: nextPatch };
+}
+
+/**
+ * Merge a profile customization patch. The nameplate is validated (hex
+ * colours, known presets, own CDN image) and replaces the stored one as a
+ * whole, so no stale fields from an earlier type linger.
+ */
+function applyCustomizationPatch(
+  user: { id: string; customization?: unknown },
+  patch: Record<string, unknown>,
+): { customization: Record<string, unknown> } | { error: string } {
+  const merged = mergeDeep((user.customization || {}) as Record<string, unknown>, patch);
+  if ('nameplate' in patch) {
+    const result = sanitizeNameplate(patch.nameplate, { userId: user.id, cdnUrl: config.CDN_URL });
+    if ('error' in result) return { error: result.error };
+    merged.nameplate = result.nameplate;
+  }
+  return { customization: merged };
 }
 
 function mergeDeep<T extends Record<string, any>>(base: T, patch: Record<string, any>): T {
@@ -1024,6 +1052,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
           afkChannelId: server.afkChannelId ?? null,
           afkTimeout: server.afkTimeout ?? 300,
           isAgeGated: server.isAgeGated ?? false,
+          // Server theme (CORD-50), re-validated on the way out.
+          theme: readServerTheme(server.settings),
           joinedAt: m.joinedAt,
           roles: m.roles,
           nickname: m.nickname,
@@ -1666,7 +1696,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       }
       if (settings !== undefined) {
         const currentSettings = normalizeUserSettingsShape((user.settings || {}) as Record<string, any>);
-        const normalizedPatch = normalizeSettingsPatch(settings as Record<string, any>);
+        const normalizedPatch = normalizeSettingsPatch(settings as Record<string, any>, user.id);
         if (normalizedPatch.error) {
           set.status = 400;
           return { error: normalizedPatch.error };
@@ -1674,7 +1704,12 @@ const userRoutes = new Elysia({ prefix: '/users' })
         updateFields.settings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {}));
       }
       if (customization !== undefined && typeof customization === 'object') {
-        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization as Record<string, unknown>);
+        const merged = applyCustomizationPatch(user, customization as Record<string, unknown>);
+        if ('error' in merged) {
+          set.status = 400;
+          return { error: merged.error };
+        }
+        updateFields.customization = merged.customization;
       }
       const statusPatch = applyCustomStatusPatch(user, { customStatus, customStatusEmoji, customStatusExpiresAt }, updateFields);
       if (statusPatch.error) {
@@ -1815,13 +1850,18 @@ const userRoutes = new Elysia({ prefix: '/users' })
       }
       if (settings !== undefined) {
         const currentSettings = normalizeUserSettingsShape((user.settings || {}) as Record<string, any>);
-        const normalizedPatch = normalizeSettingsPatch(settings as Record<string, any>);
+        const normalizedPatch = normalizeSettingsPatch(settings as Record<string, any>, user.id);
         if (!normalizedPatch.error) {
           updateFields.settings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {}));
         }
       }
       if (customization !== undefined && typeof customization === 'object') {
-        updateFields.customization = mergeDeep((user.customization || {}) as Record<string, unknown>, customization as Record<string, unknown>);
+        const merged = applyCustomizationPatch(user, customization as Record<string, unknown>);
+        if ('error' in merged) {
+          set.status = 400;
+          return { error: merged.error };
+        }
+        updateFields.customization = merged.customization;
       }
       const statusPatch = applyCustomStatusPatch(user, { customStatus, customStatusEmoji, customStatusExpiresAt }, updateFields);
       if (statusPatch.error) {
@@ -2016,7 +2056,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       patch = payload.settings;
     }
 
-    const normalizedPatch = normalizeSettingsPatch(patch);
+    const normalizedPatch = normalizeSettingsPatch(patch, user.id);
     if (normalizedPatch.error) {
       set.status = 400;
       return { error: normalizedPatch.error };

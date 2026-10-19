@@ -7,6 +7,7 @@ import { useStaffAccess } from "@/hooks/useStaffAccess";
 import type { StaffPermission } from "@/lib/staff/permissions";
 import { getConnectionIcon, getConnectionColor } from "@/components/user/ConnectionIcon";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { AppearanceCustomizationPanel } from "@/components/settings/AppearanceCustomizationPanel";
 import { DomainConnectionsSection } from "@/components/settings/DomainConnectionsSection";
 import { useAuth } from "@/contexts/AuthContext";
 import { mergeSettingsDeep, type SettingsPatch } from "@/lib/settings/mergeSettings";
@@ -85,7 +86,8 @@ import { cn, cdnImage } from "@/lib/utils";
 import { useBadges } from "@/hooks/useBadges";
 import { BadgeIcon } from "@/components/ui/BadgeIcon";
 import { badgeLabel } from "@/components/ui/badges";
-import { NAMEPLATE_PRESETS, getNameplateBackground } from "@/lib/constants/nameplates";
+import { NAMEPLATE_PRESETS, getNameplateBackground, type NameplateCustomization } from "@/lib/constants/nameplates";
+import { NameplateImagePicker } from "@/components/settings/NameplateImagePicker";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
 import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
 import { DesktopSettingsPanel } from "@/components/settings/DesktopSettingsPanel";
@@ -804,12 +806,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const [profileCardBorderColor, setProfileCardBorderColor] = useState("");
   const [profileCardBorderGlow, setProfileCardBorderGlow] = useState(false);
   const [profileCardBorderWidth, setProfileCardBorderWidth] = useState(1);
-  const [nameplate, setNameplate] = useState<{
-    type?: 'none' | 'color' | 'gradient' | 'preset';
-    color?: string;
-    gradient?: string[];
-    presetId?: string;
-  }>({ type: 'none' });
+  const [nameplate, setNameplate] = useState<NameplateCustomization>({ type: 'none' });
 
   const previewUser = useMemo(() => {
     const isServer = profileTab === "server";
@@ -2765,6 +2762,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                     { id: 'color', label: gt("Solid") },
                                     { id: 'gradient', label: gt("Gradient") },
                                     { id: 'preset', label: gt("Presets") },
+                                    { id: 'image', label: gt("Image") },
                                   ] as const).map((opt) => (
                                     <button
                                       key={opt.id}
@@ -2843,6 +2841,13 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                     </div>
                                   );
                                 })()}
+
+                                {nameplate.type === 'image' && (
+                                  <NameplateImagePicker
+                                    hasImage={Boolean(nameplate.imageUrl)}
+                                    onUploaded={(url) => setNameplate({ type: 'image', imageUrl: url })}
+                                  />
+                                )}
 
                                 {/* Preset gallery */}
                                 {nameplate.type === 'preset' && (
@@ -3293,6 +3298,19 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                       {userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}%
                     </p>
                   </div>
+
+                  {/* Font, background image, server themes (CORD-45/46/50) */}
+                  <AppearanceCustomizationPanel
+                    values={{
+                      fontFamily: typeof userSettings?.appearance?.fontFamily === "string" ? userSettings.appearance.fontFamily : themeSettings.fontFamily,
+                      backgroundImage: typeof userSettings?.appearance?.backgroundImage === "string" ? userSettings.appearance.backgroundImage : themeSettings.backgroundImage,
+                      backgroundDim: userSettings?.appearance?.backgroundDim ?? themeSettings.backgroundDim,
+                      backgroundBlur: userSettings?.appearance?.backgroundBlur ?? themeSettings.backgroundBlur,
+                      useServerThemes: userSettings?.appearance?.useServerThemes ?? themeSettings.useServerThemes,
+                    }}
+                    profileBanner={user?.banner}
+                    save={(patch, opts) => saveAppearancePatch(patch, opts)}
+                  />
 
                   {/* Message Display */}
                   <div className="bg-[var(--bg-app)] rounded-lg p-5">

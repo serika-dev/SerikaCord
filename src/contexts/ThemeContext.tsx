@@ -2,6 +2,20 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
 import { withVoiceService } from "@/lib/services/voiceServiceLazy";
+import {
+  BACKGROUND_DIM_DEFAULT,
+  BACKGROUND_MEDIA_KINDS,
+  SURFACE_OVERRIDE_VARS,
+  clampAccentForContrast,
+  clampBackgroundBlur,
+  clampBackgroundDim,
+  computeSurfaceOverrides,
+  cssImageUrl,
+  fontFamilyCss,
+  normalizeHexColor,
+  sanitizeFontFamily,
+  type ServerTheme,
+} from "@/lib/appearance/customization";
 
 export interface ThemeSettings {
   theme: "dark" | "midnight" | "light";
@@ -19,6 +33,16 @@ export interface ThemeSettings {
   highContrast: boolean;
   dyslexicFont: boolean;
   messageSpacing: "compact" | "cozy";
+  /** App font family name; "" = default (CORD-45). */
+  fontFamily: string;
+  /** Custom app background (own CDN upload) or "" (CORD-46). */
+  backgroundImage: string;
+  /** Overlay dim over the background, 0-90 (%). */
+  backgroundDim: number;
+  /** Background blur, 0-30 (px). */
+  backgroundBlur: number;
+  /** Apply a server's theme while inside it (CORD-50). */
+  useServerThemes: boolean;
 }
 
 const defaultSettings: ThemeSettings = {
@@ -37,6 +61,11 @@ const defaultSettings: ThemeSettings = {
   highContrast: false,
   dyslexicFont: false,
   messageSpacing: "cozy",
+  fontFamily: "",
+  backgroundImage: "",
+  backgroundDim: BACKGROUND_DIM_DEFAULT,
+  backgroundBlur: 0,
+  useServerThemes: true,
 };
 
 function coerceTheme(theme: unknown): ThemeSettings["theme"] {
@@ -52,6 +81,9 @@ interface ThemeContextType {
   updateSettings: (patch: Partial<ThemeSettings>) => void;
   applyUserSettingsPatch: (patch: Record<string, any>) => void;
   resetSettings: () => void;
+  /** Theme of the server being viewed (null outside servers); see ServerThemeSync. */
+  serverTheme: ServerTheme | null;
+  setServerTheme: (theme: ServerTheme | null) => void;
 }
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
@@ -59,6 +91,12 @@ const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<ThemeSettings>(defaultSettings);
   const [isLoaded, setIsLoaded] = useState(false);
+  const [serverTheme, setServerThemeState] = useState<ServerTheme | null>(null);
+  const setServerTheme = useCallback((theme: ServerTheme | null) => {
+    setServerThemeState((prev) =>
+      prev?.accentColor === theme?.accentColor && prev?.backgroundTint === theme?.backgroundTint ? prev : theme,
+    );
+  }, []);
 
   const applyUserSettingsPatch = useCallback((patch: Record<string, any>) => {
     const appearance = patch?.appearance || {};
@@ -95,6 +133,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             ? voiceVideo.animatedEmojis
             : prev.animatedEmojis,
       animatedAvatars: typeof voiceVideo.animatedAvatars === "boolean" ? voiceVideo.animatedAvatars : prev.animatedAvatars,
+      fontFamily: typeof appearance.fontFamily === "string" ? (sanitizeFontFamily(appearance.fontFamily) ?? "") : prev.fontFamily,
+      backgroundImage: typeof appearance.backgroundImage === "string" ? appearance.backgroundImage : prev.backgroundImage,
+      backgroundDim: typeof appearance.backgroundDim === "number" ? clampBackgroundDim(appearance.backgroundDim) : prev.backgroundDim,
+      backgroundBlur: typeof appearance.backgroundBlur === "number" ? clampBackgroundBlur(appearance.backgroundBlur) : prev.backgroundBlur,
+      useServerThemes: typeof appearance.useServerThemes === "boolean" ? appearance.useServerThemes : prev.useServerThemes,
     }));
   }, []);
 
@@ -136,11 +179,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.classList.toggle("dark", settings.theme !== "light");
     root.style.colorScheme = settings.theme === "light" ? "light" : "dark";
     
-    // Accent color
-    root.style.setProperty("--accent-color", settings.accentColor);
-    root.style.setProperty("--app-accent", settings.accentColor);
-    root.style.setProperty("--accent", settings.accentColor);
-    root.style.setProperty("--accent-hover", settings.accentColor);
+    // Accent color: a server's theme overrides the user's accent while inside
+    // that server (unless "Use server themes" is off), clamped for contrast.
+    const activeServerTheme = settings.useServerThemes ? serverTheme : null;
+    const serverAccent = normalizeHexColor(activeServerTheme?.accentColor);
+    const accentColor = serverAccent ? clampAccentForContrast(serverAccent) : settings.accentColor;
+    root.style.setProperty("--accent-color", accentColor);
+    root.style.setProperty("--app-accent", accentColor);
+    root.style.setProperty("--accent", accentColor);
+    root.style.setProperty("--accent-hover", accentColor);
 
     // Custom text color (overrides theme default when set)
     if (settings.textColor && settings.textColor.trim()) {
@@ -154,8 +201,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Tailwind v4 maps --color-primary/--color-ring straight to these vars,
     // so they must hold real colors (not bare HSL triplets). --accent keeps
     // the hex set above.
-    root.style.setProperty("--primary", settings.accentColor);
-    root.style.setProperty("--ring", settings.accentColor);
+    root.style.setProperty("--primary", accentColor);
+    root.style.setProperty("--ring", accentColor);
     root.style.setProperty("--primary-foreground", "var(--text-on-accent)");
     localStorage.setItem("theme", settings.theme);
 
@@ -206,7 +253,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Saturation filter (only apply class when not default 100 to avoid unnecessary filter)
     root.classList.toggle("saturation-filter", settings.saturation !== 100);
 
-  }, [settings, isLoaded]);
+    // App font (CORD-45): only a validated, quoted family name reaches CSS.
+    const font = fontFamilyCss(settings.fontFamily);
+    if (font) root.style.setProperty("--app-font-family", font);
+    else root.style.removeProperty("--app-font-family");
+    root.classList.toggle("custom-font", Boolean(font));
+
+    // Custom background (CORD-46): only our CDN, the user's own folders.
+    const bgImage = cssImageUrl(settings.backgroundImage, BACKGROUND_MEDIA_KINDS);
+    if (bgImage) {
+      root.style.setProperty("--custom-bg-image", bgImage);
+      root.style.setProperty("--custom-bg-dim", String(clampBackgroundDim(settings.backgroundDim) / 100));
+      root.style.setProperty("--custom-bg-blur", `${clampBackgroundBlur(settings.backgroundBlur)}px`);
+    } else {
+      for (const v of ["--custom-bg-image", "--custom-bg-dim", "--custom-bg-blur"]) root.style.removeProperty(v);
+    }
+    root.classList.toggle("has-custom-bg", Boolean(bgImage));
+
+    // Surfaces: tinted by a server theme and/or translucent over the background.
+    const surfaces = computeSurfaceOverrides({
+      theme: settings.theme,
+      tint: activeServerTheme?.backgroundTint,
+      translucent: Boolean(bgImage),
+    });
+    for (const v of SURFACE_OVERRIDE_VARS) {
+      if (surfaces?.[v]) root.style.setProperty(v, surfaces[v]);
+      else root.style.removeProperty(v);
+    }
+  }, [settings, isLoaded, serverTheme]);
 
   const updateSetting = useCallback(<K extends keyof ThemeSettings>(key: K, value: ThemeSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));
@@ -222,8 +296,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo(
-    () => ({ settings, updateSetting, updateSettings, applyUserSettingsPatch, resetSettings }),
-    [settings, updateSetting, updateSettings, applyUserSettingsPatch, resetSettings]
+    () => ({ settings, updateSetting, updateSettings, applyUserSettingsPatch, resetSettings, serverTheme, setServerTheme }),
+    [settings, updateSetting, updateSettings, applyUserSettingsPatch, resetSettings, serverTheme, setServerTheme]
   );
 
   return (

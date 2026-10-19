@@ -977,6 +977,37 @@ html.high-contrast.theme-light {
   --border-strong: #6a768a;
 }
 
+/* App font (Appearance → Font, CORD-45). ThemeContext sets --app-font-family
+   to one validated, quoted family name; Inter stays the fallback. Declared
+   before the dyslexic font so that accessibility setting still wins. */
+html.custom-font body {
+  font-family: var(--app-font-family), var(--font-inter), system-ui, -apple-system, sans-serif;
+}
+
+/* Custom app background (Appearance → Background, CORD-46). The image and a
+   dim overlay sit behind everything; ThemeContext makes the surface tokens
+   translucent so the image shows through. */
+html.has-custom-bg body::before,
+html.has-custom-bg body::after {
+  content: "";
+  position: fixed;
+  z-index: -1;
+  pointer-events: none;
+}
+html.has-custom-bg body::before {
+  /* Bleed past the edges so a blur doesn't leave soft borders. */
+  inset: calc(var(--custom-bg-blur, 0px) * -2);
+  background: var(--custom-bg-image) center / cover no-repeat;
+  filter: blur(var(--custom-bg-blur, 0px));
+}
+html.has-custom-bg body::after {
+  inset: 0;
+  background: rgba(0, 0, 0, var(--custom-bg-dim, 0.5));
+}
+html.has-custom-bg.theme-light body::after {
+  background: rgba(255, 255, 255, var(--custom-bg-dim, 0.5));
+}
+
 /* Dyslexic font: use a dyslexia-friendly font stack */
 html.dyslexic-font {
   --font-sans: "OpenDyslexic", "Comic Sans MS", "Verdana", system-ui, -apple-system, sans-serif;

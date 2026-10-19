@@ -14,10 +14,11 @@ export interface IUserDisplayNameStyle {
 }
 
 export interface IUserNameplate {
-  type?: 'none' | 'color' | 'gradient' | 'preset';
+  type?: 'none' | 'color' | 'gradient' | 'preset' | 'image';
   color?: string;
   gradient?: string[];
   presetId?: string;
+  imageUrl?: string;
 }
 
 export interface IUserCustomization {

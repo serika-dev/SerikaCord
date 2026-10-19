@@ -1,9 +1,10 @@
 // Nameplate presets — decorative backgrounds shown behind a user's name in the
 // member list, DM list, and the sidebar user panel. Presets are CSS-based so
 // they work without external image assets. Users can also pick a custom solid
-// colour or gradient.
+// colour or gradient, or upload an image (CORD-44).
 
 import type { CSSProperties } from "react";
+import { cssImageUrl, normalizeHexColor, parseAppearanceMediaUrl } from "@/lib/appearance/customization";
 
 export interface NameplatePreset {
   id: string;
@@ -33,10 +34,12 @@ export function getNameplatePreset(id?: string | null): NameplatePreset | undefi
 }
 
 export interface NameplateCustomization {
-  type?: "none" | "color" | "gradient" | "preset";
+  type?: "none" | "color" | "gradient" | "preset" | "image";
   color?: string;
   gradient?: string[];
   presetId?: string;
+  /** type "image": the user's own upload, `<CDN>/nameplates/<userId>/<file>` (CORD-44). */
+  imageUrl?: string;
 }
 
 /**
@@ -52,14 +55,74 @@ export function getNameplateBackground(
   const np = customization?.nameplate;
   if (!np || !np.type || np.type === "none") return null;
 
-  if (np.type === "color" && np.color) return np.color;
-  if (np.type === "gradient" && np.gradient && np.gradient.length >= 2) {
-    return `linear-gradient(90deg, ${np.gradient.join(", ")})`;
+  // Every value is re-checked here: stored data predates server validation,
+  // and this string goes straight into a `background` style.
+  if (np.type === "color") return normalizeHexColor(np.color);
+  if (np.type === "gradient" && Array.isArray(np.gradient) && np.gradient.length >= 2) {
+    const stops = np.gradient.slice(0, 4).map(normalizeHexColor);
+    if (stops.some((c) => !c)) return null;
+    return `linear-gradient(90deg, ${stops.join(", ")})`;
   }
   if (np.type === "preset") {
     return getNameplatePreset(np.presetId)?.css ?? null;
   }
+  if (np.type === "image") {
+    const url = cssImageUrl(np.imageUrl, ["nameplate"]);
+    return url ? `${url} center / cover no-repeat` : null;
+  }
   return null;
+}
+
+/**
+ * Server-side validation of a nameplate from a profile PATCH. Colours must be
+ * hex, presets must exist, and an image must be the user's own upload on our
+ * CDN (POST /api/upload/appearance/nameplate). Returns the clean value that
+ * replaces the stored nameplate, or an error.
+ */
+export function sanitizeNameplate(
+  raw: unknown,
+  opts: { userId: string; cdnUrl: string },
+): { nameplate: NameplateCustomization } | { error: string } {
+  if (raw === null || raw === undefined) return { nameplate: { type: "none" } };
+  if (typeof raw !== "object" || Array.isArray(raw)) return { error: "nameplate must be an object" };
+  const np = raw as Record<string, unknown>;
+  // A type picked without a value yet (e.g. "Image" before uploading) means
+  // no nameplate rather than a failed profile save.
+  const NONE = { nameplate: { type: "none" } as NameplateCustomization };
+  const missing = (v: unknown) => v === undefined || v === null || v === "";
+  switch (np.type ?? "none") {
+    case "none":
+      return { nameplate: { type: "none" } };
+    case "color": {
+      if (missing(np.color)) return NONE;
+      const color = normalizeHexColor(np.color);
+      return color ? { nameplate: { type: "color", color } } : { error: "nameplate.color must be a hex colour" };
+    }
+    case "gradient": {
+      if (missing(np.gradient)) return NONE;
+      const list = Array.isArray(np.gradient) ? np.gradient : [];
+      const stops = list.map(normalizeHexColor);
+      if (stops.length < 2 || stops.length > 4 || stops.some((c) => !c)) {
+        return { error: "nameplate.gradient must be 2 to 4 hex colours" };
+      }
+      return { nameplate: { type: "gradient", gradient: stops as string[] } };
+    }
+    case "preset": {
+      if (missing(np.presetId)) return NONE;
+      const preset = getNameplatePreset(typeof np.presetId === "string" ? np.presetId : null);
+      return preset ? { nameplate: { type: "preset", presetId: preset.id } } : { error: "Unknown nameplate preset" };
+    }
+    case "image": {
+      if (missing(np.imageUrl)) return NONE;
+      const parsed = parseAppearanceMediaUrl(np.imageUrl, ["nameplate"], opts.cdnUrl);
+      if (!parsed || parsed.ownerId.toLowerCase() !== opts.userId.toLowerCase()) {
+        return { error: "nameplate.imageUrl must be an image you uploaded to SerikaCord" };
+      }
+      return { nameplate: { type: "image", imageUrl: parsed.url } };
+    }
+    default:
+      return { error: "Unknown nameplate type" };
+  }
 }
 
 /**

@@ -62,10 +62,11 @@ interface Member {
       gradient?: string[];
     };
     nameplate?: {
-      type?: 'none' | 'color' | 'gradient' | 'preset';
+      type?: 'none' | 'color' | 'gradient' | 'preset' | 'image';
       color?: string;
       gradient?: string[];
       presetId?: string;
+      imageUrl?: string;
     };
   } | null;
 }

@@ -7,6 +7,11 @@
 ## Unreleased
 
 ### Features
+- **Custom app background** — Settings → Appearance lets you upload a background image (or use your profile banner) with dim and blur sliders; panels turn see-through so it shows, in light and dark themes. (CORD-46)
+- **Use any font** — pick an app font from presets, type any installed font's name, or browse your installed fonts in Chromium browsers. (CORD-45)
+- **Server themes** — server managers can set an accent colour and background tint under Server Settings → Overview; members see it while inside the server, and can turn it off with "Use server themes". (CORD-50)
+- **Image nameplates** — nameplates can now use an uploaded image, shown in the member list, DM list and your user panel. (CORD-44)
+- **Focus Mode in the status menu** — toggle Focus Mode straight from the status picker on desktop and the status sheet on mobile. (CORD-13)
 
 ### Changes
 - **Enter adds a new line on phones** — on touch keyboards Enter now starts a new line and the send button sends, like Discord mobile. Keyboards with Shift keep Enter-to-send.
@@ -27,6 +32,7 @@
 - **Lighter mobile app** — desktop-only dialogs no longer load on phones, the DM sidebar stops re-rendering every 5 seconds, and the offline cache only keeps app files instead of every request.
 
 ### Security
+- **Stricter nameplate values** — nameplate colours, gradients and presets are now validated when your profile is saved, so only real colours reach the page. (CORD-44)
 
 ### Removed
 
