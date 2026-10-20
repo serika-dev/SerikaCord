@@ -66,6 +66,9 @@ private slots:
     void saveWindowState();
 
 private:
+#if defined(Q_OS_LINUX)
+    void setupRendererCrashRecovery();
+#endif
     void setupProfile();
     void setupScripts();
     void setupPermissions();

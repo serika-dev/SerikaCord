@@ -48,6 +48,16 @@ void setupChromiumFlags() {
         "--disable-backgrounding-occluded-windows "
         "--disable-features=BackForwardCache ";
     flags += gpu ? "--enable-gpu-rasterization" : "--disable-gpu --disable-gpu-compositing";
+#if defined(Q_OS_LINUX)
+    // The bundled QtWebEngine's seccomp filter can predate the host's glibc
+    // and kernel, which then kill every page renderer with SIGSYS: a blank
+    // window (CORD-69). MainWindow turns this on after such a crash; the
+    // namespace sandbox stays on. SERIKA_DISABLE_SECCOMP=1 forces it.
+    if (prefs.value(QStringLiteral("linux/seccompFallback"), false).toBool()
+        || qEnvironmentVariableIntValue("SERIKA_DISABLE_SECCOMP") == 1) {
+        flags += " --disable-seccomp-filter-sandbox";
+    }
+#endif
     const QByteArray existing = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS");
     if (!existing.isEmpty()) flags = existing + ' ' + flags;
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
@@ -95,8 +105,8 @@ int main(int argc, char *argv[]) {
 
     QCommandLineParser parser;
     parser.setApplicationDescription(QStringLiteral("SerikaCord — native desktop client"));
-    parser.addHelpOption();
-    parser.addVersionOption();
+    const QCommandLineOption helpOpt = parser.addHelpOption();
+    const QCommandLineOption versionOpt = parser.addVersionOption();
     QCommandLineOption autostartOpt(QStringLiteral("autostart"), QStringLiteral("Launched at login."));
     QCommandLineOption minimizedOpt(QStringLiteral("start-minimized"), QStringLiteral("Start in the tray."));
     QCommandLineOption appUrlOpt(QStringLiteral("app-url"),
@@ -105,7 +115,12 @@ int main(int argc, char *argv[]) {
     parser.addOption(minimizedOpt);
     parser.addOption(appUrlOpt);
     parser.addPositionalArgument(QStringLiteral("link"), QStringLiteral("Optional serika:// link to open"));
-    parser.process(app);
+    // parse(), not process(): process() exits on unknown options, which
+    // swallowed Chromium switches like --no-sandbox (QtWebEngine reads those
+    // from the application arguments itself).
+    parser.parse(QCoreApplication::arguments());
+    if (parser.isSet(helpOpt)) parser.showHelp();
+    if (parser.isSet(versionOpt)) parser.showVersion();
 
     if (parser.isSet(appUrlOpt)) SerikaConfig::setAppUrl(parser.value(appUrlOpt));
 

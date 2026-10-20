@@ -32,6 +32,10 @@
 #include <QPushButton>
 #include <QScreen>
 #include <QSettings>
+#include <csignal>
+#include <memory>
+#include <QTimer>
+#include <QProcess>
 #include <QStandardPaths>
 #include <QWebChannel>
 #include <QWebEngineDownloadRequest>
@@ -139,6 +143,9 @@ MainWindow::MainWindow(AppSettings *settings, QWidget *parent)
     // Paint the app's dark background instead of a white flash while loading.
     m_page->setBackgroundColor(WINDOW_BG);
     m_view->setPage(m_page);
+#if defined(Q_OS_LINUX)
+    setupRendererCrashRecovery();
+#endif
 
     auto *s = m_page->settings();
     s->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
@@ -485,6 +492,43 @@ void MainWindow::showAndFocus() {
     setWindowState((windowState() & ~Qt::WindowMinimized) | Qt::WindowActive);
     if (QWindow *w = windowHandle()) w->requestActivate();
 }
+
+#if defined(Q_OS_LINUX)
+// A renderer killed by the seccomp filter (SIGSYS) leaves a blank window
+// forever (CORD-69): the bundled QtWebEngine's syscall allow-list predates
+// newer glibc / kernels. On such a crash, or any renderer crash before the
+// app ever loaded, remember to start Chromium without the seccomp filter
+// (main.cpp) and relaunch once. Later crashes just reload the page.
+void MainWindow::setupRendererCrashRecovery() {
+    auto everLoaded = std::make_shared<bool>(false);
+    connect(m_page, &QWebEnginePage::loadFinished, this, [everLoaded](bool ok) {
+        if (ok) *everLoaded = true;
+    });
+    connect(m_page, &QWebEnginePage::renderProcessTerminated, this,
+            [this, everLoaded](QWebEnginePage::RenderProcessTerminationStatus status, int exitCode) {
+        if (status == QWebEnginePage::NormalTerminationStatus) return;
+        qWarning("SerikaCord: renderer terminated (status %d, code %d)", int(status), exitCode);
+        QSettings prefs(QSettings::NativeFormat, QSettings::UserScope,
+                        QStringLiteral("SerikaCord"), QStringLiteral("SerikaCord"));
+        const QString key = QStringLiteral("linux/seccompFallback");
+        const bool seccompKill = exitCode == SIGSYS;
+        if ((seccompKill || !*everLoaded) && !prefs.value(key, false).toBool()) {
+            prefs.setValue(key, true);
+            prefs.sync();
+            // Relaunch after this instance exits (it holds the single-instance lock).
+            const QString appImage = qEnvironmentVariable("APPIMAGE");
+            const QString program = appImage.isEmpty() ? QCoreApplication::applicationFilePath() : appImage;
+            QStringList args{QStringLiteral("-c"), QStringLiteral("sleep 1; exec \"$0\" \"$@\""), program};
+            args += QCoreApplication::arguments().mid(1);
+            if (QProcess::startDetached(QStringLiteral("/bin/sh"), args)) {
+                QCoreApplication::quit();
+                return;
+            }
+        }
+        QTimer::singleShot(1500, m_view, [this]() { m_view->reload(); });
+    });
+}
+#endif
 
 void MainWindow::returnToAppIfAway() {
     // Relaunching the app while the window sits on an outside page (an
