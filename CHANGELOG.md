@@ -35,7 +35,7 @@
 
 ### Bug Fixes
 - **Linux desktop app no longer stays blank on newer distros** — on systems like Arch where the built-in browser's sandbox killed the page, the app now notices, restarts once with a compatible setting and loads normally. Chromium flags such as `--no-sandbox` passed on the command line also work again. (CORD-69)
-- **Onboarding questions no longer vanish on save** — a question that still needs a title or an option now blocks saving with a message saying which one, instead of being silently dropped. (CORD-68)
+- **Onboarding questions, to-dos and resources no longer vanish on save** — the emoji box next to each option, to-do and resource stretched over the title box, so titles were typed into the emoji box and everything without a title was dropped on save. The title box is visible again, and anything still missing a title now blocks saving with a message instead of disappearing. The Welcome Screen editor had the same layout bug. (CORD-68)
 - **Messages arrive right after you unlock your phone** — chats, the DM list, unread badges and notifications reconnect as soon as the app comes back to the screen and fetch anything missed, instead of sitting on a dead connection.
 - **Mobile keyboard no longer hides the chat** — the composer stays above the keyboard on iPhone and Android, the newest messages stay in view, the header stays on screen, and tapping send keeps the keyboard open.
 - **Better touch controls** — bigger composer buttons, long-press menus and swipe-to-reply on tablets, no invisible hover buttons stealing taps, native copy/save menus on links, images and text fields, and the back gesture closes sheets in the mobile browser.

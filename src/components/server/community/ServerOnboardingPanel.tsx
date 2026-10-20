@@ -10,6 +10,7 @@ import { Loader } from "@/components/ui/Loader";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { useServer } from "@/contexts/ServerContext";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { cn } from "@/lib/utils";
 import {
   invalidateServerOnboarding,
   type GuideResourceView,
@@ -357,7 +358,7 @@ function OptionRow({
           onChange={(e) => onChange({ ...option, emoji: emojiValue(e.target.value) })}
           placeholder="🙂"
           aria-label={gt("Option emoji")}
-          className={`${fieldCls} w-12 shrink-0 px-0 text-center`}
+          className={cn(fieldCls, "w-12 shrink-0 px-0 text-center")}
         />
         <input
           value={option.title}
@@ -579,7 +580,7 @@ function TodoCard({
           onChange={(e) => onChange({ ...todo, emoji: emojiValue(e.target.value) })}
           placeholder="✅"
           aria-label={gt("To-do emoji")}
-          className={`${fieldCls} w-12 shrink-0 px-0 text-center`}
+          className={cn(fieldCls, "w-12 shrink-0 px-0 text-center")}
         />
         <input
           value={todo.title}
@@ -637,7 +638,7 @@ function ResourceCard({
           onChange={(e) => onChange({ ...resource, emoji: emojiValue(e.target.value) })}
           placeholder="📌"
           aria-label={gt("Resource emoji")}
-          className={`${fieldCls} w-12 shrink-0 px-0 text-center`}
+          className={cn(fieldCls, "w-12 shrink-0 px-0 text-center")}
         />
         <input
           value={resource.title}

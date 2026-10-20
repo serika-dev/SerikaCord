@@ -1,5 +1,6 @@
 "use client";
 
+import { cn } from "@/lib/utils";
 import { useEffect, useMemo, useState } from "react";
 import { T, useGT } from "gt-next";
 import { ArrowDown, ArrowUp, Hash, Plus, Trash2 } from "lucide-react";
@@ -180,7 +181,7 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
                 onChange={(e) => updateChannel(index, { emojiName: e.target.value.slice(0, 16) })}
                 placeholder="😀"
                 aria-label={gt("Emoji")}
-                className={`${fieldCls} w-14 text-center shrink-0`}
+                className={cn(fieldCls, "w-14 text-center shrink-0")}
               />
               <div className="relative flex-1 min-w-0">
                 <Hash className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" />
@@ -188,7 +189,7 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
                   value={wc.channelId}
                   onChange={(e) => updateChannel(index, { channelId: e.target.value })}
                   aria-label={gt("Channel")}
-                  className={`${fieldCls} pl-8 h-10`}
+                  className={cn(fieldCls, "pl-8 h-10")}
                 >
                   {eligible
                     .filter((c) => c.id === wc.channelId || !used.has(c.id))
