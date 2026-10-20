@@ -988,7 +988,6 @@ const userRoutes = new Elysia({ prefix: '/users' })
       .then(({ recalculateUserBadges }) => recalculateUserBadges(user.id))
       .catch(() => {});
 
-
     return {
       id: user.id,
       username: user.username,
@@ -3521,90 +3520,14 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
 
 // Bug Report routes (user-facing)
 const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
-  // Submit a new bug report
-  .post('/', async ({ headers, cookie, body, set }) => {
-    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) {
-      set.status = 401;
-      return { error: authError || 'Unauthorized' };
-    }
-
-    const { kind, title, description, category, stepsToReproduce, expectedBehavior, actualBehavior, attachments, browserInfo, osInfo, appVersion } = body as {
-      kind?: string;
-      title: string;
-      description: string;
-      category?: string;
-      stepsToReproduce?: string;
-      expectedBehavior?: string;
-      actualBehavior?: string;
-      attachments?: unknown[];
-      browserInfo?: string;
-      osInfo?: string;
-      appVersion?: string;
+  // New submissions live in Serika Issues; legacy reads/deletes remain available.
+  .post('/', ({ set }) => {
+    set.status = 410;
+    return {
+      error: 'Reports have moved to https://issues.serika.dev/issues/new?project=serikacord',
+      code: 'REPORTING_MOVED',
+      reportUrl: 'https://issues.serika.dev/issues/new?project=serikacord',
     };
-
-    const reportKind = kind === 'feedback' ? 'feedback' : 'bug';
-
-    if (!title?.trim() || !description?.trim()) {
-      set.status = 400;
-      return { error: 'Title and description are required' };
-    }
-
-    if (title.trim().length > 200) {
-      set.status = 400;
-      return { error: 'Title must be 200 characters or less' };
-    }
-
-    if (description.trim().length > 5000) {
-      set.status = 400;
-      return { error: 'Description must be 5000 characters or less' };
-    }
-
-    // Rate limit: max 5 bug reports per hour per user
-    const rateKey = `bug-report:${user.id}`;
-    const rateLimit = await checkRateLimit('bugReport', rateKey);
-    if (!rateLimit.success) {
-      set.status = 429;
-      return { error: 'You are submitting bug reports too quickly. Please try again later.' };
-    }
-
-    const report = await BugReport.create({
-      reporterId: user.id,
-      kind: reportKind,
-      title: title.trim(),
-      description: description.trim(),
-      category: (category || (reportKind === 'feedback' ? 'general' : 'other')) as 'other' | 'crash' | 'visual' | 'functionality' | 'performance' | 'security' | 'audio' | 'network' | 'ui_ux' | 'feature_request' | 'improvement' | 'praise' | 'general',
-      priority: 'low',
-      status: 'open',
-      // Repro/expected/actual are bug-only concepts; feedback ignores them.
-      stepsToReproduce: reportKind === 'bug' ? (stepsToReproduce?.trim() || null) : null,
-      expectedBehavior: reportKind === 'bug' ? (expectedBehavior?.trim() || null) : null,
-      actualBehavior: reportKind === 'bug' ? (actualBehavior?.trim() || null) : null,
-      attachments: attachments || [],
-      browserInfo: browserInfo || null,
-      osInfo: osInfo || null,
-      appVersion: appVersion || null,
-    });
-
-    return { report };
-  }, {
-    body: t.Object({
-      kind: t.Optional(t.String()),
-      title: t.String(),
-      description: t.String(),
-      category: t.Optional(t.String()),
-      stepsToReproduce: t.Optional(t.String()),
-      expectedBehavior: t.Optional(t.String()),
-      actualBehavior: t.Optional(t.String()),
-      attachments: t.Optional(t.Array(t.Object({
-        url: t.String(),
-        type: t.String(),
-        name: t.String(),
-      }))),
-      browserInfo: t.Optional(t.String()),
-      osInfo: t.Optional(t.String()),
-      appVersion: t.Optional(t.String()),
-    }),
   })
 
   // List own bug reports

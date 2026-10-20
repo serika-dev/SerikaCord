@@ -268,6 +268,7 @@ export function AdminBugReportsPanel() {
         {gt("Review, prioritize, and resolve user-submitted bug reports.")}
       </p>
 
+      <a href="https://issues.serika.dev/projects/serikacord" target="_blank" rel="noopener noreferrer" className="inline-block mb-5 text-[var(--app-accent)] underline">{gt("Manage new reports in Serika Issues")}</a>
       {/* Stats */}
       {stats && (
         <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">

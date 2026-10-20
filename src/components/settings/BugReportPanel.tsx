@@ -1,12 +1,8 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
 import {
-  Bug, Send, Trash2, ChevronDown, X, Video, Loader2,
-  Search, Zap, Eye, Wrench, Gauge, ShieldAlert, Volume2,
-  Wifi, LayoutPanelTop, HelpCircle, CheckCircle2, Clock, XCircle,
-  CircleDot, UploadCloud, SlidersHorizontal, Monitor, Cpu, Tag,
-  ArrowUpRight, MessageSquareHeart, Sparkles, Rocket, Heart, MessageCircle,
+  Bug, Trash2, Search, Zap, Eye, Wrench, Gauge, ShieldAlert, Volume2, Wifi, LayoutPanelTop, HelpCircle, CheckCircle2, Clock, XCircle, CircleDot, ArrowUpRight, MessageSquareHeart, Sparkles, Rocket, Heart, MessageCircle
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -71,13 +67,6 @@ const CATEGORY_LABELS: Record<string, string> = Object.fromEntries(
   [...BUG_CATEGORIES, ...FEEDBACK_CATEGORIES].map((c) => [c.value, c.label])
 );
 
-const PRIORITY_META: Record<string, { label: string; dot: string; text: string; bg: string; stripe: string }> = {
-  low: { label: "low", dot: "bg-blue-400", text: "text-blue-300", bg: "bg-blue-500/10", stripe: "bg-blue-400" },
-  medium: { label: "medium", dot: "bg-yellow-400", text: "text-yellow-300", bg: "bg-yellow-500/10", stripe: "bg-yellow-400" },
-  high: { label: "high", dot: "bg-orange-400", text: "text-orange-300", bg: "bg-orange-500/10", stripe: "bg-orange-400" },
-  critical: { label: "critical", dot: "bg-red-400", text: "text-red-300", bg: "bg-red-500/10", stripe: "bg-red-400" },
-};
-
 const STATUS_META: Record<string, { icon: typeof Clock; text: string; bg: string }> = {
   open: { icon: CircleDot, text: "text-green-300", bg: "bg-green-500/10" },
   acknowledged: { icon: Clock, text: "text-yellow-300", bg: "bg-yellow-500/10" },
@@ -106,34 +95,11 @@ export function BugReportPanel() {
   };
   const [reports, setReports] = useState<BugReport[]>([]);
   const [loading, setLoading] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
   const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [showForm, setShowForm] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const formModalRef = useRef<HTMLDivElement>(null);
-  const [dragActive, setDragActive] = useState(false);
-
   // List controls
   const [filter, setFilter] = useState<"all" | "open" | "resolved">("all");
   const [kindFilter, setKindFilter] = useState<"all" | "bug" | "feedback">("all");
   const [search, setSearch] = useState("");
-
-  // Form state
-  const [kind, setKind] = useState<ReportKind>("feedback");
-  const [title, setTitle] = useState("");
-  const [description, setDescription] = useState("");
-  const [category, setCategory] = useState("general");
-  const [stepsToReproduce, setStepsToReproduce] = useState("");
-  const [expectedBehavior, setExpectedBehavior] = useState("");
-  const [actualBehavior, setActualBehavior] = useState("");
-  const [attachments, setAttachments] = useState<BugReportAttachment[]>([]);
-  const [uploadingFile, setUploadingFile] = useState(false);
-  const [browserInfo, setBrowserInfo] = useState("");
-  const [osInfo, setOsInfo] = useState("");
-  const [appVersion, setAppVersion] = useState("");
-
-  const isBug = kind === "bug";
-  const activeCategories = isBug ? BUG_CATEGORIES : FEEDBACK_CATEGORIES;
 
   const fetchReports = useCallback(async () => {
     setLoading(true);
@@ -154,49 +120,6 @@ export function BugReportPanel() {
     fetchReports();
   }, [fetchReports]);
 
-  // Auto-detect browser/OS info
-  useEffect(() => {
-    if (typeof navigator !== "undefined") {
-      const ua = navigator.userAgent;
-      let browser = "Unknown";
-      let os = "Unknown";
-
-      if (ua.includes("Firefox")) browser = "Firefox";
-      else if (ua.includes("Chrome")) browser = "Chrome";
-      else if (ua.includes("Safari")) browser = "Safari";
-      else if (ua.includes("Edge")) browser = "Edge";
-
-      if (ua.includes("Windows")) os = "Windows";
-      else if (ua.includes("Mac")) os = "macOS";
-      else if (ua.includes("Linux")) os = "Linux";
-      else if (ua.includes("Android")) os = "Android";
-      else if (ua.includes("iOS") || ua.includes("iPhone") || ua.includes("iPad")) os = "iOS";
-
-      setBrowserInfo(`${browser} ${ua.match(/(Firefox|Chrome|Safari|Edge)\/([\d.]+)/)?.[2] || ""}`.trim());
-      setOsInfo(os);
-      setAppVersion(VERSION_LABEL);
-    }
-  }, []);
-
-  // Close popup on Escape
-  useEffect(() => {
-    if (!showForm) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        resetForm();
-      }
-    };
-    window.addEventListener("keydown", handleKeyDown);
-    return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [showForm]);
-
-  // Focus the modal on open
-  useEffect(() => {
-    if (showForm) {
-      requestAnimationFrame(() => formModalRef.current?.focus());
-    }
-  }, [showForm]);
-
   const stats = useMemo(() => {
     const open = reports.filter((r) => r.status === "open" || r.status === "acknowledged").length;
     const resolved = reports.filter((r) => r.status === "resolved").length;
@@ -216,115 +139,8 @@ export function BugReportPanel() {
     });
   }, [reports, filter, kindFilter, search]);
 
-  const uploadFiles = useCallback(async (files: File[]) => {
-    setUploadingFile(true);
-    try {
-      for (const file of files) {
-        const isImage = file.type.startsWith("image/");
-        const isVideo = file.type.startsWith("video/");
-        if (!isImage && !isVideo) {
-          toast.error(gt("Only images and videos are supported"));
-          continue;
-        }
-        if (file.size > 25 * 1024 * 1024) {
-          toast.error(gt("File size must be under 25MB"));
-          continue;
-        }
-
-        const formData = new FormData();
-        formData.append("file", file);
-
-        const res = await fetch("/api/upload/attachment", { method: "POST", body: formData });
-        if (res.ok) {
-          const data = await res.json();
-          setAttachments((prev) => [...prev, {
-            url: data.attachment?.url ?? data.url,
-            type: isImage ? "image" : "video",
-            name: file.name,
-          }]);
-        } else {
-          toast.error(gt("Failed to upload file: {name}", { name: file.name }));
-        }
-      }
-    } catch {
-      toast.error(gt("Failed to upload files"));
-    } finally {
-      setUploadingFile(false);
-    }
-  }, [gt]);
-
-  const handleRemoveAttachment = (index: number) => {
-    setAttachments((prev) => prev.filter((_, i) => i !== index));
-  };
-
   const openForm = (nextKind: ReportKind) => {
-    setKind(nextKind);
-    setCategory(nextKind === "bug" ? "other" : "general");
-    setShowForm(true);
-    setExpandedId(null);
-  };
-
-  const switchKind = (nextKind: ReportKind) => {
-    if (nextKind === kind) return;
-    setKind(nextKind);
-    setCategory(nextKind === "bug" ? "other" : "general");
-    if (nextKind === "feedback") setShowAdvanced(false);
-  };
-
-  const resetForm = () => {
-    setTitle("");
-    setDescription("");
-    setCategory("general");
-    setKind("feedback");
-    setStepsToReproduce("");
-    setExpectedBehavior("");
-    setActualBehavior("");
-    setAttachments([]);
-    setShowAdvanced(false);
-    setShowForm(false);
-  };
-
-  const canSubmit = title.trim().length > 0 && description.trim().length > 0 && !submitting;
-
-  const handleSubmit = async () => {
-    if (!title.trim() || !description.trim()) {
-      toast.error(gt("Title and description are required"));
-      return;
-    }
-
-    setSubmitting(true);
-    try {
-      const res = await fetch("/api/bug-reports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          kind,
-          title: title.trim(),
-          description: description.trim(),
-          category,
-          stepsToReproduce: isBug ? (stepsToReproduce.trim() || undefined) : undefined,
-          expectedBehavior: isBug ? (expectedBehavior.trim() || undefined) : undefined,
-          actualBehavior: isBug ? (actualBehavior.trim() || undefined) : undefined,
-          attachments: attachments.filter((a) => a.url),
-          browserInfo,
-          osInfo,
-          appVersion,
-        }),
-      });
-
-      if (res.ok) {
-        toast.success(isBug ? gt("Bug report submitted! Thank you.") : gt("Feedback submitted! Thank you."));
-        resetForm();
-        fetchReports();
-      } else {
-        const data = await res.json();
-        toast.error(data.error || gt("Failed to submit"));
-      }
-    } catch {
-      toast.error(gt("Failed to submit"));
-    } finally {
-      setSubmitting(false);
-    }
+    window.open(`https://issues.serika.dev/issues/new?project=serikacord&kind=${nextKind === "bug" ? "bug" : "improvement"}`, "_blank", "noopener,noreferrer");
   };
 
   const handleDelete = async (id: string) => {
@@ -341,10 +157,6 @@ export function BugReportPanel() {
       toast.error(gt("Failed to delete report"));
     }
   };
-
-  const inputCls =
-    "w-full bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg px-3.5 py-3 text-[var(--text-primary)] text-sm placeholder:text-[var(--text-muted)] outline-none transition-colors focus:border-[var(--app-accent)] focus:ring-2 focus:ring-[var(--app-accent)]/30";
-  const labelCls = "text-sm font-medium text-[var(--text-secondary)]";
 
   const FILTER_TABS: { key: typeof filter; label: string; count: number }[] = [
     { key: "all", label: gt("All"), count: stats.total },
@@ -365,7 +177,7 @@ export function BugReportPanel() {
         <div>
           <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Feedback & Bug Reports")}</h2>
           <p className="text-sm text-[var(--text-secondary)] mt-1">
-            {gt("Share an idea or report something broken.")}
+            {gt("New reports and feedback are tracked in Serika Issues. Your previous reports remain below.")}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -384,265 +196,8 @@ export function BugReportPanel() {
         </div>
       </div>
 
-      {/* Form Popup Modal */}
-      {showForm && (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={resetForm}
-          />
-
-          {/* Modal */}
-          <div
-            ref={formModalRef}
-            role="dialog"
-            aria-modal="true"
-            tabIndex={-1}
-            className="relative w-full max-w-2xl max-h-[85vh] flex flex-col rounded-2xl bg-[var(--bg-app)] border border-[var(--border-subtle)] shadow-2xl outline-none animate-in fade-in zoom-in-95 duration-200"
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-[var(--border-subtle)] shrink-0">
-              <h3 className="text-base font-semibold text-[var(--text-primary)]">
-                {isBug ? gt("New Bug Report") : gt("Share Your Feedback")}
-              </h3>
-              <button
-                onClick={resetForm}
-                className="p-2 rounded-lg hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-                aria-label={gt("Close")}
-              >
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-
-            {/* Scrollable content */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {/* Category chips */}
-              <div>
-                <label className={cn(labelCls, "mb-2.5 flex items-center gap-1.5")}>
-                  <Tag className="w-4 h-4" /> {gt("Category")}
-                </label>
-                <div className="flex flex-wrap gap-2">
-                  {activeCategories.map((c) => {
-                    const Icon = c.icon;
-                    const active = category === c.value;
-                    return (
-                      <button
-                        key={c.value}
-                        type="button"
-                        onClick={() => setCategory(c.value)}
-                        className={cn(
-                          "flex items-center gap-1.5 px-3 py-1.5 rounded-full text-sm font-medium border transition-all",
-                          active
-                            ? "bg-[var(--app-accent)] border-[var(--app-accent)] text-white shadow-md shadow-[var(--app-accent)]/20"
-                            : "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--app-accent)]/50 hover:text-[var(--text-primary)]"
-                        )}
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                        {categoryLabelMap[c.label] ?? c.label}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Title */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className={labelCls}>
-                    {gt("Title")} <span className="text-red-400">*</span>
-                  </label>
-                  <span className={cn("text-[11px] tabular-nums", title.length > 180 ? "text-orange-400" : "text-[var(--text-muted)]")}>{title.length}/200</span>
-                </div>
-                <input
-                  type="text"
-                  value={title}
-                  onChange={(e) => setTitle(e.target.value)}
-                  maxLength={200}
-                  placeholder={isBug ? gt("Brief summary of the bug") : gt("Brief summary of your idea or feedback")}
-                  className={inputCls}
-                />
-              </div>
-
-              {/* Description */}
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className={labelCls}>
-                    {gt("Description")} <span className="text-red-400">*</span>
-                  </label>
-                  <span className={cn("text-[11px] tabular-nums", description.length > 4800 ? "text-orange-400" : "text-[var(--text-muted)]")}>{description.length}/5000</span>
-                </div>
-                <textarea
-                  value={description}
-                  onChange={(e) => setDescription(e.target.value)}
-                  maxLength={5000}
-                  rows={4}
-                  placeholder={isBug
-                    ? gt("Detailed description of the bug. What happened? When did it happen?")
-                    : gt("Tell us more. What would you like to see, or what's working well for you?")}
-                  className={cn(inputCls, "resize-y leading-relaxed")}
-                />
-              </div>
-
-              {/* Attachments — drag & drop */}
-              <div>
-                <label className={cn(labelCls, "mb-2.5 block")}>
-                  {isBug ? gt("Attachments (Screenshots / Videos)") : gt("Attachments (Screenshots / Mockups)")}
-                </label>
-                {attachments.length > 0 && (
-                  <div className="flex flex-wrap gap-2.5 mb-3">
-                    {attachments.map((att, i) => (
-                      <div key={i} className="relative group rounded-xl overflow-hidden border border-[var(--border-subtle)]">
-                        {att.type === "image" ? (
-                          <img src={att.url} alt={att.name} className="w-20 h-20 object-cover" />
-                        ) : (
-                          <div className="w-20 h-20 flex items-center justify-center bg-[var(--bg-card)]">
-                            <Video className="w-7 h-7 text-[var(--text-secondary)]" />
-                          </div>
-                        )}
-                        <button
-                          onClick={() => handleRemoveAttachment(i)}
-                          className="absolute top-1 right-1 p-1 rounded-md bg-black/60 hover:bg-red-500/80 text-white opacity-0 group-hover:opacity-100 transition-all"
-                        >
-                          <X className="w-3 h-3" />
-                        </button>
-                        <p className="absolute bottom-0 inset-x-0 text-[9px] text-white/90 truncate px-1 py-0.5 bg-black/50">{att.name}</p>
-                      </div>
-                    ))}
-                  </div>
-                )}
-                <label
-                  onDragOver={(e) => { e.preventDefault(); setDragActive(true); }}
-                  onDragLeave={() => setDragActive(false)}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    setDragActive(false);
-                    if (e.dataTransfer.files?.length) uploadFiles(Array.from(e.dataTransfer.files));
-                  }}
-                  className={cn(
-                    "flex flex-col items-center justify-center gap-2 w-full py-6 rounded-xl border-2 border-dashed cursor-pointer transition-all",
-                    dragActive
-                      ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10"
-                      : "border-[var(--border-subtle)] hover:border-[var(--app-accent)]/60 hover:bg-[var(--bg-card)]/40"
-                  )}
-                >
-                  {uploadingFile ? (
-                    <><Loader2 className="w-6 h-6 animate-spin text-[var(--app-accent)]" /><span className="text-sm text-[var(--text-secondary)]">{gt("Uploading...")}</span></>
-                  ) : (
-                    <>
-                      <UploadCloud className="w-6 h-6 text-[var(--text-muted)]" />
-                      <span className="text-sm text-[var(--text-secondary)]">{gt("Drag & drop or click to attach")}</span>
-                      <span className="text-xs text-[var(--text-muted)]">{gt("Images or videos, max 25MB")}</span>
-                    </>
-                  )}
-                  <input
-                    type="file"
-                    accept="image/*,video/*"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => e.target.files && uploadFiles(Array.from(e.target.files))}
-                    disabled={uploadingFile}
-                  />
-                </label>
-              </div>
-
-              {/* Advanced details toggle — bug reports only */}
-              {isBug && (
-                <div className="rounded-xl border border-[var(--border-subtle)] overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setShowAdvanced((v) => !v)}
-                    className="w-full flex items-center justify-between px-4 py-3 text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-card)]/40 transition-colors"
-                  >
-                    <span className="flex items-center gap-2">
-                      <SlidersHorizontal className="w-4 h-4" />
-                      {gt("Advanced details (steps, expected/actual, environment)")}
-                    </span>
-                    <ChevronDown className={cn("w-4 h-4 transition-transform", showAdvanced && "rotate-180")} />
-                  </button>
-                  {showAdvanced && (
-                    <div className="p-4 space-y-4 border-t border-[var(--border-subtle)] bg-[var(--bg-card)]/20">
-                      <div>
-                        <label className={cn(labelCls, "mb-2 block")}>{gt("Steps to Reproduce")}</label>
-                        <textarea
-                          value={stepsToReproduce}
-                          onChange={(e) => setStepsToReproduce(e.target.value)}
-                          rows={3}
-                          placeholder={"1. Go to...\n2. Click on...\n3. See error..."}
-                          className={cn(inputCls, "resize-y font-mono")}
-                        />
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className={cn(labelCls, "mb-2 block")}>{gt("Expected Behavior")}</label>
-                          <textarea
-                            value={expectedBehavior}
-                            onChange={(e) => setExpectedBehavior(e.target.value)}
-                            rows={2}
-                            placeholder={gt("What should have happened?")}
-                            className={cn(inputCls, "resize-y")}
-                          />
-                        </div>
-                        <div>
-                          <label className={cn(labelCls, "mb-2 block")}>{gt("Actual Behavior")}</label>
-                          <textarea
-                            value={actualBehavior}
-                            onChange={(e) => setActualBehavior(e.target.value)}
-                            rows={2}
-                            placeholder={gt("What actually happened?")}
-                            className={cn(inputCls, "resize-y")}
-                          />
-                        </div>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                        <div>
-                          <label className={cn(labelCls, "mb-2 block")}>{gt("Browser")}</label>
-                          <input type="text" value={browserInfo} onChange={(e) => setBrowserInfo(e.target.value)} placeholder={gt("Auto-detected")} className={inputCls} />
-                        </div>
-                        <div>
-                          <label className={cn(labelCls, "mb-2 block")}>{gt("OS")}</label>
-                          <input type="text" value={osInfo} onChange={(e) => setOsInfo(e.target.value)} placeholder={gt("Auto-detected")} className={inputCls} />
-                        </div>
-                        <div>
-                          <label className={cn(labelCls, "mb-2 block")}>{gt("App Version")}</label>
-                          <input type="text" value={appVersion} onChange={(e) => setAppVersion(e.target.value)} placeholder={gt("Version")} className={inputCls} />
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-
-            {/* Footer */}
-            <div className="flex items-center justify-between gap-3 px-6 py-4 border-t border-[var(--border-subtle)] bg-[var(--bg-card)]/40 shrink-0">
-              <p className="text-xs text-[var(--text-muted)] hidden sm:block">
-                {isBug ? gt("Priority is set to Low by default. Admins may adjust it.") : gt("Thanks for helping shape SerikaCord.")}
-              </p>
-              <div className="flex items-center gap-2.5 ml-auto">
-                <button
-                  onClick={resetForm}
-                  className="px-4 py-2.5 rounded-lg text-sm font-medium text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors"
-                >
-                  {gt("Cancel")}
-                </button>
-                <button
-                  onClick={handleSubmit}
-                  disabled={!canSubmit}
-                  className={cn(
-                    "px-5 py-2.5 rounded-lg text-sm font-semibold transition-all flex items-center gap-2 text-white active:scale-95 disabled:opacity-50 disabled:active:scale-100 disabled:cursor-not-allowed",
-                    isBug ? "bg-orange-500 hover:brightness-110" : "bg-[var(--app-accent)] hover:brightness-110"
-                  )}
-                >
-                  {submitting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                  {isBug ? gt("Submit Report") : gt("Send Feedback")}
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
+      <a href="https://issues.serika.dev/projects/serikacord" target="_blank" rel="noopener noreferrer" className="inline-block mb-6 text-[var(--app-accent)] underline">{gt("View reports in Serika Issues")}</a>
+      <p className="mb-6 text-sm text-[var(--text-secondary)]"><a href="mailto:security@serika.dev" className="underline">{gt("Security")}: security@serika.dev</a></p>
       {/* List controls */}
       {reports.length > 0 && (
         <div className="flex flex-col sm:flex-row sm:items-center gap-4 mb-6">

@@ -554,6 +554,12 @@
 - **Rate limits apply again** — the general API rate limit never ran; it is back with a generous budget, plus limits on login, sign-up, password reset, verification emails and QR login codes. The Fish Audio TTS proxy now needs a signed-in user, a configured voice and has a per-user limit. Developer app emojis, webhooks and team lists now need access to the app.
 - **Blocked users and strangers can't plant DMs** — typing, streaming, pins and reactions no longer create a DM channel, typing is ignored when either side has blocked the other, empty DMs only show for the person who opened them, and sending through the generic channel route follows the same block and privacy rules as the DM route.
 
+### Changed
+
+- New bug reports and feedback open Serika Issues with SerikaCord preselected.
+- Existing user/admin report history remains available, with links to the central queue.
+- The retired submission API returns a clear `REPORTING_MOVED` response; security vulnerabilities retain the private security contact.
+
 ---
 
 ## v1.2.7 — 2026-07-21
