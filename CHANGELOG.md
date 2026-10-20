@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.1.24.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.2.0.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.2.0 — 2026-10-20
+
+**Tag:** `v2.2.0` · **Commit:** `24ed870`
 
 ### Features
 - **Spaces and capitals in every channel name** — text and forum channels can now be called "General Chat" just like voice channels and categories; typing #general-chat still finds it. (CORD-56)
@@ -53,8 +71,6 @@
 ### Security
 - **Server tags can't be forged** — a server tag only shows when it comes from a server you're in that has tags on, and tag badges only load images from Serika's own CDN. (CORD-53)
 - **Stricter nameplate values** — nameplate colours, gradients and presets are now validated when your profile is saved, so only real colours reach the page. (CORD-44)
-
-### Removed
 
 ---
 
