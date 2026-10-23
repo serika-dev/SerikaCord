@@ -187,6 +187,7 @@ export function ProfileWishlistWidget({
           iconSlot={<WishlistIcon list={null} />}
           title={gt("Wishlist")}
           meta={gt("Only you can see this")}
+          metaBelow
           actions={<>{boardActions}{removeButton}</>}
         />
         <div className="px-3.5 pb-3.5 space-y-2">

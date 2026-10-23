@@ -340,10 +340,12 @@ textarea::selection,
   contain: content;
 }
 
-/* Thin, unobtrusive scrollbar shared by chat + dialog scroll areas. */
+/* Thin, unobtrusive scrollbar shared by chat + dialog scroll areas.
+   Surfaces with their own palette (e.g. the always-dark profile) tune it via
+   --scrollbar-thumb / --scrollbar-thumb-hover / --scrollbar-thumb-active. */
 .scrollbar-thin {
   scrollbar-width: thin;
-  scrollbar-color: var(--app-border, rgba(255, 255, 255, 0.12)) transparent;
+  scrollbar-color: var(--scrollbar-thumb, var(--app-border, rgba(255, 255, 255, 0.12))) transparent;
 }
 .scrollbar-thin::-webkit-scrollbar {
   width: 8px;
@@ -352,14 +354,21 @@ textarea::selection,
 .scrollbar-thin::-webkit-scrollbar-track {
   background: transparent;
 }
+.scrollbar-thin::-webkit-scrollbar-corner {
+  background: transparent;
+}
 .scrollbar-thin::-webkit-scrollbar-thumb {
-  background: var(--app-border, rgba(255, 255, 255, 0.14));
+  background: var(--scrollbar-thumb, var(--app-border, rgba(255, 255, 255, 0.14)));
   border-radius: 9999px;
   border: 2px solid transparent;
   background-clip: padding-box;
 }
 .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-  background: var(--app-muted, rgba(255, 255, 255, 0.28));
+  background: var(--scrollbar-thumb-hover, var(--app-muted, rgba(255, 255, 255, 0.28)));
+  background-clip: padding-box;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb:active {
+  background: var(--scrollbar-thumb-active, var(--app-accent, #8b5cf6));
   background-clip: padding-box;
 }
 
@@ -1260,6 +1269,13 @@ html.rtl .text-right-rtl {
   --sw-radius: 10px;
   --sw-radius-inner: 6px;
   --sw-glow: 0 0 0 1px rgba(139, 92, 246, 0.28), 0 14px 36px -18px rgba(139, 92, 246, 0.55);
+}
+
+/* Scrollbar palette for Serika widget surfaces (full profile, Board). */
+.sw-scrollbars {
+  --scrollbar-thumb: rgba(255, 255, 255, 0.12);
+  --scrollbar-thumb-hover: rgba(255, 255, 255, 0.24);
+  --scrollbar-thumb-active: var(--sw-accent);
 }
 
 .sw-card {

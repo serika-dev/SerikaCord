@@ -276,7 +276,7 @@ export function FullProfileDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         className={cn(
-          "p-0 gap-0 bg-[#0c0c10] border-white/[0.06] overflow-hidden",
+          "p-0 gap-0 bg-[#0c0c10] border-white/[0.06] overflow-hidden sw-scrollbars",
           // Mobile: bottom sheet that slides up ("pops in from under")
           "!w-screen !max-w-none !left-1/2 !-translate-x-1/2 !top-auto !bottom-0 !translate-y-0",
           "h-[92dvh] !max-h-[92dvh] rounded-t-3xl rounded-b-none border-b-0 border-x-0 pb-[var(--safe-area-bottom)] sm:pb-0",
@@ -291,9 +291,9 @@ export function FullProfileDialog({
         <div className="sm:hidden absolute top-0 inset-x-0 z-20 flex justify-center pt-2 pointer-events-none">
           <span className="h-1 w-10 rounded-full bg-white/40" />
         </div>
-        <div className="flex flex-col md:flex-row h-full min-h-0 overflow-y-auto md:overflow-hidden">
+        <div className="flex flex-col md:flex-row h-full min-h-0 overflow-y-auto md:overflow-hidden scrollbar-thin">
           {/* Left panel — profile summary (transparent; the sheet root carries the theme) */}
-          <div className="w-full md:w-[360px] shrink-0 md:overflow-y-auto">
+          <div className="w-full md:w-[360px] shrink-0 md:overflow-y-auto scrollbar-thin">
             {/* Banner */}
             <div className="relative h-[140px]">
               {fullUser.banner ? (
@@ -511,59 +511,64 @@ export function FullProfileDialog({
             </div>
 
             {/* Tab content */}
-            <div className="flex-1 md:overflow-y-auto p-4">
+            <div className="flex-1 md:overflow-y-auto p-4 scrollbar-thin [scrollbar-gutter:stable]">
               {activeTab === "board" && (
                 <div className="space-y-4">
-                  {/* Board widgets: game sections, app widgets and Serika Wishlist lists, in one order */}
-                  <ProfileBoard userId={fullUser.id} isSelf={!!isSelf} />
-
-                  {/* Connections */}
-                  {fullUser.connections && fullUser.connections.length > 0 && (
-                    <div>
-                      <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Connections")}</h4>
-                      <div className="grid grid-cols-2 gap-2">
-                        {fullUser.connections.map((conn) => {
-                          const label = conn.displayName || conn.username || conn.accountId;
-                          const href = getConnectionHref(conn.provider, conn.username || conn.accountId);
-                          return (
-                            <a
-                              key={`${conn.provider}:${conn.accountId}`}
-                              href={href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-2.5 px-3 py-2.5 rounded-lg bg-white/[0.03] border border-white/[0.05] hover:bg-white/[0.06] hover:border-white/[0.1] transition-all group"
-                            >
-                              {conn.avatar ? (
-                                // eslint-disable-next-line @next/next/no-img-element
-                                <img src={cdnImage(conn.avatar)} alt={label} className="w-6 h-6 rounded-full object-cover shrink-0" />
-                              ) : null}
-                              <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
-                              {conn.verified && <BadgeCheck className="w-3.5 h-3.5 text-green-500 shrink-0" aria-label={gt("Verified domain")} />}
-                              <ConnectionIcon provider={conn.provider} accountId={conn.accountId} size={22} className="shrink-0" />
-                              <ExternalLink className="w-3 h-3 text-[#9a9aad] shrink-0" />
-                            </a>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  )}
-
-                  {/* Activity */}
-                  <div>
-                    <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Recent Activity")}</h4>
-                    <div className="space-y-3">
-                      {moeActivity && <NowWatchingCard activity={moeActivity} />}
-                      {userActivity?.music && <MusicActivityCard music={userActivity.music} />}
-                      {userActivity?.activities?.map((game) => (
-                        <GameActivityCard key={`${game.type}-${game.name}`} game={game} />
-                      ))}
-                      {!moeActivity && !userActivity?.music && (!userActivity?.activities || userActivity.activities.length === 0) && (
-                        <div className="flex flex-col items-center justify-center text-center text-[#9a9aad] py-12 rounded-lg bg-white/[0.02] border border-white/[0.04]">
-                          <p className="text-sm">{gt("No recent activity to show.")}</p>
-                        </div>
-                      )}
-                    </div>
-                  </div>
+                  {/* Board: game sections, app widgets, Serika Wishlist lists, Connections and
+                      Recent activity, in one order the owner can rearrange. */}
+                  <ProfileBoard
+                    userId={fullUser.id}
+                    isSelf={!!isSelf}
+                    sections={{
+                      connections: {
+                        hasContent: !!fullUser.connections?.length,
+                        node: (
+                          <div className="grid grid-cols-1 min-[420px]:grid-cols-2 gap-2">
+                            {(fullUser.connections ?? []).map((conn) => {
+                              const label = conn.displayName || conn.username || conn.accountId;
+                              const href = getConnectionHref(conn.provider, conn.username || conn.accountId);
+                              return (
+                                <a
+                                  key={`${conn.provider}:${conn.accountId}`}
+                                  href={href}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="sw-focus flex items-center gap-2.5 px-3 py-2.5 rounded-[8px] bg-[var(--sw-surface)] border border-[var(--sw-hairline)] hover:bg-white/[0.06] hover:border-[var(--sw-hairline-strong)] transition-colors group/conn min-w-0"
+                                >
+                                  {conn.avatar ? (
+                                    // eslint-disable-next-line @next/next/no-img-element
+                                    <img src={cdnImage(conn.avatar)} alt="" className="w-6 h-6 rounded-full object-cover shrink-0" />
+                                  ) : null}
+                                  <span className="text-sm text-[#c8c8d8] truncate flex-1">{label}</span>
+                                  {conn.verified && <BadgeCheck className="w-3.5 h-3.5 text-green-500 shrink-0" aria-label={gt("Verified domain")} />}
+                                  <ConnectionIcon provider={conn.provider} accountId={conn.accountId} size={22} className="shrink-0" />
+                                  <ExternalLink className="w-3 h-3 text-[#9a9aad] shrink-0" aria-hidden />
+                                </a>
+                              );
+                            })}
+                          </div>
+                        ),
+                      },
+                      activity: {
+                        hasContent: !!(moeActivity || userActivity?.music || userActivity?.activities?.length),
+                        showEmptyToOwner: true,
+                        node: (
+                          <div className="space-y-3">
+                            {moeActivity && <NowWatchingCard activity={moeActivity} />}
+                            {userActivity?.music && <MusicActivityCard music={userActivity.music} />}
+                            {userActivity?.activities?.map((game) => (
+                              <GameActivityCard key={`${game.type}-${game.name}`} game={game} />
+                            ))}
+                            {!moeActivity && !userActivity?.music && (!userActivity?.activities || userActivity.activities.length === 0) && (
+                              <div className="flex flex-col items-center justify-center text-center text-[#9a9aad] py-10 rounded-[10px] bg-white/[0.02] border border-[var(--sw-hairline)]">
+                                <p className="text-sm">{gt("No recent activity to show.")}</p>
+                              </div>
+                            )}
+                          </div>
+                        ),
+                      },
+                    }}
+                  />
                 </div>
               )}
 

@@ -80,9 +80,12 @@ users.profileWidgets jsonb default []
 Built-in widgets (the four game-library ones) need no application and render from `user_games`.
 
 The array order is the Board order for every widget type (game sections, app
-widgets, wishlists); `src/lib/profileBoard.ts` holds the helpers. Game sections
-with games but no placement are implicit and shown first; the first reorder turns
-them into placements (`id: 'game:<category>'`). `PUT /api/users/@me/widgets/order`
+widgets, wishlists, and the fixed Connections / Recent activity sections);
+`src/lib/profileBoard.ts` holds the helpers. Fixed built-ins without a placement
+are implicit: game sections are shown first, Connections and Recent activity last.
+The first reorder turns them into placements (`id: 'game:<category>'`,
+`'section:connections'` / `'section:activity'`, builtin `connections` /
+`recent_activity`); they can't be removed. `PUT /api/users/@me/widgets/order`
 (`{ ids }`) only reorders; `PUT /api/users/@me/widgets` controls app widgets and
 keeps built-ins it doesn't name.
 

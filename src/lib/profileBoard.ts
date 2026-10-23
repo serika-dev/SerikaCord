@@ -2,11 +2,12 @@
  * Profile Board ordering — pure helpers shared by the API and the client.
  *
  * Everything on a user's Board (game library sections, app widgets from the
- * Social SDK, Serika Wishlist widgets) is one ordered list in
- * `users.profile_widgets`. Game sections are implicit until first reordered:
- * a category with games but no placement is shown before everything else in
- * the default order, and gets a real placement the first time the owner
- * moves anything.
+ * Social SDK, Serika Wishlist widgets, and the fixed Connections and Recent
+ * activity sections) is one ordered list in `users.profile_widgets`. Fixed
+ * built-ins are implicit until first reordered: game sections without a
+ * placement are shown before everything else, Connections and Recent activity
+ * after everything else (where they always were), and each gets a real
+ * placement the first time the owner moves anything.
  */
 
 export type GameCategoryKey = "favorite" | "liked" | "rotation" | "wishlist";
@@ -23,6 +24,20 @@ export const GAME_BUILTIN_BY_CATEGORY: Record<GameCategoryKey, string> = {
 
 const CATEGORY_BY_GAME_BUILTIN: Record<string, GameCategoryKey> = Object.fromEntries(
   Object.entries(GAME_BUILTIN_BY_CATEGORY).map(([c, b]) => [b, c as GameCategoryKey])
+);
+
+/** Fixed profile sections that are part of the Board order (never removable). */
+export type BoardSectionKey = "connections" | "activity";
+
+export const BOARD_SECTION_ORDER: BoardSectionKey[] = ["connections", "activity"];
+
+export const SECTION_BUILTIN_BY_KEY: Record<BoardSectionKey, string> = {
+  connections: "connections",
+  activity: "recent_activity",
+};
+
+const SECTION_BY_BUILTIN: Record<string, BoardSectionKey> = Object.fromEntries(
+  Object.entries(SECTION_BUILTIN_BY_KEY).map(([k, b]) => [b, k as BoardSectionKey])
 );
 
 export const MAX_BOARD_PLACEMENTS = 40;
@@ -42,6 +57,34 @@ export function makeGamePlacement(category: GameCategoryKey): Placement {
   return { id: gamePlacementId(category), type: "builtin", builtin: GAME_BUILTIN_BY_CATEGORY[category], applicationId: null };
 }
 
+export function sectionPlacementId(key: BoardSectionKey): string {
+  return `section:${key}`;
+}
+
+export function sectionKeyOf(p: Placement): BoardSectionKey | null {
+  if (p.type !== "builtin" || typeof p.builtin !== "string") return null;
+  return SECTION_BY_BUILTIN[p.builtin] ?? null;
+}
+
+export function makeSectionPlacement(key: BoardSectionKey): Placement {
+  return { id: sectionPlacementId(key), type: "builtin", builtin: SECTION_BUILTIN_BY_KEY[key], applicationId: null };
+}
+
+/** Parse `section:<key>` ids sent by clients. */
+export function sectionFromId(id: string): BoardSectionKey | null {
+  const m = /^section:(connections|activity)$/.exec(id);
+  return m ? (m[1] as BoardSectionKey) : null;
+}
+
+/** A fixed built-in (game section or profile section) for a client-sent id, if it isn't stored yet. */
+function fixedPlacementFor(id: string, list: Placement[]): Placement | null {
+  const cat = categoryFromGameId(id);
+  if (cat) return list.some((p) => gameCategoryOf(p) === cat) ? null : makeGamePlacement(cat);
+  const key = sectionFromId(id);
+  if (key) return list.some((p) => sectionKeyOf(p) === key) ? null : makeSectionPlacement(key);
+  return null;
+}
+
 /** Parse `game:<category>` ids sent by clients. */
 export function categoryFromGameId(id: string): GameCategoryKey | null {
   const m = /^game:(favorite|liked|rotation|wishlist)$/.exec(id);
@@ -53,6 +96,8 @@ export function placementId(p: Placement, index: number): string {
   if (typeof p.id === "string" && p.id) return p.id;
   const cat = gameCategoryOf(p);
   if (cat) return gamePlacementId(cat);
+  const key = sectionKeyOf(p);
+  if (key) return sectionPlacementId(key);
   if (p.type === "application" && typeof p.applicationId === "string") return `application:${p.applicationId}`;
   return `${String(p.type ?? "widget")}:${String(p.builtin ?? index)}`;
 }
@@ -67,18 +112,30 @@ function withPositions(list: Placement[]): Placement[] {
 
 /**
  * Board order for rendering: stored placements in order, with implicit game
- * sections (categories without a placement) placed first.
+ * sections placed first and implicit Connections / Recent activity last.
  */
 export function boardOrder(stored: unknown): string[] {
   const list = clean(stored);
   const ids = list.map(placementId);
-  const implicit = GAME_CATEGORY_ORDER.filter((c) => !list.some((p) => gameCategoryOf(p) === c)).map(gamePlacementId);
-  return [...implicit, ...ids];
+  const leading = GAME_CATEGORY_ORDER.filter((c) => !list.some((p) => gameCategoryOf(p) === c)).map(gamePlacementId);
+  const trailing = BOARD_SECTION_ORDER.filter((k) => !list.some((p) => sectionKeyOf(p) === k)).map(sectionPlacementId);
+  return [...leading, ...ids, ...trailing];
+}
+
+/**
+ * Make sure an order (e.g. from an older server) names every fixed built-in:
+ * missing game sections go first, missing Connections / Recent activity last.
+ */
+export function withFixedIds(order: string[]): string[] {
+  const leading = GAME_CATEGORY_ORDER.map(gamePlacementId).filter((id) => !order.includes(id));
+  const trailing = BOARD_SECTION_ORDER.map(sectionPlacementId).filter((id) => !order.includes(id));
+  return [...leading, ...order, ...trailing];
 }
 
 /**
  * Apply a client-chosen order. Known ids are moved into that order, implicit
- * game sections named in it become real placements, unknown ids are
+ * fixed sections (games, Connections, Recent activity) named in it become
+ * real placements, unknown ids are
  * ignored, and anything the client didn't mention keeps its relative place
  * at the end. Never adds or removes app or wishlist widgets.
  */
@@ -95,9 +152,9 @@ export function reorderPlacements(stored: unknown, ids: string[]): Placement[] {
       used.add(id);
       continue;
     }
-    const cat = categoryFromGameId(id);
-    if (cat && !list.some((p) => gameCategoryOf(p) === cat)) {
-      out.push(makeGamePlacement(cat));
+    const fixed = fixedPlacementFor(id, list);
+    if (fixed) {
+      out.push(fixed);
       used.add(id);
     }
   }
@@ -113,10 +170,11 @@ export function reorderPlacements(stored: unknown, ids: string[]): Placement[] {
 
 /**
  * PUT /users/@me/widgets: the body decides which app widgets exist and the
- * order. Built-ins can't be created or dropped here (game sections follow the
- * library, wishlists have their own endpoint): ones the body names keep their
- * stored settings, valid game ids are accepted, and stored built-ins the body
- * omits are kept at the end, so older clients can't wipe them.
+ * order. Built-ins can't be dropped here (game sections follow the library,
+ * Connections / Recent activity are fixed, wishlists have their own
+ * endpoint): ones the body names keep their stored settings, valid fixed ids
+ * are accepted, and stored built-ins the body omits are kept at the end, so
+ * older clients can't wipe them.
  */
 export function mergeWidgetPut(
   stored: unknown,
@@ -143,9 +201,9 @@ export function mergeWidgetPut(
       used.add(id);
       return;
     }
-    const cat = categoryFromGameId(id);
-    if (cat) {
-      out.push(makeGamePlacement(cat));
+    const fixed = fixedPlacementFor(id, list);
+    if (fixed) {
+      out.push(fixed);
       used.add(id);
     }
   });

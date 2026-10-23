@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Plus, X, Gamepad2, Star, RotateCw, Bookmark, Check, LayoutGrid, ChevronUp, ChevronDown, Gift } from "lucide-react";
+import { Plus, X, Gamepad2, Star, RotateCw, Bookmark, Check, LayoutGrid, ChevronUp, ChevronDown, Gift, Link2, Activity } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT, useLocale } from "gt-next";
@@ -34,9 +34,13 @@ import {
 import {
   GAME_BUILTIN_BY_CATEGORY,
   GAME_CATEGORY_ORDER,
+  SECTION_BUILTIN_BY_KEY,
   boardOrder,
   categoryFromGameId,
   moveInOrder,
+  sectionFromId,
+  withFixedIds,
+  type BoardSectionKey,
 } from "@/lib/profileBoard";
 
 /**
@@ -278,12 +282,48 @@ function MoveControls({ name, canUp, canDown, onMove, className }: {
   );
 }
 
+/** A fixed profile section (Connections, Recent activity) rendered on the Board. */
+export interface BoardSectionContent {
+  node: React.ReactNode;
+  /** False when there is nothing to show (no connections / no activity). */
+  hasContent: boolean;
+  /** Show the section to its owner even when empty (e.g. an empty-state note). */
+  showEmptyToOwner?: boolean;
+}
+
+/** Titled, card-less Board section with the shared move controls. */
+function BoardSection({ icon: Icon, title, actions, children }: {
+  icon: React.ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+  title: string;
+  actions?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="group" aria-label={title}>
+      <header className="flex items-center gap-2.5 mb-2 min-w-0">
+        <span className="grid place-items-center size-7 shrink-0 rounded-[var(--sw-radius-inner)] bg-[var(--sw-accent)]/15 ring-1 ring-inset ring-[var(--sw-accent)]/25">
+          <Icon className="size-3.5 text-[var(--sw-accent-soft)]" aria-hidden />
+        </span>
+        <h4 className="font-display text-[14px] font-semibold tracking-[-0.01em] text-[var(--sw-text)] truncate flex-1">{title}</h4>
+        {actions && <div className="flex items-center gap-0.5 shrink-0">{actions}</div>}
+      </header>
+      {children}
+    </section>
+  );
+}
+
 type BoardItem =
+  | { kind: "section"; id: string; key: BoardSectionKey; name: string }
   | { kind: "game"; id: string; category: GameCategory; name: string }
   | { kind: "app"; id: string; placement: Placement; name: string }
   | { kind: "wishlist"; id: string; slug: string | null; state: WishlistWidgetState; list: WishlistList | null; name: string };
 
-export function ProfileBoard({ userId, isSelf }: { userId: string; isSelf: boolean }) {
+export function ProfileBoard({ userId, isSelf, sections }: {
+  userId: string;
+  isSelf: boolean;
+  /** Fixed sections the profile renders on the Board (content comes from the caller). */
+  sections?: Partial<Record<BoardSectionKey, BoardSectionContent>>;
+}) {
   const gt = useGT();
   const res = useJsonResource<BoardResponse>(`/api/users/${userId}/profile-widgets`);
   const lib = useGameLibrary(userId);
@@ -293,7 +333,7 @@ export function ProfileBoard({ userId, isSelf }: { userId: string; isSelf: boole
   const [optimistic, setOptimistic] = useState<{ base: unknown; order: string[]; placements: Placement[] } | null>(null);
 
   const serverPlacements = res.data?.widgets ?? [];
-  const serverOrder = res.data?.order ?? boardOrder(serverPlacements);
+  const serverOrder = withFixedIds(res.data?.order ?? boardOrder(serverPlacements));
   const current = optimistic && optimistic.base === res.data ? optimistic : { order: serverOrder, placements: serverPlacements };
   const { order, placements } = current;
 
@@ -327,7 +367,9 @@ export function ProfileBoard({ userId, isSelf }: { userId: string; isSelf: boole
         const p = byId.get(id);
         if (p) return { id: p.id, type: p.type, applicationId: p.applicationId ?? null, builtin: p.builtin ?? null };
         const cat = categoryFromGameId(id);
-        return cat ? { id, type: "builtin", applicationId: null, builtin: GAME_BUILTIN_BY_CATEGORY[cat] } : null;
+        if (cat) return { id, type: "builtin", applicationId: null, builtin: GAME_BUILTIN_BY_CATEGORY[cat] };
+        const key = sectionFromId(id);
+        return key ? { id, type: "builtin", applicationId: null, builtin: SECTION_BUILTIN_BY_KEY[key] } : null;
       })
       .filter(Boolean);
     try {
@@ -375,6 +417,7 @@ export function ProfileBoard({ userId, isSelf }: { userId: string; isSelf: boole
     return isSelf ? <WidgetSkeleton tiles={5} label={gt("Loading widgets")} /> : null;
   }
 
+
   // ── Resolve the Board order into renderable items ──
   const byId = new Map(placements.map((p) => [p.id, p]));
   const wlData = wl.data;
@@ -387,7 +430,17 @@ export function ProfileBoard({ userId, isSelf }: { userId: string; isSelf: boole
   };
 
   const items: BoardItem[] = [];
+  const sectionTitle = (key: BoardSectionKey) => (key === "connections" ? gt("Connections") : gt("Recent activity"));
   for (const id of order) {
+    const key = sectionFromId(id);
+    if (key) {
+      const sec = sections?.[key];
+      // Empty sections stay hidden for visitors; the owner may get an empty state.
+      if (sec && (sec.hasContent || (isSelf && sec.showEmptyToOwner))) {
+        items.push({ kind: "section", id, key, name: sectionTitle(key) });
+      }
+      continue;
+    }
     const cat = categoryFromGameId(id);
     if (cat) {
       if (lib.library[cat].length > 0) items.push({ kind: "game", id, category: cat, name: gameSectionTitle(cat, gt) });
@@ -438,6 +491,13 @@ export function ProfileBoard({ userId, isSelf }: { userId: string; isSelf: boole
   return (
     <div className="space-y-3">
       {visibleItems.map((it, i) => {
+        if (it.kind === "section") {
+          return (
+            <BoardSection key={it.id} icon={it.key === "connections" ? Link2 : Activity} title={it.name} actions={controls(it, i)}>
+              {sections?.[it.key]?.node}
+            </BoardSection>
+          );
+        }
         if (it.kind === "game") {
           return <GameSection key={it.id} category={it.category} lib={lib} isSelf={isSelf} boardActions={controls(it, i)} onAddGame={setAddCategory} />;
         }
