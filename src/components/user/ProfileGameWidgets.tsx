@@ -1,14 +1,15 @@
 "use client";
 
 import { useState, useEffect, useCallback, useMemo } from "react";
-import { Plus, Search, Star, Gamepad2, RotateCw, Bookmark, ChevronLeft, ChevronRight, ChevronUp, ChevronDown, Loader2, Trash2, Tag } from "lucide-react";
+import { useJsonResource } from "@/hooks/useJsonResource";
+import { Plus, Search, Star, Gamepad2, RotateCw, Bookmark, ChevronLeft, ChevronRight, Loader2, Trash2, Tag } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle,
 } from "@/components/ui/dialog";
-import { WidgetAddSlot, WidgetCard, WidgetHeader, WidgetIconButton, WidgetImage, WidgetSkeleton } from "@/components/widgets/WidgetShell";
+import { WidgetAddSlot, WidgetCard, WidgetHeader, WidgetIconButton, WidgetImage } from "@/components/widgets/WidgetShell";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 export type GameCategory = "favorite" | "liked" | "rotation" | "wishlist";
@@ -32,26 +33,22 @@ const EMPTY_LIBRARY: Library = { favorite: [], liked: [], rotation: [], wishlist
 export const CATEGORY_LIMITS: Record<GameCategory, number> = { favorite: 1, liked: 20, rotation: 5, wishlist: 20 };
 
 // ── Data hooks ───────────────────────────────────────────────────────────────
+function fromResponse(data: { library?: Partial<Library> } | null): Library {
+  return { ...EMPTY_LIBRARY, ...(data?.library || {}) };
+}
+
 function useLibrary(userId: string) {
-  const [library, setLibrary] = useState<Library>(EMPTY_LIBRARY);
-  const [loading, setLoading] = useState(true);
-
-  const refetch = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/users/${userId}/games`);
-      if (!res.ok) throw new Error();
-      const data = await res.json();
-      setLibrary({ ...EMPTY_LIBRARY, ...(data.library || {}) });
-    } catch {
-      /* leave empty */
-    } finally {
-      setLoading(false);
-    }
-  }, [userId]);
-
-  useEffect(() => { setLoading(true); refetch(); }, [refetch]);
-
-  return { library, loading, setLibrary, refetch };
+  const res = useJsonResource<{ library?: Partial<Library> }>(`/api/users/${userId}/games`);
+  // Optimistic edits win until the next server answer replaces `res.data`.
+  const [local, setLocal] = useState<{ base: unknown; library: Library } | null>(null);
+  const library = local && local.base === res.data ? local.library : fromResponse(res.data);
+  const setLibrary = useCallback((update: (prev: Library) => Library) => {
+    setLocal((prev) => {
+      const current = prev && prev.base === res.data ? prev.library : fromResponse(res.data);
+      return { base: res.data, library: update(current) };
+    });
+  }, [res.data]);
+  return { library, loading: res.loading, setLibrary, refetch: res.reload };
 }
 
 // ── Game cover card ──────────────────────────────────────────────────────────
@@ -64,13 +61,13 @@ function CoverFallback({ name, className }: { name: string; className: string })
   );
 }
 
-function GameCover({ game, size = "md" }: { game: Pick<LibraryGame, "name" | "coverUrl">; size?: "sm" | "md" | "poster" }) {
-  const dims = size === "poster" ? "w-full aspect-[16/9]" : size === "sm" ? "w-10 h-[53px]" : "w-full aspect-[3/4]";
+function GameCover({ game, size = "md" }: { game: Pick<LibraryGame, "name" | "coverUrl">; size?: "sm" | "md" }) {
+  const dims = size === "sm" ? "w-10 h-[53px]" : "w-full aspect-[3/4]";
   return (
     <WidgetImage
       src={game.coverUrl}
       alt={game.name}
-      className={cn(dims, "rounded-[6px] object-cover bg-white/[0.04] ring-1 ring-inset ring-white/[0.06] transition-transform duration-300 ease-out group-hover:scale-[1.035] motion-reduce:transition-none")}
+      className={cn(dims, "rounded-[6px] object-cover bg-white/[0.04] ring-1 ring-inset ring-white/[0.06] transition-transform duration-300 ease-out group-hover/tile:scale-[1.035] motion-reduce:transition-none")}
       fallback={<CoverFallback name={game.name} className={dims} />}
     />
   );
@@ -139,7 +136,7 @@ function AddGameDialog({
   const [note, setNote] = useState("");
   const [tags, setTags] = useState<Record<GameTagType, string>>({ skill: "", rating: "", lookingFor: "" });
 
-  // The dialog is unmounted when closed (see ProfileGameWidgets), so its state
+  // The dialog is unmounted when closed (see ProfileBoard), so its state
   // starts fresh every time it opens.
   // Debounced IGDB search returning up to 3 results. Results are keyed by the
   // query they answer, so stale responses are ignored and "searching" is derived.
@@ -317,45 +314,29 @@ function AddGameDialog({
 }
 
 // ── Section shell ─────────────────────────────────────────────────────────────
-function Section({ icon, title, count, limit, onMoveUp, onMoveDown, onRemove, children }: {
+function Section({ icon, title, count, limit, actions, children }: {
   icon: React.ComponentType<{ className?: string }>;
   title: string;
   count: number;
   limit: number;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
-  onRemove?: () => void;
+  actions?: React.ReactNode;
   children: React.ReactNode;
 }) {
-  const gt = useGT();
-  const hasActions = !!(onMoveUp || onMoveDown || onRemove);
   return (
     <WidgetCard className="group @container">
-      <WidgetHeader
-        icon={icon}
-        title={title}
-        meta={limit > 1 ? `${count}/${limit}` : undefined}
-        actions={hasActions ? (
-          <>
-            {onMoveUp && <WidgetIconButton icon={ChevronUp} label={gt("Move section up")} onClick={onMoveUp} revealOnHover />}
-            {onMoveDown && <WidgetIconButton icon={ChevronDown} label={gt("Move section down")} onClick={onMoveDown} revealOnHover />}
-            {onRemove && <WidgetIconButton icon={Trash2} tone="danger" label={gt("Remove section")} onClick={onRemove} revealOnHover />}
-          </>
-        ) : undefined}
-      />
+      <WidgetHeader icon={icon} title={title} meta={limit > 1 ? `${count}/${limit}` : undefined} actions={actions} />
       <div className="px-3.5 pb-3.5">{children}</div>
     </WidgetCard>
   );
 }
 
-function TagPill({ children, tone = "accent" }: { children: React.ReactNode; tone?: "accent" | "muted" | "glass" }) {
+function TagPill({ children, tone = "accent" }: { children: React.ReactNode; tone?: "accent" | "muted" }) {
   return (
     <span
       className={cn(
-        "inline-flex max-w-full items-center truncate rounded-[4px] px-1.5 py-0.5 text-[10px] font-medium leading-none",
+        "inline-flex max-w-full items-center truncate rounded-[4px] px-1.5 py-0.5 text-[10.5px] font-medium leading-none",
         tone === "accent" && "bg-[var(--sw-accent)]/18 text-[var(--sw-accent-soft)] ring-1 ring-inset ring-[var(--sw-accent)]/25",
-        tone === "muted" && "bg-white/[0.06] text-[var(--sw-muted)]",
-        tone === "glass" && "bg-black/45 text-white backdrop-blur-sm ring-1 ring-inset ring-white/15"
+        tone === "muted" && "bg-white/[0.06] text-[var(--sw-muted)]"
       )}
     >
       {children}
@@ -363,58 +344,22 @@ function TagPill({ children, tone = "accent" }: { children: React.ReactNode; ton
   );
 }
 
-// ── Main component ────────────────────────────────────────────────────────────
-// `addCategory`/`setAddCategory` are controlled by the parent so the single
-// "Add Widget" popup can drive the game-add dialog. Empty categories are never
-// rendered — nothing is forced onto the profile by default.
-const DEFAULT_SECTION_ORDER: GameCategory[] = ["favorite", "liked", "rotation", "wishlist"];
-const SECTION_STORAGE_KEY = "serika:game-widget-order";
+// ── Library state ─────────────────────────────────────────────────────────────
 const GRID_PREVIEW = 10;
 
-/** Saved order first, then any category it doesn't mention (never drops one). */
-function normalizeOrder(saved: unknown): GameCategory[] {
-  const known = Array.isArray(saved) ? saved.filter((c): c is GameCategory => DEFAULT_SECTION_ORDER.includes(c as GameCategory)) : [];
-  const unique = [...new Set(known)];
-  return [...unique, ...DEFAULT_SECTION_ORDER.filter((c) => !unique.includes(c))];
-}
+const SECTION_ICONS: Record<GameCategory, React.ComponentType<{ className?: string }>> = {
+  favorite: Star,
+  liked: Gamepad2,
+  rotation: RotateCw,
+  wishlist: Bookmark,
+};
 
-export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory }: {
-  userId: string;
-  isSelf: boolean;
-  addCategory: GameCategory | null;
-  setAddCategory: (c: GameCategory | null) => void;
-}) {
+/** The user's game library plus the owner's edit actions (optimistic). */
+export function useGameLibrary(userId: string) {
   const gt = useGT();
   const { library, loading, setLibrary, refetch } = useLibrary(userId);
-  const [showAllLiked, setShowAllLiked] = useState(false);
-  const [showAllWishlist, setShowAllWishlist] = useState(false);
-  const [sectionOrder, setSectionOrder] = useState<GameCategory[]>(() => {
-    if (typeof window === "undefined") return DEFAULT_SECTION_ORDER;
-    try {
-      const saved = localStorage.getItem(SECTION_STORAGE_KEY);
-      if (saved) return normalizeOrder(JSON.parse(saved));
-    } catch {}
-    return DEFAULT_SECTION_ORDER;
-  });
 
-  // Only sections with games are shown, so moving skips over hidden ones.
-  const shownOrder = sectionOrder.filter((c) => library[c].length > 0);
-
-  const moveSection = (cat: GameCategory, dir: -1 | 1) => {
-    const idx = shownOrder.indexOf(cat);
-    const swapWith = shownOrder[idx + dir];
-    if (idx === -1 || !swapWith) return;
-    setSectionOrder((prev) => {
-      const arr = [...prev];
-      const a = arr.indexOf(cat);
-      const b = arr.indexOf(swapWith);
-      [arr[a], arr[b]] = [arr[b], arr[a]];
-      try { localStorage.setItem(SECTION_STORAGE_KEY, JSON.stringify(arr)); } catch {}
-      return arr;
-    });
-  };
-
-  const removeSection = async (cat: GameCategory, title: string) => {
+  const removeCategory = async (cat: GameCategory, title: string) => {
     const games = library[cat];
     if (games.length > 1 && !confirm(gt("Remove all {count} games from {section}?", { count: games.length, section: title }))) return;
     setLibrary((prev) => ({ ...prev, [cat]: [] }));
@@ -434,7 +379,6 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
   };
 
   const remove = async (game: LibraryGame) => {
-    // Optimistic
     setLibrary((prev) => ({ ...prev, [game.category]: prev[game.category].filter((g) => g.id !== game.id) }));
     try {
       const res = await fetch(`/api/users/@me/games/${game.id}`, { method: "DELETE" });
@@ -467,142 +411,153 @@ export function ProfileGameWidgets({ userId, isSelf, addCategory, setAddCategory
     setLibrary((prev) => ({ ...prev, [game.category]: [...prev[game.category], game] }));
   };
 
-  const hasAnything = Object.values(library).some((l) => l.length > 0);
-  if (loading) {
-    // Visitors don't get a placeholder for a section that may not exist.
-    return isSelf ? <WidgetSkeleton tiles={5} label={gt("Loading games")} /> : null;
-  }
-  if (!isSelf && !hasAnything) {
-    return null;
-  }
+  return { library, loading, remove, move, removeCategory, onAdded };
+}
 
-  const sectionControls = (cat: GameCategory, title: string) => {
-    if (!isSelf) return {};
-    const idx = shownOrder.indexOf(cat);
-    return {
-      onMoveUp: idx > 0 ? () => moveSection(cat, -1) : undefined,
-      onMoveDown: idx < shownOrder.length - 1 ? () => moveSection(cat, 1) : undefined,
-      onRemove: () => removeSection(cat, title),
-    };
-  };
+export type GameLibraryState = ReturnType<typeof useGameLibrary>;
+
+export function gameSectionTitle(category: GameCategory, gt: ReturnType<typeof useGT>): string {
+  switch (category) {
+    case "favorite": return gt("Favorite game");
+    case "liked": return gt("Games I like");
+    case "rotation": return gt("Games in rotation");
+    default: return gt("Want to play");
+  }
+}
+
+/** Steam store link when the game came from Steam. */
+function steamUrl(game: LibraryGame): string | null {
+  return game.steamAppId && /^\d+$/.test(game.steamAppId) ? `https://store.steampowered.com/app/${game.steamAppId}` : null;
+}
+
+/**
+ * One game category on the Board. `boardActions` are the Board's move
+ * controls; the section adds its own remove control after them.
+ */
+export function GameSection({ category, lib, isSelf, boardActions, onAddGame }: {
+  category: GameCategory;
+  lib: GameLibraryState;
+  isSelf: boolean;
+  boardActions?: React.ReactNode;
+  onAddGame: (category: GameCategory) => void;
+}) {
+  const gt = useGT();
+  const [showAll, setShowAll] = useState(false);
+  const games = lib.library[category];
+  if (games.length === 0) return null;
+  const limit = CATEGORY_LIMITS[category];
+  const title = gameSectionTitle(category, gt);
+  const actions = isSelf ? (
+    <>
+      {boardActions}
+      <WidgetIconButton icon={Trash2} tone="danger" label={gt("Remove section")} onClick={() => lib.removeCategory(category, title)} revealOnHover />
+    </>
+  ) : boardActions;
 
   const editControls = (game: LibraryGame, index: number, total: number) => isSelf && (
-    <div className="absolute inset-x-0 top-0 aspect-[3/4] flex items-end justify-center gap-1 p-1.5 rounded-[6px] bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity duration-200 max-sm:opacity-100 max-sm:bg-none">
+    <div className="absolute inset-x-0 top-0 aspect-[3/4] flex items-end justify-center gap-1 p-1.5 rounded-[6px] bg-gradient-to-t from-black/80 via-black/30 to-transparent opacity-0 group-hover/tile:opacity-100 group-focus-within/tile:opacity-100 transition-opacity duration-200 max-sm:opacity-100 max-sm:bg-none">
       {index > 0 && (
-        <WidgetIconButton icon={ChevronLeft} label={gt("Move {name} earlier", { name: game.name })} onClick={() => move(game, -1)} className="bg-black/70 text-white size-6" />
+        <WidgetIconButton icon={ChevronLeft} label={gt("Move {name} earlier", { name: game.name })} onClick={() => lib.move(game, -1)} className="bg-black/70 text-white size-6" />
       )}
-      <WidgetIconButton icon={Trash2} tone="danger" label={gt("Remove {name}", { name: game.name })} onClick={() => remove(game)} className="bg-black/70 text-white size-6" />
+      <WidgetIconButton icon={Trash2} tone="danger" label={gt("Remove {name}", { name: game.name })} onClick={() => lib.remove(game)} className="bg-black/70 text-white size-6" />
       {index < total - 1 && (
-        <WidgetIconButton icon={ChevronRight} label={gt("Move {name} later", { name: game.name })} onClick={() => move(game, 1)} className="bg-black/70 text-white size-6" />
+        <WidgetIconButton icon={ChevronRight} label={gt("Move {name} later", { name: game.name })} onClick={() => lib.move(game, 1)} className="bg-black/70 text-white size-6" />
       )}
     </div>
   );
+
+  if (category === "favorite") {
+    const fav = games[0];
+    const steam = steamUrl(fav);
+    return (
+      <Section icon={Star} title={title} count={1} limit={limit} actions={actions}>
+        {/* Horizontal card: portrait poster left, details right; stacks when narrow. */}
+        <div className="flex flex-col @xs:flex-row gap-3.5">
+          <div className="relative w-[112px] @xs:w-[128px] shrink-0 overflow-hidden rounded-[8px] ring-1 ring-white/[0.08] shadow-[0_16px_34px_-20px_rgba(139,92,246,0.75)]">
+            <WidgetImage
+              src={fav.coverUrl}
+              alt={fav.name}
+              className="block w-full aspect-[2/3] object-cover"
+              fallback={<CoverFallback name={fav.name} className="w-full aspect-[2/3]" />}
+            />
+          </div>
+          <div className="min-w-0 flex-1 flex flex-col gap-2 @xs:py-0.5">
+            <p className="font-display text-[19px] font-semibold leading-tight tracking-[-0.015em] text-[var(--sw-text)] line-clamp-2" title={fav.name}>
+              {fav.name}
+            </p>
+            {fav.note && <p className="text-[12.5px] leading-relaxed text-[var(--sw-muted)] line-clamp-4 whitespace-pre-line">{fav.note}</p>}
+            {fav.tags.length > 0 && (
+              <div className="flex flex-wrap gap-1">
+                {fav.tags.map((txt) => <TagPill key={txt}>{txt}</TagPill>)}
+              </div>
+            )}
+            {steam && (
+              <a href={steam} target="_blank" rel="noopener noreferrer" className="sw-focus mt-auto self-start rounded pt-1 text-[12px] text-[var(--sw-accent-soft)] hover:underline">
+                {gt("View on Steam")}
+              </a>
+            )}
+          </div>
+        </div>
+      </Section>
+    );
+  }
 
   const posterGrid = "grid grid-cols-4 @md:grid-cols-5 gap-2";
 
-  // Grid renderer for liked / wishlist (first 10, then show-more).
-  const renderGrid = (category: "liked" | "wishlist", showAll: boolean, setShowAll: (v: boolean) => void, icon: React.ComponentType<{ className?: string }>, title: string) => {
-    const games = library[category];
-    const limit = CATEGORY_LIMITS[category];
-    if (games.length === 0) return null;
-    const isFull = games.length >= limit;
-    const visible = showAll ? games : games.slice(0, GRID_PREVIEW);
-    const showAddPoster = isSelf && !isFull && (games.length < GRID_PREVIEW || showAll);
+  if (category === "rotation") {
+    const showAddPoster = isSelf && games.length < limit;
     return (
-      <Section key={category} icon={icon} title={title} count={games.length} limit={limit} {...sectionControls(category, title)}>
+      <Section icon={RotateCw} title={title} count={games.length} limit={limit} actions={actions}>
         <ul className={posterGrid}>
-          {visible.map((game, i) => (
-            <li key={game.id} className="group relative min-w-0" title={game.note ? `${game.name} — ${game.note}` : game.name}>
+          {games.map((game, i) => (
+            <li key={game.id} className="group/tile relative min-w-0" title={game.note ? `${game.name} — ${game.note}` : game.name}>
               <div className="overflow-hidden rounded-[6px]"><GameCover game={game} /></div>
+              {game.tags.length > 0 && (
+                <div className="flex flex-wrap gap-1 mt-1.5">
+                  {game.tags.slice(0, 2).map((txt) => <TagPill key={txt}>{txt}</TagPill>)}
+                  {game.tags.length > 2 && <TagPill tone="muted">+{game.tags.length - 2}</TagPill>}
+                </div>
+              )}
               {editControls(game, i, games.length)}
             </li>
           ))}
-          {showAddPoster && <li><AddPosterButton onClick={() => setAddCategory(category)} label={gt("Add a game to {section}", { section: title })} /></li>}
+          {showAddPoster && <li><AddPosterButton onClick={() => onAddGame("rotation")} label={gt("Add a game to {section}", { section: title })} /></li>}
         </ul>
-        {(games.length > GRID_PREVIEW || (isSelf && !showAddPoster && !isFull)) && (
-          <div className="mt-2.5 flex items-center gap-3">
-            {games.length > GRID_PREVIEW && (
-              <button type="button" onClick={() => setShowAll(!showAll)} className="sw-focus rounded text-xs font-medium text-[var(--sw-accent-soft)] hover:underline" aria-expanded={showAll}>
-                {showAll ? gt("Show less") : gt("Show all {count}", { count: games.length })}
-              </button>
-            )}
-            {isSelf && !showAddPoster && !isFull && (
-              <button type="button" onClick={() => setAddCategory(category)} className="sw-focus ml-auto inline-flex items-center gap-1 rounded text-xs text-[var(--sw-muted)] hover:text-[var(--sw-accent-soft)]">
-                <Plus className="size-3.5" aria-hidden /> {gt("Add more")}
-              </button>
-            )}
-          </div>
-        )}
       </Section>
     );
-  };
+  }
 
-  const favorite = library.favorite[0];
-
-  const renderSection = (cat: GameCategory) => {
-    if (cat === "favorite") {
-      if (!favorite) return null;
-      const title = gt("Favorite game");
-      return (
-        <Section key="favorite" icon={Star} title={title} count={1} limit={CATEGORY_LIMITS.favorite} {...sectionControls("favorite", title)}>
-          <div className="group relative overflow-hidden rounded-[8px] ring-1 ring-white/[0.08] shadow-[0_18px_40px_-24px_rgba(139,92,246,0.7)]">
-            <GameCover game={favorite} size="poster" />
-            <div aria-hidden className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/35 to-transparent" />
-            <div className="absolute inset-x-0 bottom-0 p-3.5">
-              <p className="font-display text-[19px] font-semibold leading-tight tracking-[-0.015em] text-white truncate drop-shadow-md">{favorite.name}</p>
-              {favorite.note && <p className="text-[12.5px] text-white/80 mt-1 line-clamp-2">{favorite.note}</p>}
-              {favorite.tags.length > 0 && (
-                <div className="flex flex-wrap gap-1 mt-2">
-                  {favorite.tags.map((txt) => <TagPill key={txt} tone="glass">{txt}</TagPill>)}
-                </div>
-              )}
-            </div>
-            {isSelf && (
-              <div className="absolute top-2 right-2">
-                <WidgetIconButton icon={Trash2} tone="danger" revealOnHover label={gt("Remove {name}", { name: favorite.name })} onClick={() => remove(favorite)} className="bg-black/65 text-white backdrop-blur-sm" />
-              </div>
-            )}
-          </div>
-        </Section>
-      );
-    }
-    if (cat === "liked") return renderGrid("liked", showAllLiked, setShowAllLiked, Gamepad2, gt("Games I like"));
-    if (cat === "rotation") {
-      const games = library.rotation;
-      if (games.length === 0) return null;
-      const limit = CATEGORY_LIMITS.rotation;
-      const showAddPoster = isSelf && games.length < limit;
-      const title = gt("Games in rotation");
-      return (
-        <Section key="rotation" icon={RotateCw} title={title} count={games.length} limit={limit} {...sectionControls("rotation", title)}>
-          <ul className={posterGrid}>
-            {games.map((game, i) => (
-              <li key={game.id} className="group relative min-w-0" title={game.note ? `${game.name} — ${game.note}` : game.name}>
-                <div className="overflow-hidden rounded-[6px]"><GameCover game={game} /></div>
-                {game.tags.length > 0 && (
-                  <div className="flex flex-wrap gap-1 mt-1.5">
-                    {game.tags.slice(0, 2).map((txt) => <TagPill key={txt}>{txt}</TagPill>)}
-                    {game.tags.length > 2 && <TagPill tone="muted">+{game.tags.length - 2}</TagPill>}
-                  </div>
-                )}
-                {editControls(game, i, games.length)}
-              </li>
-            ))}
-            {showAddPoster && <li><AddPosterButton onClick={() => setAddCategory("rotation")} label={gt("Add a game to {section}", { section: title })} /></li>}
-          </ul>
-        </Section>
-      );
-    }
-    if (cat === "wishlist") return renderGrid("wishlist", showAllWishlist, setShowAllWishlist, Bookmark, gt("Want to play"));
-    return null;
-  };
-
+  // Liked / want to play: first 10, then show-more.
+  const isFull = games.length >= limit;
+  const visible = showAll ? games : games.slice(0, GRID_PREVIEW);
+  const showAddPoster = isSelf && !isFull && (games.length < GRID_PREVIEW || showAll);
   return (
-    <div className="space-y-3">
-      {sectionOrder.map((cat) => renderSection(cat))}
-      {addCategory && (
-        <AddGameDialog open={!!addCategory} onOpenChange={(v) => !v && setAddCategory(null)} category={addCategory} allLibrary={library} onAdded={onAdded} />
+    <Section icon={SECTION_ICONS[category]} title={title} count={games.length} limit={limit} actions={actions}>
+      <ul className={posterGrid}>
+        {visible.map((game, i) => (
+          <li key={game.id} className="group/tile relative min-w-0" title={game.note ? `${game.name} — ${game.note}` : game.name}>
+            <div className="overflow-hidden rounded-[6px]"><GameCover game={game} /></div>
+            {editControls(game, i, games.length)}
+          </li>
+        ))}
+        {showAddPoster && <li><AddPosterButton onClick={() => onAddGame(category)} label={gt("Add a game to {section}", { section: title })} /></li>}
+      </ul>
+      {(games.length > GRID_PREVIEW || (isSelf && !showAddPoster && !isFull)) && (
+        <div className="mt-2.5 flex items-center gap-3">
+          {games.length > GRID_PREVIEW && (
+            <button type="button" onClick={() => setShowAll(!showAll)} className="sw-focus rounded text-xs font-medium text-[var(--sw-accent-soft)] hover:underline" aria-expanded={showAll}>
+              {showAll ? gt("Show less") : gt("Show all {count}", { count: games.length })}
+            </button>
+          )}
+          {isSelf && !showAddPoster && !isFull && (
+            <button type="button" onClick={() => onAddGame(category)} className="sw-focus ml-auto inline-flex items-center gap-1 rounded text-xs text-[var(--sw-muted)] hover:text-[var(--sw-accent-soft)]">
+              <Plus className="size-3.5" aria-hidden /> {gt("Add more")}
+            </button>
+          )}
+        </div>
       )}
-    </div>
+    </Section>
   );
 }
+
+export { AddGameDialog };

@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
 import {
-  SERIKA_WISHLIST_BUILTIN,
   accountsIdFromUserId,
-  findWishlistPlacement,
+  addWishlistPlacement,
+  findWishlistPlacements,
+  hasLegacyWishlistPlacement,
+  listForPlacement,
+  migrateLegacyWishlistPlacements,
+  removeWishlistPlacements,
   sanitizeWishlistProfile,
   safeHttpUrl,
-  visibleWishlists,
-  withWishlistPlacement,
+  wishlistPlacementId,
   type WishlistList,
 } from "../src/lib/serikaWishlist";
 
@@ -17,7 +20,8 @@ const upstream = {
     {
       slug: "birthday",
       title: "Birthday",
-      emoji: "🎂",
+      emoji: "x",
+      iconUrl: "https://f003.backblazeb2.com/file/wish/icon.png",
       description: "things",
       url: "https://wish.ado.wtf/w/birthday",
       itemCount: 9,
@@ -41,6 +45,8 @@ describe("sanitizeWishlistProfile", () => {
     expect(p.lists.map((l) => l.slug)).toEqual(["birthday"]);
     const list = p.lists[0];
     expect(list.totalValue).toEqual({ amount: 420.5, currency: "EUR" });
+    expect(list.iconUrl).toBe("https://f003.backblazeb2.com/file/wish/icon.png");
+    expect("emoji" in list).toBe(false);
     expect(list.items).toHaveLength(2);
     expect(list.items[0]).toMatchObject({ title: "Lamp", priority: 1, price: 39.99 });
     expect(list.items[1]).toMatchObject({ title: "Bad", imageUrl: null, url: null, price: 12, currency: "EUR", priority: 0, received: false });
@@ -49,6 +55,11 @@ describe("sanitizeWishlistProfile", () => {
   test("rejects non-objects and missing lists", () => {
     expect(sanitizeWishlistProfile(null)).toBeNull();
     expect(sanitizeWishlistProfile({ error: "nope" })).toBeNull();
+  });
+
+  test("iconUrl is optional and must be http(s)", () => {
+    const p = sanitizeWishlistProfile({ lists: [{ slug: "a", url: "https://x.test/a", iconUrl: "javascript:x" }, { slug: "b", url: "https://x.test/b" }] })!;
+    expect(p.lists.map((l) => l.iconUrl)).toEqual([null, null]);
   });
 
   test("caps items per list", () => {
@@ -76,43 +87,58 @@ describe("accountsIdFromUserId", () => {
   });
 });
 
-describe("wishlist placement", () => {
+const mk = (slug: string, itemCount: number): WishlistList => ({
+  slug, title: slug, iconUrl: null, description: "", url: `https://x.test/${slug}`, itemCount, totalValue: null, updatedAt: null, items: [],
+});
+
+describe("wishlist placements (one list per widget)", () => {
   const app = { id: "application:1", type: "application", applicationId: "1", builtin: null, position: 0 };
 
-  test("adds, updates in place and removes", () => {
-    const added = withWishlistPlacement([app], { enabled: true, listSlug: null });
-    expect(added).toHaveLength(2);
-    expect(findWishlistPlacement(added)?.options.listSlug).toBeNull();
+  test("adds one widget per list with a stable id, no duplicates", () => {
+    let w = addWishlistPlacement([app], "birthday");
+    w = addWishlistPlacement(w, "books");
+    w = addWishlistPlacement(w, "birthday");
+    expect(findWishlistPlacements(w).map((p) => p.id)).toEqual([wishlistPlacementId("birthday"), wishlistPlacementId("books")]);
+    expect(w.map((p) => p.position)).toEqual([0, 1, 2]);
+  });
 
-    const moved = [added[1], added[0]];
-    const updated = withWishlistPlacement(moved, { enabled: true, listSlug: "birthday" });
-    expect(updated[0].builtin).toBe(SERIKA_WISHLIST_BUILTIN);
-    expect(findWishlistPlacement(updated)?.options.listSlug).toBe("birthday");
-
-    const removed = withWishlistPlacement(updated, { enabled: false, listSlug: null });
-    expect(removed).toEqual([app]);
+  test("removes one list or all", () => {
+    const w = addWishlistPlacement(addWishlistPlacement([app], "a"), "b");
+    expect(findWishlistPlacements(removeWishlistPlacements(w, "a")).map((p) => p.options.listSlug)).toEqual(["b"]);
+    expect(removeWishlistPlacements(w, null)).toEqual([app]);
   });
 
   test("rejects bad slugs", () => {
-    const p = withWishlistPlacement([], { enabled: true, listSlug: "../../etc" });
-    expect(findWishlistPlacement(p)?.options.listSlug).toBeNull();
+    expect(addWishlistPlacement([], "../../etc")).toEqual([]);
+  });
+
+  test("legacy placement migrates to the first public list in place", () => {
+    const legacy = [{ id: "builtin:serika_wishlist", type: "builtin", builtin: "serika_wishlist", applicationId: null, options: { listSlug: null } }, app];
+    expect(hasLegacyWishlistPlacement(legacy)).toBe(true);
+    const out = migrateLegacyWishlistPlacements(legacy, [mk("empty", 0), mk("bday", 3)])!;
+    expect(out[0].id).toBe(wishlistPlacementId("bday"));
+    expect(out[1]).toMatchObject({ id: "application:1", position: 1 });
+    expect(hasLegacyWishlistPlacement(out)).toBe(false);
+  });
+
+  test("legacy placement is dropped without public lists, untouched otherwise", () => {
+    const legacy = [{ builtin: "serika_wishlist", type: "builtin", options: { listSlug: null } }];
+    expect(migrateLegacyWishlistPlacements(legacy, [])).toEqual([]);
+    expect(migrateLegacyWishlistPlacements([app], [mk("a", 1)])).toBeNull();
+  });
+
+  test("legacy placement doesn't duplicate a list already on the Board", () => {
+    const w = [{ builtin: "serika_wishlist", type: "builtin", options: { listSlug: null } }, ...addWishlistPlacement([], "a")];
+    const out = migrateLegacyWishlistPlacements(w, [mk("a", 2)])!;
+    expect(findWishlistPlacements(out).map((p) => p.options.listSlug)).toEqual(["a"]);
   });
 });
 
-describe("visibleWishlists", () => {
-  const mk = (slug: string, itemCount: number): WishlistList => ({
-    slug, title: slug, emoji: "", description: "", url: `https://x.test/${slug}`, itemCount, totalValue: null, updatedAt: null, items: [],
-  });
-  const lists = [mk("a", 3), mk("empty", 0), mk("b", 1), mk("c", 2), mk("d", 5)];
-
-  test("owner sees everything", () => {
-    expect(visibleWishlists(lists, null, true)).toHaveLength(5);
-  });
-  test("featured list only, falling back when it is gone", () => {
-    expect(visibleWishlists(lists, "c", false).map((l) => l.slug)).toEqual(["c"]);
-    expect(visibleWishlists(lists, "gone", false).map((l) => l.slug)).toEqual(["a", "b", "c"]);
-  });
-  test("skips empty lists unless nothing else exists", () => {
-    expect(visibleWishlists([mk("empty", 0)], null, false).map((l) => l.slug)).toEqual(["empty"]);
+describe("listForPlacement", () => {
+  const lists = [mk("a", 3), mk("empty", 0), mk("b", 1)];
+  test("own slug, or first public list not on the Board for legacy", () => {
+    expect(listForPlacement(lists, "b", ["b"])?.slug).toBe("b");
+    expect(listForPlacement(lists, "gone", ["gone"])).toBeNull();
+    expect(listForPlacement(lists, null, [null, "a"])?.slug).toBe("b");
   });
 });

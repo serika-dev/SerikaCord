@@ -79,14 +79,22 @@ users.profileWidgets jsonb default []
 ```
 Built-in widgets (the four game-library ones) need no application and render from `user_games`.
 
-`serika_wishlist` shows the user's public lists from Serika Wishlist (wish.serika.dev).
-Its `options` are `{ listSlug: string | null }` (one featured list, or null for up to
-three). It is managed only through `PUT /api/users/@me/serika-wishlist`
-(`{ enabled, listSlug }`); `PUT /api/users/@me/widgets` and the SDK's
-`PUT /v1/users/@me/widgets` keep it as is. `GET /api/users/:id/serika-wishlist`
+The array order is the Board order for every widget type (game sections, app
+widgets, wishlists); `src/lib/profileBoard.ts` holds the helpers. Game sections
+with games but no placement are implicit and shown first; the first reorder turns
+them into placements (`id: 'game:<category>'`). `PUT /api/users/@me/widgets/order`
+(`{ ids }`) only reorders; `PUT /api/users/@me/widgets` controls app widgets and
+keeps built-ins it doesn't name.
+
+`serika_wishlist` is one widget per public Serika Wishlist list:
+`{ id: 'serika_wishlist:<slug>', options: { listSlug } }`. Added/removed with
+`PUT /api/users/@me/serika-wishlist` (`{ enabled, listSlug }`). A placement saved
+before one-list-per-widget (`listSlug: null`) is migrated on read to the owner's
+first public list, or dropped when they have none. `GET /api/users/:id/serika-wishlist`
 proxies `GET {NEXT_PUBLIC_SERIKA_WISHLIST_URL}/api/public/users/{accountsId}/wishlists`
-(5 min cache, owner may `?refresh=1`) and only answers for other viewers when the
-owner turned the widget on. See `src/lib/serikaWishlist.ts`.
+(5 min cache, owner may `?refresh=1`): the owner gets every public list, visitors
+only the placed ones. List `emoji` is never shown; `iconUrl` is, through wsrv.nl.
+See `src/lib/serikaWishlist.ts`.
 
 ### 1.5 RPC extensions
 Add to `rich_presence`: `applicationId uuid null`, `assets jsonb null`

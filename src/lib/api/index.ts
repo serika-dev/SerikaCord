@@ -3879,21 +3879,28 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     }),
   })
 
-  // ── Profile widget placements (users.profileWidgets) ──────────────────────
-  // Resolved list for rendering: built-ins pass through; app widgets are
-  // hydrated with their published config + this user's dynamic data.
+  // ── Profile Board placements (users.profileWidgets) ───────────────────────
+  // One ordered list for everything on the Board: game sections, app widgets
+  // and Serika Wishlist widgets. App widgets are hydrated with their published
+  // config + this user's dynamic data; built-ins pass through. `order` is the
+  // Board order including game sections that have no placement yet.
   .get('/:userId/profile-widgets', async ({ headers, cookie, params, set }) => {
     const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     const targetId = params.userId === '@me' ? user.id : params.userId;
+    if (!isValidObjectId(targetId)) { set.status = 400; return { error: 'Invalid user id' }; }
     // Always read placements fresh: the auth user object is cached for minutes,
     // so the owner would otherwise not see a widget they just added.
     const target = await User.findById(targetId);
     if (!target) { set.status = 404; return { error: 'User not found' }; }
-    const placements = Array.isArray(target.profileWidgets) ? target.profileWidgets as Array<{ type?: string; applicationId?: string; [key: string]: unknown }> : [];
+    const { resolveLegacyWishlistPlacements } = await import('@/lib/services/serikaWishlist');
+    const { boardOrder, placementId } = await import('@/lib/profileBoard');
+    const stored = await resolveLegacyWishlistPlacements(target.id, target.profileWidgets);
+    const placements = (Array.isArray(stored) ? stored : []) as Array<{ type?: string; applicationId?: string; [key: string]: unknown }>;
     const { WidgetConfig, WidgetUserData, Application } = await import('@/lib/models');
-    const resolved = await Promise.all(placements.map(async (p) => {
-      if (p.type !== 'application' || !p.applicationId) return { ...p };
+    const resolved = await Promise.all(placements.map(async (p, i) => {
+      const id = placementId(p, i);
+      if (p.type !== 'application' || !p.applicationId) return { ...p, id };
       const config = await WidgetConfig.findByApplication(p.applicationId);
       if (!config) return null;
       const app = await Application.findById(p.applicationId);
@@ -3904,48 +3911,48 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
       const data = await WidgetUserData.findOne({ applicationId: p.applicationId, userId: targetId });
       return {
         ...p,
+        id,
         config: { name: config.name, surfaces: config.surfaces },
         data: data?.data ?? config.sampleData ?? null,
         application: app ? { name: app.name ?? null, icon: app.icon ?? null } : null,
       };
     }));
-    return { widgets: resolved.filter(Boolean) };
+    return { widgets: resolved.filter(Boolean), order: boardOrder(placements) };
   })
   .put('/@me/widgets', async ({ headers, cookie, body, set }) => {
     const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const { SERIKA_WISHLIST_BUILTIN, findWishlistPlacement } = await import('@/lib/serikaWishlist');
-    const incoming = (body as Record<string, unknown>).widgets as Array<Record<string, unknown>>;
-    const widgets: Array<Record<string, unknown>> = incoming
-      // Built-ins with their own settings endpoint are only changed there.
-      .filter((w) => w.builtin !== SERIKA_WISHLIST_BUILTIN)
-      .map((w, i) => ({
-        id: w.id || `${w.type}:${w.applicationId || w.builtin || i}`,
-        type: w.type,
-        applicationId: w.applicationId ?? null,
-        builtin: w.builtin ?? null,
-        position: i,
-      }));
-    // Keep the Wishlist widget (and its settings) wherever the client put it.
+    const { mergeWidgetPut } = await import('@/lib/profileBoard');
     const fresh = await User.findById(user.id);
-    const wishlist = findWishlistPlacement(fresh?.profileWidgets);
-    if (wishlist) {
-      const at = incoming.findIndex((w) => w.builtin === SERIKA_WISHLIST_BUILTIN);
-      widgets.splice(at === -1 ? widgets.length : Math.min(at, widgets.length), 0, { ...wishlist });
-      widgets.forEach((w, i) => { w.position = i; });
-    }
+    const widgets = mergeWidgetPut(fresh?.profileWidgets, (body as { widgets: Array<{ id?: string; type: string; applicationId?: string | null; builtin?: string | null }> }).widgets);
     await User.updateById(user.id, { profileWidgets: widgets });
     await invalidateUserCache(user.id).catch(() => {});
     return { widgets };
   }, {
     body: t.Object({
       widgets: t.Array(t.Object({
-        id: t.Optional(t.String()),
-        type: t.String(),
-        applicationId: t.Optional(t.Union([t.String(), t.Null()])),
-        builtin: t.Optional(t.Union([t.String(), t.Null()])),
-      }), { maxItems: 25 }),
+        id: t.Optional(t.String({ maxLength: 128 })),
+        type: t.String({ maxLength: 32 }),
+        applicationId: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
+        builtin: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
+      }), { maxItems: 40 }),
     }),
+  })
+  // Reorder the Board. Only moves existing widgets (and turns implicit game
+  // sections into placements); never adds or removes one.
+  .put('/@me/widgets/order', async ({ headers, cookie, body, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const limited = await checkRateLimit('api', `board-order:${user.id}`).catch(() => ({ success: true }));
+    if (!limited.success) { set.status = 429; return { error: 'Rate limited' }; }
+    const { reorderPlacements, boardOrder } = await import('@/lib/profileBoard');
+    const fresh = await User.findById(user.id);
+    const widgets = reorderPlacements(fresh?.profileWidgets, (body as { ids: string[] }).ids);
+    await User.updateById(user.id, { profileWidgets: widgets });
+    await invalidateUserCache(user.id).catch(() => {});
+    return { order: boardOrder(widgets) };
+  }, {
+    body: t.Object({ ids: t.Array(t.String({ maxLength: 128 }), { maxItems: 60 }) }),
   })
 
   // Published app widgets available to add to a profile (for the Add Widget modal).
@@ -3970,10 +3977,10 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     return { widgets: rows };
   })
 
-  // ── Serika Wishlist widget ────────────────────────────────────────────────
-  // Public wishlists from wish.serika.dev. Other people only get data when the
-  // owner turned the widget on; the owner always gets every public list so the
-  // settings can offer them. Upstream only ever returns lists marked public.
+  // ── Serika Wishlist widgets ───────────────────────────────────────────────
+  // Public wishlists from wish.serika.dev, one Board widget per list. Visitors
+  // only get the lists that are on the Board; the owner gets every public list
+  // so they can add more. Upstream only ever returns lists marked public.
   .get('/:userId/serika-wishlist', async ({ headers, cookie, params, query, set }) => {
     const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
@@ -3982,46 +3989,63 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     const target = await User.findById(targetId);
     if (!target) { set.status = 404; return { error: 'User not found' }; }
     const isOwner = target.id === user.id;
-    const { findWishlistPlacement, visibleWishlists } = await import('@/lib/serikaWishlist');
-    const placement = findWishlistPlacement(target.profileWidgets);
-    const enabled = !!placement;
-    const listSlug = placement?.options.listSlug ?? null;
-    if (!enabled && !isOwner) return { enabled: false, listSlug: null };
-    if (!isOwner && (target.blockedUsers ?? []).includes(user.id)) return { enabled: false, listSlug: null };
+    const { findWishlistPlacements, listForPlacement } = await import('@/lib/serikaWishlist');
+    const { getSerikaWishlist, resolveLegacyWishlistPlacements } = await import('@/lib/services/serikaWishlist');
+    const placements = findWishlistPlacements(await resolveLegacyWishlistPlacements(target.id, target.profileWidgets));
+    const placedSlugs = placements.map((p) => p.options.listSlug);
+    const compat = { enabled: placements.length > 0, listSlug: placedSlugs.find((s) => !!s) ?? null };
+    const empty = { placedSlugs: [] as Array<string | null>, enabled: false, listSlug: null };
+    if (!isOwner && placements.length === 0) return empty;
+    if (!isOwner && (target.blockedUsers ?? []).includes(user.id)) return empty;
 
-    const { getSerikaWishlist } = await import('@/lib/services/serikaWishlist');
     const refresh = isOwner && (query as Record<string, string | undefined>).refresh === '1';
     const result = await getSerikaWishlist(target.id, { refresh });
     if (result.status === 'error') {
       set.status = 502;
-      return { enabled, listSlug, error: 'Serika Wishlist is unavailable right now' };
+      return { placedSlugs, ...compat, error: 'Serika Wishlist is unavailable right now' };
     }
     if (result.status === 'not_found') {
-      return { enabled, listSlug, found: false, profileUrl: null, lists: [] };
+      return { placedSlugs, ...compat, found: false, profileUrl: null, lists: [] };
     }
-    return {
-      enabled,
-      listSlug,
-      found: true,
-      profileUrl: result.profile.profileUrl,
-      lists: visibleWishlists(result.profile.lists, listSlug, isOwner),
-    };
+    const all = result.profile.lists;
+    const lists = isOwner
+      ? all
+      : placedSlugs
+          .map((slug) => listForPlacement(all, slug, placedSlugs))
+          .filter((l, i, arr): l is NonNullable<typeof l> => !!l && arr.findIndex((x) => x?.slug === l.slug) === i);
+    return { placedSlugs, ...compat, found: true, profileUrl: result.profile.profileUrl, lists };
   })
+  // Add (enabled) or remove (!enabled) the widget for one list. listSlug null:
+  // add the first public list not on the Board yet / remove every wishlist widget.
   .put('/@me/serika-wishlist', async ({ headers, cookie, body, set }) => {
     const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     const limited = await checkRateLimit('api', `wishlist-widget:${user.id}`).catch(() => ({ success: true }));
     if (!limited.success) { set.status = 429; return { error: 'Rate limited' }; }
-    const { WISHLIST_SLUG_RE, withWishlistPlacement, findWishlistPlacement } = await import('@/lib/serikaWishlist');
+    const { WISHLIST_SLUG_RE, addWishlistPlacement, removeWishlistPlacements, findWishlistPlacements, listForPlacement } = await import('@/lib/serikaWishlist');
     const b = body as { enabled: boolean; listSlug?: string | null };
-    const listSlug = b.listSlug ?? null;
+    let listSlug = b.listSlug ?? null;
     if (listSlug !== null && !WISHLIST_SLUG_RE.test(listSlug)) { set.status = 400; return { error: 'Invalid list' }; }
+    const { resolveLegacyWishlistPlacements, getSerikaWishlist } = await import('@/lib/services/serikaWishlist');
     const fresh = await User.findById(user.id);
-    const profileWidgets = withWishlistPlacement(fresh?.profileWidgets, { enabled: b.enabled, listSlug });
+    const current = await resolveLegacyWishlistPlacements(user.id, fresh?.profileWidgets);
+    let profileWidgets: Array<Record<string, unknown>>;
+    if (b.enabled) {
+      if (listSlug === null) {
+        const result = await getSerikaWishlist(user.id);
+        const placed = findWishlistPlacements(current).map((p) => p.options.listSlug);
+        const next = result.status === 'ok' ? listForPlacement(result.profile.lists, null, placed) : null;
+        if (!next) { set.status = 409; return { error: 'No public wishlist left to add' }; }
+        listSlug = next.slug;
+      }
+      profileWidgets = addWishlistPlacement(current, listSlug);
+    } else {
+      profileWidgets = removeWishlistPlacements(current, listSlug);
+    }
     await User.updateById(user.id, { profileWidgets });
     await invalidateUserCache(user.id).catch(() => {});
-    const placement = findWishlistPlacement(profileWidgets);
-    return { enabled: !!placement, listSlug: placement?.options.listSlug ?? null };
+    const placedSlugs = findWishlistPlacements(profileWidgets).map((p) => p.options.listSlug);
+    return { placedSlugs, enabled: placedSlugs.length > 0, listSlug: placedSlugs.find((s) => !!s) ?? null };
   }, {
     body: t.Object({
       enabled: t.Boolean(),

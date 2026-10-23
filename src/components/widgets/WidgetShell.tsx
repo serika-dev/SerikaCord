@@ -40,6 +40,7 @@ export function WidgetHeader({
   actions,
   className,
   titleId,
+  metaBelow = false,
 }: {
   icon?: IconType;
   /** Custom leading visual (e.g. an app icon) instead of a lucide icon. */
@@ -49,6 +50,8 @@ export function WidgetHeader({
   actions?: ReactNode;
   className?: string;
   titleId?: string;
+  /** Put `meta` on its own line under the title (more room for long titles). */
+  metaBelow?: boolean;
 }) {
   return (
     <header className={cn("flex items-center gap-2.5 px-3.5 pt-3 pb-2.5 min-w-0", className)}>
@@ -57,12 +60,12 @@ export function WidgetHeader({
           <Icon className="size-3.5 text-[var(--sw-accent-soft)]" aria-hidden />
         </span>
       ))}
-      <div className="min-w-0 flex-1 flex items-baseline gap-2">
+      <div className={cn("min-w-0 flex-1 flex", metaBelow ? "flex-col" : "items-baseline gap-2")}>
         <h4 id={titleId} className="font-display text-[14px] font-semibold tracking-[-0.01em] text-[var(--sw-text)] truncate">
           {title}
         </h4>
         {meta != null && meta !== "" && (
-          <span className="text-[11px] tabular-nums text-[var(--sw-faint)] shrink-0">{meta}</span>
+          <span className={cn("text-[11px] tabular-nums text-[var(--sw-faint)]", metaBelow ? "truncate" : "shrink-0")}>{meta}</span>
         )}
       </div>
       {actions && <div className="flex items-center gap-0.5 shrink-0">{actions}</div>}

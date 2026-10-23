@@ -11,8 +11,7 @@ import { ConnectionIcon, getConnectionHref } from "@/components/user/ConnectionI
 import { MusicActivityCard } from "@/components/user/MusicActivityCard";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
 import { NowWatchingCard } from "@/components/user/NowWatchingCard";
-import { ProfileGameWidgets, type GameCategory } from "@/components/user/ProfileGameWidgets";
-import { ProfileAppWidgets } from "@/components/user/ProfileAppWidgets";
+import { ProfileBoard } from "@/components/user/ProfileBoard";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
 import { BadgeCheck, CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert } from "lucide-react";
@@ -114,7 +113,6 @@ export function FullProfileDialog({
   const [mutualFriends, setMutualFriends] = useState<any[]>([]);
   const [mutualServers, setMutualServers] = useState<any[]>([]);
   const [activityHistory, setActivityHistory] = useState<ActivityHistoryEntry[]>([]);
-  const [gameAddCategory, setGameAddCategory] = useState<GameCategory | null>(null);
   const [fullUser, setFullUser] = useState<ProfileCardUser>(user);
   const [canModerate, setCanModerate] = useState(false);
   const [isAdminOfServer, setIsAdminOfServer] = useState(false);
@@ -516,11 +514,8 @@ export function FullProfileDialog({
             <div className="flex-1 md:overflow-y-auto p-4">
               {activeTab === "board" && (
                 <div className="space-y-4">
-                  {/* Game library widgets (favorite / liked / rotation / wishlist) */}
-                  <ProfileGameWidgets userId={fullUser.id} isSelf={!!isSelf} addCategory={gameAddCategory} setAddCategory={setGameAddCategory} />
-
-                  {/* Application widgets placed on the profile */}
-                  <ProfileAppWidgets userId={fullUser.id} isSelf={!!isSelf} onAddGameCategory={setGameAddCategory} />
+                  {/* Board widgets: game sections, app widgets and Serika Wishlist lists, in one order */}
+                  <ProfileBoard userId={fullUser.id} isSelf={!!isSelf} />
 
                   {/* Connections */}
                   {fullUser.connections && fullUser.connections.length > 0 && (

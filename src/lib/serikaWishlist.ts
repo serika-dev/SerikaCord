@@ -16,9 +16,6 @@ export const SERIKA_WISHLIST_BUILTIN = "serika_wishlist";
 /** Wishlist slugs as accepted from clients when featuring one list. */
 export const WISHLIST_SLUG_RE = /^[A-Za-z0-9_-]{1,64}$/;
 
-/** Lists shown on someone else's profile when no single list is featured. */
-export const WISHLIST_MAX_LISTS_SHOWN = 3;
-
 export const SERIKA_WISHLIST_PUBLIC_URL = (
   process.env.NEXT_PUBLIC_SERIKA_WISHLIST_URL || "https://wish.serika.dev"
 ).replace(/\/+$/, "");
@@ -42,7 +39,8 @@ export interface WishlistItem {
 export interface WishlistList {
   slug: string;
   title: string;
-  emoji: string;
+  /** List icon image (absolute URL) when the owner set one. Never show `emoji`. */
+  iconUrl: string | null;
   description: string;
   url: string;
   itemCount: number;
@@ -66,21 +64,26 @@ export interface WishlistProfile {
 
 /** Shape returned by GET /api/users/:id/serika-wishlist. */
 export interface WishlistWidgetResponse {
-  enabled: boolean;
-  listSlug: string | null;
+  /** Slugs of the wishlist widgets on this Board (null = legacy "first list"). */
+  placedSlugs: Array<string | null>;
   /** False when the user has never used Serika Wishlist. */
   found?: boolean;
   profileUrl?: string | null;
+  /** Owner: every public list. Visitors: only the placed ones. */
   lists?: WishlistList[];
   error?: string;
+  /** Pre-1-list-per-widget fields, kept for clients still running the old bundle. */
+  enabled?: boolean;
+  listSlug?: string | null;
 }
 
-/** Widget placement as stored in users.profile_widgets. */
+/** Widget placement as stored in users.profile_widgets (one per list). */
 export interface WishlistPlacement {
   id: string;
   type: "builtin";
   builtin: typeof SERIKA_WISHLIST_BUILTIN;
   applicationId: null;
+  /** null only on placements saved before one-list-per-widget (migrated lazily). */
   options: { listSlug: string | null };
   position?: number;
 }
@@ -153,7 +156,7 @@ function sanitizeList(raw: unknown, maxItems: number): WishlistList | null {
   return {
     slug,
     title: str(r.title, 120) || slug,
-    emoji: str(r.emoji, 16),
+    iconUrl: safeHttpUrl(r.iconUrl),
     description: str(r.description, 500),
     url,
     itemCount: count != null && count >= 0 ? Math.floor(count) : items.length,
@@ -194,62 +197,112 @@ export function sanitizeWishlistProfile(raw: unknown, maxItems = 12, maxLists = 
 
 // ── Placement helpers ─────────────────────────────────────────────────────────
 
-export function findWishlistPlacement(profileWidgets: unknown): WishlistPlacement | null {
-  if (!Array.isArray(profileWidgets)) return null;
-  const p = profileWidgets.find(
-    (w) => w && typeof w === "object" && (w as Record<string, unknown>).builtin === SERIKA_WISHLIST_BUILTIN
-  ) as Record<string, unknown> | undefined;
-  if (!p) return null;
-  const opts = (p.options && typeof p.options === "object" ? p.options : {}) as Record<string, unknown>;
-  const slug = typeof opts.listSlug === "string" && WISHLIST_SLUG_RE.test(opts.listSlug) ? opts.listSlug : null;
+const LEGACY_PLACEMENT_ID = `builtin:${SERIKA_WISHLIST_BUILTIN}`;
+
+export function wishlistPlacementId(slug: string): string {
+  return `${SERIKA_WISHLIST_BUILTIN}:${slug}`;
+}
+
+function isWishlist(w: unknown): w is Record<string, unknown> {
+  return !!w && typeof w === "object" && (w as Record<string, unknown>).builtin === SERIKA_WISHLIST_BUILTIN;
+}
+
+function slugOf(w: Record<string, unknown>): string | null {
+  const opts = (w.options && typeof w.options === "object" ? w.options : {}) as Record<string, unknown>;
+  if (typeof opts.listSlug === "string" && WISHLIST_SLUG_RE.test(opts.listSlug)) return opts.listSlug;
+  if (typeof w.id === "string" && w.id.startsWith(`${SERIKA_WISHLIST_BUILTIN}:`)) {
+    const s = w.id.slice(SERIKA_WISHLIST_BUILTIN.length + 1);
+    if (WISHLIST_SLUG_RE.test(s)) return s;
+  }
+  return null;
+}
+
+export function makeWishlistPlacement(slug: string): WishlistPlacement {
   return {
-    id: `builtin:${SERIKA_WISHLIST_BUILTIN}`,
+    id: wishlistPlacementId(slug),
     type: "builtin",
     builtin: SERIKA_WISHLIST_BUILTIN,
     applicationId: null,
     options: { listSlug: slug },
-    position: typeof p.position === "number" ? p.position : undefined,
   };
 }
 
-/**
- * Return `profileWidgets` with the wishlist placement added, updated or
- * removed. An existing placement keeps its position in the list.
- */
-export function withWishlistPlacement(
-  profileWidgets: unknown,
-  next: { enabled: boolean; listSlug: string | null }
-): Array<Record<string, unknown>> {
+/** Every wishlist widget on the Board, in Board order. */
+export function findWishlistPlacements(profileWidgets: unknown): WishlistPlacement[] {
+  if (!Array.isArray(profileWidgets)) return [];
+  return profileWidgets.filter(isWishlist).map((w) => {
+    const slug = slugOf(w);
+    return {
+      id: slug ? wishlistPlacementId(slug) : LEGACY_PLACEMENT_ID,
+      type: "builtin" as const,
+      builtin: SERIKA_WISHLIST_BUILTIN,
+      applicationId: null,
+      options: { listSlug: slug },
+      position: typeof w.position === "number" ? w.position : undefined,
+    };
+  });
+}
+
+/** Whether a placement predates one-list-per-widget and still needs a list. */
+export function hasLegacyWishlistPlacement(profileWidgets: unknown): boolean {
+  return findWishlistPlacements(profileWidgets).some((p) => p.options.listSlug === null);
+}
+
+/** Add a widget for `slug` at the end of the Board (no-op if it is already there). */
+export function addWishlistPlacement(profileWidgets: unknown, slug: string): Array<Record<string, unknown>> {
   const list = (Array.isArray(profileWidgets) ? profileWidgets : []).filter(
     (w): w is Record<string, unknown> => !!w && typeof w === "object"
   );
-  const idx = list.findIndex((w) => w.builtin === SERIKA_WISHLIST_BUILTIN);
-  if (!next.enabled) return idx === -1 ? list : list.filter((_, i) => i !== idx);
-  const placement: WishlistPlacement = {
-    id: `builtin:${SERIKA_WISHLIST_BUILTIN}`,
-    type: "builtin",
-    builtin: SERIKA_WISHLIST_BUILTIN,
-    applicationId: null,
-    options: { listSlug: next.listSlug && WISHLIST_SLUG_RE.test(next.listSlug) ? next.listSlug : null },
-  };
-  if (idx === -1) return [...list, { ...placement, position: list.length }];
-  return list.map((w, i) => (i === idx ? { ...placement, position: typeof w.position === "number" ? w.position : i } : w));
+  if (!WISHLIST_SLUG_RE.test(slug) || list.some((w) => isWishlist(w) && slugOf(w) === slug)) return list;
+  return [...list, { ...makeWishlistPlacement(slug), position: list.length }];
+}
+
+/** Remove the widget for `slug`, or every wishlist widget when `slug` is null. */
+export function removeWishlistPlacements(profileWidgets: unknown, slug: string | null): Array<Record<string, unknown>> {
+  return (Array.isArray(profileWidgets) ? profileWidgets : []).filter(
+    (w): w is Record<string, unknown> => !!w && typeof w === "object" && !(isWishlist(w) && (slug === null || slugOf(w) === slug))
+  );
 }
 
 /**
- * Which lists a viewer sees: everything for the owner (so they can pick),
- * otherwise the featured list (falling back to all if it is no longer
- * public), capped at WISHLIST_MAX_LISTS_SHOWN. Lists with no items are kept
- * only when nothing else exists.
+ * Lazy migration of the one pre-1-list-per-widget placement (listSlug null):
+ * it becomes the widget for the owner's first public list (keeping its Board
+ * position), or disappears when they have none or that list is already on
+ * the Board. Returns null when nothing needs to change.
  */
-export function visibleWishlists(lists: WishlistList[], listSlug: string | null, isOwner: boolean): WishlistList[] {
-  if (isOwner) return lists;
-  if (listSlug) {
-    const featured = lists.find((l) => l.slug === listSlug);
-    if (featured) return [featured];
+export function migrateLegacyWishlistPlacements(
+  profileWidgets: unknown,
+  publicLists: WishlistList[]
+): Array<Record<string, unknown>> | null {
+  const list = (Array.isArray(profileWidgets) ? profileWidgets : []).filter(
+    (w): w is Record<string, unknown> => !!w && typeof w === "object"
+  );
+  if (!list.some((w) => isWishlist(w) && slugOf(w) === null)) return null;
+  const placed = new Set(list.filter(isWishlist).map(slugOf).filter((s): s is string => !!s));
+  const candidate = [...publicLists.filter((l) => l.itemCount > 0), ...publicLists].find((l) => !placed.has(l.slug));
+  let used = false;
+  const out: Array<Record<string, unknown>> = [];
+  for (const w of list) {
+    if (isWishlist(w) && slugOf(w) === null) {
+      if (candidate && !used) {
+        out.push({ ...makeWishlistPlacement(candidate.slug), position: w.position });
+        used = true;
+      }
+      continue;
+    }
+    out.push(w);
   }
-  const withItems = lists.filter((l) => l.itemCount > 0);
-  return (withItems.length > 0 ? withItems : lists).slice(0, WISHLIST_MAX_LISTS_SHOWN);
+  return out.map((w, i) => ({ ...w, position: i }));
+}
+
+/**
+ * The list a widget shows: its own slug, or for a not-yet-migrated legacy
+ * placement the first public list that isn't on the Board already.
+ */
+export function listForPlacement(lists: WishlistList[], slug: string | null, placedSlugs: Array<string | null>): WishlistList | null {
+  if (slug) return lists.find((l) => l.slug === slug) ?? null;
+  const placed = new Set(placedSlugs.filter((s): s is string => !!s));
+  return [...lists.filter((l) => l.itemCount > 0), ...lists].find((l) => !placed.has(l.slug)) ?? null;
 }
 
 // ── Identity ──────────────────────────────────────────────────────────────────

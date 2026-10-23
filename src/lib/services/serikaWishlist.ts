@@ -102,3 +102,27 @@ export async function getSerikaWishlist(userId: string, opts: { refresh?: boolea
   inflight.set(userId, p);
   return p;
 }
+
+/**
+ * Lazily migrate a pre-1-list-per-widget wishlist placement (listSlug null)
+ * to the owner's first public list, or drop it when they have none. Writes
+ * the result back once; on an upstream error the stored value is returned
+ * unchanged and the client falls back to showing the first public list.
+ */
+export async function resolveLegacyWishlistPlacements(userId: string, profileWidgets: unknown): Promise<unknown> {
+  const { hasLegacyWishlistPlacement, migrateLegacyWishlistPlacements } = await import('../serikaWishlist');
+  if (!hasLegacyWishlistPlacement(profileWidgets)) return profileWidgets;
+  const result = await getSerikaWishlist(userId);
+  if (result.status === 'error') return profileWidgets;
+  const next = migrateLegacyWishlistPlacements(profileWidgets, result.status === 'ok' ? result.profile.lists : []);
+  if (!next) return profileWidgets;
+  try {
+    const { User } = await import('../models/User');
+    await User.updateById(userId, { profileWidgets: next });
+    const { invalidateUserCache } = await import('./auth');
+    await invalidateUserCache(userId).catch(() => {});
+  } catch {
+    // Serve the migrated shape anyway; the write is retried on the next read.
+  }
+  return next;
+}
