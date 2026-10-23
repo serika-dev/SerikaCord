@@ -5,12 +5,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import { AnimatePresence, motion } from "framer-motion";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { Users, MessageCircle,  ArrowRight, Hash, Volume2, Menu, X, ChevronDown, Reply } from "lucide-react";
+import { Users, MessageCircle, ArrowRight, Hash, Volume2, Menu, X, ChevronDown, Reply, RefreshCw } from "lucide-react";
 import { ServerBadge } from "@/components/ui/badges";
 import { cn, cdnImage } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
-import { useGT } from "gt-next";
+import { useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 
 interface WidgetCategory {
@@ -95,8 +95,53 @@ interface ServerWidget {
   mentions?: WidgetMentions;
 }
 
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+function formatTime(iso: string, locale: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const time = d.toLocaleTimeString(locale, { hour: "numeric", minute: "2-digit" });
+  const now = new Date();
+  if (d.toDateString() === now.toDateString()) return time;
+  const sameYear = d.getFullYear() === now.getFullYear();
+  return `${d.toLocaleDateString(locale, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) })} · ${time}`;
+}
+
+const STATUS_DOT: Record<string, string> = {
+  online: "#23A559",
+  idle: "#F0B232",
+  dnd: "#EF4444",
+  offline: "#80848E",
+};
+
+/** Placeholder shaped like the loaded widget, so nothing jumps when data lands. */
+function WidgetPageSkeleton({ label }: { label: string }) {
+  return (
+    <div className="h-screen w-screen flex flex-col bg-[var(--app-bg)] overflow-hidden" role="status" aria-busy="true">
+      <span className="sr-only">{label}</span>
+      <div className="h-12 shrink-0 flex items-center gap-3 px-3 border-b border-[var(--app-border)] bg-[var(--app-surface)]">
+        <div className="h-4 w-32 rounded skeleton-shimmer" />
+        <div className="ml-auto h-7 w-24 rounded-lg skeleton-shimmer" />
+      </div>
+      <div className="flex-1 flex min-h-0">
+        <div className="hidden sm:flex flex-col w-64 shrink-0 border-r border-[var(--app-border)] bg-[var(--app-surface)]">
+          <div className="h-24 skeleton-shimmer" />
+          <div className="p-3 space-y-2">
+            {[70, 55, 80, 60, 45].map((w, i) => <div key={i} className="h-6 rounded-md skeleton-shimmer" style={{ width: `${w}%` }} />)}
+          </div>
+        </div>
+        <div className="flex-1 p-4 space-y-5">
+          {[[30, 70], [22, 50], [35, 80], [26, 45]].map(([a, b], i) => (
+            <div key={i} className="flex gap-3">
+              <div className="size-9 rounded-full skeleton-shimmer shrink-0" />
+              <div className="flex-1 space-y-2 pt-0.5">
+                <div className="h-3.5 rounded skeleton-shimmer" style={{ width: `${a}%` }} />
+                <div className="h-3.5 rounded skeleton-shimmer" style={{ width: `${b}%` }} />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 const TOKEN_SOURCE = "<@!?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<@&([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|(?<!\\S)@(everyone|here)\\b|<(a)?:([a-zA-Z0-9_]+):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|(https?:\\/\\/[^\\s]+)";
@@ -266,12 +311,13 @@ function WidgetAttachments({ attachments }: { attachments?: WidgetAttachment[] }
 
 export default function WidgetPage() {
   const gt = useGT();
+  const locale = useLocale();
   const params = useParams();
   const serverId = params.serverId as string;
   const [widget, setWidget] = useState<ServerWidget | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isSwitching, setIsSwitching] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<{ title: string; message: string; retry: boolean } | null>(null);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
 
   const fetchWidget = useCallback(async (channelId?: string) => {
@@ -281,24 +327,27 @@ export default function WidgetPage() {
       if (response.ok) {
         const data = await response.json();
         setWidget(data);
+        setError(null);
       } else if (response.status === 403) {
-        setError(gt("Widget is disabled for this server"));
+        setError({ title: gt("Widget is disabled for this server"), message: gt("A server admin can turn it on in Server Settings."), retry: false });
       } else if (response.status === 404) {
-        setError(gt("Server not found"));
+        setError({ title: gt("Server not found"), message: gt("This server may have been deleted or the link is wrong."), retry: false });
       } else {
-        setError(gt("Failed to load widget"));
+        setError({ title: gt("Failed to load widget"), message: gt("Something went wrong on our side. Try again in a moment."), retry: true });
       }
     } catch {
-      setError(gt("Failed to load widget"));
+      setError({ title: gt("Failed to load widget"), message: gt("Check your connection and try again."), retry: true });
     }
-  }, [serverId]);
+  }, [serverId, gt]);
 
   useEffect(() => {
+    let active = true;
     async function load() {
       await fetchWidget();
-      setIsLoading(false);
+      if (active) setIsLoading(false);
     }
     load();
+    return () => { active = false; };
   }, [fetchWidget]);
 
   const handleSelectChannel = useCallback(async (channelId: string) => {
@@ -308,6 +357,12 @@ export default function WidgetPage() {
     await fetchWidget(channelId);
     setIsSwitching(false);
   }, [widget, isSwitching, fetchWidget]);
+
+  const retry = useCallback(async () => {
+    setIsLoading(true);
+    await fetchWidget();
+    setIsLoading(false);
+  }, [fetchWidget]);
 
   const grouped = useMemo(() => {
     if (!widget) return { uncategorized: [] as WidgetChannel[], byCategory: new Map<string, WidgetChannel[]>() };
@@ -340,20 +395,33 @@ export default function WidgetPage() {
     return groups;
   }, [widget]);
 
-  if (isLoading) {
-    return (
-      <div className="h-screen w-screen bg-[var(--app-bg)] flex items-center justify-center">
-        <Loader size={32} />
-      </div>
-    );
+  const onlineMembers = useMemo(
+    () => (widget?.members ?? []).filter((m) => m.status !== "offline").slice(0, 30),
+    [widget]
+  );
+
+  if (isLoading && !widget) {
+    return <WidgetPageSkeleton label={gt("Loading widget")} />;
   }
 
-  if (error) {
+  if (error && !widget) {
     return (
-      <div className="h-screen w-screen bg-[var(--app-bg)] flex items-center justify-center p-4">
-        <div className="text-center">
-          <MessageCircle className="w-12 h-12 text-[var(--app-muted-2)] mx-auto mb-4" />
-          <p className="text-[var(--app-muted)]">{error}</p>
+      <div className="h-screen w-screen bg-[var(--app-bg)] flex items-center justify-center p-6">
+        <div className="max-w-sm w-full text-center rounded-2xl border border-[var(--app-border)] bg-[var(--app-surface)] px-6 py-8 shadow-[0_24px_60px_-30px_color-mix(in_srgb,var(--app-accent)_60%,transparent)]">
+          <span className="mx-auto mb-4 grid place-items-center size-12 rounded-xl bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] ring-1 ring-inset ring-[color-mix(in_srgb,var(--app-accent)_30%,transparent)]">
+            <MessageCircle className="size-6 text-[var(--app-accent)]" aria-hidden />
+          </span>
+          <h1 className="font-display text-lg font-semibold text-[var(--app-text)]">{error.title}</h1>
+          <p className="mt-1.5 text-sm text-[var(--app-muted)]">{error.message}</p>
+          {error.retry && (
+            <button
+              type="button"
+              onClick={retry}
+              className="mt-5 inline-flex items-center gap-2 rounded-lg bg-[var(--app-accent)] px-4 py-2 text-sm font-semibold text-white hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
+            >
+              <RefreshCw className="size-4" aria-hidden /> {gt("Try Again")}
+            </button>
+          )}
         </div>
       </div>
     );
@@ -362,16 +430,19 @@ export default function WidgetPage() {
   if (!widget) return null;
 
   const currentChannel = widget.channels.find((c) => c.id === widget.currentChannelId);
+  const inviteUrl = widget.inviteCode ? `https://serika.cc/${widget.inviteCode}` : null;
 
   const ChannelRow = ({ channel }: { channel: WidgetChannel }) => {
     const active = channel.id === widget.currentChannelId;
     const clickable = channel.type === "text" || channel.type === "announcement";
     return (
       <button
+        type="button"
         onClick={() => clickable && handleSelectChannel(channel.id)}
         disabled={!clickable}
+        aria-current={active ? "page" : undefined}
         className={cn(
-          "w-full flex items-center gap-2 px-2.5 py-1.5 rounded-lg text-sm truncate transition-colors text-left",
+          "group/ch relative w-full flex items-center gap-2 px-2.5 py-1.5 rounded-md text-sm truncate transition-colors text-left focus-visible:outline-2 focus-visible:outline-offset-[-2px] focus-visible:outline-[var(--app-accent)]",
           active
             ? "bg-[var(--app-surface-alt)] text-[var(--app-text)] font-medium"
             : clickable
@@ -379,10 +450,11 @@ export default function WidgetPage() {
             : "text-[var(--app-muted-2)] cursor-default"
         )}
       >
+        {active && <span aria-hidden className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r-full bg-[var(--app-accent)]" />}
         {channel.type === "voice" ? (
-          <Volume2 className="w-4 h-4 shrink-0" />
+          <Volume2 className="w-4 h-4 shrink-0 opacity-70" aria-hidden />
         ) : (
-          <Hash className="w-4 h-4 shrink-0" />
+          <Hash className="w-4 h-4 shrink-0 opacity-70" aria-hidden />
         )}
         <span className="truncate">{channel.name}</span>
       </button>
@@ -394,9 +466,9 @@ export default function WidgetPage() {
     if (!channels || channels.length === 0) return null;
     return (
       <div className="mb-3">
-        <div className="flex items-center gap-1 px-2 mb-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--app-muted-2)]">
-          <ChevronDown className="w-3 h-3" />
-          {category.name}
+        <div className="flex items-center gap-1 px-2 mb-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--app-muted-2)]">
+          <ChevronDown className="w-3 h-3" aria-hidden />
+          <span className="truncate">{category.name}</span>
         </div>
         <div className="space-y-0.5">
           {channels.map((c) => (
@@ -408,46 +480,57 @@ export default function WidgetPage() {
   };
 
   const Sidebar = (
-    <div className="flex flex-col h-full w-64 shrink-0 bg-[var(--app-surface)] border-r border-[var(--app-border)]">
+    <nav aria-label={gt("Channels")} className="flex flex-col h-full w-64 shrink-0 bg-[var(--app-surface)] border-r border-[var(--app-border)]">
       {/* Server header */}
-      <div className="relative h-20 shrink-0 border-b border-[var(--app-border)]">
+      <div className="relative h-24 shrink-0 border-b border-[var(--app-border)] overflow-hidden">
         {widget.banner ? (
           <div
             className="absolute inset-0 bg-cover bg-center"
-            style={{ backgroundImage: `url(${widget.banner})` }}
+            style={{ backgroundImage: `url(${cdnImage(widget.banner)})` }}
           />
         ) : (
           <div
             className="absolute inset-0"
             style={{
               background:
-                "linear-gradient(135deg, color-mix(in srgb, var(--accent-color) 55%, transparent) 0%, color-mix(in srgb, var(--app-accent) 35%, transparent) 100%)",
+                "radial-gradient(120% 120% at 0% 0%, color-mix(in srgb, var(--app-accent) 55%, transparent) 0%, transparent 60%), linear-gradient(135deg, color-mix(in srgb, var(--app-accent) 30%, transparent), transparent)",
             }}
           />
         )}
-        <div className="absolute inset-0 bg-gradient-to-t from-[var(--app-surface)] via-[var(--app-surface)]/30 to-transparent" />
-        <div className="absolute inset-x-3 bottom-2 flex items-center gap-2 min-w-0">
-          <Avatar className="w-9 h-9 border-2 border-[var(--app-surface)] shrink-0">
-            <AvatarImage src={cdnImage(widget.icon)} />
-            <AvatarFallback className="bg-[var(--accent-color)] text-white text-sm">
+        <div className="absolute inset-0 bg-gradient-to-t from-[var(--app-surface)] via-[var(--app-surface)]/40 to-transparent" />
+        <div className="absolute inset-x-3 bottom-2.5 flex items-center gap-2.5 min-w-0">
+          <Avatar className="w-10 h-10 rounded-xl border-2 border-[var(--app-surface)] shrink-0 shadow-lg">
+            <AvatarImage src={cdnImage(widget.icon)} alt="" className="rounded-xl" />
+            <AvatarFallback className="rounded-xl bg-[var(--app-accent)] text-white text-sm font-semibold">
               {widget.name.charAt(0)}
             </AvatarFallback>
           </Avatar>
           <div className="min-w-0">
             <div className="flex items-center gap-1">
               {widget.isPartnered && <ServerBadge type="partnered" size="sm" iconOnly />}
-              <h1 className="font-bold text-[var(--app-text)] text-sm truncate">{widget.name}</h1>
+              <h1 className="font-display font-semibold tracking-[-0.01em] text-[var(--app-text)] text-[15px] truncate">{widget.name}</h1>
             </div>
-            <div className="flex items-center gap-1.5 text-[11px] text-[var(--app-muted)]">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#23d160]" />
-              {widget.onlineCount.toLocaleString()} {gt("online")}
+            <div className="flex items-center gap-3 text-[11px] text-[var(--app-muted)]">
+              <span className="flex items-center gap-1.5">
+                <span aria-hidden className="relative flex size-1.5">
+                  <span className="absolute inset-0 rounded-full bg-[#23A559] animate-ping opacity-60 motion-reduce:animate-none" />
+                  <span className="relative size-1.5 rounded-full bg-[#23A559]" />
+                </span>
+                {gt("{count} online", { count: widget.onlineCount.toLocaleString(locale) })}
+              </span>
+              <span className="flex items-center gap-1">
+                <Users className="w-3 h-3" aria-hidden />
+                {widget.memberCount.toLocaleString(locale)}
+              </span>
             </div>
           </div>
           <button
+            type="button"
             onClick={() => setMobileNavOpen(false)}
+            aria-label={gt("Close channel list")}
             className="sm:hidden ml-auto p-1.5 rounded-md text-[var(--app-muted)] hover:text-[var(--app-text)] hover:bg-black/20"
           >
-            <X className="w-4 h-4" />
+            <X className="w-4 h-4" aria-hidden />
           </button>
         </div>
       </div>
@@ -464,45 +547,82 @@ export default function WidgetPage() {
         {widget.categories.map((cat) => (
           <CategoryGroup key={cat.id} category={cat} />
         ))}
+
+        {/* Online members */}
+        {onlineMembers.length > 0 && (
+          <div className="mt-4 pt-3 border-t border-[var(--app-border)]">
+            <p className="px-2 mb-1.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--app-muted-2)]">
+              {gt("Online — {count}", { count: widget.onlineCount.toLocaleString(locale) })}
+            </p>
+            <ul className="space-y-0.5">
+              {onlineMembers.map((m) => (
+                <li key={m.id} className="flex items-center gap-2 px-2 py-1 rounded-md min-w-0">
+                  <span className="relative shrink-0">
+                    <Avatar className="w-6 h-6">
+                      <AvatarImage src={cdnImage(m.avatar)} alt="" />
+                      <AvatarFallback className="bg-[var(--app-accent)] text-white text-[10px]">
+                        {(m.displayName || m.username).charAt(0)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <span
+                      aria-hidden
+                      className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[var(--app-surface)]"
+                      style={{ backgroundColor: STATUS_DOT[m.status] ?? STATUS_DOT.offline }}
+                    />
+                  </span>
+                  <span className="text-[13px] text-[var(--app-muted)] truncate">{m.displayName || m.username}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
       </div>
-    </div>
+
+      <a
+        href="https://serika.chat"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="shrink-0 px-3 py-2 border-t border-[var(--app-border)] text-[11px] text-[var(--app-muted-2)] hover:text-[var(--app-text)] transition-colors"
+      >
+        {gt("Powered by SerikaCord")}
+      </a>
+    </nav>
   );
 
   return (
     <div className="h-screen w-screen flex flex-col bg-[var(--app-bg)] overflow-hidden">
       {/* Top bar */}
-      <div className="h-12 shrink-0 flex items-center gap-3 px-3 border-b border-[var(--app-border)] bg-[var(--app-surface)]">
+      <header className="h-12 shrink-0 flex items-center gap-3 px-3 border-b border-[var(--app-border)] bg-[var(--app-surface)]">
         <button
+          type="button"
           onClick={() => setMobileNavOpen(true)}
+          aria-label={gt("Open channel list")}
+          aria-expanded={mobileNavOpen}
           className="sm:hidden p-1.5 rounded-md text-[var(--app-muted)] hover:text-[var(--app-text)] hover:bg-[var(--app-surface-alt)]"
         >
-          <Menu className="w-4 h-4" />
+          <Menu className="w-4 h-4" aria-hidden />
         </button>
         <div className="flex items-center gap-1.5 min-w-0 text-sm font-semibold text-[var(--app-text)]">
           {currentChannel?.type === "voice" ? (
-            <Volume2 className="w-4 h-4 text-[var(--app-muted-2)] shrink-0" />
+            <Volume2 className="w-4 h-4 text-[var(--app-muted-2)] shrink-0" aria-hidden />
           ) : (
-            <Hash className="w-4 h-4 text-[var(--app-muted-2)] shrink-0" />
+            <Hash className="w-4 h-4 text-[var(--app-muted-2)] shrink-0" aria-hidden />
           )}
           <span className="truncate">{currentChannel?.name || widget.name}</span>
         </div>
-        <span className="hidden sm:flex items-center gap-1 text-xs text-[var(--app-muted)] ml-2">
-          <Users className="w-3.5 h-3.5" />
-          {widget.memberCount.toLocaleString()}
-        </span>
         <div className="flex-1" />
-        {widget.inviteCode && (
+        {inviteUrl && (
           <a
-            href={`https://serika.cc/${widget.inviteCode}`}
+            href={inviteUrl}
             target="_blank"
             rel="noopener noreferrer"
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--accent-color)] hover:brightness-110 text-white text-xs font-semibold transition-all"
+            className="group/join flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[var(--app-accent)] text-white text-xs font-semibold shadow-[0_6px_20px_-8px_var(--app-accent)] hover:brightness-110 transition-all focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
           >
             {gt("Join Server")}
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight className="w-3.5 h-3.5 transition-transform group-hover/join:translate-x-0.5" aria-hidden />
           </a>
         )}
-      </div>
+      </header>
 
       {/* Body */}
       <div className="flex-1 flex min-h-0 relative">
@@ -534,35 +654,37 @@ export default function WidgetPage() {
         </AnimatePresence>
 
         {/* Chat panel */}
-        <div className="flex-1 flex flex-col min-w-0 relative">
+        <main className="flex-1 flex flex-col min-w-0 relative" aria-busy={isSwitching}>
           {isSwitching && (
             <div className="absolute inset-0 bg-[var(--app-bg)]/40 backdrop-blur-[1px] z-10 flex items-center justify-center">
               <Loader size={24} />
             </div>
           )}
-          <div className="flex-1 overflow-y-auto px-4 py-3">
+          <div className="flex-1 overflow-y-auto px-3 sm:px-4 py-3" aria-live="polite">
             {messageGroups.length === 0 ? (
-              <div className="h-full flex flex-col items-center justify-center text-center gap-2 text-[var(--app-muted)]">
-                <MessageCircle className="w-10 h-10 text-[var(--app-muted-2)]" />
+              <div className="h-full flex flex-col items-center justify-center text-center gap-3 text-[var(--app-muted)]">
+                <span className="grid place-items-center size-12 rounded-xl bg-[var(--app-surface)] border border-[var(--app-border)]">
+                  <MessageCircle className="w-6 h-6 text-[var(--app-muted-2)]" aria-hidden />
+                </span>
                 <p className="text-sm">{gt("No messages yet in this channel")}</p>
               </div>
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-1">
                 {messageGroups.map((group, gi) => {
                   const author = group[0].author;
                   const reply = group[0].referencedMessage;
                   return (
-                    <motion.div
+                    <motion.article
                       key={group[0].id}
                       initial={{ opacity: 0, y: 6 }}
                       animate={{ opacity: 1, y: 0 }}
                       transition={{ duration: 0.2, delay: Math.min(gi, 6) * 0.02 }}
-                      className="px-1.5 py-1 rounded-lg hover:bg-[var(--app-surface)]/60"
+                      className="px-2 py-1.5 rounded-lg hover:bg-[var(--app-surface)]/60 transition-colors"
                     >
                       {/* Reply reference header */}
                       {reply && (
                         <div className="flex items-center gap-1.5 ml-12 mb-0.5 text-xs text-[var(--app-muted-2)] min-w-0">
-                          <Reply className="w-3.5 h-3.5 shrink-0 -scale-x-100" />
+                          <Reply className="w-3.5 h-3.5 shrink-0 -scale-x-100" aria-hidden />
                           <span className="font-medium text-[var(--app-muted)] shrink-0">
                             {reply.author?.displayName || reply.author?.username || gt("someone")}
                           </span>
@@ -573,23 +695,23 @@ export default function WidgetPage() {
                       )}
                       <div className="flex gap-3">
                         <Avatar className="w-9 h-9 shrink-0 mt-0.5">
-                          <AvatarImage src={cdnImage(author.avatar)} />
-                          <AvatarFallback className="bg-[var(--accent-color)] text-white text-sm">
+                          <AvatarImage src={cdnImage(author.avatar)} alt="" />
+                          <AvatarFallback className="bg-[var(--app-accent)] text-white text-sm">
                             {(author.displayName || author.username).charAt(0)}
                           </AvatarFallback>
                         </Avatar>
                         <div className="min-w-0 flex-1">
-                          <div className="flex items-baseline gap-2">
-                            <span className="text-sm font-semibold text-[var(--app-text)]">
+                          <div className="flex items-baseline gap-2 min-w-0">
+                            <span className="text-sm font-semibold text-[var(--app-text)] truncate">
                               {author.displayName || author.username}
                             </span>
-                            <span className="text-[11px] text-[var(--app-muted-2)]">
-                              {formatTime(group[0].createdAt)}
-                            </span>
+                            <time dateTime={group[0].createdAt} className="text-[11px] text-[var(--app-muted-2)] shrink-0">
+                              {formatTime(group[0].createdAt, locale)}
+                            </time>
                           </div>
                           <div className="space-y-0.5">
                             {group.map((msg) => (
-                              <div key={msg.id} className="text-sm text-[var(--app-muted)] break-words leading-relaxed">
+                              <div key={msg.id} className="text-sm text-[var(--app-text)]/85 break-words leading-relaxed">
                                 {msg.content && (
                                   <WidgetMessageBody
                                     content={msg.content}
@@ -613,25 +735,32 @@ export default function WidgetPage() {
                           </div>
                         </div>
                       </div>
-                    </motion.div>
+                    </motion.article>
                   );
                 })}
               </div>
             )}
           </div>
 
-          {/* Join / login prompt bar */}
-          {widget.inviteCode && (
+          {/* Join prompt */}
+          {inviteUrl && (
             <a
-              href={`https://serika.cc/${widget.inviteCode}`}
+              href={inviteUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="mx-4 mb-4 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-[var(--app-surface)] border border-[var(--app-border)] hover:border-[var(--accent-color)]/60 text-sm text-[var(--app-muted)] hover:text-[var(--app-text)] transition-colors shrink-0"
+              className="group/cta mx-3 sm:mx-4 mb-3 sm:mb-4 flex items-center gap-3 px-3 py-2.5 rounded-xl bg-[var(--app-surface)] border border-[var(--app-border)] hover:border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] transition-colors shrink-0 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
             >
-              {gt("Click here to join and participate in chat")}
+              <Avatar className="w-8 h-8 rounded-lg shrink-0">
+                <AvatarImage src={cdnImage(widget.icon)} alt="" className="rounded-lg" />
+                <AvatarFallback className="rounded-lg bg-[var(--app-accent)] text-white text-xs font-semibold">{widget.name.charAt(0)}</AvatarFallback>
+              </Avatar>
+              <span className="flex-1 min-w-0 text-sm text-[var(--app-muted)] group-hover/cta:text-[var(--app-text)] transition-colors truncate">
+                {gt("Click here to join and participate in chat")}
+              </span>
+              <ArrowRight className="w-4 h-4 text-[var(--app-accent)] shrink-0 transition-transform group-hover/cta:translate-x-0.5" aria-hidden />
             </a>
           )}
-        </div>
+        </main>
       </div>
     </div>
   );

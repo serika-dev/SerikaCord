@@ -6,6 +6,7 @@ import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { useStaffAccess } from "@/hooks/useStaffAccess";
 import type { StaffPermission } from "@/lib/staff/permissions";
 import { getConnectionIcon, getConnectionColor } from "@/components/user/ConnectionIcon";
+import { SerikaWishlistSettingsCard } from "@/components/user/ProfileWishlistWidget";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { AppearanceCustomizationPanel } from "@/components/settings/AppearanceCustomizationPanel";
 import { DomainConnectionsSection } from "@/components/settings/DomainConnectionsSection";
@@ -2965,6 +2966,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                 </div>
                               </div>
                             </div>
+
+                          {/* Profile widgets from other Serika apps (saved instantly) */}
+                          <SerikaWishlistSettingsCard />
                           </motion.div>
                         ) : (
                         <motion.div

@@ -80,10 +80,10 @@ export function NowWatchingCard({ activity }: { activity: MoeActivity }) {
   const cfg = stateConfig[state];
 
   return (
-    <div className="overflow-hidden rounded-xl border border-white/[0.06] bg-gradient-to-b from-white/[0.05] to-white/[0.02] shadow-[0_1px_0_rgba(255,255,255,0.03)_inset]">
+    <div className="sw-card overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-2">
-        <h4 className="text-[11px] font-bold uppercase tracking-wide text-[#9a9aad]">
+        <h4 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--sw-faint)]">
           {gt("Watching on serika.moe")}
         </h4>
         <span className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-wide text-[#c8c8d8]">
@@ -109,7 +109,7 @@ export function NowWatchingCard({ activity }: { activity: MoeActivity }) {
 
         {/* Bottom gradient + title overlay */}
         <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/85 via-black/40 to-transparent p-2.5 pt-8">
-          <p className="truncate text-sm font-semibold text-white drop-shadow" title={activity.titleName}>
+          <p className="truncate font-display text-[15px] font-semibold tracking-[-0.01em] text-white drop-shadow" title={activity.titleName}>
             {activity.titleName}
           </p>
           {line2 && (

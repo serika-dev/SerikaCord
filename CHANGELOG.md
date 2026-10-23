@@ -7,10 +7,17 @@
 ## Unreleased
 
 ### Features
+- **Serika Wishlist on your profile** — add a Wishlist widget (Add a widget on your profile, or Settings → Profiles) to show the lists you made public on Serika Wishlist: emoji, title, item count, total, product photos and "most wanted" picks, each linking to the list. Feature one list or show up to three. Friends-only and private lists never appear, and nothing shows until you turn it on.
 
 ### Changes
+- **Profile widgets redesigned** — game shelves, app widgets, the wishlist and activity cards now share one look: dark glass cards with hairline borders, violet accents, Outfit headings, readable tags, loading placeholders instead of spinners, and graceful fallbacks for broken images. Edit buttons are labelled and reachable by keyboard, and stay visible on phones.
+- **Cleaner profile board** — empty game sections no longer sit on your own profile; one "Add a widget" button offers games, app widgets and your wishlist. Removing a whole game section asks first.
+- **Server widget refresh** — the public server widget shows who is online, uses a loading placeholder, explains why it can't load (with a retry), dates older messages, and has labelled controls for screen readers.
+- **Widget editor polish** — clearer layout picker, validation count, a profile-sized preview stage, and a layout that works on narrow screens.
 
 ### Bug Fixes
+- **Adding an app widget works** — picking an app widget in Add to Profile closed the dialog without adding it.
+- **Profile widget changes show up right away** — your own board could keep showing the old widgets for a few minutes after a change.
 
 ### Performance
 

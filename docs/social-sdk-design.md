@@ -74,10 +74,19 @@ Stored as a jsonb column on `users` (mirrors Discord `/users/@me/widgets`) to av
 ```
 users.profileWidgets jsonb default []
   [{ id, type: 'application'|'builtin',
-     applicationId?, builtin?: 'favorite_game'|'games_i_like'|'games_rotation'|'want_to_play',
-     position }]
+     applicationId?, builtin?: 'favorite_game'|'games_i_like'|'games_rotation'|'want_to_play'|'serika_wishlist',
+     options?, position }]
 ```
 Built-in widgets (the four game-library ones) need no application and render from `user_games`.
+
+`serika_wishlist` shows the user's public lists from Serika Wishlist (wish.serika.dev).
+Its `options` are `{ listSlug: string | null }` (one featured list, or null for up to
+three). It is managed only through `PUT /api/users/@me/serika-wishlist`
+(`{ enabled, listSlug }`); `PUT /api/users/@me/widgets` and the SDK's
+`PUT /v1/users/@me/widgets` keep it as is. `GET /api/users/:id/serika-wishlist`
+proxies `GET {NEXT_PUBLIC_SERIKA_WISHLIST_URL}/api/public/users/{accountsId}/wishlists`
+(5 min cache, owner may `?refresh=1`) and only answers for other viewers when the
+owner turned the widget on. See `src/lib/serikaWishlist.ts`.
 
 ### 1.5 RPC extensions
 Add to `rich_presence`: `applicationId uuid null`, `assets jsonb null`

@@ -1,5 +1,5 @@
 import type { Metadata, Viewport } from "next";
-import { Inter, Noto_Kufi_Arabic } from "next/font/google";
+import { Inter, Noto_Kufi_Arabic, Outfit } from "next/font/google";
 import { GTProvider } from "gt-next";
 import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/contexts/AuthContext";
@@ -23,6 +23,13 @@ const inter = Inter({
 // Not preloaded: only Arabic-script text uses it (the @font-face unicode-range
 // keeps everyone else from downloading it), so a <link rel=preload> made every
 // visitor fetch it on startup.
+// Serika display face: widget titles and other brand headings (`font-display`).
+const outfit = Outfit({
+  variable: "--font-outfit",
+  subsets: ["latin"],
+  display: "swap",
+});
+
 const notoKufi = Noto_Kufi_Arabic({
   variable: "--font-arabic",
   subsets: ["arabic"],
@@ -109,7 +116,7 @@ export default function RootLayout({
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "if(window.__TAURI__){var _f=window.fetch;window.fetch=function(u,o){o=o||{};o.headers=o.headers||{};if(o.headers instanceof Headers){o.headers.set('x-serika-client','tauri');}else{o.headers['x-serika-client']='tauri';}return _f.call(window,u,o);};}" }} />
       </head>
       <body
-        className={`${inter.variable} ${notoKufi.variable} font-sans antialiased`}
+        className={`${inter.variable} ${outfit.variable} ${notoKufi.variable} font-sans antialiased`}
       >
         <GTProvider>
           <LocaleSync />

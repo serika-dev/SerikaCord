@@ -13,7 +13,7 @@ import {
   defaultLayoutForSurface,
   type WidgetSurfaceType,
 } from "@/lib/constants/widgets";
-import { ArrowLeft, Save, Rocket, EyeOff, Plus, Trash2, Code2, Check, Trash, Sparkles } from "lucide-react";
+import { ArrowLeft, Save, Rocket, EyeOff, Plus, Trash2, Code2, Check, Trash, Sparkles, AlertTriangle, CheckCircle2 } from "lucide-react";
 
 interface SampleEntry { name: string; type: number; value: string; }
 
@@ -209,74 +209,88 @@ export default function WidgetEditorPage() {
 
   if (loading) return <div className="fixed inset-0 bg-[#0a0a0a] flex items-center justify-center"><Loader /></div>;
 
+  const btn = "sw-focus inline-flex items-center gap-1.5 px-3 py-1.5 rounded-[8px] text-sm font-medium transition-colors disabled:opacity-50";
+  const field = "w-full mt-1 bg-white/[0.04] border border-[var(--sw-hairline)] rounded-[8px] px-2.5 py-2 text-sm text-white focus:outline-none focus:border-[var(--sw-accent)] focus:ring-2 focus:ring-[var(--sw-accent)]/25 [color-scheme:dark]";
+  const label = "text-[10px] font-semibold uppercase tracking-[0.08em] text-[var(--sw-faint)]";
+
   return (
     <div className="fixed inset-0 z-[60] bg-[#0a0a0a] text-white flex flex-col">
       {/* Top bar */}
-      <header className="h-14 shrink-0 border-b border-white/[0.06] flex items-center px-4 gap-3">
-        <button onClick={() => router.push(`/developers/applications/${appId}`)} className="p-1.5 rounded-lg hover:bg-white/[0.06] text-white/70">
-          <ArrowLeft className="w-5 h-5" />
+      <header className="min-h-14 shrink-0 border-b border-[var(--sw-hairline)] flex flex-wrap items-center px-3 sm:px-4 py-2 gap-x-3 gap-y-2 bg-[#0c0c10]">
+        <button onClick={() => router.push(`/developers/applications/${appId}`)} aria-label={gt("Back")} className="sw-focus p-1.5 rounded-[8px] hover:bg-white/[0.06] text-white/70">
+          <ArrowLeft className="w-5 h-5" aria-hidden />
         </button>
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="bg-transparent text-base font-bold text-white border-b border-transparent hover:border-white/20 focus:border-[#8B5CF6] focus:outline-none px-1"
+          aria-label={gt("Widget name")}
+          className="min-w-0 flex-1 sm:flex-none sm:w-64 bg-transparent font-display text-[17px] font-semibold tracking-[-0.01em] text-white border-b border-transparent hover:border-white/20 focus:border-[var(--sw-accent)] focus:outline-none px-1"
         />
-        <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded ${status === "published" ? "bg-green-500/20 text-green-300" : "bg-white/10 text-white/50"}`}>
+        <span className={`inline-flex items-center gap-1.5 text-[10px] uppercase font-semibold tracking-[0.08em] px-2 py-1 rounded-[6px] ${status === "published" ? "bg-emerald-500/15 text-emerald-300 ring-1 ring-inset ring-emerald-400/25" : "bg-white/[0.06] text-white/55 ring-1 ring-inset ring-white/10"}`}>
+          <span aria-hidden className={`size-1.5 rounded-full ${status === "published" ? "bg-emerald-400" : "bg-white/40"}`} />
           {status === "published" ? gt("Published") : gt("Draft")}
         </span>
         <div className="ml-auto flex items-center gap-2">
-          <button onClick={save} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.1] text-sm disabled:opacity-50">
-            <Save className="w-4 h-4" /> {gt("Save changes")}
+          <button onClick={del} className={`${btn} text-red-300 hover:bg-red-500/10`}>
+            <Trash className="w-4 h-4" aria-hidden /> <span className="hidden sm:inline">{gt("Delete")}</span>
           </button>
-          <button onClick={togglePublish} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#8B5CF6] hover:bg-[#7c4ff0] text-sm">
-            {status === "published" ? <><EyeOff className="w-4 h-4" /> {gt("Unpublish")}</> : <><Rocket className="w-4 h-4" /> {gt("Publish")}</>}
+          <button onClick={save} disabled={saving} className={`${btn} bg-white/[0.06] hover:bg-white/[0.1] ring-1 ring-inset ring-white/10`}>
+            <Save className="w-4 h-4" aria-hidden /> {gt("Save changes")}
           </button>
-          <button onClick={del} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-500/90 hover:bg-red-500 text-sm">
-            <Trash className="w-4 h-4" /> {gt("Delete")}
+          <button onClick={togglePublish} className={`${btn} bg-[var(--sw-accent)] hover:bg-[#7c4ff0] text-white shadow-[0_8px_24px_-10px_rgba(139,92,246,0.8)]`}>
+            {status === "published" ? <><EyeOff className="w-4 h-4" aria-hidden /> {gt("Unpublish")}</> : <><Rocket className="w-4 h-4" aria-hidden /> {gt("Publish")}</>}
           </button>
         </div>
       </header>
 
-      <div className="flex-1 min-h-0 flex">
+      <div className="flex-1 min-h-0 flex flex-col lg:flex-row overflow-y-auto lg:overflow-hidden">
         {/* Left panel */}
-        <aside className="w-[340px] shrink-0 border-r border-white/[0.06] flex flex-col">
-          <div className="p-4 border-b border-white/[0.06]">
+        <aside className="w-full lg:w-[320px] shrink-0 border-b lg:border-b-0 lg:border-r border-[var(--sw-hairline)] flex flex-col lg:min-h-0 bg-[#0c0c10]">
+          <div className="p-4 border-b border-[var(--sw-hairline)]">
+            <label className={label} htmlFor="widget-surface">{gt("Surface")}</label>
             <select
+              id="widget-surface"
               value={activeSurface}
               onChange={(e) => { setActiveSurface(e.target.value as WidgetSurfaceType); setSelected(null); setTab("design"); }}
-              className="w-full bg-white/[0.04] border border-white/[0.08] rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6] [color-scheme:dark]"
+              className={field}
             >
               {WIDGET_SURFACES.map((s) => <option key={s.key} value={s.key}>{s.label}</option>)}
             </select>
           </div>
 
-          <div className="flex border-b border-white/[0.06]">
+          <div className="flex border-b border-[var(--sw-hairline)]" role="tablist">
             {(["design", "content"] as const).map((t) => (
-              <button key={t} onClick={() => setTab(t)} className={`flex-1 py-2.5 text-sm border-b-2 transition-colors ${tab === t ? "border-[#8B5CF6] text-[#8B5CF6]" : "border-transparent text-white/50 hover:text-white"}`}>
+              <button key={t} role="tab" aria-selected={tab === t} onClick={() => setTab(t)} className={`sw-focus flex-1 py-2.5 text-sm font-medium border-b-2 transition-colors ${tab === t ? "border-[var(--sw-accent)] text-white" : "border-transparent text-white/50 hover:text-white"}`}>
                 {t === "design" ? gt("Design") : gt("Content")}
               </button>
             ))}
           </div>
 
-          <div className="flex-1 overflow-y-auto p-4 space-y-2">
+          <div className="flex-1 lg:overflow-y-auto p-4 space-y-2">
             {tab === "design" ? (
               <>
-                <p className="text-[11px] uppercase tracking-wide text-white/40 mb-2">{gt("Select layout")}</p>
+                <p className={`${label} mb-2`}>{gt("Select layout")}</p>
                 {surfaceDef?.layouts.map((l) => (
                   <button
                     key={l.key}
                     onClick={() => setLayout(activeSurface, l.key)}
-                    className={`w-full text-left p-3 rounded-xl border transition-colors ${layoutKey === l.key ? "border-[#8B5CF6] bg-[#8B5CF6]/[0.08]" : "border-white/[0.06] hover:border-white/20"}`}
+                    aria-pressed={layoutKey === l.key}
+                    className={`sw-focus w-full flex items-start gap-3 text-left p-3 rounded-[10px] border transition-colors ${layoutKey === l.key ? "border-[var(--sw-accent)]/70 bg-[var(--sw-accent)]/[0.09]" : "border-[var(--sw-hairline)] hover:border-[var(--sw-hairline-strong)] hover:bg-white/[0.02]"}`}
                   >
-                    <p className="text-sm font-medium text-white">{l.label}</p>
-                    <p className="text-[11px] text-white/40 mt-0.5">{l.description}</p>
+                    <span aria-hidden className={`mt-0.5 grid place-items-center size-4 shrink-0 rounded-full border ${layoutKey === l.key ? "border-[var(--sw-accent)] bg-[var(--sw-accent)]" : "border-white/25"}`}>
+                      {layoutKey === l.key && <span className="size-1.5 rounded-full bg-white" />}
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-medium text-white">{l.label}</span>
+                      <span className="block text-[11.5px] text-white/45 mt-0.5 leading-snug">{l.description}</span>
+                    </span>
                   </button>
                 ))}
               </>
             ) : (
               layoutDef?.components.map((comp) => (
                 <div key={comp.key} className="space-y-1">
-                  <p className="text-[11px] uppercase tracking-wide text-white/40 mt-2">{comp.label}</p>
+                  <p className={`${label} mt-3 mb-1`}>{comp.label}</p>
                   {comp.fields.map((f) => {
                     const configured = !!getField(comp.key, f.key)?.value;
                     const isSel = selected?.comp === comp.key && selected?.field === f.key;
@@ -284,12 +298,13 @@ export default function WidgetEditorPage() {
                       <button
                         key={f.key}
                         onClick={() => setSelected({ comp: comp.key, field: f.key })}
-                        className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm text-left transition-colors ${isSel ? "bg-white/[0.08] text-white" : "text-white/60 hover:bg-white/[0.04]"}`}
+                        aria-pressed={isSel}
+                        className={`sw-focus w-full flex items-center justify-between px-3 py-2 rounded-[8px] text-sm text-left transition-colors ${isSel ? "bg-[var(--sw-accent)]/[0.12] text-white ring-1 ring-inset ring-[var(--sw-accent)]/40" : "text-white/65 hover:bg-white/[0.04]"}`}
                       >
                         <span className="truncate">{f.label}</span>
                         <span className="flex items-center gap-1.5 shrink-0">
-                          {f.required && <span className="text-[9px] uppercase font-bold text-amber-300/80">{gt("Required")}</span>}
-                          <span className={`w-1.5 h-1.5 rounded-full ${configured ? "bg-green-400" : "bg-white/20"}`} />
+                          {f.required && <span className="text-[9px] uppercase font-semibold tracking-[0.06em] text-amber-300/85">{gt("Required")}</span>}
+                          <span aria-label={configured ? gt("Configured") : gt("Not configured")} className={`w-1.5 h-1.5 rounded-full ${configured ? "bg-emerald-400" : "bg-white/20"}`} />
                         </span>
                       </button>
                     );
@@ -300,28 +315,31 @@ export default function WidgetEditorPage() {
           </div>
         </aside>
 
-        {/* Center preview — a lighter "stage" so the dark widget card stands out */}
-        <main className="flex-1 min-w-0 flex flex-col items-center justify-center gap-3 bg-[#232428] p-6 [background-image:radial-gradient(circle_at_center,rgba(255,255,255,0.04),transparent_70%)]">
-          <span className="text-[10px] uppercase tracking-wide text-white/40">{gt("Live preview")}</span>
-          <div className="w-full max-w-sm shadow-2xl shadow-black/50">
+        {/* Center preview — a dotted stage with a soft violet glow, sized like the profile board */}
+        <main className="flex-1 min-w-0 min-h-[360px] flex flex-col items-center justify-center gap-4 p-6 bg-[#08080b] [background-image:radial-gradient(circle_at_50%_40%,rgba(139,92,246,0.14),transparent_55%),radial-gradient(rgba(255,255,255,0.07)_1px,transparent_1px)] [background-size:100%_100%,18px_18px]">
+          <span className="inline-flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-[0.1em] text-white/45">
+            <span aria-hidden className="size-1.5 rounded-full bg-[var(--sw-accent)] animate-pulse motion-reduce:animate-none" />
+            {gt("Live preview")}
+          </span>
+          <div className="w-full max-w-[420px] rounded-[14px] bg-[#0c0c10] p-4 ring-1 ring-white/[0.06] shadow-[0_40px_80px_-40px_rgba(0,0,0,0.9)]">
             <WidgetRenderer config={{ name, surfaces }} data={rendererData} mode={previewMode(activeSurface)} />
           </div>
         </main>
 
         {/* Right inspector */}
-        <aside className="w-[300px] shrink-0 border-l border-white/[0.06] p-4 overflow-y-auto">
+        <aside className="w-full lg:w-[300px] shrink-0 border-t lg:border-t-0 lg:border-l border-[var(--sw-hairline)] p-4 lg:overflow-y-auto bg-[#0c0c10]">
           {selectedDef ? (
             <div className="space-y-3">
               <div className="flex items-center justify-between">
                 <h3 className="text-sm font-semibold text-white">{selectedDef.label}</h3>
-                {selectedField && <button onClick={() => clearField(selected!.comp, selected!.field)} className="text-white/40 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>}
+                {selectedField && <button onClick={() => clearField(selected!.comp, selected!.field)} aria-label={gt("Clear field")} title={gt("Clear field")} className="sw-focus p-1 rounded text-white/40 hover:text-red-400"><Trash2 className="w-4 h-4" aria-hidden /></button>}
               </div>
               <div>
-                <label className="text-[11px] text-white/50 uppercase">{gt("Value type")}</label>
+                <label className={label}>{gt("Value type")}</label>
                 <select
                   value={selectedField?.value_type ?? "custom_string"}
                   onChange={(e) => setField(selected!.comp, selected!.field, { value_type: e.target.value as WidgetField["value_type"] })}
-                  className="w-full mt-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6] [color-scheme:dark]"
+                  className={field}
                 >
                   <option value="custom_string">{gt("Custom String")}</option>
                   <option value="data">{gt("User Data")}</option>
@@ -330,11 +348,11 @@ export default function WidgetEditorPage() {
               </div>
               {selectedDef.kind === "text" && selectedField?.value_type === "data" && (selectedDef.allowedPresentationTypes?.length ?? 0) > 1 && (
                 <div>
-                  <label className="text-[11px] text-white/50 uppercase">{gt("Presentation")}</label>
+                  <label className={label}>{gt("Presentation")}</label>
                   <select
                     value={selectedField?.presentation_type ?? "text"}
                     onChange={(e) => setField(selected!.comp, selected!.field, { presentation_type: e.target.value as WidgetField["presentation_type"] })}
-                    className="w-full mt-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
+                    className={field}
                   >
                     {selectedDef.allowedPresentationTypes?.map((p) => (
                       <option key={p} value={p}>{p === "text" ? gt("Text") : p === "number" ? gt("Number") : gt("Duration")}</option>
@@ -343,23 +361,23 @@ export default function WidgetEditorPage() {
                 </div>
               )}
               <div>
-                <label className="text-[11px] text-white/50 uppercase">
+                <label className={label}>
                   {selectedField?.value_type === "data" ? gt("Data field (key)") : selectedDef.kind === "image" ? gt("Image URL") : gt("Content")}
                 </label>
                 <input
                   value={selectedField?.value ?? ""}
                   onChange={(e) => setField(selected!.comp, selected!.field, { value: e.target.value })}
                   placeholder={selectedField?.value_type === "data" ? "TopShowTitle" : selectedDef.kind === "image" ? "https://…" : gt("Enter text")}
-                  className="w-full mt-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
+                  className={field}
                 />
               </div>
               {selectedField?.value_type === "data" && (
                 <div>
-                  <label className="text-[11px] text-white/50 uppercase">{gt("Fallback")}</label>
+                  <label className={label}>{gt("Fallback")}</label>
                   <input
                     value={typeof selectedField?.fallback === "string" ? selectedField.fallback : ""}
                     onChange={(e) => setField(selected!.comp, selected!.field, { fallback: e.target.value })}
-                    className="w-full mt-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-2 text-sm text-white focus:outline-none focus:border-[#8B5CF6]"
+                    className={field}
                   />
                 </div>
               )}
@@ -373,7 +391,7 @@ export default function WidgetEditorPage() {
                     const firstComp = layoutDef.components[0];
                     if (firstComp.fields.length > 0) setSelected({ comp: firstComp.key, field: firstComp.fields[0].key });
                   }}
-                  className="flex items-center gap-1.5 text-xs text-[#8B5CF6] hover:text-[#a78bfa] transition-colors"
+                  className="flex items-center gap-1.5 text-xs text-[var(--sw-accent-soft)] hover:text-white transition-colors"
                 >
                   <Sparkles className="w-3.5 h-3.5" /> {gt("Edit first field")}
                 </button>
@@ -384,16 +402,19 @@ export default function WidgetEditorPage() {
       </div>
 
       {/* Footer: validation / sample data */}
-      <footer className="shrink-0 border-t border-white/[0.06] max-h-[38%] overflow-y-auto">
+      <footer className="shrink-0 border-t border-[var(--sw-hairline)] max-h-[38%] overflow-y-auto bg-[#0c0c10]">
         <div className="flex items-center gap-4 px-4 pt-2">
           {(["validation", "sample"] as const).map((t) => (
-            <button key={t} onClick={() => setFootTab(t)} className={`py-2 text-sm border-b-2 transition-colors ${footTab === t ? "border-[#8B5CF6] text-[#8B5CF6]" : "border-transparent text-white/50 hover:text-white"}`}>
+            <button key={t} onClick={() => setFootTab(t)} className={`sw-focus inline-flex items-center gap-1.5 py-2 text-sm font-medium border-b-2 transition-colors ${footTab === t ? "border-[var(--sw-accent)] text-white" : "border-transparent text-white/50 hover:text-white"}`}>
               {t === "validation" ? gt("Validation") : gt("Sample Data")}
+              {t === "validation" && validationErrors.length > 0 && (
+                <span className="min-w-4 h-4 px-1 rounded-full bg-amber-400/20 text-amber-200 text-[10px] font-semibold grid place-items-center">{validationErrors.length}</span>
+              )}
             </button>
           ))}
           {footTab === "sample" && (
             <div className="ml-auto flex items-center gap-3">
-              <button onClick={() => setSample((s) => [...s, { name: "", type: 1, value: "" }])} className="flex items-center gap-1 text-xs text-[#8B5CF6] hover:underline">
+              <button onClick={() => setSample((s) => [...s, { name: "", type: 1, value: "" }])} className="sw-focus flex items-center gap-1 text-xs text-[var(--sw-accent-soft)] hover:underline">
                 <Plus className="w-3.5 h-3.5" /> {gt("Add field")}
               </button>
               <button onClick={() => setShowJson((v) => !v)} className="flex items-center gap-1 text-xs text-white/60 hover:text-white">
@@ -405,10 +426,14 @@ export default function WidgetEditorPage() {
         <div className="p-4">
           {footTab === "validation" ? (
             validationErrors.length === 0 ? (
-              <p className="text-sm text-white/40">{gt("No validation errors.")}</p>
+              <p className="inline-flex items-center gap-2 text-sm text-emerald-300/80"><CheckCircle2 className="size-4" aria-hidden /> {gt("No validation errors.")}</p>
             ) : (
-              <ul className="space-y-1">
-                {validationErrors.map((e, i) => <li key={i} className="text-xs text-amber-300/80">• {e}</li>)}
+              <ul className="space-y-1.5">
+                {validationErrors.map((e, i) => (
+                  <li key={i} className="flex items-start gap-2 text-xs text-amber-200/90">
+                    <AlertTriangle className="size-3.5 mt-px shrink-0 text-amber-300" aria-hidden /> {e}
+                  </li>
+                ))}
               </ul>
             )
           ) : showJson ? (
@@ -425,15 +450,15 @@ export default function WidgetEditorPage() {
             <div className="space-y-2">
               {sample.length === 0 && <p className="text-xs text-white/30">{gt("No sample data yet. Fields set to \"User Data\" will auto-appear here, or add them manually.")}</p>}
               {sample.map((entry, i) => (
-                <div key={i} className="flex items-center gap-2">
-                  <input value={entry.name} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder={gt("Key")} className="w-48 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]" />
-                  <select value={entry.type} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, type: Number(e.target.value) } : x)))} className="bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-sm text-white [color-scheme:dark]">
+                <div key={i} className="flex flex-wrap sm:flex-nowrap items-center gap-2">
+                  <input value={entry.name} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, name: e.target.value } : x)))} placeholder={gt("Key")} aria-label={gt("Key")} className="w-full sm:w-48 bg-white/[0.04] border border-[var(--sw-hairline)] rounded-[8px] px-2.5 py-1.5 text-sm text-white font-mono focus:outline-none focus:border-[var(--sw-accent)]" />
+                  <select value={entry.type} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, type: Number(e.target.value) } : x)))} aria-label={gt("Type")} className="bg-white/[0.04] border border-[var(--sw-hairline)] rounded-[8px] px-2 py-1.5 text-sm text-white [color-scheme:dark] focus:outline-none focus:border-[var(--sw-accent)]">
                     <option value={1}>{gt("String")}</option>
                     <option value={2}>{gt("Number")}</option>
                     <option value={3}>{gt("Media")}</option>
                   </select>
-                  <input value={entry.value} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} placeholder={entry.type === 3 ? gt("Image URL") : gt("Value")} className="flex-1 bg-white/[0.04] border border-white/[0.08] rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]" />
-                  <button onClick={() => setSample((s) => s.filter((_, j) => j !== i))} className="text-white/40 hover:text-red-400"><Trash2 className="w-4 h-4" /></button>
+                  <input value={entry.value} onChange={(e) => setSample((s) => s.map((x, j) => (j === i ? { ...x, value: e.target.value } : x)))} placeholder={entry.type === 3 ? gt("Image URL") : gt("Value")} aria-label={gt("Value")} className="flex-1 min-w-0 bg-white/[0.04] border border-[var(--sw-hairline)] rounded-[8px] px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-[var(--sw-accent)]" />
+                  <button onClick={() => setSample((s) => s.filter((_, j) => j !== i))} aria-label={gt("Remove field")} title={gt("Remove field")} className="sw-focus p-1 rounded text-white/40 hover:text-red-400"><Trash2 className="w-4 h-4" aria-hidden /></button>
                 </div>
               ))}
             </div>

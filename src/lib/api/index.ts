@@ -3886,7 +3886,9 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
     const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     const targetId = params.userId === '@me' ? user.id : params.userId;
-    const target = targetId === user.id ? user : await User.findById(targetId);
+    // Always read placements fresh: the auth user object is cached for minutes,
+    // so the owner would otherwise not see a widget they just added.
+    const target = await User.findById(targetId);
     if (!target) { set.status = 404; return { error: 'User not found' }; }
     const placements = Array.isArray(target.profileWidgets) ? target.profileWidgets as Array<{ type?: string; applicationId?: string; [key: string]: unknown }> : [];
     const { WidgetConfig, WidgetUserData, Application } = await import('@/lib/models');
@@ -3894,27 +3896,46 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
       if (p.type !== 'application' || !p.applicationId) return { ...p };
       const config = await WidgetConfig.findByApplication(p.applicationId);
       if (!config) return null;
+      const app = await Application.findById(p.applicationId);
       // App owners can see their own widgets even in draft status
       if (config.status !== 'published') {
-        const app = await Application.findById(p.applicationId);
         if (!app || app.ownerId !== user.id) return null;
       }
       const data = await WidgetUserData.findOne({ applicationId: p.applicationId, userId: targetId });
-      return { ...p, config: { name: config.name, surfaces: config.surfaces }, data: data?.data ?? config.sampleData ?? null };
+      return {
+        ...p,
+        config: { name: config.name, surfaces: config.surfaces },
+        data: data?.data ?? config.sampleData ?? null,
+        application: app ? { name: app.name ?? null, icon: app.icon ?? null } : null,
+      };
     }));
     return { widgets: resolved.filter(Boolean) };
   })
   .put('/@me/widgets', async ({ headers, cookie, body, set }) => {
     const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const widgets = ((body as Record<string, unknown>).widgets as Array<Record<string, unknown>>).map((w, i) => ({
-      id: w.id || `${w.type}:${w.applicationId || w.builtin || i}`,
-      type: w.type,
-      applicationId: w.applicationId ?? null,
-      builtin: w.builtin ?? null,
-      position: i,
-    }));
+    const { SERIKA_WISHLIST_BUILTIN, findWishlistPlacement } = await import('@/lib/serikaWishlist');
+    const incoming = (body as Record<string, unknown>).widgets as Array<Record<string, unknown>>;
+    const widgets: Array<Record<string, unknown>> = incoming
+      // Built-ins with their own settings endpoint are only changed there.
+      .filter((w) => w.builtin !== SERIKA_WISHLIST_BUILTIN)
+      .map((w, i) => ({
+        id: w.id || `${w.type}:${w.applicationId || w.builtin || i}`,
+        type: w.type,
+        applicationId: w.applicationId ?? null,
+        builtin: w.builtin ?? null,
+        position: i,
+      }));
+    // Keep the Wishlist widget (and its settings) wherever the client put it.
+    const fresh = await User.findById(user.id);
+    const wishlist = findWishlistPlacement(fresh?.profileWidgets);
+    if (wishlist) {
+      const at = incoming.findIndex((w) => w.builtin === SERIKA_WISHLIST_BUILTIN);
+      widgets.splice(at === -1 ? widgets.length : Math.min(at, widgets.length), 0, { ...wishlist });
+      widgets.forEach((w, i) => { w.position = i; });
+    }
     await User.updateById(user.id, { profileWidgets: widgets });
+    await invalidateUserCache(user.id).catch(() => {});
     return { widgets };
   }, {
     body: t.Object({
@@ -3947,6 +3968,65 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
       ))
       .limit(50);
     return { widgets: rows };
+  })
+
+  // ── Serika Wishlist widget ────────────────────────────────────────────────
+  // Public wishlists from wish.serika.dev. Other people only get data when the
+  // owner turned the widget on; the owner always gets every public list so the
+  // settings can offer them. Upstream only ever returns lists marked public.
+  .get('/:userId/serika-wishlist', async ({ headers, cookie, params, query, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const targetId = params.userId === '@me' ? user.id : params.userId;
+    if (!isValidObjectId(targetId)) { set.status = 400; return { error: 'Invalid user id' }; }
+    const target = await User.findById(targetId);
+    if (!target) { set.status = 404; return { error: 'User not found' }; }
+    const isOwner = target.id === user.id;
+    const { findWishlistPlacement, visibleWishlists } = await import('@/lib/serikaWishlist');
+    const placement = findWishlistPlacement(target.profileWidgets);
+    const enabled = !!placement;
+    const listSlug = placement?.options.listSlug ?? null;
+    if (!enabled && !isOwner) return { enabled: false, listSlug: null };
+    if (!isOwner && (target.blockedUsers ?? []).includes(user.id)) return { enabled: false, listSlug: null };
+
+    const { getSerikaWishlist } = await import('@/lib/services/serikaWishlist');
+    const refresh = isOwner && (query as Record<string, string | undefined>).refresh === '1';
+    const result = await getSerikaWishlist(target.id, { refresh });
+    if (result.status === 'error') {
+      set.status = 502;
+      return { enabled, listSlug, error: 'Serika Wishlist is unavailable right now' };
+    }
+    if (result.status === 'not_found') {
+      return { enabled, listSlug, found: false, profileUrl: null, lists: [] };
+    }
+    return {
+      enabled,
+      listSlug,
+      found: true,
+      profileUrl: result.profile.profileUrl,
+      lists: visibleWishlists(result.profile.lists, listSlug, isOwner),
+    };
+  })
+  .put('/@me/serika-wishlist', async ({ headers, cookie, body, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const limited = await checkRateLimit('api', `wishlist-widget:${user.id}`).catch(() => ({ success: true }));
+    if (!limited.success) { set.status = 429; return { error: 'Rate limited' }; }
+    const { WISHLIST_SLUG_RE, withWishlistPlacement, findWishlistPlacement } = await import('@/lib/serikaWishlist');
+    const b = body as { enabled: boolean; listSlug?: string | null };
+    const listSlug = b.listSlug ?? null;
+    if (listSlug !== null && !WISHLIST_SLUG_RE.test(listSlug)) { set.status = 400; return { error: 'Invalid list' }; }
+    const fresh = await User.findById(user.id);
+    const profileWidgets = withWishlistPlacement(fresh?.profileWidgets, { enabled: b.enabled, listSlug });
+    await User.updateById(user.id, { profileWidgets });
+    await invalidateUserCache(user.id).catch(() => {});
+    const placement = findWishlistPlacement(profileWidgets);
+    return { enabled: !!placement, listSlug: placement?.options.listSlug ?? null };
+  }, {
+    body: t.Object({
+      enabled: t.Boolean(),
+      listSlug: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
+    }),
   });
 
 // Discord bridge self-service data controls.
