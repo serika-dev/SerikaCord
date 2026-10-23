@@ -85,7 +85,12 @@ widgets, wishlists, and the fixed Connections / Recent activity sections);
 are implicit: game sections are shown first, Connections and Recent activity last.
 The first reorder turns them into placements (`id: 'game:<category>'`,
 `'section:connections'` / `'section:activity'`, builtin `connections` /
-`recent_activity`); they can't be removed. `PUT /api/users/@me/widgets/order`
+`recent_activity`). Connections and Recent activity are on by default; the owner
+can remove one with `PUT /api/users/@me/board-sections` (`{ section, enabled }`),
+which stores its placement with `hidden: true` so it keeps its slot and comes back
+in the same place. Only that endpoint changes `hidden`; the order endpoint and the
+widget PUT copy stored placements as-is, so older clients can't resurrect or drop
+them. Renderers skip hidden placements. `PUT /api/users/@me/widgets/order`
 (`{ ids }`) only reorders; `PUT /api/users/@me/widgets` controls app widgets and
 keeps built-ins it doesn't name.
 

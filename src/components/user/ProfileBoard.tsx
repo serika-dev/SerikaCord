@@ -33,6 +33,7 @@ import {
 } from "@/lib/serikaWishlist";
 import {
   GAME_BUILTIN_BY_CATEGORY,
+  BOARD_SECTION_ORDER,
   GAME_CATEGORY_ORDER,
   SECTION_BUILTIN_BY_KEY,
   boardOrder,
@@ -56,6 +57,8 @@ interface Placement {
   applicationId?: string | null;
   builtin?: string | null;
   options?: { listSlug?: string | null } | null;
+  /** Set on a Connections / Recent activity placement the owner removed. */
+  hidden?: boolean;
   config?: WidgetConfigShape;
   data?: WidgetUserData | null;
   application?: { name: string | null; icon: string | null } | null;
@@ -139,9 +142,12 @@ function IconTile({ children }: { children: React.ReactNode }) {
 
 function AddWidgetDialog({
   open, onOpenChange, gameCounts, onAddGameCategory, addedAppIds, onAddApp, wishlist, wishlistLoading, placedSlugs, onAddWishlist,
+  removedSections, onAddSection,
 }: {
   open: boolean;
   onOpenChange: (v: boolean) => void;
+  removedSections: BoardSectionKey[];
+  onAddSection: (key: BoardSectionKey) => Promise<void>;
   gameCounts: Record<GameCategory, number>;
   onAddGameCategory: (category: GameCategory) => void;
   addedAppIds: Set<string>;
@@ -186,7 +192,23 @@ function AddWidgetDialog({
           <DialogTitle className="font-display text-white">{gt("Add to Profile")}</DialogTitle>
           <DialogDescription className="text-[var(--sw-muted)]">{gt("Widgets show up on the Board tab of your profile.")}</DialogDescription>
         </DialogHeader>
-        <div className="space-y-4 max-h-[60vh] overflow-y-auto -mx-1 px-1 pb-1">
+        <div className="space-y-4 max-h-[60vh] overflow-y-auto -mx-1 px-1 pb-1 scrollbar-thin">
+          {removedSections.length > 0 && (
+            <div className="space-y-1.5">
+              <WidgetEyebrow className="px-0.5">{gt("Profile")}</WidgetEyebrow>
+              {removedSections.map((key) => (
+                <OptionRow
+                  key={key}
+                  icon={<IconTile>{key === "connections" ? <Link2 className="size-4" aria-hidden /> : <Activity className="size-4" aria-hidden />}</IconTile>}
+                  title={key === "connections" ? gt("Connections") : gt("Recent activity")}
+                  subtitle={key === "connections" ? gt("Your linked accounts") : gt("What you're playing, watching and listening to")}
+                  disabled={busy !== null}
+                  onClick={() => run(`section:${key}`, () => onAddSection(key))}
+                />
+              ))}
+            </div>
+          )}
+
           <div className="space-y-1.5">
             <WidgetEyebrow className="px-0.5">{gt("Serika Wishlist")}</WidgetEyebrow>
             {wishlistLoading ? (
@@ -394,6 +416,43 @@ export function ProfileBoard({ userId, isSelf, sections }: {
 
   const removeApp = (id: string) => persistPlacements(placements.filter((p) => p.id !== id), order.filter((x) => x !== id));
 
+  const removed = new Set(
+    placements.filter((p) => p.hidden === true).map((p) => sectionFromId(p.id)).filter((k): k is BoardSectionKey => !!k)
+  );
+
+  const setSection = async (key: BoardSectionKey, enabled: boolean) => {
+    const id = `section:${key}`;
+    const nextPlacements = placements.some((p) => p.id === id)
+      ? placements.map((p) => (p.id === id ? { ...p, hidden: enabled ? undefined : true } : p))
+      : [...placements, { id, type: "builtin", builtin: SECTION_BUILTIN_BY_KEY[key], applicationId: null, hidden: enabled ? undefined : true }];
+    setOptimistic({ base: res.data, order: order.includes(id) ? order : [...order, id], placements: nextPlacements });
+    try {
+      const r = await fetch("/api/users/@me/board-sections", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ section: key, enabled }),
+      });
+      if (!r.ok) throw new Error();
+      return true;
+    } catch {
+      toast.error(gt("Failed to save widgets"));
+      setOptimistic(null);
+      res.reload();
+      return false;
+    }
+  };
+
+  const removeSection = async (key: BoardSectionKey, name: string) => {
+    if (!(await setSection(key, false))) return;
+    toast(gt("{name} removed from your Board", { name }), {
+      action: { label: gt("Undo"), onClick: () => { void setSection(key, true); } },
+    });
+  };
+
+  const addSection = async (key: BoardSectionKey) => {
+    await setSection(key, true);
+  };
+
   const addWishlist = async (list: WishlistList) => {
     if (!(await setWishlistWidget(list.slug, true))) {
       toast.error(gt("Could not save your Wishlist widget"));
@@ -434,6 +493,7 @@ export function ProfileBoard({ userId, isSelf, sections }: {
   for (const id of order) {
     const key = sectionFromId(id);
     if (key) {
+      if (removed.has(key)) continue;
       const sec = sections?.[key];
       // Empty sections stay hidden for visitors; the owner may get an empty state.
       if (sec && (sec.hasContent || (isSelf && sec.showEmptyToOwner))) {
@@ -493,7 +553,17 @@ export function ProfileBoard({ userId, isSelf, sections }: {
       {visibleItems.map((it, i) => {
         if (it.kind === "section") {
           return (
-            <BoardSection key={it.id} icon={it.key === "connections" ? Link2 : Activity} title={it.name} actions={controls(it, i)}>
+            <BoardSection
+              key={it.id}
+              icon={it.key === "connections" ? Link2 : Activity}
+              title={it.name}
+              actions={isSelf ? (
+                <>
+                  {controls(it, i)}
+                  <WidgetIconButton icon={X} tone="danger" revealOnHover label={gt("Remove {name}", { name: it.name })} onClick={() => removeSection(it.key, it.name)} />
+                </>
+              ) : undefined}
+            >
               {sections?.[it.key]?.node}
             </BoardSection>
           );
@@ -550,6 +620,8 @@ export function ProfileBoard({ userId, isSelf, sections }: {
           wishlistLoading={wl.loading}
           placedSlugs={placedSlugs}
           onAddWishlist={addWishlist}
+          removedSections={BOARD_SECTION_ORDER.filter((k) => removed.has(k))}
+          onAddSection={addSection}
         />
       )}
       {isSelf && addCategory && (

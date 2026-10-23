@@ -3954,6 +3954,26 @@ const gameLibraryRoutes = new Elysia({ prefix: '/users' })
   }, {
     body: t.Object({ ids: t.Array(t.String({ maxLength: 128 }), { maxItems: 60 }) }),
   })
+  // Remove (enabled: false) or add back a fixed Board section. A removed
+  // section keeps its slot, so adding it back restores its previous position.
+  .put('/@me/board-sections', async ({ headers, cookie, body, set }) => {
+    const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    const limited = await checkRateLimit('api', `board-sections:${user.id}`).catch(() => ({ success: true }));
+    if (!limited.success) { set.status = 429; return { error: 'Rate limited' }; }
+    const { setSectionEnabled, removedSections, boardOrder } = await import('@/lib/profileBoard');
+    const b = body as { section: 'connections' | 'activity'; enabled: boolean };
+    const fresh = await User.findById(user.id);
+    const widgets = setSectionEnabled(fresh?.profileWidgets, b.section, b.enabled);
+    await User.updateById(user.id, { profileWidgets: widgets });
+    await invalidateUserCache(user.id).catch(() => {});
+    return { order: boardOrder(widgets), removed: removedSections(widgets) };
+  }, {
+    body: t.Object({
+      section: t.Union([t.Literal('connections'), t.Literal('activity')]),
+      enabled: t.Boolean(),
+    }),
+  })
 
   // Published app widgets available to add to a profile (for the Add Widget modal).
   .get('/@me/available-widgets', async ({ headers, cookie, set }) => {

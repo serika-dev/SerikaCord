@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { boardOrder, mergeWidgetPut, moveInOrder, reorderPlacements, withFixedIds } from "../src/lib/profileBoard";
+import { boardOrder, mergeWidgetPut, moveInOrder, removedSections, reorderPlacements, setSectionEnabled, withFixedIds } from "../src/lib/profileBoard";
 
 const app = (id: string) => ({ id: `application:${id}`, type: "application", applicationId: id, builtin: null });
 const wish = (slug: string) => ({ id: `serika_wishlist:${slug}`, type: "builtin", builtin: "serika_wishlist", applicationId: null, options: { listSlug: slug } });
@@ -105,5 +105,59 @@ describe("withFixedIds", () => {
     ]);
     const full = boardOrder([]);
     expect(withFixedIds(full)).toEqual(full);
+  });
+});
+
+describe("removing and re-adding Connections / Recent activity", () => {
+  const visible = (stored: unknown) => {
+    const hidden = new Set(removedSections(stored).map((k) => `section:${k}`));
+    return boardOrder(stored).filter((id) => !hidden.has(id));
+  };
+
+  test("an untouched Board keeps both, in their default spots", () => {
+    expect(removedSections([])).toEqual([]);
+    expect(removedSections([app("1"), wish("a")])).toEqual([]);
+    expect(visible([app("1")]).slice(-2)).toEqual(["section:connections", "section:activity"]);
+  });
+
+  test("removing one hides only it and keeps the other where it was", () => {
+    const out = setSectionEnabled([app("1")], "connections", false);
+    expect(removedSections(out)).toEqual(["connections"]);
+    expect(visible(out).slice(-2)).toEqual(["application:1", "section:activity"]);
+    expect(out.find((p) => p.id === "section:activity")).toBeDefined();
+  });
+
+  test("adding it back restores its previous position", () => {
+    const moved = reorderPlacements([app("1")], ["section:activity", "application:1", "section:connections"]);
+    const removed = setSectionEnabled(moved, "activity", false);
+    expect(visible(removed)).not.toContain("section:activity");
+    const back = setSectionEnabled(removed, "activity", true);
+    expect(removedSections(back)).toEqual([]);
+    expect(visible(back)).toEqual(boardOrder(moved));
+    expect(back.find((p) => p.id === "section:activity")).not.toHaveProperty("hidden");
+  });
+
+  test("enabling an implicit section is a no-op", () => {
+    expect(setSectionEnabled([app("1")], "activity", true).map((p) => p.id)).toEqual(["application:1"]);
+  });
+
+  test("the order endpoint can't bring a removed section back", () => {
+    const removed = setSectionEnabled([app("1")], "connections", false);
+    const out = reorderPlacements(removed, ["section:connections", "application:1", "section:activity"]);
+    expect(removedSections(out)).toEqual(["connections"]);
+  });
+
+  test("older clients saving widgets can't resurrect or drop it", () => {
+    const removed = setSectionEnabled([wish("a")], "activity", false);
+    // An old client naming the section (5156bd2 bundle)...
+    const named = mergeWidgetPut(removed, [
+      { id: "section:activity", type: "builtin", builtin: "recent_activity" },
+      { type: "application", applicationId: "1" },
+    ]);
+    expect(removedSections(named)).toEqual(["activity"]);
+    // ...or leaving it out entirely (aad43d3 bundle).
+    const omitted = mergeWidgetPut(removed, [{ type: "application", applicationId: "1" }]);
+    expect(removedSections(omitted)).toEqual(["activity"]);
+    expect(omitted.some((p) => p.id === "section:connections")).toBe(true);
   });
 });

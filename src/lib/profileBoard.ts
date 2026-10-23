@@ -8,6 +8,11 @@
  * placement are shown before everything else, Connections and Recent activity
  * after everything else (where they always were), and each gets a real
  * placement the first time the owner moves anything.
+ *
+ * Connections and Recent activity are on by default. Removing one stores its
+ * placement with `hidden: true` (keeping its slot), so adding it back puts it
+ * where it was. Only the dedicated section endpoint changes `hidden`; the
+ * order endpoint and the generic widget PUT copy stored placements as-is.
  */
 
 export type GameCategoryKey = "favorite" | "liked" | "rotation" | "wishlist";
@@ -113,6 +118,8 @@ function withPositions(list: Placement[]): Placement[] {
 /**
  * Board order for rendering: stored placements in order, with implicit game
  * sections placed first and implicit Connections / Recent activity last.
+ * Removed sections stay in the order (so they keep their slot); renderers
+ * skip placements with `hidden: true`.
  */
 export function boardOrder(stored: unknown): string[] {
   const list = clean(stored);
@@ -120,6 +127,41 @@ export function boardOrder(stored: unknown): string[] {
   const leading = GAME_CATEGORY_ORDER.filter((c) => !list.some((p) => gameCategoryOf(p) === c)).map(gamePlacementId);
   const trailing = BOARD_SECTION_ORDER.filter((k) => !list.some((p) => sectionKeyOf(p) === k)).map(sectionPlacementId);
   return [...leading, ...ids, ...trailing];
+}
+
+export function isHiddenPlacement(p: Placement): boolean {
+  return p.hidden === true;
+}
+
+/** Connections / Recent activity sections the owner removed from their Board. */
+export function removedSections(stored: unknown): BoardSectionKey[] {
+  return clean(stored)
+    .map((p) => (isHiddenPlacement(p) ? sectionKeyOf(p) : null))
+    .filter((k): k is BoardSectionKey => !!k);
+}
+
+/**
+ * Remove (`enabled: false`) or add back (`enabled: true`) a fixed section.
+ * Implicit sections are first written out at their implicit spot (after
+ * everything, in default order) so the Board doesn't shift; a removed
+ * section keeps its slot, so adding it back restores its previous position.
+ */
+export function setSectionEnabled(stored: unknown, key: BoardSectionKey, enabled: boolean): Placement[] {
+  let list = clean(stored);
+  if (!list.some((p) => sectionKeyOf(p) === key)) {
+    if (enabled) return withPositions(list); // already on by default
+    const missing = BOARD_SECTION_ORDER.filter((k) => !list.some((p) => sectionKeyOf(p) === k));
+    list = [...list, ...missing.map(makeSectionPlacement)];
+  }
+  return withPositions(
+    list.map((p) => {
+      if (sectionKeyOf(p) !== key) return p;
+      const next: Placement = { ...p, id: sectionPlacementId(key) };
+      if (enabled) delete next.hidden;
+      else next.hidden = true;
+      return next;
+    })
+  );
 }
 
 /**
