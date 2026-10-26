@@ -6,7 +6,7 @@ import { T, useGT } from "gt-next";
 import { BadgeCheck, Eye, Info } from "lucide-react";
 import { toast } from "sonner";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { Loader } from "@/components/ui/Loader";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { ConnectionIcon } from "@/components/user/ConnectionIcon";
 import { invalidateServerOnboarding, type ServerConnectionView } from "@/hooks/useServerOnboarding";
@@ -122,13 +122,21 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
     );
   }
   if (!loaded || loaded.serverId !== serverId) {
-    return <div className="flex items-center justify-center py-12"><Loader size={32} /></div>;
+    return (
+      <div aria-hidden className="space-y-6">
+        <div className="space-y-2 max-md:hidden">
+          <span className="block h-5 w-40 animate-pulse rounded bg-[var(--bg-hover)]" />
+          <span className="block h-3.5 w-72 max-w-full animate-pulse rounded bg-[var(--bg-hover)]" />
+        </div>
+        <SettingsSkeleton variant="rows" count={5} />
+      </div>
+    );
   }
 
   const header = (
     <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
       <div className="min-w-0">
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Connections</T></h2>
+        <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Connections</T></h2>
         <p className="text-sm text-[var(--text-secondary)]">
           <T>Show accounts you own on your server&apos;s profile, invite page and Server Guide, so members know the server is really yours.</T>
         </p>
@@ -151,7 +159,7 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
     return (
       <div className="space-y-6">
         {header}
-        <p className="flex items-start gap-2 p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] text-sm text-[var(--text-secondary)]">
+        <p className="flex items-start gap-2 p-3 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)] text-sm text-[var(--text-secondary)]">
           <Info className="w-4 h-4 shrink-0 mt-0.5 text-[var(--text-muted)]" />
           <T>Only the server owner can link connections.</T>
         </p>
@@ -160,8 +168,8 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
         ) : (
           <ul className="space-y-2">
             {loaded.shown.map((c) => (
-              <li key={`${c.source ?? "owner"}:${c.id}`} className="flex items-center gap-3 min-h-14 px-3 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-                <span className="w-9 h-9 shrink-0 rounded-md bg-[var(--bg-app)] flex items-center justify-center">
+              <li key={`${c.source ?? "owner"}:${c.id}`} className="flex items-center gap-3 min-h-14 px-3 py-2 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+                <span className="w-9 h-9 shrink-0 rounded-md bg-[var(--bg-hover)] flex items-center justify-center">
                   <ConnectionIcon provider={c.provider} accountId={c.accountId} size={18} />
                 </span>
                 <span className="flex-1 min-w-0 text-sm font-medium text-[var(--text-primary)] truncate">{connectionName(c)}</span>
@@ -274,7 +282,7 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
                 <label
                   className={`flex items-center gap-3 min-h-14 px-3 py-2 rounded-lg bg-[var(--bg-card)] border ${checked ? "border-[var(--app-accent)]" : "border-[var(--border-subtle)]"} ${disabled ? "opacity-60 cursor-not-allowed" : "cursor-pointer"}`}
                 >
-                  <span className="w-9 h-9 shrink-0 rounded-md bg-[var(--bg-app)] flex items-center justify-center">
+                  <span className="w-9 h-9 shrink-0 rounded-md bg-[var(--bg-hover)] flex items-center justify-center">
                     <ConnectionIcon provider={c.provider} accountId={c.provider === "website" && c.domain?.verified ? c.domain.name : null} size={18} />
                   </span>
                   <span className="flex-1 min-w-0">
@@ -315,7 +323,7 @@ export default function ServerConnectionsPanel({ serverId, isOwner }: { serverId
         </p>
       )}
 
-      <div className="sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-app)]">
+      <div className="sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-card)] max-md:bg-[var(--bg-app)]">
         <button
           type="button"
           disabled={!dirty || saving}

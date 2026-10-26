@@ -9,10 +9,12 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useGT } from "gt-next";
 import { AtSign, Link2, MessageSquareWarning, Plus, ShieldAlert, Trash2 } from "lucide-react";
 import { toast } from "sonner";
-import { Loader } from "@/components/ui/Loader";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useServer } from "@/contexts/ServerContext";
+import { SettingsPageHeader } from "@/components/settings/SettingsSection";
+import { SettingsButton } from "@/components/settings/blocks/SettingsButton";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
 import {
   AUTOMOD_LIMITS,
   AUTOMOD_TIMEOUT_CHOICES,
@@ -130,12 +132,24 @@ function toPayload(d: Draft) {
   };
 }
 
+// Last rules per server: reopening the tab shows them at once while it refreshes.
+const rulesCache = new Map<string, AutoModRule[]>();
+
 export function ServerAutoModPanel({ serverId, roles }: { serverId: string; roles: PanelRole[] }) {
   const gt = useGT();
   const confirm = useConfirm();
   const { channels } = useServer();
-  const [rules, setRules] = useState<AutoModRule[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [rules, setRulesState] = useState<AutoModRule[]>(() => rulesCache.get(serverId) ?? []);
+  const [loading, setLoading] = useState(() => !rulesCache.has(serverId));
+  const setRules = useCallback(
+    (next: AutoModRule[] | ((list: AutoModRule[]) => AutoModRule[])) =>
+      setRulesState((prev) => {
+        const value = typeof next === "function" ? next(prev) : next;
+        rulesCache.set(serverId, value);
+        return value;
+      }),
+    [serverId],
+  );
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [saving, setSaving] = useState(false);
@@ -162,7 +176,7 @@ export function ServerAutoModPanel({ serverId, roles }: { serverId: string; role
     return () => {
       cancelled = true;
     };
-  }, [serverId]);
+  }, [serverId, setRules]);
 
   const serverChannels = useMemo(
     () => channels.filter((c) => c.serverId === serverId && c.type !== "category"),
@@ -230,7 +244,7 @@ export function ServerAutoModPanel({ serverId, roles }: { serverId: string; role
     } finally {
       setSaving(false);
     }
-  }, [draft, serverId, gt]);
+  }, [draft, serverId, gt, setRules]);
 
   const remove = useCallback(
     async (rule: AutoModRule) => {
@@ -248,7 +262,7 @@ export function ServerAutoModPanel({ serverId, roles }: { serverId: string; role
       setRules((list) => list.filter((r) => r.id !== rule.id));
       setDraft((d) => (d?.id === rule.id ? null : d));
     },
-    [confirm, gt, serverId],
+    [confirm, gt, serverId, setRules],
   );
 
   const toggleEnabled = useCallback(
@@ -264,26 +278,34 @@ export function ServerAutoModPanel({ serverId, roles }: { serverId: string; role
         toast.error(gt("Could not update the rule"));
       }
     },
-    [gt, serverId],
+    [gt, serverId, setRules],
+  );
+
+  const header = (
+    <SettingsPageHeader
+      title={gt("AutoMod")}
+      description={
+        <>
+          {gt("AutoMod checks messages as they are sent and acts on them for you. Server owners, admins and members with Manage Server are never affected.")}
+          {error && <span className="mt-2 block text-red-500">{error}</span>}
+        </>
+      }
+      className="mb-0"
+    />
   );
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader size={32} />
+      <div className="space-y-6">
+        {header}
+        <SettingsSkeleton variant="list" count={4} />
       </div>
     );
   }
 
   return (
     <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("AutoMod")}</h2>
-        <p className="text-sm text-[var(--text-secondary)]">
-          {gt("AutoMod checks messages as they are sent and acts on them for you. Server owners, admins and members with Manage Server are never affected.")}
-        </p>
-        {error && <p className="mt-2 text-sm text-red-400">{error}</p>}
-      </div>
+      {header}
 
       {sections.map((section) => {
         const Icon = section.icon;
@@ -291,9 +313,9 @@ export function ServerAutoModPanel({ serverId, roles }: { serverId: string; role
         const max = AUTOMOD_LIMITS.perType[section.type];
         const canAdd = sectionRules.length < max && !(draft && !draft.id && draft.triggerType === section.type);
         return (
-          <div key={section.type} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-secondary)] overflow-hidden">
+          <div key={section.type} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] overflow-hidden">
             <div className="flex items-start gap-3 p-4">
-              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--bg-card)] text-[var(--app-accent)]">
+              <div className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[color-mix(in_srgb,var(--app-accent)_14%,transparent)] text-[var(--app-accent)]">
                 <Icon className="h-5 w-5" />
               </div>
               <div className="min-w-0 flex-1">
@@ -301,20 +323,19 @@ export function ServerAutoModPanel({ serverId, roles }: { serverId: string; role
                 <p className="text-sm text-[var(--text-secondary)]">{section.description}</p>
               </div>
               {canAdd && (
-                <button
-                  type="button"
+                <SettingsButton
+                  variant={sectionRules.length ? "secondary" : "primary"}
                   onClick={() => setDraft(newDraft(section.type, sectionRules.length ? `${section.defaultName} ${sectionRules.length + 1}` : section.defaultName))}
-                  className="shrink-0 inline-flex items-center gap-1 rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-sm font-medium text-white hover:opacity-90"
                 >
-                  <Plus className="h-4 w-4" />
+                  <Plus />
                   {sectionRules.length ? gt("Create Rule") : gt("Set Up")}
-                </button>
+                </SettingsButton>
               )}
             </div>
 
             {sectionRules.map((rule) =>
               draft?.id === rule.id ? null : (
-                <div key={rule.id} className="flex items-center gap-3 border-t border-[var(--border-subtle)] px-4 py-3">
+                <div key={rule.id} className="flex items-center gap-3 border-t border-[var(--border-subtle)] px-4 py-3 transition-colors [@media(hover:hover)]:hover:bg-[var(--bg-hover)]/60">
                   <button type="button" onClick={() => setDraft(toDraft(rule))} className="min-w-0 flex-1 text-left">
                     <div className="truncate text-sm font-medium text-[var(--text-primary)]">{rule.name}</div>
                     <div className="text-xs text-[var(--text-muted)]">
@@ -493,21 +514,16 @@ export function ServerAutoModPanel({ serverId, roles }: { serverId: string; role
                 </div>
 
                 <div className="flex flex-wrap items-center justify-end gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setDraft(null)}
-                    className="rounded-md px-3 py-1.5 text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:underline"
-                  >
+                  <SettingsButton variant="ghost" onClick={() => setDraft(null)}>
                     {gt("Cancel")}
-                  </button>
-                  <button
-                    type="button"
+                  </SettingsButton>
+                  <SettingsButton
+                    variant="primary"
                     disabled={saving || (!draft.block && !draft.alert && !draft.timeout)}
                     onClick={() => void save()}
-                    className="rounded-md bg-[var(--app-accent)] px-4 py-1.5 text-sm font-medium text-white hover:opacity-90 disabled:opacity-50"
                   >
                     {saving ? gt("Saving...") : gt("Save Rule")}
-                  </button>
+                  </SettingsButton>
                 </div>
               </div>
             )}

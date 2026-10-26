@@ -1,12 +1,17 @@
 "use client";
 
 import { Fragment, useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { ChevronDown, ChevronRight, FileText, Plus, Pencil, Trash2 } from "lucide-react";
+import { ChevronDown, FileText, Plus, Pencil, Trash2 } from "lucide-react";
 import { useGT } from "gt-next";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader } from "@/components/ui/Loader";
 import { useServer, useServerMembersOptional } from "@/contexts/ServerContext";
 import { cn, cdnImage } from "@/lib/utils";
+import { SettingsPageHeader } from "@/components/settings/SettingsSection";
+import { SettingsButton } from "@/components/settings/blocks/SettingsButton";
+import { SettingsEmptyState } from "@/components/settings/blocks/SettingsEmptyState";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
+import { SettingsToolbar } from "@/components/settings/blocks/SettingsToolbar";
 import { AuditLogEvent, auditVerb, type AuditChange } from "@/lib/audit/auditLog";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
 
@@ -65,6 +70,8 @@ function renderSentence(text: string, parts: ReactNode[]): ReactNode {
 
 const m = (i: number) => `${MARK}${i}${MARK}`;
 
+const firstPageCache = new Map<string, { entries: AuditEntry[]; users: Record<string, AuditUser>; hasMore: boolean }>();
+
 /**
  * Discord's server audit log: who did what, newest first, filterable by user
  * and action, each entry expandable to show exactly what changed.
@@ -73,14 +80,21 @@ export function ServerAuditLogPanel({ serverId, roles }: { serverId: string; rol
   const gt = useGT();
   const { channels } = useServer();
   const members = useServerMembersOptional()?.members;
-  const [entries, setEntries] = useState<AuditEntry[]>([]);
-  const [users, setUsers] = useState<Record<string, AuditUser>>({});
-  const [loading, setLoading] = useState(true);
+  // Reopening the tab shows the last unfiltered page at once while it refreshes.
+  const cached = firstPageCache.get(serverId);
+  const [entries, setEntries] = useState<AuditEntry[]>(() => cached?.entries ?? []);
+  const [users, setUsers] = useState<Record<string, AuditUser>>(() => cached?.users ?? {});
+  const [hasMore, setHasMore] = useState(() => cached?.hasMore ?? false);
+  // Filters the entries on screen were loaded with; differs from the current
+  // filters while a refetch is in flight (the old list stays, dimmed).
+  const [loadedFor, setLoadedFor] = useState<string | null>(() => (cached ? "|" : null));
   const [loadingMore, setLoadingMore] = useState(false);
-  const [hasMore, setHasMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [filterUser, setFilterUser] = useState("");
   const [filterAction, setFilterAction] = useState("");
+  const filterKey = `${filterUser}|${filterAction}`;
+  const loading = loadedFor === null;
+  const refreshing = !loading && loadedFor !== filterKey;
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const load = useCallback(
@@ -102,21 +116,23 @@ export function ServerAuditLogPanel({ serverId, roles }: { serverId: string; rol
     load(null)
       .then((data) => {
         if (cancelled) return;
+        const nextUsers = Object.fromEntries((data.users || []).map((u) => [u.id, u]));
         setEntries(data.entries || []);
-        setUsers(Object.fromEntries((data.users || []).map((u) => [u.id, u])));
+        setUsers(nextUsers);
         setHasMore(Boolean(data.hasMore));
         setError(null);
-        setLoading(false);
+        setLoadedFor(filterKey);
+        if (filterKey === "|") firstPageCache.set(serverId, { entries: data.entries || [], users: nextUsers, hasMore: Boolean(data.hasMore) });
       })
       .catch((err) => {
         if (cancelled) return;
         setError(err instanceof Error ? err.message : String(err));
-        setLoading(false);
+        setLoadedFor(filterKey);
       });
     return () => {
       cancelled = true;
     };
-  }, [load]);
+  }, [load, filterKey, serverId]);
 
   const loadMore = async () => {
     const last = entries[entries.length - 1];
@@ -444,24 +460,21 @@ export function ServerAuditLogPanel({ serverId, roles }: { serverId: string; rol
       : d.toLocaleString([], { dateStyle: "short", timeStyle: "short" });
   };
 
-  return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Audit Log")}</h2>
-        <p className="text-sm text-[var(--text-secondary)]">{gt("View a record of all changes made to your server")}</p>
-      </div>
+  const filterSelect =
+    "h-9 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--app-accent)]";
 
-      <div className="flex flex-col sm:flex-row gap-3">
-        <label className="flex-1 min-w-0">
-          <span className="block text-[11px] font-bold uppercase tracking-wide text-[var(--text-muted)] mb-1">{gt("Filter by user")}</span>
-          <select
-            value={filterUser}
-            onChange={(e) => {
-              setLoading(true);
-              setFilterUser(e.target.value);
-            }}
-            className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-          >
+  return (
+    <div className="space-y-4">
+      <SettingsPageHeader
+        title={gt("Audit Log")}
+        description={gt("View a record of all changes made to your server")}
+        className="mb-2"
+      />
+
+      <SettingsToolbar className="gap-3">
+        <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-medium text-[var(--text-secondary)] sm:max-w-[280px]">
+          <span className="shrink-0">{gt("Filter by user")}</span>
+          <select value={filterUser} onChange={(e) => setFilterUser(e.target.value)} className={filterSelect}>
             <option value="">{gt("All users")}</option>
             {memberOptions.map(([id, label]) => (
               <option key={id} value={id}>
@@ -470,16 +483,9 @@ export function ServerAuditLogPanel({ serverId, roles }: { serverId: string; rol
             ))}
           </select>
         </label>
-        <label className="flex-1 min-w-0">
-          <span className="block text-[11px] font-bold uppercase tracking-wide text-[var(--text-muted)] mb-1">{gt("Filter by action")}</span>
-          <select
-            value={filterAction}
-            onChange={(e) => {
-              setLoading(true);
-              setFilterAction(e.target.value);
-            }}
-            className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-          >
+        <label className="flex min-w-0 flex-1 items-center gap-2 text-xs font-medium text-[var(--text-secondary)] sm:max-w-[280px]">
+          <span className="shrink-0">{gt("Filter by action")}</span>
+          <select value={filterAction} onChange={(e) => setFilterAction(e.target.value)} className={filterSelect}>
             <option value="">{gt("All actions")}</option>
             {actionOptions.map((o) => (
               <option key={o.value} value={String(o.value)}>
@@ -488,83 +494,91 @@ export function ServerAuditLogPanel({ serverId, roles }: { serverId: string; rol
             ))}
           </select>
         </label>
-      </div>
+        {refreshing && <Loader size={16} className="ml-auto" />}
+      </SettingsToolbar>
 
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-red-500">{error}</p>}
 
       {loading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader size={32} />
-        </div>
+        <SettingsSkeleton variant="list" count={8} />
       ) : entries.length === 0 ? (
-        <div className="text-center py-12">
-          <FileText className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2">{gt("No audit log entries")}</h3>
-          <p className="text-[var(--text-secondary)] text-sm">
-            {filterUser || filterAction ? gt("Nothing matches these filters.") : gt("Actions taken in your server will appear here")}
-          </p>
-        </div>
+        <SettingsEmptyState
+          icon={FileText}
+          title={gt("No audit log entries")}
+          description={filterUser || filterAction ? gt("Nothing matches these filters.") : gt("Actions taken in your server will appear here")}
+        />
       ) : (
-        <div className="space-y-2">
-          {entries.map((e) => {
-            const actor = e.userId ? users[e.userId] : undefined;
-            const verb = auditVerb(e.actionType);
-            const canExpand = e.changes.length > 0 || Boolean(e.reason);
-            const isOpen = expanded.has(e.id);
-            const VerbIcon = verb === "create" ? Plus : verb === "delete" ? Trash2 : Pencil;
-            return (
-              <div key={e.id} className="rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] overflow-hidden">
-                <button
-                  type="button"
-                  onClick={() => canExpand && toggle(e.id)}
-                  aria-expanded={canExpand ? isOpen : undefined}
-                  className={cn("w-full flex items-center gap-3 p-3 text-left", canExpand && "hover:bg-[var(--bg-hover)]")}
-                >
-                  <span
+        <div className={cn("space-y-3 transition-opacity duration-(--motion-fast)", refreshing && "opacity-60")}>
+          <div className="overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] divide-y divide-[var(--border-subtle)]">
+            {entries.map((e) => {
+              const actor = e.userId ? users[e.userId] : undefined;
+              const verb = auditVerb(e.actionType);
+              const canExpand = e.changes.length > 0 || Boolean(e.reason);
+              const isOpen = expanded.has(e.id);
+              const VerbIcon = verb === "create" ? Plus : verb === "delete" ? Trash2 : Pencil;
+              return (
+                <div key={e.id}>
+                  <button
+                    type="button"
+                    onClick={() => canExpand && toggle(e.id)}
+                    aria-expanded={canExpand ? isOpen : undefined}
                     className={cn(
-                      "w-6 h-6 rounded-full flex items-center justify-center shrink-0",
-                      verb === "create" ? "bg-green-500/15 text-green-500" : verb === "delete" ? "bg-red-500/15 text-red-400" : "bg-[var(--app-accent)]/15 text-[var(--app-accent)]",
+                      "flex w-full items-center gap-3 px-4 py-3 text-left transition-colors duration-(--motion-fast)",
+                      canExpand ? "hover:bg-[var(--bg-hover)]/60" : "cursor-default",
+                      isOpen && "bg-[var(--bg-hover)]/40",
                     )}
                   >
-                    <VerbIcon className="w-3.5 h-3.5" />
-                  </span>
-                  <Avatar className="w-8 h-8 shrink-0">
-                    <AvatarImage src={cdnImage(actor?.avatar || undefined)} />
-                    <AvatarFallback className="bg-[var(--app-accent)] text-white text-xs">
-                      {userName(e.userId).charAt(0).toUpperCase()}
-                    </AvatarFallback>
-                  </Avatar>
-                  <span className="flex-1 min-w-0">
-                    <span className="block text-sm text-[var(--text-secondary)] break-words">{sentence(e)}</span>
-                    <span className="block text-xs text-[var(--text-muted)] mt-0.5">{timeLabel(e.createdAt)}</span>
-                  </span>
-                  {canExpand && (isOpen ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)] shrink-0" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)] shrink-0" />)}
-                </button>
-                {canExpand && isOpen && (
-                  <div className="px-4 pb-3 pt-1 border-t border-[var(--border-subtle)]">
-                    {e.changes.length > 0 && (
-                      <ul className="list-disc pl-5 space-y-1 text-sm text-[var(--text-secondary)]">{e.changes.map(changeLine)}</ul>
+                    <span className="relative shrink-0">
+                      <Avatar className="h-9 w-9">
+                        <AvatarImage src={cdnImage(actor?.avatar || undefined)} />
+                        <AvatarFallback className="bg-[var(--app-accent)] text-xs text-white">
+                          {userName(e.userId).charAt(0).toUpperCase()}
+                        </AvatarFallback>
+                      </Avatar>
+                      {/* Action badge on the avatar (Discord) */}
+                      <span
+                        className={cn(
+                          "absolute -bottom-1 -right-1 flex h-[18px] w-[18px] items-center justify-center rounded-full border-2 border-[var(--bg-app)]",
+                          verb === "create" ? "bg-green-500 text-white" : verb === "delete" ? "bg-red-500 text-white" : "bg-[var(--app-accent)] text-white",
+                        )}
+                      >
+                        <VerbIcon className="h-2.5 w-2.5" />
+                      </span>
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block break-words text-sm text-[var(--text-secondary)]">{sentence(e)}</span>
+                      <span className="mt-0.5 block text-xs text-[var(--text-muted)]">{timeLabel(e.createdAt)}</span>
+                    </span>
+                    {canExpand && (
+                      <ChevronDown
+                        className={cn(
+                          "h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform duration-(--motion-fast)",
+                          !isOpen && "-rotate-90",
+                        )}
+                      />
                     )}
-                    {e.reason && (
-                      <p className="mt-2 text-sm text-[var(--text-secondary)]">
-                        <strong className="font-semibold text-[var(--text-primary)]">{gt("Reason")}:</strong> {e.reason}
-                      </p>
-                    )}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+                  </button>
+                  {canExpand && isOpen && (
+                    <div className="border-t border-[var(--border-subtle)] bg-[var(--bg-card)]/40 px-4 py-3 pl-16">
+                      {e.changes.length > 0 && (
+                        <ul className="list-disc space-y-1 pl-5 text-sm text-[var(--text-secondary)]">{e.changes.map(changeLine)}</ul>
+                      )}
+                      {e.reason && (
+                        <p className="mt-2 text-sm text-[var(--text-secondary)]">
+                          <strong className="font-semibold text-[var(--text-primary)]">{gt("Reason")}:</strong> {e.reason}
+                        </p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
           {hasMore && (
-            <div className="flex justify-center pt-2">
-              <button
-                type="button"
-                onClick={() => void loadMore()}
-                disabled={loadingMore}
-                className="px-4 py-2 rounded-md text-sm font-medium bg-[var(--app-surface-alt)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
-              >
+            <div className="flex justify-center">
+              <SettingsButton variant="secondary" onClick={() => void loadMore()} disabled={loadingMore}>
                 {loadingMore ? <Loader size={14} /> : gt("Load more")}
-              </button>
+              </SettingsButton>
             </div>
           )}
         </div>

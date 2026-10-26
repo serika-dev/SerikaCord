@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useCallback } from "react";
-import { FlaskConical, Plus, Trash2, Play, Pause, ChevronDown, ChevronRight, UserPlus, UserMinus, X } from "lucide-react";
+import { Plus, Trash2, Play, Pause, ChevronDown, ChevronRight, UserPlus, UserMinus, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
@@ -213,15 +213,14 @@ export function AdminExperimentsPanel() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-white mb-5 flex items-center gap-2">
-        <FlaskConical className="w-6 h-6 text-[var(--accent-color)]" />
+      <h2 className="mb-6 text-xl font-bold leading-tight text-[var(--text-primary)] max-md:hidden">
         {gt("Platform Experiments")}
       </h2>
 
       {/* Create experiment */}
       <div className="mb-6 p-4 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
         <h3 className="text-sm font-semibold text-[var(--text-primary)] mb-3 flex items-center gap-2">
-          <Plus className="w-4 h-4 text-[var(--accent-color)]" />
+          <Plus className="w-4 h-4 text-[var(--app-accent)]" />
           {gt("Create Experiment")}
         </h3>
         <div className="space-y-3">
@@ -256,12 +255,12 @@ export function AdminExperimentsPanel() {
               max="100"
               value={newRollout}
               onChange={(e) => setNewRollout(Number(e.target.value))}
-              className="flex-1 accent-[var(--accent-color)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
+              className="flex-1 accent-[var(--app-accent)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
             />
             <button
               onClick={handleCreate}
               disabled={isCreating || !newName.trim() || !newKey.trim()}
-              className="px-3 py-1.5 bg-[var(--accent-color)] hover:brightness-110 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-all"
+              className="px-3 py-1.5 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-all"
             >
               {isCreating ? <Loader size={16} /> : gt("Create")}
             </button>
@@ -297,7 +296,7 @@ export function AdminExperimentsPanel() {
                 key={exp.id}
                 className={cn(
                   "rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] overflow-hidden",
-                  exp.status === "running" && "border-l-4 border-l-[var(--accent-color)]"
+                  exp.status === "running" && "border-l-4 border-l-[var(--app-accent)]"
                 )}
               >
                 <div className="flex items-center justify-between p-3">
@@ -311,13 +310,13 @@ export function AdminExperimentsPanel() {
                     </button>
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="font-medium text-white truncate">{exp.name}</p>
+                        <p className="font-medium text-[var(--text-primary)] truncate">{exp.name}</p>
                         <span
                           className={cn(
                             "text-[10px] px-1.5 py-0.5 rounded-full uppercase font-semibold",
-                            exp.status === "running" && "bg-[var(--accent-color)]/20 text-[var(--accent-color)]",
+                            exp.status === "running" && "bg-[var(--app-accent)]/20 text-[var(--app-accent)]",
                             exp.status === "paused" && "bg-yellow-500/20 text-yellow-400",
-                            (exp.status === "draft" || exp.status === "archived" || exp.status === "completed") && "bg-[#555555]/20 text-[#888888]"
+                            (exp.status === "draft" || exp.status === "archived" || exp.status === "completed") && "bg-[var(--bg-hover)] text-[var(--text-muted)]"
                           )}
                         >
                           {exp.status}
@@ -365,7 +364,7 @@ export function AdminExperimentsPanel() {
                             className={cn(
                               "px-2 py-1.5 text-xs font-medium transition-colors",
                               userAction === "include"
-                                ? "bg-[var(--accent-color)] text-white"
+                                ? "bg-[var(--app-accent)] text-white"
                                 : "bg-[var(--bg-card)] text-[var(--text-secondary)] hover:bg-[var(--bg-hover)]"
                             )}
                           >
@@ -388,7 +387,7 @@ export function AdminExperimentsPanel() {
                         <button
                           onClick={() => handleAddUser(exp.id)}
                           disabled={addingUser || !userInput.trim()}
-                          className="px-3 py-1.5 bg-[var(--accent-color)] hover:brightness-110 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-all"
+                          className="px-3 py-1.5 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-50 text-white rounded-md text-sm font-medium transition-all"
                         >
                           {addingUser ? <Loader size={16} /> : gt("Add")}
                         </button>
@@ -414,14 +413,14 @@ export function AdminExperimentsPanel() {
                                 className={cn(
                                   "text-[10px] px-1.5 py-0.5 rounded-full uppercase font-semibold whitespace-nowrap",
                                   mu.status === "included"
-                                    ? "bg-[var(--accent-color)]/20 text-[var(--accent-color)]"
+                                    ? "bg-[var(--app-accent)]/20 text-[var(--app-accent)]"
                                     : "bg-red-500/20 text-red-400"
                                 )}
                               >
                                 {mu.status}
                               </span>
                               <div className="min-w-0">
-                                <p className="text-sm text-white truncate">{mu.displayName || mu.username}</p>
+                                <p className="text-sm text-[var(--text-primary)] truncate">{mu.displayName || mu.username}</p>
                                 <p className="text-[10px] text-[var(--text-muted)] truncate">{mu.id}</p>
                               </div>
                             </div>

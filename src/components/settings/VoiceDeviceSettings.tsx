@@ -85,12 +85,13 @@ export function DeviceSelect({ role, label }: { role: MediaDeviceRole; label: st
 
   return (
     <div className="space-y-1.5">
-      <label className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)]">{label}</label>
+      <label className="block text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">{label}</label>
       <select
         value={choices.some((c) => c.deviceId === selected) ? selected : DEFAULT_DEVICE_ID}
         onChange={(e) => onChange(e.target.value)}
         disabled={unsupported}
-        className="w-full rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)] px-3 py-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--app-accent)] disabled:opacity-60"
+        aria-label={label}
+        className="h-10 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-primary)] outline-none transition-[border-color,box-shadow] duration-(--motion-fast) focus:border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] focus:ring-2 focus:ring-[var(--app-accent)]/25 disabled:opacity-60"
       >
         <option value={DEFAULT_DEVICE_ID}>{gt("Default")}</option>
         {choices.map((c) => (
@@ -233,8 +234,8 @@ export function InputSensitivity({
     <div className="space-y-3">
       <div className="flex items-center justify-between gap-3">
         <div>
-          <p className="font-medium text-[var(--text-primary)]">{gt("Input Sensitivity")}</p>
-          <p className="text-sm text-[var(--text-secondary)]">
+          <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Input Sensitivity")}</p>
+          <p className="mt-0.5 text-[13px] leading-snug text-[var(--text-secondary)]">
             {pushToTalk
               ? gt("Push to Talk is on: your mic sends while you hold the key, if you're loud enough.")
               : gt("Your mic only sends while you're louder than this.")}
@@ -244,14 +245,14 @@ export function InputSensitivity({
           type="button"
           onClick={toggleTest}
           className={cn(
-            "flex shrink-0 items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors",
+            "flex h-8 shrink-0 items-center gap-1.5 rounded-md px-3 text-[13px] font-medium transition-[background-color,border-color,color,filter] duration-(--motion-fast)",
             testing
-              ? "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20"
-              : "border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
+              ? "border border-red-500/60 text-red-500 hover:bg-red-500 hover:text-white"
+              : "bg-[var(--app-accent)] text-white hover:brightness-110",
           )}
         >
           {testing ? (
-            <><span className="h-2 w-2 animate-pulse rounded-full bg-red-400" /> {gt("Stop Testing")}</>
+            <><span className="h-2 w-2 animate-pulse rounded-full bg-current" /> {gt("Stop Testing")}</>
           ) : (
             <><Mic2 className="h-3.5 w-3.5" /> {gt("Let's Check")}</>
           )}
@@ -265,7 +266,7 @@ export function InputSensitivity({
 
       <div className="relative">
         {/* Level meter: yellow below the threshold, green while you'd transmit. */}
-        <div className="relative h-2.5 overflow-hidden rounded-full bg-[var(--bg-sidebar-elevated)]">
+        <div className="relative h-2.5 overflow-hidden rounded-full bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)]">
           <div
             ref={fillRef}
             data-open="0"

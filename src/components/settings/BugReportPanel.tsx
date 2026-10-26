@@ -7,6 +7,8 @@ import {
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
+import { SettingsPageHeader } from "@/components/settings/SettingsSection";
+import { SettingsButton } from "@/components/settings/blocks/SettingsButton";
 import { Loader } from "@/components/ui/Loader";
 import { VERSION_LABEL } from "@/lib/version";
 
@@ -171,30 +173,23 @@ export function BugReportPanel() {
   ];
 
   return (
-    <div className="max-w-3xl">
+    <div>
       {/* Header */}
-      <div className="mb-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Feedback & Bug Reports")}</h2>
-          <p className="text-sm text-[var(--text-secondary)] mt-1">
-            {gt("New reports and feedback are tracked in Serika Issues. Your previous reports remain below.")}
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => openForm("feedback")}
-            className="px-4 py-2 rounded-lg bg-[var(--app-accent)] hover:brightness-110 active:scale-[0.98] text-white text-sm font-semibold transition-all flex items-center justify-center"
-          >
-            {gt("Share Feedback")}
-          </button>
-          <button
-            onClick={() => openForm("bug")}
-            className="px-4 py-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:border-[var(--app-accent)]/50 hover:text-[var(--text-primary)] text-[var(--text-secondary)] active:scale-[0.98] text-sm font-semibold transition-all flex items-center justify-center"
-          >
-            {gt("Report Bug")}
-          </button>
-        </div>
-      </div>
+      <SettingsPageHeader
+        title={gt("Feedback & Bug Reports")}
+        description={gt("New reports and feedback are tracked in Serika Issues. Your previous reports remain below.")}
+        className="max-sm:flex-col"
+        actions={
+          <>
+            <SettingsButton variant="primary" onClick={() => openForm("feedback")}>
+              {gt("Share Feedback")}
+            </SettingsButton>
+            <SettingsButton variant="secondary" onClick={() => openForm("bug")}>
+              {gt("Report Bug")}
+            </SettingsButton>
+          </>
+        }
+      />
 
       <a href="https://issues.serika.dev/projects/serikacord" target="_blank" rel="noopener noreferrer" className="inline-block mb-6 text-[var(--app-accent)] underline">{gt("View reports in Serika Issues")}</a>
       <p className="mb-6 text-sm text-[var(--text-secondary)]"><a href="mailto:security@serika.dev" className="underline">{gt("Security")}: security@serika.dev</a></p>

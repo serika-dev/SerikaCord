@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Volume2, Plus, Trash2,  Play, Power, Star, Mic2 } from "lucide-react";
+import { Plus, Trash2, Play, Power, Star } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
@@ -132,8 +132,7 @@ export function AdminTtsSoundsPanel() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Volume2 className="w-5 h-5 text-[#8B5CF6]" />
+        <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] max-md:hidden">
           {gt("TTS Sound Triggers")}
         </h2>
         <p className="text-sm text-[var(--text-secondary)] mt-1">
@@ -152,7 +151,7 @@ export function AdminTtsSoundsPanel() {
               value={newTrigger}
               onChange={(e) => setNewTrigger(e.target.value)}
               placeholder="meow"
-              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[#8B5CF6] outline-none"
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
             />
           </div>
           <div className="sm:col-span-2">
@@ -161,7 +160,7 @@ export function AdminTtsSoundsPanel() {
               value={newPath}
               onChange={(e) => setNewPath(e.target.value)}
               placeholder="/tts-sounds/meow1.mp3"
-              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[#8B5CF6] outline-none"
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
             />
           </div>
         </div>
@@ -172,13 +171,13 @@ export function AdminTtsSoundsPanel() {
               value={newLabel}
               onChange={(e) => setNewLabel(e.target.value)}
               placeholder="Cat meow #1"
-              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[#8B5CF6] outline-none"
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
             />
           </div>
           <button
             onClick={handleCreate}
             disabled={isCreating}
-            className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2 shrink-0"
+            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2 shrink-0"
           >
             {isCreating ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
             {gt("Add")}
@@ -199,8 +198,8 @@ export function AdminTtsSoundsPanel() {
           {grouped.map(([trigger, group]) => (
             <div key={trigger} className="rounded-xl border border-[var(--border-color)] overflow-hidden">
               <div className="px-4 py-2 bg-[var(--bg-secondary)] flex items-center justify-between">
-                <span className="text-sm font-semibold text-white">
-                  <code className="text-[#8B5CF6]">{trigger}</code>
+                <span className="text-sm font-semibold text-[var(--text-primary)]">
+                  <code className="text-[var(--app-accent)]">{trigger}</code>
                   <span className="text-[var(--text-secondary)] font-normal ml-2">
                     {group.length} sound{group.length !== 1 ? "s" : ""} (random)
                   </span>
@@ -218,12 +217,12 @@ export function AdminTtsSoundsPanel() {
                     <button
                       onClick={() => preview(s.path)}
                       title={gt("Preview")}
-                      className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-white"
+                      className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                     >
                       <Play className="w-4 h-4" />
                     </button>
                     <div className="flex-1 min-w-0">
-                      <div className="text-sm text-white truncate">{s.label || s.path}</div>
+                      <div className="text-sm text-[var(--text-primary)] truncate">{s.label || s.path}</div>
                       <div className="text-xs text-[var(--text-muted)] truncate">{s.path}</div>
                     </div>
                     <button
@@ -375,13 +374,12 @@ export function AdminTtsVoicesPanel() {
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-lg font-semibold text-white flex items-center gap-2">
-          <Mic2 className="w-5 h-5 text-[#8B5CF6]" />
+        <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] max-md:hidden">
           {gt("TTS Custom Voices")}
         </h2>
         <p className="text-sm text-[var(--text-secondary)] mt-1">
           Add custom Fish Audio AI voices that users can reference with{" "}
-          <code className="text-[#8B5CF6]">[fish:name]</code> in TTS messages.
+          <code className="text-[var(--app-accent)]">[fish:name]</code> in TTS messages.
           The default voice is used as the Firefox fallback (replacing broken Web Speech).
         </p>
       </div>
@@ -395,7 +393,7 @@ export function AdminTtsVoicesPanel() {
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="miku"
-              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[#8B5CF6] outline-none"
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
             />
           </div>
           <div>
@@ -404,7 +402,7 @@ export function AdminTtsVoicesPanel() {
               value={newRefId}
               onChange={(e) => setNewRefId(e.target.value)}
               placeholder="model-uuid-from-fish-audio"
-              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[#8B5CF6] outline-none"
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
             />
           </div>
         </div>
@@ -415,13 +413,13 @@ export function AdminTtsVoicesPanel() {
               value={newDesc}
               onChange={(e) => setNewDesc(e.target.value)}
               placeholder="Hatsune Miku voice"
-              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-white text-sm border border-[var(--border-color)] focus:border-[#8B5CF6] outline-none"
+              className="w-full px-3 py-2 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
             />
           </div>
           <button
             onClick={handleCreate}
             disabled={isCreating}
-            className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2 shrink-0"
+            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2 shrink-0"
           >
             {isCreating ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
             {gt("Add")}
@@ -451,14 +449,14 @@ export function AdminTtsVoicesPanel() {
               <button
                 onClick={() => previewVoice(v)}
                 title={gt("Preview")}
-                className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-white"
+                className="p-1.5 rounded-md hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
               >
                 <Play className="w-4 h-4" />
               </button>
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-sm font-medium text-white">
-                    <code className="text-[#8B5CF6]">{v.name}</code>
+                  <span className="text-sm font-medium text-[var(--text-primary)]">
+                    <code className="text-[var(--app-accent)]">{v.name}</code>
                   </span>
                   <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded text-cyan-400 bg-cyan-500/10">
                     {gt("Fish Audio")}

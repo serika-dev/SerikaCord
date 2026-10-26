@@ -1,15 +1,13 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, type Dispatch, type SetStateAction } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue } from "react";
 import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { useStaffAccess } from "@/hooks/useStaffAccess";
 import type { StaffPermission } from "@/lib/staff/permissions";
-import { getConnectionIcon, getConnectionColor } from "@/components/user/ConnectionIcon";
+import { getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { SerikaWishlistSettingsCard } from "@/components/user/ProfileWishlistWidget";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { AppearanceCustomizationPanel } from "@/components/settings/AppearanceCustomizationPanel";
-import { DomainConnectionsSection } from "@/components/settings/DomainConnectionsSection";
 import { useAuth } from "@/contexts/AuthContext";
 import { mergeSettingsDeep, type SettingsPatch } from "@/lib/settings/mergeSettings";
 import { useTheme } from "@/contexts/ThemeContext";
@@ -20,15 +18,31 @@ import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { SettingsContent, SettingsNav } from "@/components/settings/SettingsShell";
 import { filterSettingsSections } from "@/components/settings/settingsSearch";
-import { SettingsCard, SettingsRow, SettingsSection, SettingsToggleRow } from "@/components/settings/SettingsSection";
+import { SettingsCard, SettingsPageHeader, SettingsRow, SettingsSection, SettingsToggleRow } from "@/components/settings/SettingsSection";
+import { SettingsButton, settingsButtonClass } from "@/components/settings/blocks/SettingsButton";
+import { SettingsDangerZone } from "@/components/settings/blocks/SettingsDangerZone";
+import { SettingsEmptyState } from "@/components/settings/blocks/SettingsEmptyState";
+import { SettingsListItem } from "@/components/settings/blocks/SettingsListItem";
+import { SettingsSearchInput } from "@/components/settings/blocks/SettingsSearchInput";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
+import { SettingsStatCard } from "@/components/settings/blocks/SettingsStatCard";
+import { SettingsStatusPill } from "@/components/settings/blocks/SettingsStatusPill";
+import { SettingsSubTabs } from "@/components/settings/blocks/SettingsSubTabs";
+import { SettingsToolbar } from "@/components/settings/blocks/SettingsToolbar";
+import { MyAccountPage } from "@/components/settings/user/MyAccountPage";
+import { DevicesPage, type DeviceSession } from "@/components/settings/user/DevicesPage";
+import { AuthorizedAppsPage, type AuthorizedAppEntry } from "@/components/settings/user/AuthorizedAppsPage";
+import { CONNECTION_PROVIDERS, ConnectionsPage, type UserConnection } from "@/components/settings/user/ConnectionsPage";
+import type { UserSettingsValue } from "@/components/settings/user/types";
+import { VoiceVideoPage } from "@/components/settings/user/VoiceVideoPage";
+import { NotificationsPage } from "@/components/settings/user/NotificationsPage";
+import { AppearancePage } from "@/components/settings/user/AppearancePage";
+import { DisplayNameStyleEditor, NameplateEditor, ProfileColourEditor } from "@/components/settings/user/ProfileStyleEditors";
 import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
 import { ImageCropper } from "@/components/ui/image-cropper";
 import { ProfileCard } from "@/components/user/ProfileCard";
-import { motion, AnimatePresence } from "framer-motion";
 import {
-  X,
   User,
-  Shield,
   Bell,
   Palette,
   Mic,
@@ -38,7 +52,7 @@ import {
   Crown,
   LogOut,
   Camera,
-  Check, 
+  Check,
   ExternalLink,
   Pencil,
   Link2,
@@ -54,13 +68,9 @@ import {
   Database,
   Activity,
   FlaskConical,
-  RotateCcw,
   Clock,
-  BellRing,
   MonitorSmartphone,
   Monitor,
-  Target,
-  MinusCircle,
   Award,
   Megaphone,
   Mic2,
@@ -76,22 +86,21 @@ import {
   Calendar,
   Bot,
   RefreshCw,
-  Bug,
+  Search,
   ShieldAlert,
   MessageSquareHeart,
   UserPlus,
   Gavel,
+  type LucideIcon,
 } from "lucide-react";
 import { ActivityPrivacySettings, FriendRequestSettings, MessageRequestSettings } from "@/components/settings/SocialPrivacySettings";
-import { requestNotificationPermission } from "@/lib/services/notificationService";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
 import { voiceService } from "@/lib/services/voiceService";
 import { cn, cdnImage } from "@/lib/utils";
 import { useBadges } from "@/hooks/useBadges";
 import { BadgeIcon } from "@/components/ui/BadgeIcon";
 import { badgeLabel } from "@/components/ui/badges";
-import { NAMEPLATE_PRESETS, getNameplateBackground, type NameplateCustomization } from "@/lib/constants/nameplates";
-import { NameplateImagePicker } from "@/components/settings/NameplateImagePicker";
+import type { NameplateCustomization } from "@/lib/constants/nameplates";
 import { ServerTagPicker } from "@/components/settings/ServerTagPicker";
 import { AdminExperimentsPanel } from "@/components/settings/AdminExperimentsPanel";
 import { KeybindSettingsPanel } from "@/components/settings/KeybindSettingsPanel";
@@ -107,18 +116,13 @@ import { readSettingsBackAction, SETTINGS_PHONE_QUERY } from "@/components/setti
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
 import { AdminBadgesPanel } from "@/components/settings/AdminBadgesPanel";
-import { PasskeysSettingsRow } from "@/components/settings/PasskeysSettingsRow";
-import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { toast } from "sonner";
-import { T, useGT } from "gt-next";
+import { useGT, useLocale } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
 import { Loader } from "@/components/ui/Loader";
 import { APP_VERSION, BUILD_COMMIT_URL, BUILD_SHA, BUILD_TIME, VERSION_LABEL } from "@/lib/version";
 import { toServerStatus } from "@/lib/presenceChoice";
 import { useConfirm } from "@/components/ui/confirm-dialog";
-import { DeviceSelect, InputSensitivity } from "@/components/settings/VoiceDeviceSettings";
-import { deviceConstraint, getPreferredDevice } from "@/lib/voice/devices";
-import { DEFAULT_SENSITIVITY_DB } from "@/lib/voice/voiceActivity";
 // End-to-end encryption settings (own chunk; only once the feature is on).
 import { KeyRound as E2eeKeyIcon } from "lucide-react";
 import { useE2ee } from "@/hooks/useE2ee";
@@ -129,9 +133,18 @@ const AdminChangelogsPanel = dynamic(() => import("@/components/settings/AdminCh
 const AccountStanding = dynamic(() => import("@/components/safety/AccountStanding").then((module) => module.AccountStanding));
 const AdminTrustSafetyPanel = dynamic(() => import("@/components/settings/AdminTrustSafetyPanel"));
 
-/** Pages drawn as one card of hairline-separated setting rows. */
-const ROW_STYLE_TABS = new Set<string>(["content-social", "friend-requests", "activity-privacy", "data-privacy", "accessibility", "text-images", "advanced"]);
-const BARE_PANEL_TABS = new Set<string>(["keybinds", "desktop", "streamer-mode", "language"]);
+/** Every IANA zone, computed once (the Profiles page rendered ~400 options from scratch on every keystroke). */
+let timeZonesCache: string[] | null = null;
+function allTimeZones(): string[] {
+  if (!timeZonesCache) {
+    try {
+      timeZonesCache = Intl.supportedValuesOf("timeZone");
+    } catch {
+      timeZonesCache = [];
+    }
+  }
+  return timeZonesCache;
+}
 
 const ADMIN_TAB_PERMISSIONS: Record<string, StaffPermission[]> = {
   "admin-users": ["users.view"],
@@ -151,6 +164,85 @@ const ADMIN_TAB_PERMISSIONS: Record<string, StaffPermission[]> = {
   "admin-trust-safety": ["safety.review", "reports.review"],
 };
 
+/* Shared form styling for the Profiles / admin forms (Discord: uppercase field labels, 40px inputs). */
+const FIELD_LABEL = "mb-2 block text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]";
+const FIELD_INPUT = "h-10 border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)]";
+const FORM_CARD = "space-y-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4";
+const SELECT_CLASS =
+  "h-10 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-primary)] outline-none transition-[border-color,box-shadow] duration-(--motion-fast) focus:border-[color-mix(in_srgb,var(--app-accent)_60%,transparent)] focus:ring-2 focus:ring-[var(--app-accent)]/25";
+
+/** Clickable avatar / banner tile with a camera overlay (and a spinner while uploading). */
+function MediaPickTile({
+  shape,
+  src,
+  alt,
+  uploading,
+  onPick,
+}: {
+  shape: "avatar" | "banner";
+  src?: string | null;
+  alt: string;
+  uploading: boolean;
+  onPick: () => void;
+}) {
+  const FallbackIcon = shape === "avatar" ? Camera : Image;
+  return (
+    <button
+      type="button"
+      onClick={onPick}
+      aria-label={alt}
+      className={cn(
+        "group relative shrink-0 overflow-hidden border-2 border-dashed border-[var(--border-subtle)] bg-[var(--bg-card)] transition-colors duration-(--motion-fast) hover:border-[var(--app-accent)]",
+        shape === "avatar" ? "h-20 w-20 rounded-full" : "h-20 w-full rounded-lg",
+      )}
+    >
+      {src ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={cdnImage(src)} alt={alt} className="h-full w-full object-cover" />
+      ) : (
+        <span className="flex h-full w-full items-center justify-center text-[var(--text-muted)]">
+          <FallbackIcon className="h-5 w-5" />
+        </span>
+      )}
+      <span
+        className={cn(
+          "absolute inset-0 flex items-center justify-center bg-black/55 transition-opacity duration-(--motion-fast)",
+          uploading ? "opacity-100" : "opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100",
+        )}
+      >
+        {uploading ? <Loader size={20} /> : <Camera className="h-5 w-5 text-white" />}
+      </span>
+    </button>
+  );
+}
+
+/** Icon + colour for an admin log action ("user_ban" → red ban icon). */
+function adminLogActionStyle(action: string): { icon: LucideIcon; color: string } {
+  if (action.includes("ban")) return { icon: Ban, color: "#EF4444" };
+  if (action.includes("report")) return { icon: AlertTriangle, color: "#F59E0B" };
+  if (action.includes("broadcast") || action.includes("announcement")) return { icon: Megaphone, color: "#3B82F6" };
+  if (action.includes("partner") || action.includes("discovery")) return { icon: Globe, color: "#10B981" };
+  if (action.includes("server") || action.includes("transfer")) return { icon: Server, color: "#8B5CF6" };
+  if (action.includes("badge")) return { icon: Award, color: "#F59E0B" };
+  if (action.includes("experiment")) return { icon: FlaskConical, color: "#06B6D4" };
+  if (action.includes("timeout")) return { icon: Clock, color: "#F59E0B" };
+  if (action.includes("settings") || action.includes("update")) return { icon: Settings, color: "#6B7280" };
+  return { icon: Zap, color: "#8B5CF6" };
+}
+
+/** "3 hours ago" in the UI locale. */
+function formatRelativeTime(iso: string, locale: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return "";
+  const diffSec = Math.round((then - Date.now()) / 1000);
+  const abs = Math.abs(diffSec);
+  const rtf = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  if (abs < 60) return rtf.format(0, "second");
+  if (abs < 3600) return rtf.format(Math.round(diffSec / 60), "minute");
+  if (abs < 86400) return rtf.format(Math.round(diffSec / 3600), "hour");
+  return rtf.format(Math.round(diffSec / 86400), "day");
+}
+
 interface UserSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -159,6 +251,7 @@ interface UserSettingsDialogProps {
 }
 
 type SettingsTab =
+  | "account"
   | "profiles"
   | "content-social"
   | "friend-requests"
@@ -197,575 +290,14 @@ type SettingsTab =
   | "admin-bug-reports"
   | "admin-trust-safety";
 
-const statusOptions = [
-  { value: "online", label: "Online", color: "#8B5CF6" },
-  { value: "idle", label: "Idle", color: "#A78BFA" },
-  { value: "dnd", label: "Do Not Disturb", color: "#EF4444" },
-  { value: "offline", label: "Invisible", color: "#555555" },
-];
-
-const CONNECTION_PROVIDERS: Array<{
-  id: string; label: string; color: string; bg: string;
-  hint: string;
-  category: "social" | "gaming" | "music" | "streaming";
-}> = [
-  { id: "lastfm",    label: "Last.fm",     color: "#e4335a", bg: "#e4335a20", hint: "Authorise via Last.fm — shows your live scrobbles on your profile.", category: "music" },
-  { id: "spotify",   label: "Spotify",     color: "#1db954", bg: "#1db95420", hint: "Authorise via Spotify.", category: "music" },
-  { id: "youtube",   label: "YouTube",     color: "#ff0000", bg: "#ff000020", hint: "Authorise via Google/YouTube.", category: "streaming" },
-  { id: "twitch",    label: "Twitch",      color: "#9146ff", bg: "#9146ff20", hint: "Authorise via Twitch.", category: "streaming" },
-  { id: "steam",     label: "Steam",       color: "#4a90d9", bg: "#4a90d920", hint: "Authorise via Steam.", category: "gaming" },
-  { id: "xbox",      label: "Xbox",        color: "#107c10", bg: "#107c1020", hint: "Authorise via Microsoft/Xbox.", category: "gaming" },
-  { id: "psn",       label: "PlayStation", color: "#00439c", bg: "#00439c20", hint: "Authorise via PlayStation Network.", category: "gaming" },
-  { id: "battlenet", label: "Battle.net",  color: "#148eff", bg: "#148eff20", hint: "Authorise via Battle.net.", category: "gaming" },
-  { id: "roblox",    label: "Roblox",      color: "#e8000b", bg: "#e8000b20", hint: "Authorise via Roblox.", category: "gaming" },
-  { id: "github",    label: "GitHub",      color: "#c9d1d9", bg: "#ffffff12", hint: "Authorise via GitHub.", category: "social" },
-  { id: "twitter",   label: "X / Twitter", color: "#1d9bf0", bg: "#1d9bf020", hint: "Authorise via X.", category: "social" },
-  { id: "instagram", label: "Instagram",   color: "#e1306c", bg: "#e1306c20", hint: "Authorise via Instagram.", category: "social" },
-  { id: "discord",   label: "Discord",     color: "#5865f2", bg: "#5865f220", hint: "Managed through your Serika account.", category: "social" },
-  { id: "serika",    label: "Serika",      color: "#8B5CF6", bg: "#8B5CF620", hint: "Managed through your Serika account.", category: "social" },
-];
-
-const CONNECTION_CATEGORIES: Array<{ id: string; label: string }> = [
-  { id: "music",     label: "Music" },
-  { id: "gaming",    label: "Gaming" },
-  { id: "streaming", label: "Streaming" },
-  { id: "social",    label: "Social" },
-];
-
-type GTFunc = ReturnType<typeof useGT>;
-
-function connectionCategoryLabel(id: string, gt: GTFunc): string {
-  switch (id) {
-    case 'music': return gt('Music');
-    case 'gaming': return gt('Gaming');
-    case 'streaming': return gt('Streaming');
-    case 'social': return gt('Social');
-    default: return id;
-  }
-}
-
-function connectionProviderHint(id: string, gt: GTFunc): string {
-  switch (id) {
-    case 'lastfm': return gt('Authorise via Last.fm — shows your live scrobbles on your profile.');
-    case 'spotify': return gt('Authorise via Spotify.');
-    case 'youtube': return gt('Authorise via Google/YouTube.');
-    case 'twitch': return gt('Authorise via Twitch.');
-    case 'steam': return gt('Authorise via Steam.');
-    case 'xbox': return gt('Authorise via Microsoft/Xbox.');
-    case 'psn': return gt('Authorise via PlayStation Network.');
-    case 'battlenet': return gt('Authorise via Battle.net.');
-    case 'roblox': return gt('Authorise via Roblox.');
-    case 'github': return gt('Authorise via GitHub.');
-    case 'twitter': return gt('Authorise via X.');
-    case 'instagram': return gt('Authorise via Instagram.');
-    case 'discord': return gt('Managed through your Serika account.');
-    case 'serika': return gt('Managed through your Serika account.');
-    default: return '';
-  }
-}
-
-function ConnectionsTabContent({
-  userConnections,
-  setUserConnections,
-  connectionsEnabled = true,
-  disabledProviders = [],
-}: {
-  userConnections: any[];
-  setUserConnections: Dispatch<SetStateAction<any[]>>;
-  connectionsEnabled?: boolean;
-  disabledProviders?: string[];
-}) {
-  const gt = useGT();
-  const connectedMap = Object.fromEntries(userConnections.map((c) => [c.provider, c]));
-
-  // Handle OAuth return (success/error params in URL)
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const params = new URLSearchParams(window.location.search);
-    const success = params.get("success");
-    const error = params.get("error");
-    if (success) {
-      const label = CONNECTION_PROVIDERS.find((p) => p.id === success)?.label || success;
-      toast.success(gt("{label} connected!", { label }));
-      // Refresh connections
-      fetch("/api/users/me/connections")
-        .then((r) => r.json())
-        .then((d) => d.connections && setUserConnections(d.connections))
-        .catch(() => {});
-      params.delete("success");
-      window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
-    } else if (error) {
-      const msgs: Record<string, string> = {
-        denied: gt("Authorisation was cancelled."),
-        state_missing: gt("Session expired. Please try again."),
-        session_failed: gt("Failed to complete authorisation. Please try again."),
-        error: gt("An error occurred while linking the account."),
-        not_configured: gt("This provider is not configured on this instance."),
-        connections_disabled: gt("Connections have been temporarily disabled by staff."),
-        unauthorized: gt("You must be logged in to connect an account."),
-      };
-      // Match prefix errors like "lastfm_denied", "github_denied", etc.
-      const base = error.includes("_") ? error.split("_").slice(1).join("_") : error;
-      toast.error(msgs[base] || gt("Connection failed."));
-      params.delete("error");
-      window.history.replaceState({}, "", `${window.location.pathname}${params.toString() ? `?${params}` : ""}`);
-    }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const handleDisconnect = async (connectionId: string, provider: string) => {
-    const res = await fetch(`/api/users/me/connections/${connectionId}`, { method: "DELETE" });
-    if (res.ok) {
-      setUserConnections((prev) => prev.filter((c) => c.id !== connectionId));
-      toast.success(gt("{label} disconnected", { label: CONNECTION_PROVIDERS.find((p) => p.id === provider)?.label || provider }));
-    } else {
-      toast.error(gt("Failed to disconnect"));
-    }
-  };
-
-  return (
-    <div>
-      <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Connections")}</h2>
-      <p className="text-sm text-[var(--text-muted)] mb-6">
-        {gt("Link your accounts to show them on your profile. Some connections display live activity.")}
-      </p>
-
-      {!connectionsEnabled && (
-        <div className="mb-6 p-4 rounded-xl bg-yellow-500/10 border border-yellow-500/20 flex items-center gap-3">
-          <Lock className="w-5 h-5 text-yellow-400 shrink-0" />
-          <div>
-            <p className="text-yellow-400 font-semibold text-sm">{gt("Connections are temporarily disabled")}</p>
-            <p className="text-yellow-400/70 text-xs">{gt("Account linking has been turned off by staff. You can still disconnect existing accounts.")}</p>
-          </div>
-        </div>
-      )}
-
-      {/* Provider list grouped by category */}
-      <div className="space-y-6">
-        {CONNECTION_CATEGORIES.map(({ id: catId, label: catLabel }) => {
-          const catProviders = CONNECTION_PROVIDERS.filter((p) => p.category === catId);
-          return (
-            <div key={catId}>
-              <p className="text-xs font-semibold uppercase text-[var(--text-muted)] tracking-wide mb-2">{connectionCategoryLabel(catId, gt)}</p>
-              <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)]">
-                {catProviders.map((p, i) => {
-                  const conn = connectedMap[p.id];
-                  return (
-                    <div
-                      key={p.id}
-                      className={`flex items-center gap-3 px-4 py-3 bg-[var(--bg-app)] transition-colors${i < catProviders.length - 1 ? " border-b border-[var(--border-subtle)]" : ""}`}
-                    >
-                      <div
-                        className="w-9 h-9 rounded-xl flex items-center justify-center shrink-0"
-                        style={{ backgroundColor: p.bg }}
-                      >
-                        {(() => { const Icon = getConnectionIcon(p.id); return <Icon size={18} style={{ color: p.color }} />; })()}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold text-[var(--text-primary)]">{p.label}</p>
-                        {conn ? (
-                          <p className="text-xs text-[#22c55e] truncate flex items-center gap-1">
-                            <span className="inline-block w-1.5 h-1.5 rounded-full bg-[#22c55e]" />
-                            {conn.displayName || conn.username || conn.accountId}
-                          </p>
-                        ) : (
-                          <p className="text-xs text-[var(--text-muted)]">{connectionProviderHint(p.id, gt)}</p>
-                        )}
-                      </div>
-                      {conn ? (
-                        <div className="flex items-center gap-4 shrink-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-xs text-[var(--text-muted)]">{gt("Show on profile")}</span>
-                            <ToggleSwitch
-                              size="sm"
-                              checked={conn.visible !== false}
-                              onCheckedChange={async (checked) => {
-                                try {
-                                  const res = await fetch(`/api/users/me/connections/${conn.id}`, {
-                                    method: "PATCH",
-                                    headers: { "Content-Type": "application/json" },
-                                    body: JSON.stringify({ visible: checked }),
-                                  });
-                                  if (res.ok) {
-                                    const data = await res.json();
-                                    setUserConnections((prev) =>
-                                      prev.map((c) => (c.id === conn.id ? data.connection : c))
-                                    );
-                                    toast.success(gt("Visibility updated"));
-                                  } else {
-                                    toast.error(gt("Failed to update visibility"));
-                                  }
-                                } catch {
-                                  toast.error(gt("Failed to update visibility"));
-                                }
-                              }}
-                            />
-                          </div>
-                          {p.id === "serika" || p.id === "discord" ? (
-                            <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)] shrink-0">
-                              {gt("Managed")}
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => void handleDisconnect(conn.id, p.id)}
-                              className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400 hover:bg-red-500/20 transition-colors"
-                            >
-                              {gt("Disconnect")}
-                            </button>
-                          )}
-                        </div>
-                      ) : p.id === "serika" || p.id === "discord" ? (
-                        <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)] shrink-0">
-                          {gt("Managed")}
-                        </span>
-                      ) : disabledProviders.includes(p.id) ? (
-                        <button
-                          disabled
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-red-500/10 text-red-400/50 cursor-not-allowed shrink-0 border border-red-500/20"
-                        >
-                          {gt("Disabled")}
-                        </button>
-                      ) : connectionsEnabled ? (
-                        <a
-                          href={`/api/auth/${p.id}/initiate`}
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium text-white shrink-0 transition-opacity hover:opacity-90 inline-block"
-                          style={{ backgroundColor: p.color }}
-                        >
-                          {gt("Connect")}
-                        </a>
-                      ) : (
-                        <button
-                          disabled
-                          className="px-3 py-1.5 rounded-lg text-xs font-medium bg-white/[0.04] text-[#555] cursor-not-allowed shrink-0"
-                        >
-                          {gt("Connect")}
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-        <DomainConnectionsSection
-          connections={userConnections}
-          setConnections={setUserConnections}
-          canAdd={connectionsEnabled && !disabledProviders.includes("website")}
-        />
-      </div>
-    </div>
-  );
-}
-
-/* ─── Voice & Video Tab ─── */
-
-function VoiceVideoTab({
-  userSettings,
-  isLoadingSettings,
-  saveSettingsPatch,
-  saveSettingsPatchDebounced,
-  gt,
-}: {
-  userSettings: Record<string, any> | null;
-  isLoadingSettings: boolean;
-  saveSettingsPatch: (patch: Record<string, any>, sectionLabel: string) => void;
-  saveSettingsPatchDebounced: (patch: SettingsPatch, sectionLabel: string) => void;
-  gt: GTFunc;
-}) {
-  const [videoStream, setVideoStream] = useState<MediaStream | null>(null);
-  const videoRef = useRef<HTMLVideoElement>(null);
-
-  const startVideoPreview = async () => {
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: false,
-        video: { width: 640, height: 360, ...deviceConstraint(getPreferredDevice("video")) },
-      });
-      setVideoStream(stream);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-      }
-    } catch {
-      toast.error(gt("Camera access denied"));
-    }
-  };
-
-  const stopVideoPreview = () => {
-    if (videoStream) {
-      videoStream.getTracks().forEach((t) => t.stop());
-      setVideoStream(null);
-    }
-  };
-
-  useEffect(() => {
-    return () => {
-      stopVideoPreview();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const ttsEnabled = Boolean(userSettings?.accessibility?.tts);
-
-  return (
-    <div className="space-y-8">
-      <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Voice & Video")}</h2>
-
-      {/* Voice Settings */}
-      <SettingsSection title={gt("Input Device")} icon={Mic}>
-      <SettingsCard>
-        {isLoadingSettings || !userSettings ? (
-          <div className="px-4 py-3.5 text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
-        ) : (
-          <>
-            <div className="px-4 py-4 space-y-4">
-            {/* Input Volume */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Input Volume")}</label>
-                <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings.voiceVideo?.inputVolume ?? 100}%</span>
-              </div>
-              <input
-                type="range"
-                min={0}
-                max={200}
-                value={userSettings.voiceVideo?.inputVolume ?? 100}
-                onChange={(e) => saveSettingsPatchDebounced({ voiceVideo: { inputVolume: Number(e.target.value) } }, "voice-video")}
-                className="w-full accent-[var(--app-accent)]"
-              />
-            </div>
-
-            <DeviceSelect role="input" label={gt("Input Device")} />
-
-            {/* Input sensitivity (voice activity) with a live level meter + mic test */}
-            <InputSensitivity
-              auto={userSettings.voiceVideo?.autoSensitivity !== false}
-              thresholdDb={typeof userSettings.voiceVideo?.inputSensitivity === "number" ? userSettings.voiceVideo.inputSensitivity : DEFAULT_SENSITIVITY_DB}
-              pushToTalk={Boolean(userSettings.voiceVideo?.pushToTalk)}
-              echoCancellation={userSettings.voiceVideo?.echoCancellation !== false}
-              noiseSuppression={userSettings.voiceVideo?.noiseSuppression !== false}
-              autoGainControl={userSettings.voiceVideo?.autoGainControl !== false}
-              onAutoChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), autoSensitivity: checked } }, "voice-video")}
-              onThresholdChange={(db) => saveSettingsPatchDebounced({ voiceVideo: { inputSensitivity: db } }, "voice-video")}
-            />
-            </div>
-
-            {/* Audio Processing Toggles */}
-            <SettingsToggleRow
-              label={gt("Noise Suppression")}
-              description={gt("Reduce background noise from your microphone")}
-              checked={Boolean(userSettings.voiceVideo?.noiseSuppression)}
-              onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), noiseSuppression: checked } }, "voice-video")}
-            />
-            <SettingsToggleRow
-              label={gt("Echo Cancellation")}
-              description={gt("Prevent echo from speakers into your microphone")}
-              checked={Boolean(userSettings.voiceVideo?.echoCancellation)}
-              onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), echoCancellation: checked } }, "voice-video")}
-            />
-            <SettingsToggleRow
-              label={gt("Automatic Gain Control")}
-              description={gt("Automatically adjust microphone volume")}
-              checked={Boolean(userSettings.voiceVideo?.autoGainControl)}
-              onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), autoGainControl: checked } }, "voice-video")}
-            />
-
-            {/* Push to Talk */}
-            <SettingsToggleRow
-              label={gt("Push to Talk")}
-              description={gt("Hold a key to transmit voice")}
-              checked={Boolean(userSettings.voiceVideo?.pushToTalk)}
-              onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalk: checked } }, "voice-video")}
-            >
-            {userSettings.voiceVideo?.pushToTalk && (
-              <div className="ml-0 p-3 rounded-lg bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">
-                <label className="text-xs text-[var(--text-muted)] block mb-2">{gt("Push to Talk Key")}</label>
-                <input
-                  type="text"
-                  value={userSettings.voiceVideo?.pushToTalkKey || "V"}
-                  onChange={(e) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalkKey: e.target.value.toUpperCase().slice(0, 1) } }, "voice-video")}
-                  className="w-16 text-center font-mono text-lg px-2 py-1.5 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
-                  maxLength={1}
-                />
-              </div>
-            )}
-            </SettingsToggleRow>
-          </>
-        )}
-      </SettingsCard>
-      </SettingsSection>
-
-      {/* Output Settings */}
-      <SettingsSection title={gt("Output Device")} icon={Volume2}>
-      <SettingsCard>
-        {isLoadingSettings || !userSettings ? (
-          <div className="px-4 py-3.5 text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
-        ) : (
-          <div className="px-4 py-4 space-y-2">
-            <div className="pb-2">
-              <DeviceSelect role="output" label={gt("Output Device")} />
-            </div>
-            <div className="flex items-center justify-between">
-              <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Output Volume")}</label>
-              <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings.voiceVideo?.outputVolume ?? 100}%</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={200}
-              value={userSettings.voiceVideo?.outputVolume ?? 100}
-              onChange={(e) => saveSettingsPatchDebounced({ voiceVideo: { outputVolume: Number(e.target.value) } }, "voice-video")}
-              className="w-full accent-[var(--app-accent)]"
-            />
-
-            <div className="flex items-center justify-between pt-2">
-              <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Soundboard Volume")}</label>
-              <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings.voiceVideo?.soundboardVolume ?? 100}%</span>
-            </div>
-            <input
-              type="range"
-              min={0}
-              max={200}
-              value={userSettings.voiceVideo?.soundboardVolume ?? 100}
-              onChange={(e) => saveSettingsPatchDebounced({ voiceVideo: { soundboardVolume: Number(e.target.value) } }, "voice-video")}
-              aria-label="Soundboard playback volume"
-              className="w-full accent-[var(--app-accent)]"
-            />
-          </div>
-        )}
-      </SettingsCard>
-      </SettingsSection>
-
-      {/* Video Preview */}
-      <SettingsSection title={gt("Camera Preview")} icon={Camera}>
-      <SettingsCard>
-        <div className="px-4 py-4 space-y-4">
-        <DeviceSelect role="video" label={gt("Camera")} />
-        <div className="flex items-center gap-3">
-          <button
-            onClick={videoStream ? stopVideoPreview : startVideoPreview}
-            className={cn(
-              "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
-              videoStream
-                ? "bg-red-500/10 border-red-500/30 text-red-400 hover:bg-red-500/20"
-                : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-            )}
-          >
-            {videoStream ? gt("Stop Preview") : gt("Start Preview")}
-          </button>
-        </div>
-        {videoStream && (
-          <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
-            <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover video-mirror" />
-          </div>
-        )}
-        </div>
-        <SettingsToggleRow
-          label={gt("Stream Preview")}
-          checked={Boolean(userSettings?.voiceVideo?.streamPreview)}
-          onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings?.voiceVideo || {}), streamPreview: checked } }, "voice-video")}
-        />
-      </SettingsCard>
-      </SettingsSection>
-
-      {/* Text-to-Speech */}
-      <SettingsSection title={gt("Text-to-Speech")} icon={Megaphone}>
-      <SettingsCard>
-        {isLoadingSettings || !userSettings ? (
-          <div className="px-4 py-3.5 text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
-        ) : (
-          <>
-            <SettingsToggleRow
-              label={gt("Text-to-Speech")}
-              description={gt("Read incoming messages aloud")}
-              checked={ttsEnabled}
-              onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), tts: checked } }, "voice-video")}
-            />
-            <SettingsToggleRow
-              label={gt("Play text-to-speech from others")}
-              description={gt("Read /tts messages other people send aloud")}
-              checked={userSettings.accessibility?.ttsFromOthers !== false}
-              onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsFromOthers: checked } }, "voice-video")}
-            />
-            <SettingsToggleRow
-              label={gt("TTS sound effects")}
-              description={gt("Play sound triggers and loud effects like [vol:EAR] and [vol:BASS]. When off, trigger words are spoken and volume is capped at 100%.")}
-              checked={userSettings.accessibility?.ttsSoundEffects !== false}
-              onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsSoundEffects: checked } }, "voice-video")}
-            />
-
-            <div className="px-4 py-4 space-y-4">
-            {/* TTS Usage Guide */}
-            <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/50 p-3 space-y-1.5">
-              <p className="text-xs font-semibold text-[var(--app-accent)]">{gt("TTS Usage Guide")}</p>
-              <p className="text-xs text-[var(--text-muted)]">
-                {gt("Type")} <code className="px-1 py-0.5 rounded bg-white/10 text-[var(--text-primary)]">/tts</code> {gt("before your message to send it as speech.")}
-              </p>
-              <p className="text-xs text-[var(--text-primary)] pl-3">
-                <code className="px-1 py-0.5 rounded bg-white/10">/tts [f] Hello</code> — {gt("female voice")}
-              </p>
-              <p className="text-xs text-[var(--text-primary)] pl-3">
-                <code className="px-1 py-0.5 rounded bg-white/10">/tts [m] Hello</code> — {gt("male voice")}
-              </p>
-              <p className="text-xs text-[var(--text-muted)]">
-                {gt("Keywords:")} <span className="text-[var(--text-primary)]">[f]</span>, <span className="text-[var(--text-primary)]">[female]</span>, <span className="text-[var(--text-primary)]">[girl]</span> {gt("for female")} &middot; <span className="text-[var(--text-primary)]">[m]</span>, <span className="text-[var(--text-primary)]">[male]</span>, <span className="text-[var(--text-primary)]">[boy]</span> {gt("for male")}
-              </p>
-              <p className="text-xs text-[var(--text-muted)]">
-                {gt("Voices are English-only. Set a default below or override per message.")}
-              </p>
-            </div>
-
-            {/* Reading speed */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <span className="text-sm text-[var(--text-primary)] font-medium">{gt("Reading speed")}</span>
-                <span className="text-xs text-[var(--text-muted)] tabular-nums">
-                  {(userSettings.accessibility?.ttsRate ?? 1).toFixed(1)}×
-                </span>
-              </div>
-              <input
-                type="range"
-                min={0.5}
-                max={2}
-                step={0.1}
-                value={userSettings.accessibility?.ttsRate ?? 1}
-                onChange={(e) => saveSettingsPatchDebounced({ accessibility: { ttsRate: parseFloat(e.target.value) } }, "voice-video")}
-                className="w-full accent-[var(--app-accent)]"
-              />
-            </div>
-
-            </div>
-
-            {/* Voice gender */}
-            <SettingsRow
-              label={gt("Voice")}
-              control={
-              <select
-                aria-label={gt("Voice")}
-                value={userSettings.accessibility?.ttsVoice ?? "auto"}
-                onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsVoice: e.target.value } }, "voice-video")}
-                className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
-              >
-                <option value="auto">{gt("Automatic")}</option>
-                <option value="female">{gt("Female")}</option>
-                <option value="male">{gt("Male")}</option>
-              </select>
-              }
-            />
-          </>
-        )}
-      </SettingsCard>
-      </SettingsSection>
-    </div>
-  );
-}
 
 export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
   const gt = useGT();
+  const locale = useLocale();
   const streamerHidesPersonal = useStreamerHides("personal");
   const confirmDialog = useConfirm();
-  const { list: badgeDefinitions, resolve: resolveBadges } = useBadges();
+  const { list: badgeDefinitions } = useBadges();
   const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
   const { servers } = useServer();
   // The sidebar follows `navTab` at once; the page itself renders from the
@@ -887,14 +419,12 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   ]);
 
   const [isSaving, setIsSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [userSettings, setUserSettings] = useState<Record<string, any> | null>(null);
-  const [isLoadingSettings, setIsLoadingSettings] = useState(false);
+  const [userSettings, setUserSettings] = useState<UserSettingsValue>(null);
   const [isSavingSettings, setIsSavingSettings] = useState<string | null>(null);
-  const [authorizedApps, setAuthorizedApps] = useState<any[]>([]);
-  const [deviceSessions, setDeviceSessions] = useState<any[]>([]);
-  const [userConnections, setUserConnections] = useState<any[]>([]);
+  const [authorizedApps, setAuthorizedApps] = useState<AuthorizedAppEntry[]>([]);
+  const [deviceSessions, setDeviceSessions] = useState<DeviceSession[]>([]);
+  const [userConnections, setUserConnections] = useState<UserConnection[]>([]);
   const [connectionsEnabled, setConnectionsEnabled] = useState(true);
   const [disabledProviders, setDisabledProviders] = useState<string[]>([]);
 
@@ -996,7 +526,11 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     isPartnered: boolean;
     createdAt: string;
   } | null>(null);
+  // Separate flags: a stats refresh must not put a spinner on the user search
+  // (or the log list) of another admin page.
   const [isLoadingAdmin, setIsLoadingAdmin] = useState(false);
+  const [isLoadingAdminStats, setIsLoadingAdminStats] = useState(false);
+  const [isLoadingAdminLogs, setIsLoadingAdminLogs] = useState(false);
   const [adminLogFilter, setAdminLogFilter] = useState<string>("all");
   const [expandedLogId, setExpandedLogId] = useState<string | null>(null);
   const [adminLogPage, setAdminLogPage] = useState(1);
@@ -1033,9 +567,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   }, [user]);
 
   const fetchUserSettings = async () => {
-    // Only the first load shows the spinner; reopening settings refreshes in the
-    // background instead of blanking every page while it reloads (CORD-30).
-    if (!userSettings) setIsLoadingSettings(true);
+    // Pages show skeleton rows until the first load lands (userSettings ===
+    // null); reopening settings refreshes in the background, keeping the old
+    // data on screen (CORD-30).
     try {
       const [settingsRes, appsRes, devicesRes, connectionsRes] = await Promise.all([
         fetch("/api/users/me/settings"),
@@ -1062,8 +596,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
       }
     } catch (error) {
       console.error("Failed to fetch user settings:", error);
-    } finally {
-      setIsLoadingSettings(false);
     }
   };
 
@@ -1165,6 +697,25 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     void saveSettingsPatch({ appearance: appearancePatch }, "appearance");
   };
 
+  // Stable identities for the extracted (memoized) pages: they call the
+  // latest save functions without re-rendering every time this dialog does.
+  const saveFnsRef = useRef({ saveSettingsPatch, saveSettingsPatchDebounced, saveAppearancePatch });
+  useEffect(() => {
+    saveFnsRef.current = { saveSettingsPatch, saveSettingsPatchDebounced, saveAppearancePatch };
+  });
+  const stableSaveSettingsPatch = useCallback(
+    (patch: SettingsPatch, sectionLabel: string) => saveFnsRef.current.saveSettingsPatch(patch, sectionLabel),
+    [],
+  );
+  const stableSaveSettingsPatchDebounced = useCallback(
+    (patch: SettingsPatch, sectionLabel: string) => saveFnsRef.current.saveSettingsPatchDebounced(patch, sectionLabel),
+    [],
+  );
+  const stableSaveAppearancePatch = useCallback(
+    (patch: SettingsPatch, opts?: { debounce?: boolean }) => saveFnsRef.current.saveAppearancePatch(patch, opts),
+    [],
+  );
+
   // "Edit Profile" opens settings with { tab: "profiles" }. The dialog stays mounted, so
   // without this it reopened on whatever page was last open (CORD-21).
   useEffect(() => {
@@ -1235,29 +786,30 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     fetchServerProfile();
   }, [profileTab, selectedServerId, user?.id]);
 
-  // Track changes
-  useEffect(() => {
-    if (profileTab === "main" && user) {
-      const changed =
-        displayName !== (user.displayName || "") ||
-        bio !== (user.bio || "") ||
-        pronouns !== (user.pronouns || "") ||
-        timezone !== (user.timezone || "") ||
-        showTimezone !== (user.showTimezone ?? false) ||
-        customStatus !== (user.customStatus || "") ||
-        status !== (user.status || "online") ||
-        JSON.stringify(displayNameStyle) !== JSON.stringify(user.customization?.displayNameStyle || { font: 'default', effect: 'solid', color: '', gradient: [] }) ||
-        profileColor !== (user.customization?.profileColor || "") ||
-        JSON.stringify(profileGradient) !== JSON.stringify(user.customization?.profileGradient || []) ||
-        JSON.stringify(nameplate) !== JSON.stringify(user.customization?.nameplate || { type: 'none' });
-      setHasChanges(changed);
-    } else if (profileTab === "server") {
-      const changed =
+  // Unsaved profile edits, derived during render (was an effect that set
+  // state after every keystroke, rendering this whole dialog twice per key).
+  const hasChanges = useMemo(() => {
+    if (profileTab === "server") {
+      return (
         serverNickname !== initialServerNickname ||
         serverAvatar !== initialServerAvatar ||
-        serverBanner !== initialServerBanner;
-      setHasChanges(changed);
+        serverBanner !== initialServerBanner
+      );
     }
+    if (!user) return false;
+    return (
+      displayName !== (user.displayName || "") ||
+      bio !== (user.bio || "") ||
+      pronouns !== (user.pronouns || "") ||
+      timezone !== (user.timezone || "") ||
+      showTimezone !== (user.showTimezone ?? false) ||
+      customStatus !== (user.customStatus || "") ||
+      status !== (user.status || "online") ||
+      JSON.stringify(displayNameStyle) !== JSON.stringify(user.customization?.displayNameStyle || { font: 'default', effect: 'solid', color: '', gradient: [] }) ||
+      profileColor !== (user.customization?.profileColor || "") ||
+      JSON.stringify(profileGradient) !== JSON.stringify(user.customization?.profileGradient || []) ||
+      JSON.stringify(nameplate) !== JSON.stringify(user.customization?.nameplate || { type: 'none' })
+    );
   }, [
     displayName,
     bio,
@@ -1279,6 +831,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     serverBanner,
     initialServerBanner,
   ]);
+
 
   // Handle escape key. Capture phase so it fires even if a child stops
   // propagation, but yield to any nested dialog/menu/popover so Escape closes
@@ -1433,7 +986,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               nameplate,
             },
           });
-          setHasChanges(false);
           toast.success(gt("Profile saved!"));
           // Refresh to get full updated data
           await refresh();
@@ -1456,7 +1008,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           setInitialServerNickname(serverNickname);
           setInitialServerAvatar(serverAvatar);
           setInitialServerBanner(serverBanner);
-          setHasChanges(false);
           toast.success(gt("Server profile saved!"));
           await refresh();
         } else {
@@ -1719,7 +1270,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         setAdminUsers(data.users);
         setSelectedUser((prev) => {
           if (!prev) return null;
-          return data.users.find((u: any) => u.id === prev.id) || null;
+          return data.users.find((u: { id: string }) => u.id === prev.id) || null;
         });
       } else {
         toast.error(gt("Failed to search users"));
@@ -1753,7 +1304,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         setAdminServers(data.servers);
         setSelectedServer((prev) => {
           if (!prev) return null;
-          return data.servers.find((s: any) => s.id === prev.id) || null;
+          return data.servers.find((s: { id: string }) => s.id === prev.id) || null;
         });
       } else {
         toast.error(gt("Failed to search servers"));
@@ -1766,7 +1317,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   };
 
   const fetchAdminStats = async () => {
-    setIsLoadingAdmin(true);
+    setIsLoadingAdminStats(true);
     try {
       const response = await fetch("/api/admin/stats");
       if (response.ok) {
@@ -1776,7 +1327,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     } catch (error) {
       console.error("Failed to fetch admin stats:", error);
     } finally {
-      setIsLoadingAdmin(false);
+      setIsLoadingAdminStats(false);
     }
   };
 
@@ -1807,7 +1358,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   };
 
   const fetchAdminLogs = async (filter?: string, page?: number) => {
-    setIsLoadingAdmin(true);
+    setIsLoadingAdminLogs(true);
     try {
       const pageNum = page || adminLogPage;
       const params = new URLSearchParams();
@@ -1824,7 +1375,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     } catch (error) {
       console.error("Failed to fetch admin logs:", error);
     } finally {
-      setIsLoadingAdmin(false);
+      setIsLoadingAdminLogs(false);
     }
   };
 
@@ -2081,31 +1632,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     }
   }, [activeTab, isStaff, can]);
 
-  const renderBadges = () => {
-    if (!user?.badges || user.badges.length === 0) return null;
-
-    const badges = resolveBadges(user.badges);
-
-    return (
-      <div className="flex flex-wrap gap-1.5">
-        {badges.map((badge) => {
-          const labels = badgeLabel(badge, gt);
-          return (
-            <div
-              key={badge.id}
-              className="px-2 py-1 rounded-full flex items-center gap-1.5 text-xs"
-              style={{ backgroundColor: `${badge.color}20`, color: badge.color }}
-              title={labels.description}
-            >
-              <BadgeIcon badge={badge} className="w-3.5 h-3.5" />
-              <span>{labels.name}</span>
-            </div>
-          );
-        })}
-      </div>
-    );
-  };
-
   // Settings → Encryption shows once E2EE is on (server flag) or this device has keys.
   const e2eeState = useE2ee();
   const e2eeVisible = e2eeState.enabled || e2eeState.phase === "ready" || e2eeState.phase === "needs-restore";
@@ -2118,6 +1644,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
       {
         title: gt("User Settings"),
         items: [
+          { id: "account" as SettingsTab, label: gt("My Account"), icon: UserCog, keywords: gt("email, username, password, passkeys, delete account") },
           { id: "profiles" as SettingsTab, label: gt("Profiles"), icon: User, keywords: gt("avatar, banner, display name, bio, pronouns, status, nameplate, server profile") },
           { id: "content-social" as SettingsTab, label: gt("Content & Social"), icon: MessageSquare, keywords: gt("direct messages, DMs, message requests, privacy") },
           { id: "friend-requests" as SettingsTab, label: gt("Friend Requests"), icon: UserPlus },
@@ -2196,18 +1723,45 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   // only recompute when the query or the (memoized) menu actually changes.
   const filteredSections = useMemo(() => filterSettingsSections(menuSections, searchQuery), [menuSections, searchQuery]);
 
-  if (!open) return null;
-
   // Desktop-only pages are left out of the phone list (no physical keyboard /
   // desktop shell there).
-  const mobileSections = filteredSections
-    .map((section) => ({
-      ...section,
-      items: section.items.filter((item) => item.id !== "keybinds" && item.id !== "desktop"),
-    }))
-    .filter((section) => section.items.length > 0);
-  const activeTabLabel =
-    menuSections.flatMap((section) => section.items).find((item) => item.id === activeTab)?.label ?? gt("Settings");
+  const mobileSections = useMemo(
+    () =>
+      filteredSections
+        .map((section) => ({
+          ...section,
+          items: section.items.filter((item) => item.id !== "keybinds" && item.id !== "desktop"),
+        }))
+        .filter((section) => section.items.length > 0),
+    [filteredSections],
+  );
+  const activeTabLabel = useMemo(
+    () => menuSections.flatMap((section) => section.items).find((item) => item.id === activeTab)?.label ?? gt("Settings"),
+    [menuSections, activeTab, gt],
+  );
+  // ~400 <option>s, built once instead of on every Profiles keystroke.
+  const timezoneOptions = useMemo(
+    () => allTimeZones().map((tz) => <option key={tz} value={tz}>{tz}</option>),
+    [],
+  );
+  const openProfiles = useCallback(() => selectTab("profiles"), [selectTab]);
+  const openDevices = useCallback(() => selectTab("devices"), [selectTab]);
+
+  if (!open) return null;
+
+  // Row pages show this in their header instead of inserting a line into the
+  // card on every toggle (which made the rows jump).
+  const savingIndicator = (
+    <span
+      aria-live="polite"
+      className={cn(
+        "text-xs font-medium text-[var(--text-muted)] transition-opacity duration-(--motion-fast)",
+        isSavingSettings ? "opacity-100" : "opacity-0",
+      )}
+    >
+      {gt("Saving")}…
+    </span>
+  );
 
   return (
     <div className="fixed inset-0 z-50 bg-[var(--bg-app)] text-[var(--text-primary)]">
@@ -2375,1414 +1929,441 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
             />
           }
         >
-              {/* Admin Logs Tab — rendered in the admin section below */}
+              {/* My Account */}
+              {activeTab === "account" && (
+                <MyAccountPage user={user} onEditProfile={openProfiles} onOpenDevices={openDevices} />
+              )}
 
-
-              {/* Profiles Tab */}
+              {/* Profiles: editor on the left, sticky live preview on the right */}
               {activeTab === "profiles" && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1">{gt("Profiles")}</h2>
-                  <p className="text-sm text-[var(--text-muted)] mb-5">{gt("Customize how others see you across SerikaCord")}</p>
+                <div className="space-y-6">
+                  <SettingsPageHeader title={gt("Profiles")} description={gt("Customize how others see you across SerikaCord")} />
 
-                  {/* Tabs */}
-                  <div className="flex gap-1 p-1 bg-[var(--bg-app)] rounded-lg w-fit mb-8 relative">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!hasChanges) {
-                          setProfileTab("main");
-                        } else {
-                          toast.error(gt("Please save or reset your changes first."));
-                        }
-                      }}
-                      className={cn(
-                        "relative px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200 z-10",
-                        profileTab === "main"
-                          ? "text-white font-semibold"
-                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                      )}
-                    >
-                      {profileTab === "main" && (
-                        <motion.div
-                          layoutId="activeProfileTab"
-                          className="absolute inset-0 bg-[var(--app-accent)] rounded-md -z-10 shadow-sm"
-                          transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                        />
-                      )}
-                      {gt("Main Profile")}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        if (!hasChanges) {
-                          setProfileTab("server");
-                        } else {
-                          toast.error(gt("Please save or reset your changes first."));
-                        }
-                      }}
-                      className={cn(
-                        "relative px-4 py-2 rounded-md text-sm font-medium transition-colors duration-200 z-10",
-                        profileTab === "server"
-                          ? "text-white font-semibold"
-                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                      )}
-                    >
-                      {profileTab === "server" && (
-                        <motion.div
-                          layoutId="activeProfileTab"
-                          className="absolute inset-0 bg-[var(--app-accent)] rounded-md -z-10 shadow-sm"
-                          transition={{ type: "spring", stiffness: 300, damping: 25 }}
-                        />
-                      )}
-                      {gt("Per-server Profiles")}
-                    </button>
-                  </div>
+                  <SettingsSubTabs
+                    ariaLabel={gt("Profiles")}
+                    value={profileTab}
+                    onChange={(tab) => {
+                      if (tab === profileTab) return;
+                      if (!hasChanges) setProfileTab(tab);
+                      else toast.error(gt("Please save or reset your changes first."));
+                    }}
+                    tabs={[
+                      { id: "main", label: gt("Main Profile") },
+                      { id: "server", label: gt("Per-server Profiles") },
+                    ]}
+                  />
 
-                  {/* Profile Layout */}
-                  <div className="grid grid-cols-1 md:grid-cols-[1fr_340px] gap-6 md:gap-8">
-                    <div>
-                      <AnimatePresence mode="wait">
-                        {profileTab === "main" ? (
-                          <motion.div
-                            key="main-profile"
-                            initial={{ opacity: 0, x: -10 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 10 }}
-                            transition={{ duration: 0.2 }}
-                            className="space-y-6"
-                          >
-                          {/* Avatar & Banner Section */}
-                          <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5">
-                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider mb-4">{gt("Avatar & Banner")}</h3>
-                            <div className="flex gap-5 items-start">
-                              <div>
-                                <div
-                                  onClick={() => avatarInputRef.current?.click()}
-                                  className="relative w-[72px] h-[72px] rounded-full bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
-                                >
-                                  {user?.avatar ? (
-                                    <img src={cdnImage(user.avatar)} alt={gt("Avatar")} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
-                                      <Camera className="w-5 h-5" />
-                                    </div>
-                                  )}
-                                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    {isUploadingAvatar ? (
-                                      <Loader size={20} />
-                                    ) : (
-                                      <Camera className="w-5 h-5 text-white" />
-                                    )}
-                                  </div>
-                                </div>
-                                <input
-                                  ref={avatarInputRef}
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={handleAvatarSelect}
-                                />
-                              </div>
-                              <div className="flex-1">
-                                <div
-                                  onClick={() => bannerInputRef.current?.click()}
-                                  className="relative w-full h-[72px] rounded-lg bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
-                                >
-                                  {user?.banner ? (
-                                    <img src={cdnImage(user.banner)} alt={gt("Banner")} className="w-full h-full object-cover" />
-                                  ) : (
-                                    <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
-                                      <Image className="w-5 h-5" />
-                                    </div>
-                                  )}
-                                  <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                    {isUploadingBanner ? (
-                                      <Loader size={20} />
-                                    ) : (
-                                      <Camera className="w-5 h-5 text-white" />
-                                    )}
-                                  </div>
-                                </div>
-                                <input
-                                  ref={bannerInputRef}
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={handleBannerSelect}
-                                />
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* Basic Info Section */}
-                          <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Basic Info")}</h3>
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                              <div>
-                                <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                  {gt("Display Name")}
-                                </label>
-                                <Input
-                                  value={displayName}
-                                  onChange={(e) => setDisplayName(e.target.value)}
-                                  className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10"
-                                />
-                              </div>
-                              <div>
-                                <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                  {gt("Pronouns")}
-                                </label>
-                                <Input
-                                  value={pronouns}
-                                  onChange={(e) => setPronouns(e.target.value)}
-                                  className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10"
-                                  placeholder={gt("Add your pronouns")}
-                                />
-                              </div>
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                {gt("Timezone")}
-                              </label>
-                              <select
-                                value={timezone}
-                                onChange={(e) => setTimezone(e.target.value)}
-                                className="w-full h-10 rounded-md bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)] px-3 text-sm focus:outline-none focus:ring-1 focus:ring-[var(--app-accent)]"
-                              >
-                                <option value="">{gt("Select your timezone")}</option>
-                                {Intl.supportedValuesOf("timeZone").map((tz) => (
-                                  <option key={tz} value={tz}>{tz}</option>
-                                ))}
-                              </select>
-                              <label className="flex items-center gap-2 mt-2.5 cursor-pointer">
-                                <ToggleSwitch
-                                  size="sm"
-                                  checked={showTimezone}
-                                  onCheckedChange={setShowTimezone}
-                                  aria-label={gt("Display my current time on my profile")}
-                                />
-                                <span className="text-sm text-[var(--text-secondary)]">{gt("Display my current time on my profile")}</span>
-                              </label>
-                            </div>
-                          </div>
-
-                          {/* About & Status Section */}
-                          <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("About & Status")}</h3>
-                            <div>
-                              <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                {gt("About Me")}
-                              </label>
-                              <Textarea
-                                value={bio}
-                                onChange={(e) => setBio(e.target.value)}
-                                className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] min-h-[100px] resize-y"
-                                maxLength={1000}
-                              />
-                              <p className="text-xs text-[var(--text-muted)] text-right mt-1">{bio.length}/1000</p>
-                            </div>
-
-                            <div>
-                              <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                {gt("Custom Status")}
-                              </label>
-                              <Input
-                                value={customStatus}
-                                onChange={(e) => setCustomStatus(e.target.value)}
-                                className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10"
-                                placeholder={gt("What's on your mind?")}
-                                maxLength={128}
-                              />
-                            </div>
-                          </div>
-
-                          {/* Display Name Style */}
-                          <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5">
-                            <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider mb-4">{gt("Display Name Style")}</h3>
-                            <div className="space-y-6">
-                                {/* Font */}
-                                <div className="mb-6">
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Choose Font")}</span>
-                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, font: 'default' }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Font")}><RotateCcw className="w-4 h-4" /></button>
-                                  </div>
-                                  <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
-                                    {([
-                                      { value: 'default', label: gt("Default") },
-                                      { value: 'serif', label: gt("Serif") },
-                                      { value: 'mono', label: gt("Mono") },
-                                      { value: 'rounded', label: gt("Rounded") },
-                                      { value: 'cursive', label: gt("Cursive") },
-                                      { value: 'bold', label: gt("Bold") },
-                                    ] as const).map((font) => {
-                                      const isSelected = displayNameStyle.font === font.value;
-                                      return (
-                                        <button
-                                          key={font.value}
-                                          onClick={() => setDisplayNameStyle((s) => ({ ...s, font: font.value }))}
-                                          className={cn(
-                                            "h-14 rounded-lg flex flex-col items-center justify-center gap-0.5 transition-all border-2",
-                                            isSelected
-                                              ? "border-[var(--app-accent)] bg-[var(--bg-sidebar-elevated)] text-[var(--text-primary)]"
-                                              : "border-transparent bg-[var(--bg-sidebar)] text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]"
-                                          )}
-                                        >
-                                          <span
-                                            className={cn(
-                                              "text-[18px] leading-none",
-                                              getDisplayNameStyleClasses({ font: font.value })
-                                            )}
-                                            style={getDisplayNameStyleInline({ font: font.value })}
-                                          >
-                                            {font.label}
-                                          </span>
-                                          <span className="text-[10px] text-[var(--text-muted)] font-medium uppercase tracking-wide">
-                                            Aa
-                                          </span>
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                </div>
-
-                                {/* Effect */}
-                                <div className="mb-6">
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Choose Effect")}</span>
-                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, effect: 'solid' }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Effect")}><RotateCcw className="w-4 h-4" /></button>
-                                  </div>
-                                  <div className="grid grid-cols-3 sm:grid-cols-3 gap-3">
-                                    {([
-                                      { value: 'solid', label: gt("Solid") },
-                                      { value: 'gradient', label: gt("Gradient") },
-                                      { value: 'neon', label: gt("Neon") },
-                                      { value: 'toon', label: gt("Toon") },
-                                      { value: 'pop', label: gt("Pop") },
-                                    ] as const).map((effect) => (
-                                      <button
-                                        key={effect.value}
-                                        onClick={() => setDisplayNameStyle((s) => ({ ...s, effect: effect.value }))}
-                                        className={cn(
-                                          "h-[52px] rounded-lg flex items-center justify-center text-[15px] font-medium transition-all border-2",
-                                          displayNameStyle.effect === effect.value
-                                            ? "border-[var(--app-accent)] bg-[var(--bg-sidebar-elevated)]"
-                                            : "border-transparent bg-[var(--bg-sidebar)] text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]"
-                                        )}
-                                      >
-                                        <span
-                                          className={cn(
-                                            "truncate px-2",
-                                            getDisplayNameStyleClasses({ effect: effect.value, color: effect.value !== 'gradient' ? displayNameStyle.color : undefined, gradient: effect.value === 'gradient' ? displayNameStyle.gradient : undefined })
-                                          )}
-                                          style={getDisplayNameStyleInline({ effect: effect.value, color: displayNameStyle.color || '#fff', gradient: displayNameStyle.gradient?.length ? displayNameStyle.gradient : ['#8B5CF6', '#3B82F6'] })}
-                                        >
-                                          {effect.label}
-                                        </span>
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-
-                                {/* Colour */}
-                                <div>
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Choose Colour")}</span>
-                                    <button onClick={() => setDisplayNameStyle((s) => ({ ...s, color: '', gradient: [] }))} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Colour")}><RotateCcw className="w-4 h-4" /></button>
-                                  </div>
-                                  {displayNameStyle.effect === 'gradient' ? (
-                                    <div className="space-y-3">
-                                      {/* Custom gradient bar */}
-                                      {(() => {
-                                        const g0 = displayNameStyle.gradient?.[0] || '#8B5CF6';
-                                        const g1 = displayNameStyle.gradient?.[1] || '#EC4899';
-                                        return (
-                                          <div className="flex items-center gap-2">
-                                            <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
-                                            <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
-                                              <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
-                                                <input type="color" value={g0} onChange={(e) => setDisplayNameStyle((s) => ({ ...s, gradient: [e.target.value, s.gradient?.[1] || '#EC4899'] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                              </label>
-                                              <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g1 }}>
-                                                <input type="color" value={g1} onChange={(e) => setDisplayNameStyle((s) => ({ ...s, gradient: [s.gradient?.[0] || '#8B5CF6', e.target.value] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                              </label>
-                                            </div>
-                                          </div>
-                                        );
-                                      })()}
-                                      {/* Gradient presets */}
-                                      <div className="flex flex-wrap gap-2.5">
-                                        {[
-                                          ['#FF3366', '#FFD12A'], ['#00E676', '#00B0FF'], ['#D500F9', '#FF1744'], ['#1DE9B6', '#3D5AFE'],
-                                          ['#FF4081', '#E040FB'], ['#2979FF', '#00E5FF'], ['#7C4DFF', '#E040FB'], ['#F50057', '#FF3366'],
-                                          ['#FF9800', '#FF5722'], ['#4CAF50', '#8BC34A'], ['#9C27B0', '#673AB7'], ['#3F51B5', '#2196F3'],
-                                          ['#00BCD4', '#009688'], ['#CDDC39', '#FFEB3B'], ['#FFC107', '#FF5722']
-                                        ].map((grad, i) => {
-                                          const isSelected = JSON.stringify(displayNameStyle.gradient) === JSON.stringify(grad);
-                                          return (
-                                            <button
-                                              key={i}
-                                              onClick={() => setDisplayNameStyle((s) => ({ ...s, gradient: grad }))}
-                                              className="w-8 h-8 rounded-full transition-all relative overflow-hidden ring-2"
-                                              style={{ background: `linear-gradient(135deg, ${grad.join(', ')})`, boxShadow: isSelected ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none', outline: isSelected ? '2px solid var(--app-accent)' : 'none', outlineOffset: 1 }}
-                                            >
-                                              {isSelected && (
-                                                <div className="absolute inset-0 flex items-center justify-center">
-                                                  <Check className="w-3.5 h-3.5 text-white drop-shadow-md" />
-                                                </div>
-                                              )}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  ) : (
-                                    <div className="flex flex-wrap gap-2.5">
-                                      {/* Custom Colour Picker */}
-                                      <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all" style={{ backgroundColor: displayNameStyle.color || '#8B5CF6' }}>
-                                        <input
-                                          type="color"
-                                          value={displayNameStyle.color || '#8B5CF6'}
-                                          onChange={(e) => setDisplayNameStyle((s) => ({ ...s, color: e.target.value }))}
-                                          className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0"
-                                        />
-                                        <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
-                                          <Pencil className="w-3.5 h-3.5 text-white drop-shadow-md" />
-                                        </div>
-                                      </label>
-                                      <div className="w-px h-8 bg-[var(--border-subtle)] mx-1" />
-                                      {[
-                                        '#F43F5E', '#EAB308', '#22C55E', '#10B981', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6',
-                                        '#D946EF', '#FF1744', '#00E676', '#00B0FF', '#D500F9', '#FF9800', '#9C27B0'
-                                      ].map((col, i) => {
-                                        const isSelected = displayNameStyle.color === col;
-                                        return (
-                                          <button
-                                            key={i}
-                                            onClick={() => setDisplayNameStyle((s) => ({ ...s, color: col }))}
-                                            className="w-8 h-8 rounded-full transition-all relative ring-2"
-                                            style={{ backgroundColor: col, boxShadow: isSelected ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none', outline: isSelected ? '2px solid var(--app-accent)' : 'none', outlineOffset: 1 }}
-                                          >
-                                            {isSelected && (
-                                              <div className="absolute inset-0 flex items-center justify-center">
-                                                <Check className="w-3.5 h-3.5 text-white drop-shadow-md" />
-                                              </div>
-                                            )}
-                                          </button>
-                                        );
-                                      })}
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-                            </div>
-
-                            {/* Server tag (CORD-53) */}
-                            <ServerTagPicker />
-
-                            {/* Nameplate */}
-                            <div className="mt-8">
-                              <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-1">{gt("Nameplate")}</h2>
-                              <p className="text-xs text-[var(--text-muted)] mb-3">{gt("A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.")}</p>
-                              <div className="bg-[var(--bg-app)] rounded-xl border border-[var(--border-subtle)] p-4 space-y-3">
-                                {/* Live preview — mirrors the sidebar user panel */}
-                                <div className="relative rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-sidebar)]">
-                                  {getNameplateBackground({ nameplate }) && (
-                                    <div className="absolute inset-0" style={{ background: getNameplateBackground({ nameplate })!, opacity: 0.55, WebkitMaskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)', maskImage: 'linear-gradient(90deg, #000 70%, rgba(0,0,0,0.35) 100%)' }} />
-                                  )}
-                                  <div className="relative flex items-center gap-2 px-2 py-2">
-                                    <img src={cdnImage(user?.avatar || undefined)} alt="" className="w-8 h-8 rounded-full object-cover bg-[var(--bg-sidebar-elevated)] shrink-0" />
-                                    <span
-                                      className={cn("text-sm font-bold text-[var(--text-primary)] truncate", getDisplayNameStyleClasses(displayNameStyle))}
-                                      style={getDisplayNameStyleInline(displayNameStyle)}
-                                    >
-                                      {displayName || user?.username || gt("Your name")}
-                                    </span>
-                                  </div>
-                                </div>
-
-                                {/* Type selector — segmented */}
-                                <div className="flex gap-1 p-0.5 rounded-lg bg-[var(--bg-sidebar)] border border-[var(--border-subtle)]">
-                                  {([
-                                    { id: 'none', label: gt("None") },
-                                    { id: 'color', label: gt("Solid") },
-                                    { id: 'gradient', label: gt("Gradient") },
-                                    { id: 'preset', label: gt("Presets") },
-                                    { id: 'image', label: gt("Image") },
-                                  ] as const).map((opt) => (
-                                    <button
-                                      key={opt.id}
-                                      onClick={() => setNameplate((n) => ({ ...n, type: opt.id }))}
-                                      className={cn(
-                                        "flex-1 px-2 py-1.5 rounded-md text-xs font-semibold transition-colors",
-                                        (nameplate.type || 'none') === opt.id
-                                          ? "bg-[var(--app-accent)] text-white"
-                                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                                      )}
-                                    >
-                                      {opt.label}
-                                    </button>
-                                  ))}
-                                </div>
-
-                                {/* Solid colour swatches */}
-                                {nameplate.type === 'color' && (
-                                  <div className="flex flex-wrap gap-1.5">
-                                    {['#F43F5E', '#EAB308', '#22C55E', '#10B981', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6', '#D946EF', '#FF9800', '#9C27B0', '#434343'].map((col) => {
-                                      const on = nameplate.color === col;
-                                      return (
-                                        <button
-                                          key={col}
-                                          onClick={() => setNameplate((n) => ({ ...n, type: 'color', color: col }))}
-                                          className="w-7 h-7 rounded-full relative transition-all"
-                                          style={{ backgroundColor: col, boxShadow: on ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none' }}
-                                        >
-                                          {on && <Check className="w-3 h-3 text-white absolute inset-0 m-auto drop-shadow-md" />}
-                                        </button>
-                                      );
-                                    })}
-                                    <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40" style={{ backgroundColor: nameplate.color || '#8B5CF6' }}>
-                                      <input type="color" value={nameplate.color || '#8B5CF6'} onChange={(e) => setNameplate((n) => ({ ...n, type: 'color', color: e.target.value }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                      <Pencil className="w-3 h-3 text-white absolute inset-0 m-auto drop-shadow-md pointer-events-none" />
-                                    </label>
-                                  </div>
-                                )}
-
-                                {/* Gradient — custom two-colour pickers + presets */}
-                                {nameplate.type === 'gradient' && (() => {
-                                  const g0 = nameplate.gradient?.[0] || '#8B5CF6';
-                                  const g1 = nameplate.gradient?.[1] || '#EC4899';
-                                  return (
-                                    <div className="space-y-2.5">
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
-                                        <div className="flex items-center justify-between flex-1 rounded-md h-9 px-2" style={{ background: `linear-gradient(90deg, ${g0}, ${g1})` }}>
-                                          <label className="relative w-6 h-6 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
-                                            <input type="color" value={g0} onChange={(e) => setNameplate((n) => ({ ...n, type: 'gradient', gradient: [e.target.value, g1] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                          </label>
-                                          <label className="relative w-6 h-6 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g1 }}>
-                                            <input type="color" value={g1} onChange={(e) => setNameplate((n) => ({ ...n, type: 'gradient', gradient: [g0, e.target.value] }))} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                          </label>
-                                        </div>
-                                      </div>
-                                      <div className="flex flex-wrap gap-1.5">
-                                        {[
-                                          ['#FF3366', '#FFD12A'], ['#00E676', '#00B0FF'], ['#D500F9', '#FF1744'], ['#1DE9B6', '#3D5AFE'],
-                                          ['#FF4081', '#E040FB'], ['#2979FF', '#00E5FF'], ['#7C4DFF', '#E040FB'], ['#FF9800', '#FF5722'],
-                                          ['#4CAF50', '#8BC34A'], ['#9C27B0', '#673AB7'], ['#00BCD4', '#009688'], ['#434343', '#000000'],
-                                        ].map((grad, i) => {
-                                          const on = JSON.stringify(nameplate.gradient) === JSON.stringify(grad);
-                                          return (
-                                            <button
-                                              key={i}
-                                              onClick={() => setNameplate((n) => ({ ...n, type: 'gradient', gradient: grad }))}
-                                              className="w-9 h-7 rounded-md relative transition-all"
-                                              style={{ background: `linear-gradient(90deg, ${grad.join(', ')})`, boxShadow: on ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none' }}
-                                            >
-                                              {on && <Check className="w-3 h-3 text-white absolute inset-0 m-auto drop-shadow-md" />}
-                                            </button>
-                                          );
-                                        })}
-                                      </div>
-                                    </div>
-                                  );
-                                })()}
-
-                                {nameplate.type === 'image' && (
-                                  <NameplateImagePicker
-                                    hasImage={Boolean(nameplate.imageUrl)}
-                                    onUploaded={(url) => setNameplate({ type: 'image', imageUrl: url })}
+                  <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]">
+                    <div key={profileTab} className="settings-page-enter min-w-0 space-y-8">
+                      {profileTab === "main" ? (
+                        <>
+                          <SettingsSection title={gt("Avatar & Banner")}>
+                            <div className={FORM_CARD}>
+                              <div className="flex items-start gap-4 max-sm:flex-col">
+                                <div className="flex flex-col items-center gap-2">
+                                  <MediaPickTile
+                                    shape="avatar"
+                                    src={user?.avatar}
+                                    alt={gt("Avatar")}
+                                    uploading={isUploadingAvatar}
+                                    onPick={() => avatarInputRef.current?.click()}
                                   />
-                                )}
-
-                                {/* Preset gallery */}
-                                {nameplate.type === 'preset' && (
-                                  <div className="grid grid-cols-3 gap-1.5">
-                                    {NAMEPLATE_PRESETS.map((preset) => {
-                                      const on = nameplate.presetId === preset.id;
-                                      return (
-                                        <button
-                                          key={preset.id}
-                                          onClick={() => setNameplate((n) => ({ ...n, type: 'preset', presetId: preset.id }))}
-                                          className={cn(
-                                            "relative h-9 rounded-md overflow-hidden border transition-all flex items-center px-2.5",
-                                            on ? "border-[var(--app-accent)] ring-2 ring-[var(--app-accent)]" : "border-[var(--border-subtle)]"
-                                          )}
-                                        >
-                                          <div className="absolute inset-0" style={{ background: preset.css, opacity: 0.55 }} />
-                                          <span className="relative text-[11px] font-semibold text-white drop-shadow-md truncate">{preset.name}</span>
-                                          {on && <Check className="w-3.5 h-3.5 text-white absolute right-1.5 top-1/2 -translate-y-1/2 drop-shadow-md" />}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-
-                            {/* Profile Colour */}
-                            <div className="mt-8">
-                              <h2 className="text-[16px] font-bold text-[var(--text-primary)] mb-4">{gt("Profile Colour")}</h2>
-                              <div className="bg-[var(--bg-app)] rounded-xl border border-[var(--border-subtle)] p-5">
-                                {/* Colour */}
-                                <div className="mb-6">
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Choose Colour")}</span>
-                                    <button onClick={() => setProfileColor('')} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Colour")}><RotateCcw className="w-4 h-4" /></button>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2.5">
-                                    <label className="relative w-8 h-8 rounded-full overflow-hidden cursor-pointer ring-2 ring-transparent hover:ring-white/40 transition-all" style={{ backgroundColor: profileColor || '#8B5CF6' }}>
-                                      <input type="color" value={profileColor || '#8B5CF6'} onChange={(e) => setProfileColor(e.target.value)} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                      <div className="absolute inset-0 flex items-center justify-center pointer-events-none"><Pencil className="w-3.5 h-3.5 text-white drop-shadow-md" /></div>
-                                    </label>
-                                    <div className="w-px h-8 bg-[var(--border-subtle)] mx-1" />
-                                    {[
-                                      '#F43F5E', '#EAB308', '#22C55E', '#10B981', '#06B6D4', '#3B82F6', '#6366F1', '#8B5CF6',
-                                      '#D946EF', '#FF1744', '#00E676', '#00B0FF', '#D500F9', '#FF9800', '#9C27B0'
-                                    ].map((col, i) => {
-                                      const isSelected = profileColor === col;
-                                      return (
-                                        <button key={i} onClick={() => setProfileColor(col)} className="w-8 h-8 rounded-full transition-all relative" style={{ backgroundColor: col, boxShadow: isSelected ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none', outline: isSelected ? '2px solid var(--app-accent)' : 'none', outlineOffset: 1 }}>
-                                          {isSelected && <div className="absolute inset-0 flex items-center justify-center"><Check className="w-3.5 h-3.5 text-white drop-shadow-md" /></div>}
-                                        </button>
-                                      );
-                                    })}
+                                  <SettingsButton size="sm" onClick={() => avatarInputRef.current?.click()}>{gt("Change Avatar")}</SettingsButton>
+                                </div>
+                                <div className="flex min-w-0 flex-1 flex-col gap-2 max-sm:w-full">
+                                  <MediaPickTile
+                                    shape="banner"
+                                    src={user?.banner}
+                                    alt={gt("Banner")}
+                                    uploading={isUploadingBanner}
+                                    onPick={() => bannerInputRef.current?.click()}
+                                  />
+                                  <div>
+                                    <SettingsButton variant="secondary" size="sm" onClick={() => bannerInputRef.current?.click()}>{gt("Change Banner")}</SettingsButton>
                                   </div>
                                 </div>
-                                {/* Gradient Background */}
-                                <div>
-                                  <div className="flex items-center gap-2 mb-3">
-                                    <span className="text-[14px] font-bold text-[var(--text-primary)]">{gt("Gradient Background (Optional)")}</span>
-                                    <button onClick={() => setProfileGradient([])} className="text-[var(--text-muted)] hover:text-[var(--text-primary)] transition-colors" title={gt("Reset Gradient")}><RotateCcw className="w-4 h-4" /></button>
-                                  </div>
-                                  <div className="flex flex-wrap gap-2.5 mb-4">
-                                    {[
-                                      ['#FF3366', '#FFD12A'], ['#00E676', '#00B0FF'], ['#D500F9', '#FF1744'], ['#1DE9B6', '#3D5AFE'],
-                                      ['#FF4081', '#E040FB'], ['#2979FF', '#00E5FF'], ['#7C4DFF', '#E040FB'], ['#F50057', '#FF3366'],
-                                      ['#FF9800', '#FF5722'], ['#4CAF50', '#8BC34A'], ['#9C27B0', '#673AB7'], ['#3F51B5', '#2196F3'],
-                                      ['#00BCD4', '#009688'], ['#CDDC39', '#FFEB3B'], ['#FFC107', '#FF5722']
-                                    ].map((grad, i) => {
-                                      const isSelected = JSON.stringify(profileGradient) === JSON.stringify(grad);
-                                      return (
-                                        <button key={i} onClick={() => setProfileGradient(grad)} className="w-8 h-8 rounded-full transition-all relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${grad.join(', ')})`, boxShadow: isSelected ? '0 0 0 2px var(--bg-app), 0 0 0 4px var(--app-accent)' : 'none', outline: isSelected ? '2px solid var(--app-accent)' : 'none', outlineOffset: 1 }}>
-                                          {isSelected && <div className="absolute inset-0 flex items-center justify-center"><Check className="w-3.5 h-3.5 text-white drop-shadow-md" /></div>}
-                                        </button>
-                                      );
-                                    })}
-                                  </div>
-                                  {/* Custom two-colour gradient */}
-                                  {(() => {
-                                    const g0 = profileGradient?.[0] || '#8B5CF6';
-                                    const g1 = profileGradient?.[1] || '#EC4899';
-                                    return (
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-semibold text-[var(--text-muted)] shrink-0">{gt("Custom")}</span>
-                                        <div className="flex items-center justify-between flex-1 rounded-lg h-10 px-2.5" style={{ background: `linear-gradient(135deg, ${g0}, ${g1})` }}>
-                                          <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g0 }}>
-                                            <input type="color" value={g0} onChange={(e) => setProfileGradient([e.target.value, g1])} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                          </label>
-                                          <label className="relative w-7 h-7 rounded-full overflow-hidden cursor-pointer ring-2 ring-white/70 shadow" style={{ backgroundColor: g1 }}>
-                                            <input type="color" value={g1} onChange={(e) => setProfileGradient([g0, e.target.value])} className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0" />
-                                          </label>
-                                        </div>
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
                               </div>
+                              <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
+                              <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleBannerSelect} />
                             </div>
+                          </SettingsSection>
+
+                          <SettingsSection title={gt("Basic Info")}>
+                            <div className={FORM_CARD}>
+                              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <label className="block">
+                                  <span className={FIELD_LABEL} data-settings-label={gt("Display Name")}>{gt("Display Name")}</span>
+                                  <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} className={FIELD_INPUT} />
+                                </label>
+                                <label className="block">
+                                  <span className={FIELD_LABEL}>{gt("Pronouns")}</span>
+                                  <Input value={pronouns} onChange={(e) => setPronouns(e.target.value)} className={FIELD_INPUT} placeholder={gt("Add your pronouns")} />
+                                </label>
+                              </div>
+                              <label className="block">
+                                <span className={FIELD_LABEL}>{gt("Timezone")}</span>
+                                <select value={timezone} onChange={(e) => setTimezone(e.target.value)} className={SELECT_CLASS}>
+                                  <option value="">{gt("Select your timezone")}</option>
+                                  {timezoneOptions}
+                                </select>
+                              </label>
+                              <label className="flex cursor-pointer items-center justify-between gap-4">
+                                <span className="text-sm text-[var(--text-primary)]">{gt("Display my current time on my profile")}</span>
+                                <ToggleSwitch size="sm" checked={showTimezone} onCheckedChange={setShowTimezone} aria-label={gt("Display my current time on my profile")} />
+                              </label>
+                            </div>
+                          </SettingsSection>
+
+                          <SettingsSection title={gt("About & Status")}>
+                            <div className={FORM_CARD}>
+                              <label className="block">
+                                <span className={FIELD_LABEL}>{gt("About Me")}</span>
+                                <Textarea
+                                  value={bio}
+                                  onChange={(e) => setBio(e.target.value)}
+                                  className="min-h-[100px] resize-y border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)]"
+                                  maxLength={1000}
+                                />
+                                <span className="mt-1 block text-right text-xs tabular-nums text-[var(--text-muted)]">{bio.length}/1000</span>
+                              </label>
+                              <label className="block">
+                                <span className={FIELD_LABEL}>{gt("Custom Status")}</span>
+                                <Input
+                                  value={customStatus}
+                                  onChange={(e) => setCustomStatus(e.target.value)}
+                                  className={FIELD_INPUT}
+                                  placeholder={gt("What's on your mind?")}
+                                  maxLength={128}
+                                />
+                              </label>
+                            </div>
+                          </SettingsSection>
+
+                          <SettingsSection title={gt("Display Name Style")}>
+                            <div className={FORM_CARD}>
+                              <DisplayNameStyleEditor value={displayNameStyle} onChange={setDisplayNameStyle} />
+                            </div>
+                          </SettingsSection>
+
+                          {/* Server tag (CORD-53) */}
+                          <ServerTagPicker />
+
+                          <SettingsSection
+                            title={gt("Nameplate")}
+                            description={gt("A decorative plate shown behind your name in the member list, DMs, and your sidebar panel.")}
+                          >
+                            <div className={FORM_CARD}>
+                              <NameplateEditor
+                                nameplate={nameplate}
+                                onChange={setNameplate}
+                                displayName={displayName || user?.username || ""}
+                                displayNameStyle={displayNameStyle}
+                                avatar={user?.avatar}
+                              />
+                            </div>
+                          </SettingsSection>
+
+                          <SettingsSection title={gt("Profile Colour")}>
+                            <div className={FORM_CARD}>
+                              <ProfileColourEditor
+                                profileColor={profileColor}
+                                setProfileColor={setProfileColor}
+                                profileGradient={profileGradient}
+                                setProfileGradient={setProfileGradient}
+                              />
+                            </div>
+                          </SettingsSection>
 
                           {/* Profile widgets from other Serika apps (saved instantly) */}
                           <SerikaWishlistSettingsCard />
-                          </motion.div>
-                        ) : (
-                        <motion.div
-                          key="server-profile"
-                          initial={{ opacity: 0, x: 10 }}
-                          animate={{ opacity: 1, x: 0 }}
-                          exit={{ opacity: 0, x: -10 }}
-                          transition={{ duration: 0.2 }}
-                          className="space-y-6"
-                        >
-                          {/* Server Dropdown Selector */}
-                          <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5">
-                            <div className="flex items-center justify-between mb-2">
-                              <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase">
-                                {gt("Select Server")}
-                              </label>
-                              {hasChanges && (
-                                <span className="text-xs text-amber-500 font-medium animate-pulse">
-                                  {gt("Save changes before switching servers")}
-                                </span>
-                              )}
-                            </div>
+                        </>
+                      ) : (
+                        <>
+                          <SettingsSection
+                            title={gt("Select Server")}
+                            action={hasChanges ? (
+                              <span className="text-xs font-medium text-amber-600 dark:text-amber-400">{gt("Save changes before switching servers")}</span>
+                            ) : undefined}
+                          >
                             <select
                               value={selectedServerId}
                               onChange={(e) => setSelectedServerId(e.target.value)}
                               disabled={hasChanges}
-                              className="w-full bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] text-[var(--text-primary)] h-10 px-3 rounded-lg focus:outline-none focus:ring-2 focus:ring-[var(--app-accent)] font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                              aria-label={gt("Select Server")}
+                              className={cn(SELECT_CLASS, "font-medium disabled:cursor-not-allowed disabled:opacity-50")}
                             >
-                              {servers.map((srv: any) => (
-                                <option key={srv.id} value={srv.id}>
-                                  {srv.name}
-                                </option>
+                              {servers.map((srv) => (
+                                <option key={srv.id} value={srv.id}>{srv.name}</option>
                               ))}
                             </select>
-                          </div>
+                          </SettingsSection>
 
                           {serverMemberLoading ? (
-                            <div className="py-8 flex flex-col items-center justify-center text-[var(--text-secondary)]">
-                              <Loader size={32} className="mb-2" />
-                              <span className="text-sm font-medium">{gt("Loading server profile...")}</span>
-                            </div>
+                            <SettingsSkeleton variant="rows" count={3} />
                           ) : (
-                            <div className="space-y-6">
-                              {/* Nickname & Avatar Card */}
-                              <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Server Identity")}</h3>
-                                <div>
-                                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                    {gt("Server Nickname")}
+                            <>
+                              <SettingsSection title={gt("Server Identity")}>
+                                <div className={FORM_CARD}>
+                                  <label className="block">
+                                    <span className={FIELD_LABEL}>{gt("Server Nickname")}</span>
+                                    <Input
+                                      value={serverNickname}
+                                      onChange={(e) => setServerNickname(e.target.value)}
+                                      className={FIELD_INPUT}
+                                      placeholder={displayName || user?.username || ""}
+                                      maxLength={32}
+                                    />
                                   </label>
-                                  <Input
-                                    value={serverNickname}
-                                    onChange={(e) => setServerNickname(e.target.value)}
-                                    className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10"
-                                    placeholder={displayName || user?.username || ""}
-                                    maxLength={32}
-                                  />
-                                </div>
-
-                                <div>
-                                  <label className="block text-xs font-bold text-[var(--text-secondary)] uppercase mb-2">
-                                    {gt("Server Avatar Override")}
-                                  </label>
-                                  <div className="flex items-center gap-4">
-                                    <div
-                                      onClick={() => avatarInputRef.current?.click()}
-                                      className="relative w-16 h-16 rounded-full bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
-                                    >
-                                      {serverAvatar || user?.avatar ? (
-                                        <img src={cdnImage(serverAvatar || user?.avatar)} alt={gt("Avatar")} className="w-full h-full object-cover" />
-                                      ) : (
-                                        <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
-                                          <Camera className="w-5 h-5" />
-                                        </div>
+                                  <div>
+                                    <span className={FIELD_LABEL}>{gt("Server Avatar Override")}</span>
+                                    <div className="flex items-center gap-4">
+                                      <MediaPickTile
+                                        shape="avatar"
+                                        src={serverAvatar || user?.avatar}
+                                        alt={gt("Avatar")}
+                                        uploading={isUploadingAvatar}
+                                        onPick={() => avatarInputRef.current?.click()}
+                                      />
+                                      <SettingsButton size="sm" onClick={() => avatarInputRef.current?.click()}>{gt("Change Avatar")}</SettingsButton>
+                                      {serverAvatar && (
+                                        <SettingsButton variant="ghost" size="sm" onClick={() => setServerAvatar(null)} className="text-red-500 hover:text-red-500">
+                                          {gt("Reset to Global")}
+                                        </SettingsButton>
                                       )}
-                                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                        {isUploadingAvatar ? (
-                                          <Loader size={20} />
-                                        ) : (
-                                          <Camera className="w-5 h-5 text-white" />
-                                        )}
-                                      </div>
                                     </div>
-                                    {serverAvatar && (
-                                      <button
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          setServerAvatar(null);
-                                        }}
-                                        className="text-xs text-red-400 hover:text-red-300 hover:underline font-medium transition-colors"
-                                      >
+                                    <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
+                                  </div>
+                                </div>
+                              </SettingsSection>
+
+                              <SettingsSection title={gt("Server Banner Override")}>
+                                <div className={FORM_CARD}>
+                                  <MediaPickTile
+                                    shape="banner"
+                                    src={serverBanner || user?.banner}
+                                    alt={gt("Banner")}
+                                    uploading={isUploadingBanner}
+                                    onPick={() => bannerInputRef.current?.click()}
+                                  />
+                                  <div className="flex flex-wrap gap-2">
+                                    <SettingsButton variant="secondary" size="sm" onClick={() => bannerInputRef.current?.click()}>{gt("Change Banner")}</SettingsButton>
+                                    {serverBanner && (
+                                      <SettingsButton variant="ghost" size="sm" onClick={() => setServerBanner(null)} className="text-red-500 hover:text-red-500">
                                         {gt("Reset to Global")}
-                                      </button>
+                                      </SettingsButton>
                                     )}
                                   </div>
-                                  <input
-                                    ref={avatarInputRef}
-                                    type="file"
-                                    accept="image/*"
-                                    className="hidden"
-                                    onChange={handleAvatarSelect}
-                                  />
+                                  <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleBannerSelect} />
                                 </div>
-                              </div>
+                              </SettingsSection>
 
-                              {/* Server Banner override card */}
-                              <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                                <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Server Banner Override")}</h3>
-                                <div className="flex flex-col gap-2.5">
-                                  <div
-                                    onClick={() => bannerInputRef.current?.click()}
-                                    className="relative w-full h-[72px] rounded-lg bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group overflow-hidden"
-                                  >
-                                    {serverBanner || user?.banner ? (
-                                      <img src={cdnImage(serverBanner || user?.banner)} alt={gt("Banner")} className="w-full h-full object-cover" />
-                                    ) : (
-                                      <div className="w-full h-full flex items-center justify-center text-[var(--text-muted)]">
-                                        <Image className="w-5 h-5" />
-                                      </div>
-                                    )}
-                                    <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                      {isUploadingBanner ? (
-                                        <Loader size={20} />
-                                      ) : (
-                                        <Camera className="w-5 h-5 text-white" />
-                                      )}
-                                    </div>
-                                  </div>
-                                  {serverBanner && (
-                                    <button
-                                      onClick={(e) => {
-                                        e.stopPropagation();
-                                        setServerBanner(null);
-                                      }}
-                                      className="text-xs text-red-400 hover:text-red-300 hover:underline font-medium transition-colors self-start"
-                                    >
-                                      {gt("Reset to Global")}
-                                    </button>
-                                  )}
-                                </div>
-                                <input
-                                  ref={bannerInputRef}
-                                  type="file"
-                                  accept="image/*"
-                                  className="hidden"
-                                  onChange={handleBannerSelect}
-                                />
-                              </div>
-
-                              <div className="p-4 bg-[var(--bg-sidebar)] rounded-xl border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] leading-relaxed space-y-1">
+                              <div className="space-y-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 text-[13px] leading-relaxed text-[var(--text-secondary)]">
                                 <p className="font-semibold text-[var(--text-primary)]">{gt("About Server Profiles")}</p>
                                 <p>{gt("Custom nickname, avatar overrides, and banners apply only to the selected server.")}</p>
                                 <p>{gt("Global attributes (about me, custom status, and name styles) will fall back to your main profile settings.")}</p>
                               </div>
-                            </div>
+                            </>
                           )}
-                        </motion.div>
+                        </>
                       )}
-                      </AnimatePresence>
                     </div>
 
-                    {/* Preview */}
-                    <div className="md:sticky md:top-5 self-start">
-                      <h3 className="text-xs font-bold text-[var(--text-secondary)] uppercase mb-3">{gt("Preview")}</h3>
-                      <ProfileCard
-                        user={previewUser}
-                        isCurrentUser={true}
-                      />
-                    </div>
+                    {/* Live preview */}
+                    <aside className="min-w-0 self-start lg:sticky lg:top-20">
+                      <p className="mb-3 text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">{gt("Preview")}</p>
+                      <ProfileCard user={previewUser} isCurrentUser={true} />
+                    </aside>
                   </div>
                 </div>
               )}
 
-              {/* Premium Tab */}
+              {/* Serika+ */}
               {activeTab === "premium" && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5">{gt("Serika+")}</h2>
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Serika+")} />
                   {user?.isPremium ? (
-                    <div className="bg-gradient-to-r from-[#8B5CF6]/20 to-[#6366F1]/20 rounded-lg p-6 border border-[#8B5CF6]/30">
-                      <div className="flex items-center gap-3 mb-4">
-                        <Crown className="w-10 h-10 text-[#8B5CF6]" />
-                        <div>
+                    <>
+                      <div className="flex items-center gap-4 rounded-xl border border-[color-mix(in_srgb,var(--app-accent)_35%,transparent)] bg-[color-mix(in_srgb,var(--app-accent)_12%,var(--bg-app))] p-5">
+                        <span className="flex h-14 w-14 shrink-0 items-center justify-center rounded-2xl bg-[var(--app-accent)] text-white">
+                          <Crown className="h-7 w-7" />
+                        </span>
+                        <div className="min-w-0">
                           <h3 className="text-lg font-bold text-[var(--text-primary)]">{gt("You have Serika+!")}</h3>
                           <p className="text-sm text-[var(--text-secondary)]">
                             {gt("Member since")}{" "}
-                            {user.premiumSince
-                              ? new Date(user.premiumSince).toLocaleDateString()
-                              : gt("Unknown")}
+                            {user.premiumSince ? new Date(user.premiumSince).toLocaleDateString(locale) : gt("Unknown")}
                           </p>
                         </div>
                       </div>
-                      <div className="grid grid-cols-2 gap-4 mt-6">
-                        <div className="bg-[var(--bg-app)] p-4 rounded-lg">
-                          <p className="text-sm text-[#8B5CF6] font-medium">✓ {gt("Custom profile themes")}</p>
+                      <SettingsSection title={gt("Your perks")}>
+                        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                          {[gt("Custom profile themes"), gt("Animated avatars"), gt("Extended file uploads"), gt("Exclusive badge")].map((perk) => (
+                            <div key={perk} className="flex items-center gap-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3">
+                              <Check className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
+                              <span className="text-sm font-medium text-[var(--text-primary)]">{perk}</span>
+                            </div>
+                          ))}
                         </div>
-                        <div className="bg-[var(--bg-app)] p-4 rounded-lg">
-                          <p className="text-sm text-[#8B5CF6] font-medium">✓ {gt("Animated avatars")}</p>
-                        </div>
-                        <div className="bg-[var(--bg-app)] p-4 rounded-lg">
-                          <p className="text-sm text-[#8B5CF6] font-medium">✓ {gt("Extended file uploads")}</p>
-                        </div>
-                        <div className="bg-[var(--bg-app)] p-4 rounded-lg">
-                          <p className="text-sm text-[#8B5CF6] font-medium">✓ {gt("Exclusive badge")}</p>
-                        </div>
-                      </div>
-                    </div>
+                      </SettingsSection>
+                    </>
                   ) : (
-                    <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
-                      <Crown className="w-16 h-16 text-[#8B5CF6] mx-auto mb-4" />
-                      <h3 className="text-2xl font-bold text-[var(--text-primary)] mb-2">{gt("Upgrade to Serika+")}</h3>
-                      <p className="text-[var(--text-secondary)] max-w-md mx-auto mb-6">
+                    <div className="flex flex-col items-center rounded-xl border border-[color-mix(in_srgb,var(--app-accent)_35%,transparent)] bg-[color-mix(in_srgb,var(--app-accent)_10%,var(--bg-app))] px-6 py-10 text-center">
+                      <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--app-accent)] text-white">
+                        <Crown className="h-8 w-8" />
+                      </span>
+                      <h3 className="mb-2 text-2xl font-bold text-[var(--text-primary)]">{gt("Upgrade to Serika+")}</h3>
+                      <p className="mx-auto mb-6 max-w-md text-sm text-[var(--text-secondary)]">
                         {gt("Get exclusive features like animated avatars, custom themes, enhanced upload limits, and more.")}
                       </p>
                       <a
                         href="https://accounts.serika.dev"
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="inline-flex items-center gap-2 px-8 py-3 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-medium rounded-md transition-colors"
+                        className={settingsButtonClass("primary", "md")}
                       >
                         {gt("Subscribe to Serika+")}
-                        <ExternalLink className="w-4 h-4" />
+                        <ExternalLink aria-hidden />
                       </a>
                     </div>
                   )}
                 </div>
               )}
 
-              {/* Appearance Tab */}
               {activeTab === "appearance" && (
-                <div className="space-y-8">
-                  <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Appearance")}</h2>
-
-                  {/* Theme Selection */}
-                  <SettingsSection title={gt("Theme")}>
-                    <div className="grid grid-cols-3 gap-3">
-                      {[
-                        { id: "dark", label: gt("Dark"), stripA: "#111111", stripB: "#0f0f0f", body: "#0a0a0a" },
-                        { id: "midnight", label: gt("Midnight"), stripA: "#0b1020", stripB: "#101728", body: "#050913" },
-                        { id: "light", label: gt("Light"), stripA: "#e5e5e5", stripB: "#f0f0f0", body: "#ffffff" },
-                      ].map((themeOption) => {
-                        const selected = (userSettings?.appearance?.theme || userSettings?.appearance?.themeStyle || themeSettings.theme || "dark") === themeOption.id;
-                        return (
-                          <button
-                            key={themeOption.id}
-                            type="button"
-                            aria-pressed={selected}
-                            onClick={() => saveAppearancePatch({ theme: themeOption.id })}
-                            className={cn(
-                              "group p-3 rounded-xl text-left bg-[var(--bg-app)] border transition-[border-color,box-shadow,transform] duration-(--motion-fast) active:scale-[0.98]",
-                              selected
-                                ? "border-[var(--app-accent)] shadow-[0_0_0_1px_var(--app-accent)]"
-                                : "border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
-                            )}
-                          >
-                            <div className="aspect-video rounded-lg mb-3 overflow-hidden relative ring-1 ring-black/10" style={{ backgroundColor: themeOption.body }}>
-                              <div className="absolute inset-0 flex">
-                                <div className="w-3" style={{ backgroundColor: themeOption.stripA }} />
-                                <div className="w-6" style={{ backgroundColor: themeOption.stripB }} />
-                                <div className="flex-1" style={{ backgroundColor: themeOption.body }} />
-                              </div>
-                            </div>
-                            <div className="flex items-center justify-between">
-                              <span className="text-[var(--text-primary)] font-medium text-sm">{themeOption.label}</span>
-                              {selected && <Check className="w-4 h-4 text-[var(--app-accent)]" />}
-                            </div>
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </SettingsSection>
-
-                  {/* Accent Colour */}
-                  <SettingsSection title={gt("Accent Colour")} description={gt("Choose your primary accent colour")}>
-                    <div className="flex gap-2.5 flex-wrap">
-                      {[
-                        { color: '#8B5CF6', name: gt("Purple") },
-                        { color: '#6366F1', name: gt("Indigo") },
-                        { color: '#3B82F6', name: gt("Blue") },
-                        { color: '#06B6D4', name: gt("Cyan") },
-                        { color: '#10B981', name: gt("Emerald") },
-                        { color: '#F59E0B', name: gt("Amber") },
-                        { color: '#EF4444', name: gt("Red") },
-                        { color: '#EC4899', name: gt("Pink") },
-                      ].map((c) => {
-                        const selected = c.color.toLowerCase() === (userSettings?.appearance?.accentColor || themeSettings.accentColor || '#8B5CF6').toLowerCase();
-                        return (
-                          <button
-                            key={c.color}
-                            type="button"
-                            aria-pressed={selected}
-                            aria-label={c.name}
-                            onClick={() => saveAppearancePatch({ accentColor: c.color })}
-                            className={cn(
-                              "w-10 h-10 rounded-full relative transition-transform duration-(--motion-fast) hover:scale-110 active:scale-95",
-                              selected && "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-card)]",
-                            )}
-                            style={{ backgroundColor: c.color }}
-                            title={c.name}
-                          >
-                            {selected && (
-                              <Check className="w-5 h-5 text-white absolute inset-0 m-auto" />
-                            )}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </SettingsSection>
-
-                  {/* Font size + saturation */}
-                  <SettingsSection title={gt("Chat Font Size")} description={gt("Adjust the size of text in chat")}>
-                    <SettingsCard>
-                      <div className="px-4 py-4">
-                        <div className="flex items-center gap-4">
-                          <span className="text-xs text-[var(--text-secondary)]">12px</span>
-                          <input
-                            type="range"
-                            min="12"
-                            max="20"
-                            value={userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}
-                            onChange={(e) => saveAppearancePatch({ fontSize: Number(e.target.value) }, { debounce: true })}
-                            aria-label={gt("Chat Font Size")}
-                            className="flex-1 accent-[var(--app-accent)] cursor-pointer"
-                          />
-                          <span className="text-xs text-[var(--text-secondary)]">20px</span>
-                        </div>
-                        <p
-                          className="mt-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] px-3 py-2 text-[var(--text-primary)]"
-                          style={{ fontSize: `${userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}px` }}
-                        >
-                          {gt("Preview ({size}px): This is how your chat will look.", { size: userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14 })}
-                        </p>
-                      </div>
-                    </SettingsCard>
-                  </SettingsSection>
-
-                  <SettingsSection title={gt("Saturation")} description={gt("Adjust the colour saturation of the entire app")}>
-                    <SettingsCard>
-                      <div className="px-4 py-4 flex items-center gap-4">
-                        <span className="text-xs text-[var(--text-secondary)]">0%</span>
-                        <input
-                          type="range"
-                          min="0"
-                          max="200"
-                          value={userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}
-                          onChange={(e) => saveAppearancePatch({ saturation: Number(e.target.value) }, { debounce: true })}
-                          aria-label={gt("Saturation")}
-                          className="flex-1 accent-[var(--app-accent)] cursor-pointer"
-                        />
-                        <span className="text-xs text-[var(--text-secondary)]">200%</span>
-                        <span className="w-12 text-right text-sm font-medium text-[var(--text-primary)] tabular-nums">
-                          {userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}%
-                        </span>
-                      </div>
-                    </SettingsCard>
-                  </SettingsSection>
-
-                  {/* Font, background image, server themes (CORD-45/46/50) */}
-                  <AppearanceCustomizationPanel
-                    values={{
-                      fontFamily: typeof userSettings?.appearance?.fontFamily === "string" ? userSettings.appearance.fontFamily : themeSettings.fontFamily,
-                      backgroundImage: typeof userSettings?.appearance?.backgroundImage === "string" ? userSettings.appearance.backgroundImage : themeSettings.backgroundImage,
-                      backgroundDim: userSettings?.appearance?.backgroundDim ?? themeSettings.backgroundDim,
-                      backgroundBlur: userSettings?.appearance?.backgroundBlur ?? themeSettings.backgroundBlur,
-                      useServerThemes: userSettings?.appearance?.useServerThemes ?? themeSettings.useServerThemes,
-                    }}
-                    profileBanner={user?.banner}
-                    save={(patch, opts) => saveAppearancePatch(patch, opts)}
-                  />
-
-                  {/* Message Display */}
-                  <SettingsSection title={gt("Message Display")}>
-                    <SettingsCard>
-                      {userSettings && (
-                        <SettingsToggleRow
-                          label={gt("Compact mode")}
-                          checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)}
-                          onCheckedChange={(checked) => saveAppearancePatch({ compactMode: checked })}
-                        />
-                      )}
-                      <SettingsToggleRow
-                        label={gt("Show Timestamps")}
-                        description={gt("Display message timestamps")}
-                        checked={Boolean(userSettings?.appearance?.showTimestamps ?? themeSettings.showTimestamps)}
-                        onCheckedChange={(checked) => saveAppearancePatch({ showTimestamps: checked })}
-                      />
-                      <SettingsToggleRow
-                        label={gt("Show Role Colours")}
-                        description={gt("Colour usernames by their highest role")}
-                        checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)}
-                        onCheckedChange={(checked) => saveAppearancePatch({ showRoleColors: checked })}
-                      />
-                    </SettingsCard>
-                  </SettingsSection>
-
-                  {/* Animations */}
-                  <SettingsSection title={gt("Animations")}>
-                    <SettingsCard>
-                      <SettingsToggleRow
-                        label={gt("Enable Animations")}
-                        description={gt("Show smooth transitions and animations")}
-                        checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)}
-                        onCheckedChange={(checked) => saveAppearancePatch({ enableAnimations: checked })}
-                      />
-                    </SettingsCard>
-                  </SettingsSection>
-                </div>
-              )}
-
-              {/* Voice & Video Tab */}
-              {activeTab === "voice-video" && (
-                <VoiceVideoTab
+                <AppearancePage
                   userSettings={userSettings}
-                  isLoadingSettings={isLoadingSettings}
-                  saveSettingsPatch={saveSettingsPatch}
-                  saveSettingsPatchDebounced={saveSettingsPatchDebounced}
-                  gt={gt}
+                  themeSettings={themeSettings}
+                  profileBanner={user?.banner}
+                  saveAppearancePatch={stableSaveAppearancePatch}
                 />
               )}
 
-              {/* Notifications Tab */}
+              {activeTab === "voice-video" && (
+                <VoiceVideoPage
+                  userSettings={userSettings}
+                  saveSettingsPatch={stableSaveSettingsPatch}
+                  saveSettingsPatchDebounced={stableSaveSettingsPatchDebounced}
+                />
+              )}
+
               {activeTab === "notifications" && (
-                <div className="space-y-8">
-                  <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Notifications")}</h2>
+                <NotificationsPage
+                  userSettings={userSettings}
+                  saveSettingsPatch={stableSaveSettingsPatch}
+                  saveSettingsPatchDebounced={stableSaveSettingsPatchDebounced}
+                />
+              )}
 
-                  {/* DND / Do Not Disturb */}
-                  <SettingsSection title={gt("Do Not Disturb")} icon={MinusCircle}>
-                    <SettingsCard>
-                      <SettingsToggleRow
-                        label={gt("Enable Do Not Disturb")}
-                        description={gt("Suppresses all sounds, desktop notifications, and toasts")}
-                        checked={Boolean(userSettings?.notifications?.dnd)}
-                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dnd: checked } }, "notifications")}
-                      />
-                      {userSettings?.notifications?.dnd && (
-                        <SettingsToggleRow
-                          icon={Clock}
-                          label={gt("Scheduled Quiet Hours")}
-                          checked={Boolean(userSettings?.notifications?.dndSchedule?.enabled)}
-                          onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { start: "22:00", end: "08:00" }), enabled: checked } } }, "notifications")}
-                        >
-                          {userSettings?.notifications?.dndSchedule?.enabled && (
-                            <div className="flex items-center gap-3 pl-11 max-sm:pl-0">
-                              <div className="flex-1">
-                                <label className="text-xs text-[var(--text-muted)]">{gt("Start")}</label>
-                                <Input
-                                  type="time"
-                                  value={userSettings?.notifications?.dndSchedule?.start || "22:00"}
-                                  onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { enabled: true, end: "08:00" }), start: e.target.value } } }, "notifications")}
-                                  className="h-9 bg-[var(--bg-card)] border-[var(--border-subtle)]"
-                                />
-                              </div>
-                              <div className="flex-1">
-                                <label className="text-xs text-[var(--text-muted)]">{gt("End")}</label>
-                                <Input
-                                  type="time"
-                                  value={userSettings?.notifications?.dndSchedule?.end || "08:00"}
-                                  onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { enabled: true, start: "22:00" }), end: e.target.value } } }, "notifications")}
-                                  className="h-9 bg-[var(--bg-card)] border-[var(--border-subtle)]"
-                                />
-                              </div>
-                            </div>
-                          )}
-                        </SettingsToggleRow>
-                      )}
-                    </SettingsCard>
-                  </SettingsSection>
-
-                  {/* Focus Mode */}
-                  <SettingsSection title={gt("Focus Mode")} icon={Target}>
-                    <SettingsCard>
-                      <SettingsToggleRow
-                        label={gt("Enable Focus Mode")}
-                        description={gt("Suppress everything except direct @mentions and DMs")}
-                        checked={Boolean(userSettings?.notifications?.focusMode)}
-                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), focusMode: checked } }, "notifications")}
-                      />
-                    </SettingsCard>
-                  </SettingsSection>
-
-                  {/* Push / Desktop permission */}
-                  <SettingsSection title={gt("Desktop Notifications")} icon={MonitorSmartphone}>
-                    <SettingsCard>
-                      <SettingsToggleRow
-                        label={gt("Enable Desktop & Push Notifications")}
-                        description={gt("Receive native notifications on desktop, mobile and browser")}
-                        checked={Boolean(userSettings?.notifications?.desktop)}
-                        onCheckedChange={async (checked) => {
-                          if (checked) {
-                            const granted = await requestNotificationPermission();
-                            if (!granted) {
-                              toast.error(gt("Notification permission denied. Please enable it in your browser/OS settings."));
-                              return;
-                            }
-                          }
-                          saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), desktop: checked } }, "notifications");
-                        }}
-                      >
-                        {userSettings?.notifications?.desktop && typeof Notification !== "undefined" && Notification.permission !== "granted" && (
-                          <div className="flex items-center justify-between p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                            <p className="text-xs text-amber-400">{gt("Browser permission not granted yet.")}</p>
-                            <button
-                              onClick={async () => {
-                                const granted = await requestNotificationPermission();
-                                if (granted) toast.success(gt("Notifications enabled!"));
-                                else toast.error(gt("Permission denied. Check browser settings."));
-                              }}
-                              className="text-xs font-semibold text-amber-300 hover:text-amber-200 underline"
-                            >
-                              {gt("Grant Permission")}
-                            </button>
-                          </div>
-                        )}
-                      </SettingsToggleRow>
-                      <SettingsToggleRow
-                        label={
-                          <>
-                            {gt("Mentions only")} <span className="ml-1.5 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-[var(--app-accent)]/20 text-[var(--app-accent)]">{gt("Default")}</span>
-                          </>
-                        }
-                        description={
-                          <>
-                            {gt("Only send desktop notifications when you are mentioned. Turn off to notify on all messages.")}
-                            <span className="block text-xs text-[var(--text-muted)] mt-0.5">{gt("Each server, category, channel and DM can override this: right-click it and pick Notification Settings.")}</span>
-                          </>
-                        }
-                        checked={userSettings?.notifications?.notifyAllMessages !== true}
-                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), notifyAllMessages: !checked } }, "notifications")}
-                      />
-                      <SettingsToggleRow
-                        label={gt("Mute @everyone and @here")}
-                        description={gt("Suppress popup notifications for @everyone and @here pings")}
-                        checked={Boolean(userSettings?.notifications?.muteEveryone)}
-                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), muteEveryone: checked } }, "notifications")}
-                      />
-                      <SettingsToggleRow
-                        label={gt("Show message preview")}
-                        description={gt("Display message content in desktop notifications")}
-                        checked={userSettings?.notifications?.showPreview !== false}
-                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), showPreview: checked } }, "notifications")}
-                      />
-                    </SettingsCard>
-                  </SettingsSection>
-
-                  {/* Sound Settings */}
-                  <SettingsSection title={gt("Sound")} icon={Volume2}>
-                    <SettingsCard>
-                      <SettingsToggleRow
-                        label={gt("Message Sounds")}
-                        description={gt("Play a sound when a new message arrives")}
-                        checked={Boolean(userSettings?.notifications?.sounds)}
-                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), sounds: checked } }, "notifications")}
-                      />
-                      <SettingsToggleRow
-                        label={gt("Incoming call ringtone")}
-                        description={gt("Ring when someone calls you, even with message sounds off. Do Not Disturb still silences it.")}
-                        checked={userSettings?.notifications?.callRingtone !== false}
-                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), callRingtone: checked } }, "notifications")}
-                      />
-
-                      {userSettings?.notifications?.sounds && (
-                        <>
-                          <SettingsRow label={gt("Sound type")}>
-                            <div className="grid grid-cols-5 max-sm:grid-cols-3 gap-2">
-                              {([
-                                { value: 'chime', label: gt("Chime") },
-                                { value: 'ding', label: gt("Ding") },
-                                { value: 'pop', label: gt("Pop") },
-                                { value: 'coin', label: gt("Coin") },
-                                { value: 'none', label: gt("Silent") },
-                              ] as const).map((opt) => (
-                                <button
-                                  key={opt.value}
-                                  onClick={() => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), soundType: opt.value } }, "notifications")}
-                                  className={cn(
-                                    "px-3 py-2 rounded-lg text-xs font-medium border transition-colors",
-                                    (userSettings?.notifications?.soundType || 'chime') === opt.value
-                                      ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
-                                      : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                                  )}
-                                >
-                                  {opt.label}
-                                </button>
-                              ))}
-                            </div>
-                          </SettingsRow>
-
-                          <SettingsRow
-                            label={gt("Volume")}
-                            control={<span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings?.notifications?.soundVolume ?? 50}%</span>}
-                          >
-                            <input
-                              type="range"
-                              min={0}
-                              max={100}
-                              value={userSettings?.notifications?.soundVolume ?? 50}
-                              onChange={(e) => {
-                                const vol = Number(e.target.value);
-                                saveSettingsPatchDebounced({ notifications: { soundVolume: vol } }, "notifications");
-                              }}
-                              aria-label={gt("Volume")}
-                              className="w-full accent-[var(--app-accent)]"
-                            />
-                          </SettingsRow>
-
-                          <SettingsToggleRow
-                            label={gt("Suppress sound when tab is focused")}
-                            description={gt("Don't play notification sound when you're already viewing the app")}
-                            checked={userSettings?.notifications?.suppressSoundWhenFocused !== false}
-                            onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), suppressSoundWhenFocused: checked } }, "notifications")}
-                          />
-                        </>
-                      )}
-                    </SettingsCard>
-                  </SettingsSection>
-
-                  {/* In-App Toasts */}
-                  <SettingsSection title={gt("In-App Toasts")} icon={BellRing}>
-                    <SettingsCard>
-                      <SettingsToggleRow
-                        label={gt("Suppress in-app toast notifications")}
-                        description={gt("Hide the toast popups that appear in-app for new messages")}
-                        checked={Boolean(userSettings?.notifications?.suppressToasts)}
-                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), suppressToasts: checked } }, "notifications")}
-                      />
-                    </SettingsCard>
-                  </SettingsSection>
+              {activeTab === "connections" && streamerHidesPersonal && (
+                <div className="space-y-6">
+                  <SettingsPageHeader title={gt("Connections")} />
+                  <SettingsEmptyState icon={MonitorSmartphone} title={gt("Your connections are hidden while Streamer Mode is on.")} />
                 </div>
               )}
-
-              {/* Connections tab */}
-              {activeTab === "connections" && streamerHidesPersonal && (
-                <p className="text-sm text-[var(--text-muted)] bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-4">
-                  {gt("Your connections are hidden while Streamer Mode is on.")}
-                </p>
-              )}
               {activeTab === "connections" && !streamerHidesPersonal && (
-                <ConnectionsTabContent
+                <ConnectionsPage
                   userConnections={userConnections}
                   setUserConnections={setUserConnections}
                   connectionsEnabled={connectionsEnabled}
                   disabledProviders={disabledProviders}
+                  loaded={userSettings !== null}
                 />
               )}
 
-              {/* Default fallback for other tabs */}
-              {!["profiles", "premium", "appearance", "voice-video", "notifications", "admin-users", "admin-staff", "admin-changelogs", "admin-stats", "admin-servers", "admin-settings", "admin-logs", "admin-experiments", "admin-tts-sounds", "admin-tts-voices", "admin-translations", "admin-badges", "admin-announcements", "connections", "bug-reports", "admin-bug-reports", "account-standing", "admin-trust-safety"].includes(activeTab) && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5">
-                    {/* The sidebar label, not the tab id: "text-images" read as "Text Images" (CORD-40). */}
-                    {menuSections.flatMap((section) => section.items).find((item) => item.id === activeTab)?.label
-                      ?? activeTab.replace(/-/g, " ")}
-                  </h2>
-                  {isLoadingSettings || !userSettings ? (
-                    <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
-                      <Loader size={24} className="mx-auto" />
-                    </div>
-                  ) : activeTab === "authorized-apps" ? (
-                    <div className="space-y-2">
-                      {authorizedApps.length === 0 ? (
-                        <div className="bg-[var(--bg-app)] rounded-lg p-6 text-center text-[var(--text-secondary)] text-sm">
-                          {gt("No authorized apps connected.")}
-                        </div>
-                      ) : authorizedApps.map((app) => (
-                        <div key={app.id} className="bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between">
-                          <div>
-                            <p className="text-[var(--text-primary)] font-medium">{app.name}</p>
-                            <p className="text-xs text-[var(--text-secondary)]">{app.description || gt("No description")}</p>
-                          </div>
-                          <button
-                            onClick={async () => {
-                              const response = await fetch(`/api/users/me/authorized-apps/${app.id}`, { method: "DELETE" });
-                              if (response.ok) {
-                                setAuthorizedApps((prev) => prev.filter((item) => item.id !== app.id));
-                                toast.success(gt("App access revoked"));
-                              } else {
-                                toast.error(gt("Failed to revoke app"));
-                              }
-                            }}
-                            className="px-3 py-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                          >
-                            {gt("Revoke")}
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  ) : activeTab === "encryption" ? (
-                    <E2eeSettingsPanel />
-                  ) : activeTab === "devices" ? (
-                    <div className="space-y-2">
-                      {/* Passkeys live on Serika Accounts; link there (sign-in security). */}
-                      <PasskeysSettingsRow className="mb-4" />
-                      {deviceSessions.length === 0 && (
-                        <div className="text-center py-8 text-[var(--text-muted)] text-sm">
-                          <MonitorSmartphone className="w-10 h-10 mx-auto mb-2 opacity-50" />
-                          <T>No active devices. Your sessions will appear here.</T>
-                        </div>
-                      )}
-                      {deviceSessions.map((device) => (
-                        <div key={device.id} className={cn(
-                          "bg-[var(--bg-app)] rounded-lg p-4 flex items-center justify-between",
-                          device.current && "ring-1 ring-[var(--app-accent)]/40"
-                        )}>
-                          <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-lg bg-[var(--bg-card)] flex items-center justify-center flex-shrink-0">
-                              <MonitorSmartphone className="w-5 h-5 text-[var(--app-accent)]" />
-                            </div>
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <p className="text-[var(--text-primary)] text-sm font-medium">{device.deviceName}</p>
-                                {device.current && (
-                                  <span className="px-1.5 py-0.5 text-[10px] font-bold rounded bg-[var(--app-accent)]/20 text-[var(--app-accent)]">
-                                    <T>Current</T>
-                                  </span>
-                                )}
-                              </div>
-                              <p className="text-xs text-[var(--text-secondary)]">
-                                {device.platform} · {new Date(device.lastActiveAt).toLocaleString()}
-                              </p>
-                            </div>
-                          </div>
-                          {!device.current && (
-                            <button
-                              onClick={async () => {
-                                const response = await fetch(`/api/users/me/devices/${device.id}`, { method: "DELETE" });
-                                if (response.ok) {
-                                  setDeviceSessions((prev) => prev.filter((item) => item.id !== device.id));
-                                  toast.success(gt("Device revoked"));
-                                } else {
-                                  toast.error(gt("Failed to revoke device"));
-                                }
-                              }}
-                              className="px-3 py-1.5 rounded bg-red-500/10 text-red-400 hover:bg-red-500/20"
-                            >
-                              {gt("Revoke")}
-                            </button>
-                          )}
-                        </div>
-                      ))}
-                    </div>
+              {activeTab === "authorized-apps" && (
+                <AuthorizedAppsPage apps={authorizedApps} setApps={setAuthorizedApps} loaded={userSettings !== null} />
+              )}
+
+              {activeTab === "devices" && (
+                <DevicesPage devices={deviceSessions} setDevices={setDeviceSessions} loaded={userSettings !== null} />
+              )}
+
+              {activeTab === "encryption" && (
+                <div className="space-y-6">
+                  <SettingsPageHeader title={gt("Encryption")} />
+                  <E2eeSettingsPanel />
+                </div>
+              )}
+
+              {/* Social & privacy: toggle-row pages */}
+              {activeTab === "content-social" && (
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Content & Social")} description={gt("Control who can reach you and what others see.")} actions={savingIndicator} />
+                  {!userSettings ? (
+                    <SettingsSkeleton variant="rows" count={4} />
                   ) : (
-                    <div className={cn(
-                      ROW_STYLE_TABS.has(activeTab)
-                        // Row pages: one card of hairline-separated setting rows.
-                        ? "rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] divide-y divide-[var(--border-subtle)] overflow-hidden"
-                        // Panels that draw their own cards.
-                        : BARE_PANEL_TABS.has(activeTab)
-                          ? "space-y-4"
-                          : "space-y-4 bg-[var(--bg-app)] rounded-lg p-5",
-                    )}>
-                      {activeTab === "content-social" && (
-                        <>
-                          <SettingsToggleRow
-                            label={gt("Allow DMs from non-friends")}
-                            description={gt("When off, only friends can start a new direct message with you.")}
-                            checked={userSettings.privacy?.directMessages === "everyone" && userSettings.friendRequests?.allowServerMembers !== false}
-                            onCheckedChange={(checked) => saveSettingsPatch({ privacy: { directMessages: checked ? "everyone" : "friends" }, friendRequests: { allowServerMembers: checked } }, "content-social")}
-                          />
-                          <SettingsToggleRow
-                            label={gt("Allow friend requests")}
-                            description={gt("When off, nobody can send you a friend request.")}
-                            checked={userSettings.privacy?.friendRequests !== "none" && userSettings.friendRequests?.allowEveryone !== false}
-                            onCheckedChange={(checked) => saveSettingsPatch({ privacy: { friendRequests: checked ? "everyone" : "none", friendRequestSources: { everyone: checked, friendsOfFriends: checked, serverMembers: checked } }, friendRequests: { allowEveryone: checked } }, "content-social")}
-                          />
-                          <SettingsToggleRow
-                            label={gt("Share activity status")}
-                            description={gt("Show what you're playing or watching to others.")}
-                            checked={userSettings.privacy?.showActivity !== false}
-                            onCheckedChange={(checked) => saveSettingsPatch({ privacy: { showActivity: checked } }, "content-social")}
-                          />
-                          <MessageRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "content-social")} />
-                        </>
-                      )}
+                    <SettingsSection title={gt("Social Permissions")}>
+                      <SettingsCard>
+                        <SettingsToggleRow
+                          label={gt("Allow DMs from non-friends")}
+                          description={gt("When off, only friends can start a new direct message with you.")}
+                          checked={userSettings.privacy?.directMessages === "everyone" && userSettings.friendRequests?.allowServerMembers !== false}
+                          onCheckedChange={(checked) => saveSettingsPatch({ privacy: { directMessages: checked ? "everyone" : "friends" }, friendRequests: { allowServerMembers: checked } }, "content-social")}
+                        />
+                        <MessageRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "content-social")} />
+                        <SettingsToggleRow
+                          label={gt("Allow friend requests")}
+                          description={gt("When off, nobody can send you a friend request.")}
+                          checked={userSettings.privacy?.friendRequests !== "none" && userSettings.friendRequests?.allowEveryone !== false}
+                          onCheckedChange={(checked) => saveSettingsPatch({ privacy: { friendRequests: checked ? "everyone" : "none", friendRequestSources: { everyone: checked, friendsOfFriends: checked, serverMembers: checked } }, friendRequests: { allowEveryone: checked } }, "content-social")}
+                        />
+                        <SettingsToggleRow
+                          label={gt("Share activity status")}
+                          description={gt("Show what you're playing or watching to others.")}
+                          checked={userSettings.privacy?.showActivity !== false}
+                          onCheckedChange={(checked) => saveSettingsPatch({ privacy: { showActivity: checked } }, "content-social")}
+                        />
+                      </SettingsCard>
+                    </SettingsSection>
+                  )}
+                </div>
+              )}
 
-                      {activeTab === "friend-requests" && (
-                        <FriendRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "friend-requests")} />
-                      )}
+              {activeTab === "friend-requests" && (
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Friend Requests")} actions={savingIndicator} />
+                  {!userSettings ? (
+                    <SettingsSkeleton variant="rows" count={3} />
+                  ) : (
+                    <SettingsCard>
+                      <FriendRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "friend-requests")} />
+                    </SettingsCard>
+                  )}
+                </div>
+              )}
 
-                      {activeTab === "activity-privacy" && (
-                        <ActivityPrivacySettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "activity-privacy")} />
-                      )}
+              {activeTab === "activity-privacy" && (
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Activity Privacy")} actions={savingIndicator} />
+                  {!userSettings ? (
+                    <SettingsSkeleton variant="rows" count={2} />
+                  ) : (
+                    <SettingsCard>
+                      <ActivityPrivacySettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "activity-privacy")} />
+                    </SettingsCard>
+                  )}
+                </div>
+              )}
 
-                      {activeTab === "data-privacy" && (
-                        <>
+              {activeTab === "data-privacy" && (
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Data & Privacy")} description={gt("Decide how your data is used.")} actions={savingIndicator} />
+                  {!userSettings ? (
+                    <SettingsSkeleton variant="rows" count={5} />
+                  ) : (
+                    <>
+                      <SettingsSection title={gt("Discord Bridge")}>
+                        <SettingsCard>
                           <SettingsToggleRow
                             label={gt("Allow data processing by Discord")}
                             description={gt("Required for your messages to sync to bridged Discord servers. When off, your messages are never sent to Discord and your data is not shared with it.")}
                             checked={Boolean(userSettings.dataPrivacy?.discordBridgeOutbound)}
                             onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), discordBridgeOutbound: checked, discordBridgePrompted: true } }, "data-privacy")}
                           />
+                        </SettingsCard>
+                      </SettingsSection>
+                      <SettingsSection title={gt("How we use your data")}>
+                        <SettingsCard>
                           <SettingsToggleRow
                             label={gt("Allow data personalization")}
                             checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)}
@@ -3804,22 +2385,34 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                             checked={userSettings.privacy?.storeActivityHistory ?? true}
                             onCheckedChange={(checked) => saveSettingsPatch({ privacy: { ...(userSettings.privacy || {}), storeActivityHistory: checked } }, "data-privacy")}
                           >
-                            <button
+                            <SettingsButton
+                              variant="secondary"
+                              size="sm"
                               onClick={async () => {
                                 try {
                                   await fetch("/api/users/me/activity-history", { method: "DELETE", credentials: "include" });
                                 } catch { /* ignore */ }
                               }}
-                              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                             >
                               {gt("Clear activity history")}
-                            </button>
+                            </SettingsButton>
                           </SettingsToggleRow>
-                        </>
-                      )}
+                        </SettingsCard>
+                      </SettingsSection>
+                    </>
+                  )}
+                </div>
+              )}
 
-                      {activeTab === "accessibility" && (
-                        <>
+              {activeTab === "accessibility" && (
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Accessibility")} description={gt("Make SerikaCord easier to see, read and use.")} actions={savingIndicator} />
+                  {!userSettings ? (
+                    <SettingsSkeleton variant="rows" count={4} />
+                  ) : (
+                    <>
+                      <SettingsSection title={gt("Motion & Contrast")}>
+                        <SettingsCard>
                           <SettingsToggleRow
                             label={gt("Reduced motion")}
                             description={gt("Minimise animations and transitions")}
@@ -3832,6 +2425,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                             checked={Boolean(userSettings.accessibility?.highContrast)}
                             onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), highContrast: checked } }, "accessibility")}
                           />
+                        </SettingsCard>
+                      </SettingsSection>
+                      <SettingsSection title={gt("Text")}>
+                        <SettingsCard>
                           <SettingsToggleRow
                             label={gt("Dyslexic font")}
                             description={gt("Use a dyslexia-friendly font in chat")}
@@ -3841,7 +2438,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                           <SettingsRow
                             label={gt("Message spacing")}
                             control={
-                              <div role="group" aria-label={gt("Message spacing")} className="flex gap-1 rounded-lg bg-[var(--bg-card)] p-1 border border-[var(--border-subtle)]">
+                              <div role="group" aria-label={gt("Message spacing")} className="flex gap-0.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] p-0.5">
                                 {(["cozy", "compact"] as const).map((spacing) => {
                                   const selected = spacing === "compact"
                                     ? userSettings.accessibility?.messageSpacing === "compact"
@@ -3853,10 +2450,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                       aria-pressed={selected}
                                       onClick={() => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), messageSpacing: spacing } }, "accessibility")}
                                       className={cn(
-                                        "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                                        "h-7 rounded-md px-3 text-xs font-semibold transition-colors duration-(--motion-fast)",
                                         selected
-                                          ? "bg-[var(--app-accent)] text-[var(--text-on-accent)] shadow-sm"
-                                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                                          ? "bg-[var(--app-accent)] text-white shadow-sm"
+                                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
                                       )}
                                     >
                                       {spacing === "compact" ? gt("Compact") : gt("Cozy")}
@@ -3866,11 +2463,22 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                               </div>
                             }
                           />
-                        </>
-                      )}
+                        </SettingsCard>
+                      </SettingsSection>
+                    </>
+                  )}
+                </div>
+              )}
 
-                      {activeTab === "text-images" && (
-                        <>
+              {activeTab === "text-images" && (
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Text & Images")} description={gt("How media, embeds and emoji show up in chat.")} actions={savingIndicator} />
+                  {!userSettings ? (
+                    <SettingsSkeleton variant="rows" count={5} />
+                  ) : (
+                    <>
+                      <SettingsSection title={gt("Images, Videos and Embeds")}>
+                        <SettingsCard>
                           <SettingsToggleRow
                             label={gt("Inline media")}
                             description={gt("Display images and videos inline in chat")}
@@ -3893,6 +2501,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                               void saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), gifAutoplay: checked } }, "text-images");
                             }}
                           />
+                        </SettingsCard>
+                      </SettingsSection>
+                      <SettingsSection title={gt("Emoji & Stickers")}>
+                        <SettingsCard>
                           <SettingsToggleRow
                             label={gt("Emoji picker")}
                             description={gt("Show the emoji picker button in the message bar")}
@@ -3905,113 +2517,145 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                             checked={Boolean(userSettings.textImages?.stickerSuggestions)}
                             onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), stickerSuggestions: checked } }, "text-images")}
                           />
-                        </>
-                      )}
-
-                      {activeTab === "keybinds" && (
-                        <KeybindSettingsPanel />
-                      )}
-
-                      {activeTab === "desktop" && (
-                        <DesktopSettingsPanel />
-                      )}
-
-                      {activeTab === "language" && (
-                        <>
-                          <label className="block text-sm text-[var(--text-secondary)] mb-3"><T>Language</T></label>
-                          <div className="bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-4">
-                            <LocaleSelector />
-                          </div>
-                        </>
-                      )}
-
-                      {activeTab === "streamer-mode" && <StreamerModeSettings />}
-
-                      {activeTab === "advanced" && (
-                        <>
-                          <SettingsToggleRow
-                            label={<T>Developer Mode</T>}
-                            description={<T>Enables extra technical information, such as copying IDs from context menus.</T>}
-                            checked={Boolean(userSettings.advanced?.developerMode)}
-                            onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), developerMode: checked } }, "advanced")}
-                          />
-
-                          <SettingsRow label={<T>Developer Tools</T>}>
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                onClick={() => {
-                                  const token = localStorage.getItem("serika-token") || localStorage.getItem("auth-token") || "";
-                                  if (token) {
-                                    navigator.clipboard?.writeText(token);
-                                    toast.success(gt("Session token copied to clipboard"));
-                                  } else {
-                                    toast.error(gt("No session token found"));
-                                  }
-                                }}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
-                              >
-                                <Activity className="w-3.5 h-3.5" />
-                                <T>Copy Session Token</T>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const keys = Object.keys(localStorage).filter(k => k.startsWith("serika") || k.startsWith("sc:"));
-                                  keys.forEach(k => localStorage.removeItem(k));
-                                  toast.success(gt("Cleared {count} cache entries", { count: keys.length }));
-                                  setTimeout(() => window.location.reload(), 500);
-                                }}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
-                              >
-                                <RefreshCw className="w-3.5 h-3.5" />
-                                <T>Clear App Cache</T>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  const info = {
-                                    userAgent: navigator.userAgent,
-                                    platform: navigator.platform,
-                                    language: navigator.language,
-                                    screenResolution: `${screen.width}x${screen.height}`,
-                                    windowSize: `${window.innerWidth}x${window.innerHeight}`,
-                                    isTauri: Boolean(window.__TAURI__),
-                                    localStorage: Object.keys(localStorage).length,
-                                    timestamp: new Date().toISOString(),
-                                  };
-                                  navigator.clipboard?.writeText(JSON.stringify(info, null, 2));
-                                  toast.success(gt("Debug info copied to clipboard"));
-                                }}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
-                              >
-                                <Database className="w-3.5 h-3.5" />
-                                <T>Copy Debug Info</T>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  if (typeof window !== "undefined" && window.__TAURI__) {
-                                    toast.info(gt("Tauri devtools available via F12 or Ctrl+Shift+I"));
-                                  } else {
-                                    toast.info(gt("Browser devtools: F12 or Ctrl+Shift+I"));
-                                  }
-                                }}
-                                className="px-3 py-1.5 text-xs rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] transition-colors flex items-center gap-1.5"
-                              >
-                                <Zap className="w-3.5 h-3.5" />
-                                <T>Open DevTools</T>
-                              </button>
-                            </div>
-                          </SettingsRow>
-                        </>
-                      )}
-
-                      {isSavingSettings && (
-                        <div className={cn("text-xs text-[var(--app-accent)]", ROW_STYLE_TABS.has(activeTab) && "px-4 py-2")}>
-                          {gt("Saving")} {isSavingSettings}...
-                        </div>
-                      )}
-                    </div>
+                        </SettingsCard>
+                      </SettingsSection>
+                    </>
                   )}
                 </div>
               )}
+
+              {activeTab === "keybinds" && (
+                <div className="space-y-6">
+                  <SettingsPageHeader title={gt("Keybinds")} description={gt("Keyboard shortcuts for moving around and talking. Changes save automatically.")} />
+                  <KeybindSettingsPanel />
+                </div>
+              )}
+
+              {activeTab === "desktop" && (
+                <div className="space-y-6">
+                  <SettingsPageHeader title={gt("Desktop")} description={gt("Settings for the SerikaCord desktop app on this computer.")} />
+                  <DesktopSettingsPanel />
+                </div>
+              )}
+
+              {activeTab === "language" && (
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Language")} description={gt("Choose the language SerikaCord uses.")} />
+                  <SettingsSection title={gt("Select a language")}>
+                    <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4">
+                      <LocaleSelector />
+                    </div>
+                  </SettingsSection>
+                </div>
+              )}
+
+              {activeTab === "streamer-mode" && (
+                <div className="space-y-6">
+                  <SettingsPageHeader title={gt("Streamer Mode")} />
+                  <StreamerModeSettings />
+                </div>
+              )}
+
+              {activeTab === "advanced" && (
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Advanced")} actions={savingIndicator} />
+                  {!userSettings ? (
+                    <SettingsSkeleton variant="rows" count={2} />
+                  ) : (
+                    <>
+                      <SettingsCard>
+                        <SettingsToggleRow
+                          label={gt("Developer Mode")}
+                          description={gt("Enables extra technical information, such as copying IDs from context menus.")}
+                          checked={Boolean(userSettings.advanced?.developerMode)}
+                          onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), developerMode: checked } }, "advanced")}
+                        />
+                      </SettingsCard>
+                      <SettingsSection title={gt("Developer Tools")}>
+                        <div className="flex flex-wrap gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4">
+                          <SettingsButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              const token = localStorage.getItem("serika-token") || localStorage.getItem("auth-token") || "";
+                              if (token) {
+                                navigator.clipboard?.writeText(token);
+                                toast.success(gt("Session token copied to clipboard"));
+                              } else {
+                                toast.error(gt("No session token found"));
+                              }
+                            }}
+                          >
+                            <Activity />
+                            {gt("Copy Session Token")}
+                          </SettingsButton>
+                          <SettingsButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              const keys = Object.keys(localStorage).filter((k) => k.startsWith("serika") || k.startsWith("sc:"));
+                              keys.forEach((k) => localStorage.removeItem(k));
+                              toast.success(gt("Cleared {count} cache entries", { count: keys.length }));
+                              setTimeout(() => window.location.reload(), 500);
+                            }}
+                          >
+                            <RefreshCw />
+                            {gt("Clear App Cache")}
+                          </SettingsButton>
+                          <SettingsButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              const info = {
+                                userAgent: navigator.userAgent,
+                                platform: navigator.platform,
+                                language: navigator.language,
+                                screenResolution: `${screen.width}x${screen.height}`,
+                                windowSize: `${window.innerWidth}x${window.innerHeight}`,
+                                isTauri: Boolean(window.__TAURI__),
+                                localStorage: Object.keys(localStorage).length,
+                                timestamp: new Date().toISOString(),
+                              };
+                              navigator.clipboard?.writeText(JSON.stringify(info, null, 2));
+                              toast.success(gt("Debug info copied to clipboard"));
+                            }}
+                          >
+                            <Database />
+                            {gt("Copy Debug Info")}
+                          </SettingsButton>
+                          <SettingsButton
+                            variant="secondary"
+                            size="sm"
+                            onClick={() => {
+                              if (typeof window !== "undefined" && window.__TAURI__) {
+                                toast.info(gt("Tauri devtools available via F12 or Ctrl+Shift+I"));
+                              } else {
+                                toast.info(gt("Browser devtools: F12 or Ctrl+Shift+I"));
+                              }
+                            }}
+                          >
+                            <Zap />
+                            {gt("Open DevTools")}
+                          </SettingsButton>
+                        </div>
+                      </SettingsSection>
+                    </>
+                  )}
+                </div>
+              )}
+
+              {/* Account Standing - strikes, restrictions, appeals */}
+              <MountWhenOpened open={activeTab === "account-standing"}>
+                {activeTab === "account-standing" && (
+                  <div className="space-y-6">
+                    <SettingsPageHeader title={gt("Account Standing")} />
+                    <AccountStanding key={user?.id} />
+                  </div>
+                )}
+              </MountWhenOpened>
+
+              {/* Feedback & bugs */}
+              {activeTab === "bug-reports" && <BugReportPanel />}
 
               <MountWhenOpened open={activeTab === "admin-staff" && can("staff.manage")}>
                 {activeTab === "admin-staff" && can("staff.manage") && <AdminStaffPanel key={user?.id} access={staffAccess} />}
@@ -4020,1098 +2664,833 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                 {activeTab === "admin-changelogs" && canOpenAdminTab(activeTab) && <AdminChangelogsPanel key={user?.id} canManage={can("changelog.manage")} canPublish={can("changelog.publish")} />}
               </MountWhenOpened>
               {activeTab.startsWith("admin-") && !canOpenAdminTab(activeTab) && (
-                <p className="text-sm text-[var(--app-muted)]">{gt("You do not have access to this staff tool.")}</p>
+                <SettingsEmptyState icon={Lock} title={gt("You do not have access to this staff tool.")} />
               )}
 
-              {/* Admin Panel - User Management */}
+              {/* Admin — User Management */}
               {activeTab === "admin-users" && canOpenAdminTab(activeTab) && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
-                    <ShieldCheck className="w-6 h-6 text-[#8B5CF6]" />
-                    {gt("User Management")}
-                  </h2>
+                <div className="space-y-4">
+                  <SettingsPageHeader
+                    title={gt("User Management")}
+                    description={gt("Search for users to view their profile, edit badges, or take moderation actions.")}
+                  />
+                  <SettingsToolbar>
+                    <SettingsSearchInput
+                      value={adminUserSearch}
+                      onValueChange={setAdminUserSearch}
+                      onKeyDown={(e) => e.key === "Enter" && searchAdminUsers()}
+                      placeholder={gt("Search users by email or username...")}
+                      clearLabel={gt("Clear")}
+                      className="flex-1"
+                    />
+                    <SettingsButton onClick={searchAdminUsers} disabled={isLoadingAdmin}>
+                      {isLoadingAdmin ? <RefreshCw className="animate-spin" /> : <Search />}
+                      {gt("Search")}
+                    </SettingsButton>
+                  </SettingsToolbar>
 
-                  {/* Search bar */}
-                  <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
-                    <div className="flex gap-4">
-                      <Input
-                        value={adminUserSearch}
-                        onChange={(e) => setAdminUserSearch(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && searchAdminUsers()}
-                        placeholder={gt("Search users by email or username...")}
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] flex-1"
-                      />
-                      <button
-                        onClick={searchAdminUsers}
-                        disabled={isLoadingAdmin}
-                        className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
-                      >
-                        {isLoadingAdmin && <Loader size={16} />}
-                        {gt("Search")}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Two-column layout: user list + detail panel */}
-                  {adminUsers.length > 0 && (
-                    <div className="flex gap-4 h-[600px] max-md:flex-col max-md:h-auto">
-                      {/* Left: User list */}
-                      <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col max-md:w-full max-md:h-[320px]">
-                        <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
-                          <p className="text-[var(--text-primary)] font-semibold text-sm">{gt("Results ({count})", { count: adminUsers.length })}</p>
-                        </div>
-                        <ScrollArea className="flex-1 min-h-0">
-                          <div className="p-1.5 space-y-1">
+                  {adminUsers.length > 0 ? (
+                    <div className="flex h-[600px] gap-4 max-md:h-auto max-md:flex-col">
+                      {/* Results */}
+                      <div className="flex w-[320px] shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] max-md:h-[320px] max-md:w-full">
+                        <p className="shrink-0 border-b border-[var(--border-subtle)] px-4 py-2.5 text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">
+                          {gt("Results ({count})", { count: adminUsers.length })}
+                        </p>
+                        <ScrollArea className="min-h-0 flex-1">
+                          <div className="divide-y divide-[var(--border-subtle)]">
                             {adminUsers.map((u) => (
-                              <button
+                              <SettingsListItem
                                 key={u.id}
+                                selected={selectedUser?.id === u.id}
                                 onClick={() => {
                                   setSelectedUser(u);
                                   void selectUserDetail(u.id);
                                 }}
-                                className={cn(
-                                  "w-full flex items-center gap-2.5 p-2.5 rounded-lg transition-colors text-left",
-                                  selectedUser?.id === u.id
-                                    ? "bg-[#8B5CF6]/15 ring-1 ring-[#8B5CF6]/40"
-                                    : "hover:bg-[var(--bg-card)]"
-                                )}
-                              >
-                                <Avatar className="w-9 h-9 flex-shrink-0">
-                                  <AvatarImage src={cdnImage(u.avatar)} />
-                                  <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
-                                    {u.displayName?.charAt(0) || u.username.charAt(0)}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm text-[var(--text-primary)] font-medium truncate">{u.displayName || u.username}</p>
-                                  <p className="text-xs text-[var(--text-muted)] truncate">@{u.username}</p>
-                                </div>
-                                <div className="flex flex-col items-end gap-0.5">
-                                  {u.isBanned && (
-                                    <span className="px-1.5 py-0.5 bg-red-500/20 text-red-400 text-[10px] rounded">{gt("Banned")}</span>
-                                  )}
-                                  {u.isStaff && (
-                                    <span className="px-1.5 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-[10px] rounded">{gt("Staff")}</span>
-                                  )}
-                                </div>
-                              </button>
+                                leading={
+                                  <Avatar className="h-9 w-9">
+                                    <AvatarImage src={cdnImage(u.avatar)} />
+                                    <AvatarFallback className="bg-[var(--app-accent)] text-xs text-white">
+                                      {u.displayName?.charAt(0) || u.username.charAt(0)}
+                                    </AvatarFallback>
+                                  </Avatar>
+                                }
+                                title={u.displayName || u.username}
+                                subtitle={`@${u.username}`}
+                                actions={
+                                  u.isBanned || u.isStaff ? (
+                                    <div className="flex flex-col items-end gap-1">
+                                      {u.isBanned && <SettingsStatusPill tone="danger">{gt("Banned")}</SettingsStatusPill>}
+                                      {u.isStaff && <SettingsStatusPill tone="accent">{gt("Staff")}</SettingsStatusPill>}
+                                    </div>
+                                  ) : undefined
+                                }
+                              />
                             ))}
                           </div>
                         </ScrollArea>
                       </div>
 
-                      {/* Right: Detail panel */}
-                      <div className="flex-1 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
+                      {/* Detail */}
+                      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
                         {selectedUser ? (
-                          <ScrollArea className="flex-1 min-h-0">
-                            <div className="p-5 space-y-5">
-                              {/* User header */}
-                              <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-subtle)]">
-                                <Avatar className="w-12 h-12">
+                          <ScrollArea className="min-h-0 flex-1">
+                            <div className="space-y-6 p-5">
+                              <div className="flex items-center gap-3 border-b border-[var(--border-subtle)] pb-4">
+                                <Avatar className="h-12 w-12">
                                   <AvatarImage src={cdnImage(selectedUser.avatar)} />
-                                  <AvatarFallback className="bg-[#8B5CF6] text-white">
+                                  <AvatarFallback className="bg-[var(--app-accent)] text-white">
                                     {selectedUser.displayName?.charAt(0) || selectedUser.username.charAt(0)}
                                   </AvatarFallback>
                                 </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[var(--text-primary)] font-semibold">{selectedUser.displayName || selectedUser.username}</p>
-                                  <p className="text-sm text-[var(--text-muted)]">@{selectedUser.username} • {selectedUser.email}</p>
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate font-semibold text-[var(--text-primary)]">{selectedUser.displayName || selectedUser.username}</p>
+                                  <p className="truncate text-sm text-[var(--text-muted)]">@{selectedUser.username} • {selectedUser.email}</p>
                                 </div>
                               </div>
 
-                              {/* Quick stats */}
                               {selectedUser.stats && (
                                 <div className="grid grid-cols-2 gap-2">
-                                  <div className="bg-[var(--bg-card)] rounded-lg p-3">
-                                    <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">{gt("Servers")}</p>
-                                    <p className="text-lg text-[var(--text-primary)] font-bold">{selectedUser.stats.servers}</p>
-                                  </div>
-                                  <div className="bg-[var(--bg-card)] rounded-lg p-3">
-                                    <p className="text-xs text-[var(--text-muted)] uppercase font-semibold">{gt("Messages")}</p>
-                                    <p className="text-lg text-[var(--text-primary)] font-bold">{selectedUser.stats.messages}</p>
-                                  </div>
+                                  <SettingsStatCard label={gt("Servers")} value={selectedUser.stats.servers} />
+                                  <SettingsStatCard label={gt("Messages")} value={selectedUser.stats.messages} />
                                 </div>
                               )}
 
-                              {/* Account info */}
-                              <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Account")}</p>
-                                <div className="bg-[var(--bg-card)] rounded-lg p-3 space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">{gt("Verified")}</span>
-                                    <span className={cn("text-sm font-medium", selectedUser.isVerified ? "text-green-400" : "text-[var(--text-muted)]")}>
-                                      {selectedUser.isVerified ? gt("Yes") : gt("No")}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">{gt("Staff")}</span>
-                                    <span className={cn("text-sm font-medium", selectedUser.isStaff ? "text-[#8B5CF6]" : "text-[var(--text-muted)]")}>
-                                      {selectedUser.isStaff ? selectedUser.staffRole || gt("Yes") : gt("No")}
-                                    </span>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">{gt("Premium")}</span>
-                                    <span className={cn("text-sm font-medium", selectedUser.isPremium ? "text-[#F47FFF]" : "text-[var(--text-muted)]")}>
-                                      {selectedUser.isPremium ? gt("Yes") : gt("No")}
-                                    </span>
-                                  </div>
+                              <SettingsSection title={gt("Account")}>
+                                <SettingsCard>
+                                  <SettingsRow
+                                    label={gt("Verified")}
+                                    control={<SettingsStatusPill tone={selectedUser.isVerified ? "success" : "neutral"}>{selectedUser.isVerified ? gt("Yes") : gt("No")}</SettingsStatusPill>}
+                                  />
+                                  <SettingsRow
+                                    label={gt("Staff")}
+                                    control={<SettingsStatusPill tone={selectedUser.isStaff ? "accent" : "neutral"}>{selectedUser.isStaff ? selectedUser.staffRole || gt("Yes") : gt("No")}</SettingsStatusPill>}
+                                  />
+                                  <SettingsRow
+                                    label={gt("Premium")}
+                                    control={<SettingsStatusPill tone={selectedUser.isPremium ? "accent" : "neutral"}>{selectedUser.isPremium ? gt("Yes") : gt("No")}</SettingsStatusPill>}
+                                  />
                                   {selectedUser.createdAt && (
-                                    <div className="flex items-center justify-between">
-                                      <span className="text-sm text-[var(--text-muted)]">{gt("Joined")}</span>
-                                      <span className="text-sm text-[var(--text-primary)]">{new Date(selectedUser.createdAt).toLocaleDateString()}</span>
-                                    </div>
-                                  )}
-                                </div>
-                              </div>
-
-                              {/* Moderation toggles */}
-                              <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Moderation")}</p>
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
-                                    <div>
-                                      <p className="text-sm text-[var(--text-primary)] font-medium">{gt("Banned")}</p>
-                                      <p className="text-xs text-[var(--text-muted)]">{gt("Prevent user from accessing the platform")}</p>
-                                    </div>
-                                    <ToggleSwitch
-                                      size="sm"
-                                      checked={selectedUser.isBanned}
-                                      disabled={!can("users.moderate") || selectedUser.isStaff}
-                                      onCheckedChange={() => {
-                                        if (selectedUser.isBanned) {
-                                          void handleUnbanUser(selectedUser.id);
-                                        } else {
-                                          void handleBanUser(selectedUser.id, "Administrative action");
-                                        }
-                                      }}
+                                    <SettingsRow
+                                      label={gt("Joined")}
+                                      control={<span className="text-sm text-[var(--text-primary)]">{new Date(selectedUser.createdAt).toLocaleDateString(locale)}</span>}
                                     />
-                                  </div>
-                                </div>
-                              </div>
+                                  )}
+                                </SettingsCard>
+                              </SettingsSection>
 
-                              {/* Badge assignment grid */}
-                              <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Badges ({count})", { count: (selectedUser.badges || []).length })}</p>
-                                <div className="grid grid-cols-2 gap-2">
+                              <SettingsSection title={gt("Moderation")}>
+                                <SettingsCard>
+                                  <SettingsToggleRow
+                                    label={gt("Banned")}
+                                    description={gt("Prevent user from accessing the platform")}
+                                    checked={selectedUser.isBanned}
+                                    disabled={!can("users.moderate") || selectedUser.isStaff}
+                                    onCheckedChange={() => {
+                                      if (selectedUser.isBanned) void handleUnbanUser(selectedUser.id);
+                                      else void handleBanUser(selectedUser.id, "Administrative action");
+                                    }}
+                                  />
+                                </SettingsCard>
+                              </SettingsSection>
+
+                              <SettingsSection title={gt("Badges ({count})", { count: (selectedUser.badges || []).length })}>
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                                   {badgeDefinitions.map((badge) => {
                                     const isAssigned = (selectedUser.badges || []).includes(badge.id);
                                     const labels = badgeLabel(badge, gt);
                                     return (
                                       <button
                                         key={badge.id}
+                                        type="button"
+                                        aria-pressed={isAssigned}
                                         disabled={!can("badges.manage") || (!staffAccess.isSuperAdmin && ["staff", "admin", "moderator", "serikacord_developer"].includes(badge.id))}
                                         onClick={() => void handleToggleBadge(badge.id)}
                                         className={cn(
-                                          "flex items-center gap-2.5 p-2.5 rounded-lg border transition-all text-left",
+                                          "flex items-center gap-2.5 rounded-lg border p-2.5 text-left transition-colors duration-(--motion-fast) disabled:cursor-not-allowed",
                                           isAssigned
-                                            ? "bg-[var(--bg-card)] border-[var(--border-subtle)]"
-                                            : "bg-transparent border-[var(--border-subtle)] opacity-50 hover:opacity-80"
+                                            ? "border-[color-mix(in_srgb,var(--app-accent)_45%,transparent)] bg-[color-mix(in_srgb,var(--app-accent)_8%,transparent)]"
+                                            : "border-[var(--border-subtle)] opacity-60 hover:bg-[var(--bg-hover)] hover:opacity-100",
                                         )}
                                       >
-                                        <div
-                                          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                                          style={{ backgroundColor: `${badge.color}20` }}
-                                        >
-                                          <BadgeIcon badge={badge} className="w-4 h-4" />
-                                        </div>
-                                        <div className="flex-1 min-w-0">
-                                          <p className="text-sm text-[var(--text-primary)] font-medium truncate">{labels.name}</p>
-                                          <p className="text-xs text-[var(--text-muted)] truncate">{labels.description}</p>
-                                        </div>
-                                        <div
+                                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${badge.color}20` }}>
+                                          <BadgeIcon badge={badge} className="h-4 w-4" />
+                                        </span>
+                                        <span className="min-w-0 flex-1">
+                                          <span className="block truncate text-sm font-medium text-[var(--text-primary)]">{labels.name}</span>
+                                          <span className="block truncate text-xs text-[var(--text-muted)]">{labels.description}</span>
+                                        </span>
+                                        <span
+                                          aria-hidden
                                           className={cn(
-                                            "w-4 h-4 rounded-full border-2 flex-shrink-0 flex items-center justify-center transition-colors",
-                                            isAssigned ? "bg-[#8B5CF6] border-[#8B5CF6]" : "border-[var(--text-muted)]"
+                                            "flex h-4 w-4 shrink-0 items-center justify-center rounded-full border-2",
+                                            isAssigned ? "border-[var(--app-accent)] bg-[var(--app-accent)]" : "border-[var(--text-muted)]",
                                           )}
                                         >
-                                          {isAssigned && <Check className="w-2.5 h-2.5 text-white" />}
-                                        </div>
+                                          {isAssigned && <Check className="h-2.5 w-2.5 text-white" />}
+                                        </span>
                                       </button>
                                     );
                                   })}
                                 </div>
-                              </div>
+                              </SettingsSection>
 
-                              {/* Quick actions */}
-                              <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Actions")}</p>
-                                <div className="grid grid-cols-2 gap-2">
-                                  <button
-                                    onClick={() => {
-                                      if (!can("logs.view")) return;
-                                      setActiveTab("admin-logs");
-                                      setAdminLogFilter("reports");
-                                      void fetchAdminLogs("reports");
-                                    }}
-                                    className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
-                                  >
-                                    <p className="text-[var(--text-primary)] font-medium text-sm">{gt("View Reports")}</p>
-                                    <p className="text-xs text-[var(--text-muted)]">{gt("Open filtered admin logs")}</p>
-                                  </button>
-                                  <button
-                                    onClick={() => {
-                                      window.location.href = `/dm/${selectedUser.id}`;
-                                    }}
-                                    className="p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg text-left transition-colors"
-                                  >
-                                    <p className="text-[var(--text-primary)] font-medium text-sm">{gt("Open DM")}</p>
-                                    <p className="text-xs text-[var(--text-muted)]">{gt("Jump to direct message")}</p>
-                                  </button>
-                                </div>
-                              </div>
+                              <SettingsSection title={gt("Actions")}>
+                                <SettingsCard>
+                                  <SettingsRow
+                                    label={gt("View Reports")}
+                                    description={gt("Open filtered admin logs")}
+                                    control={
+                                      <SettingsButton
+                                        variant="secondary"
+                                        size="sm"
+                                        disabled={!can("logs.view")}
+                                        onClick={() => {
+                                          if (!can("logs.view")) return;
+                                          setActiveTab("admin-logs");
+                                          setAdminLogFilter("reports");
+                                          void fetchAdminLogs("reports");
+                                        }}
+                                      >
+                                        {gt("Open")}
+                                      </SettingsButton>
+                                    }
+                                  />
+                                  <SettingsRow
+                                    label={gt("Open DM")}
+                                    description={gt("Jump to direct message")}
+                                    control={
+                                      <SettingsButton variant="secondary" size="sm" onClick={() => { window.location.href = `/dm/${selectedUser.id}`; }}>
+                                        {gt("Open")}
+                                      </SettingsButton>
+                                    }
+                                  />
+                                </SettingsCard>
+                              </SettingsSection>
                             </div>
                           </ScrollArea>
                         ) : (
-                          <div className="flex items-center justify-center h-full p-8">
-                            <div className="text-center">
-                              <Users className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-                              <p className="text-[var(--text-muted)]">{gt("Select a user from the list to view details and manage badges")}</p>
-                            </div>
+                          <div className="flex h-full items-center justify-center p-8">
+                            <SettingsEmptyState icon={Users} title={gt("Select a user from the list to view details and manage badges")} className="border-none" />
                           </div>
                         )}
                       </div>
                     </div>
-                  )}
-
-                  {adminUsers.length === 0 && !isLoadingAdmin && (
-                    <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
-                      <Users className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-                      <p className="text-[var(--text-muted)]">{gt("Search for users to view their profile, edit badges, or take moderation actions.")}</p>
-                    </div>
+                  ) : isLoadingAdmin ? (
+                    <SettingsSkeleton variant="list" count={5} />
+                  ) : (
+                    <SettingsEmptyState icon={Users} title={gt("Search for users to view their profile, edit badges, or take moderation actions.")} />
                   )}
                 </div>
               )}
 
-              {/* Admin Panel - Server Management */}
+              {/* Admin — Server Management */}
               {activeTab === "admin-servers" && canOpenAdminTab(activeTab) && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
-                    <Database className="w-6 h-6 text-[#8B5CF6]" />
-                    {gt("Server Management")}
-                  </h2>
+                <div className="space-y-4">
+                  <SettingsPageHeader
+                    title={gt("Server Management")}
+                    description={gt("Search for servers to view details, toggle partner/discovery status, or take moderation actions.")}
+                  />
+                  <SettingsToolbar>
+                    <SettingsSearchInput
+                      value={adminServerSearch}
+                      onValueChange={setAdminServerSearch}
+                      onKeyDown={(e) => e.key === "Enter" && searchAdminServers()}
+                      placeholder={gt("Search servers by name or ID...")}
+                      clearLabel={gt("Clear")}
+                      className="flex-1"
+                    />
+                    <SettingsButton onClick={searchAdminServers} disabled={isLoadingAdmin}>
+                      {isLoadingAdmin ? <RefreshCw className="animate-spin" /> : <Search />}
+                      {gt("Search")}
+                    </SettingsButton>
+                  </SettingsToolbar>
 
-                  {/* Search bar */}
-                  <div className="bg-[var(--bg-app)] rounded-lg p-4 mb-4">
-                    <div className="flex gap-4">
-                      <Input
-                        value={adminServerSearch}
-                        onChange={(e) => setAdminServerSearch(e.target.value)}
-                        onKeyDown={(e) => e.key === "Enter" && searchAdminServers()}
-                        placeholder={gt("Search servers by name or ID...")}
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] flex-1"
-                      />
-                      <button
-                        onClick={searchAdminServers}
-                        disabled={isLoadingAdmin}
-                        className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded font-medium flex items-center gap-2"
-                      >
-                        {isLoadingAdmin && <Loader size={16} />}
-                        {gt("Search")}
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* Two-column layout: server list + detail panel */}
-                  {adminServers.length > 0 && (
-                    <div className="flex gap-4 h-[600px] max-md:flex-col max-md:h-auto">
-                      {/* Left: Server list */}
-                      <div className="w-[320px] flex-shrink-0 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col max-md:w-full max-md:h-[320px]">
-                        <div className="px-3 py-2 border-b border-[var(--border-subtle)] flex-shrink-0">
-                          <p className="text-[var(--text-primary)] font-semibold text-sm">{gt("Results ({count})", { count: adminServers.length })}</p>
-                        </div>
-                        <ScrollArea className="flex-1 min-h-0">
-                          <div className="p-1.5 space-y-1">
+                  {adminServers.length > 0 ? (
+                    <div className="flex h-[600px] gap-4 max-md:h-auto max-md:flex-col">
+                      <div className="flex w-[320px] shrink-0 flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] max-md:h-[320px] max-md:w-full">
+                        <p className="shrink-0 border-b border-[var(--border-subtle)] px-4 py-2.5 text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">
+                          {gt("Results ({count})", { count: adminServers.length })}
+                        </p>
+                        <ScrollArea className="min-h-0 flex-1">
+                          <div className="divide-y divide-[var(--border-subtle)]">
                             {adminServers.map((s) => (
-                              <button
+                              <SettingsListItem
                                 key={s.id}
+                                selected={selectedServer?.id === s.id}
                                 onClick={() => setSelectedServer(s)}
-                                className={cn(
-                                  "w-full flex items-center gap-2.5 p-2.5 rounded-lg transition-colors text-left",
-                                  selectedServer?.id === s.id
-                                    ? "bg-[#8B5CF6]/15 ring-1 ring-[#8B5CF6]/40"
-                                    : "hover:bg-[var(--bg-card)]"
-                                )}
-                              >
-                                <Avatar className="w-9 h-9 flex-shrink-0 rounded-lg">
-                                  <AvatarImage src={cdnImage(s.icon)} />
-                                  <AvatarFallback className="bg-[#8B5CF6] text-white text-xs rounded-lg">
-                                    {s.name.charAt(0)}
-                                  </AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm text-[var(--text-primary)] font-medium truncate">{s.name}</p>
-                                  <p className="text-xs text-[var(--text-muted)] truncate">{gt("{count} members", { count: s.memberCount })}</p>
-                                </div>
-                                <div className="flex flex-col items-end gap-0.5">
-                                  {s.isPartnered && (
-                                    <span className="px-1.5 py-0.5 bg-[#8B5CF6]/20 text-[#8B5CF6] text-[10px] rounded">{gt("Partner")}</span>
-                                  )}
-                                  {s.isDiscoverable && (
-                                    <span className="px-1.5 py-0.5 bg-green-500/20 text-green-400 text-[10px] rounded">{gt("Visible")}</span>
-                                  )}
-                                </div>
-                              </button>
+                                leading={
+                                  <Avatar className="h-9 w-9 rounded-lg">
+                                    <AvatarImage src={cdnImage(s.icon)} />
+                                    <AvatarFallback className="rounded-lg bg-[var(--app-accent)] text-xs text-white">{s.name.charAt(0)}</AvatarFallback>
+                                  </Avatar>
+                                }
+                                title={s.name}
+                                subtitle={gt("{count} members", { count: s.memberCount })}
+                                actions={
+                                  s.isPartnered || s.isDiscoverable ? (
+                                    <div className="flex flex-col items-end gap-1">
+                                      {s.isPartnered && <SettingsStatusPill tone="accent">{gt("Partner")}</SettingsStatusPill>}
+                                      {s.isDiscoverable && <SettingsStatusPill tone="success">{gt("Visible")}</SettingsStatusPill>}
+                                    </div>
+                                  ) : undefined
+                                }
+                              />
                             ))}
                           </div>
                         </ScrollArea>
                       </div>
 
-                      {/* Right: Detail panel */}
-                      <div className="flex-1 bg-[var(--bg-app)] rounded-lg overflow-hidden flex flex-col">
+                      <div className="flex min-w-0 flex-1 flex-col overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
                         {selectedServer ? (
-                          <ScrollArea className="flex-1 min-h-0">
-                            <div className="p-5 space-y-5">
-                              {/* Server header */}
-                              <div className="flex items-center gap-3 pb-3 border-b border-[var(--border-subtle)]">
-                                <Avatar className="w-12 h-12 rounded-xl">
+                          <ScrollArea className="min-h-0 flex-1">
+                            <div className="space-y-6 p-5">
+                              <div className="flex items-center gap-3 border-b border-[var(--border-subtle)] pb-4">
+                                <Avatar className="h-12 w-12 rounded-xl">
                                   <AvatarImage src={cdnImage(selectedServer.icon || undefined)} />
-                                  <AvatarFallback className="bg-[#8B5CF6] text-white rounded-xl">
-                                    {selectedServer.name.charAt(0)}
-                                  </AvatarFallback>
+                                  <AvatarFallback className="rounded-xl bg-[var(--app-accent)] text-white">{selectedServer.name.charAt(0)}</AvatarFallback>
                                 </Avatar>
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-[var(--text-primary)] font-semibold text-lg">{selectedServer.name}</p>
-                                  <p className="text-sm text-[var(--text-muted)]">
+                                <div className="min-w-0 flex-1">
+                                  <p className="truncate text-lg font-semibold text-[var(--text-primary)]">{selectedServer.name}</p>
+                                  <p className="truncate text-sm text-[var(--text-muted)]">
                                     {gt("Owner: {name}", { name: selectedServer.owner?.displayName || selectedServer.owner?.username || gt("Unknown") })}
                                   </p>
                                 </div>
                               </div>
 
-                              {/* Server info */}
-                              <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Info")}</p>
-                                <div className="bg-[var(--bg-card)] rounded-lg p-3 space-y-2">
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">{gt("Server ID")}</span>
-                                    <span className="text-sm text-[var(--text-primary)] font-mono">{selectedServer.id}</span>
-                                  </div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-sm text-[var(--text-muted)]">{gt("Created")}</span>
-                                    <span className="text-sm text-[var(--text-primary)]">{new Date(selectedServer.createdAt).toLocaleDateString()}</span>
-                                  </div>
+                              <SettingsSection title={gt("Info")}>
+                                <SettingsCard>
+                                  <SettingsRow
+                                    label={gt("Server ID")}
+                                    control={<span className="select-all font-mono text-sm text-[var(--text-primary)]">{selectedServer.id}</span>}
+                                    stackOnMobile
+                                  />
+                                  <SettingsRow
+                                    label={gt("Created")}
+                                    control={<span className="text-sm text-[var(--text-primary)]">{new Date(selectedServer.createdAt).toLocaleDateString(locale)}</span>}
+                                  />
                                   {selectedServer.description && (
-                                    <div>
-                                      <span className="text-sm text-[var(--text-muted)]">{gt("Description")}</span>
-                                      <p className="text-sm text-[var(--text-primary)] mt-1">{selectedServer.description}</p>
-                                    </div>
+                                    <SettingsRow label={gt("Description")} description={selectedServer.description} />
                                   )}
-                                </div>
-                              </div>
+                                </SettingsCard>
+                              </SettingsSection>
 
-                              {/* Server toggles */}
-                              <div>
-                                <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("Server Status")}</p>
-                                <div className="space-y-2">
-                                  <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
-                                    <div>
-                                      <p className="text-sm text-[var(--text-primary)] font-medium">{gt("Partnered")}</p>
-                                      <p className="text-xs text-[var(--text-muted)]">{gt("Grant partner badge and perks")}</p>
-                                    </div>
-                                    <ToggleSwitch
-                                      size="sm"
-                                      checked={selectedServer.isPartnered}
-                                      disabled={!can("servers.manage")}
-                                      onCheckedChange={() => void handleTogglePartner(selectedServer.id)}
-                                    />
-                                  </div>
-                                  <div className="flex items-center justify-between bg-[var(--bg-card)] rounded-lg p-3">
-                                    <div>
-                                      <p className="text-sm text-[var(--text-primary)] font-medium">{gt("Discoverable")}</p>
-                                      <p className="text-xs text-[var(--text-muted)]">{gt("Show in server discovery page")}</p>
-                                    </div>
-                                    <ToggleSwitch
-                                      size="sm"
-                                      checked={selectedServer.isDiscoverable}
-                                      disabled={!can("servers.manage")}
-                                      onCheckedChange={() => void handleToggleDiscovery(selectedServer.id)}
-                                    />
-                                  </div>
-                                </div>
-                              </div>
+                              <SettingsSection title={gt("Server Status")}>
+                                <SettingsCard>
+                                  <SettingsToggleRow
+                                    label={gt("Partnered")}
+                                    description={gt("Grant partner badge and perks")}
+                                    checked={selectedServer.isPartnered}
+                                    disabled={!can("servers.manage")}
+                                    onCheckedChange={() => void handleTogglePartner(selectedServer.id)}
+                                  />
+                                  <SettingsToggleRow
+                                    label={gt("Discoverable")}
+                                    description={gt("Show in server discovery page")}
+                                    checked={selectedServer.isDiscoverable}
+                                    disabled={!can("servers.manage")}
+                                    onCheckedChange={() => void handleToggleDiscovery(selectedServer.id)}
+                                  />
+                                </SettingsCard>
+                              </SettingsSection>
 
-                              {/* Danger zone */}
-                              <div>
-                                <p className="text-xs text-red-400 uppercase font-semibold mb-2">{gt("Danger Zone")}</p>
-                                <div className="space-y-2">
-                                  <button
-                                    disabled={!can("servers.manage")}
-                                    onClick={handleTransferOwnership}
-                                    className="w-full flex items-center justify-between p-3 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] rounded-lg transition-colors text-left"
-                                  >
-                                    <div>
-                                      <p className="text-sm text-[var(--text-primary)] font-medium">{gt("Transfer Ownership")}</p>
-                                      <p className="text-xs text-[var(--text-muted)]">{gt("Change the server owner")}</p>
-                                    </div>
-                                    <ExternalLink className="w-4 h-4 text-[var(--text-muted)]" />
-                                  </button>
-                                  <button
-                                    disabled={!can("servers.manage")}
-                                    onClick={() => void handleDeleteServer(selectedServer.id)}
-                                    className="w-full flex items-center justify-between p-3 bg-red-500/10 hover:bg-red-500/20 rounded-lg transition-colors text-left"
-                                  >
-                                    <div>
-                                      <p className="text-sm text-red-400 font-medium">{gt("Delete Server")}</p>
-                                      <p className="text-xs text-red-400/60">{gt("Permanently remove this server")}</p>
-                                    </div>
-                                    <X className="w-4 h-4 text-red-400" />
-                                  </button>
-                                </div>
-                              </div>
+                              <SettingsDangerZone title={gt("Danger Zone")}>
+                                <SettingsRow
+                                  label={gt("Transfer Ownership")}
+                                  description={gt("Change the server owner")}
+                                  control={
+                                    <SettingsButton variant="danger" size="sm" disabled={!can("servers.manage")} onClick={handleTransferOwnership}>
+                                      {gt("Transfer Ownership")}
+                                    </SettingsButton>
+                                  }
+                                />
+                                <SettingsRow
+                                  label={gt("Delete Server")}
+                                  description={gt("Permanently remove this server")}
+                                  danger
+                                  control={
+                                    <SettingsButton variant="dangerFilled" size="sm" disabled={!can("servers.manage")} onClick={() => void handleDeleteServer(selectedServer.id)}>
+                                      {gt("Delete Server")}
+                                    </SettingsButton>
+                                  }
+                                />
+                              </SettingsDangerZone>
                             </div>
                           </ScrollArea>
                         ) : (
-                          <div className="flex items-center justify-center h-full p-8">
-                            <div className="text-center">
-                              <Database className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-                              <p className="text-[var(--text-muted)]">{gt("Select a server from the list to view details and manage settings")}</p>
-                            </div>
+                          <div className="flex h-full items-center justify-center p-8">
+                            <SettingsEmptyState icon={Database} title={gt("Select a server from the list to view details and manage settings")} className="border-none" />
                           </div>
                         )}
                       </div>
                     </div>
-                  )}
-
-                  {adminServers.length === 0 && !isLoadingAdmin && (
-                    <div className="bg-[var(--bg-app)] rounded-lg p-8 text-center">
-                      <Database className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-                      <p className="text-[var(--text-muted)]">{gt("Search for servers to view details, toggle partner/discovery status, or take moderation actions.")}</p>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Admin Panel - Statistics */}
-              {activeTab === "admin-stats" && canOpenAdminTab(activeTab) && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
-                    <BarChart3 className="w-6 h-6 text-[#8B5CF6]" />
-                    {gt("Platform Statistics")}
-                  </h2>
-
-                  {isLoadingAdmin ? (
-                    <div className="flex items-center justify-center py-12">
-                      <Loader size={32} />
-                    </div>
-                  ) : adminStats ? (
-                    <div className="space-y-6">
-                      {/* Primary stats grid */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-[var(--bg-app)] rounded-xl p-5 border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Users className="w-4 h-4 text-[#8B5CF6]" />
-                            <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Total Users")}</span>
-                          </div>
-                          <p className="text-3xl font-bold text-[var(--text-primary)]">{adminStats.users.toLocaleString()}</p>
-                          <p className="text-xs text-green-400 mt-1">+{adminStats.newUsersToday} {gt("today")}</p>
-                        </div>
-                        <div className="bg-[var(--bg-app)] rounded-xl p-5 border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Server className="w-4 h-4 text-[#8B5CF6]" />
-                            <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Total Servers")}</span>
-                          </div>
-                          <p className="text-3xl font-bold text-[var(--text-primary)]">{adminStats.servers.toLocaleString()}</p>
-                          <p className="text-xs text-[var(--text-muted)] mt-1">{adminStats.activeServers} {gt("new (30d)")}</p>
-                        </div>
-                        <div className="bg-[var(--bg-app)] rounded-xl p-5 border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2 mb-2">
-                            <MessageSquare className="w-4 h-4 text-[#8B5CF6]" />
-                            <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Total Messages")}</span>
-                          </div>
-                          <p className="text-3xl font-bold text-[var(--text-primary)]">{adminStats.messages.toLocaleString()}</p>
-                          <p className="text-xs text-green-400 mt-1">{adminStats.messagesToday.toLocaleString()} {gt("today")}</p>
-                        </div>
-                        <div className="bg-[var(--bg-app)] rounded-xl p-5 border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2 mb-2">
-                            <Activity className="w-4 h-4 text-green-400" />
-                            <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Online Now")}</span>
-                          </div>
-                          <p className="text-3xl font-bold text-green-400">{adminStats.onlineUsers.toLocaleString()}</p>
-                          <p className="text-xs text-[var(--text-muted)] mt-1">{((adminStats.onlineUsers / Math.max(adminStats.users, 1)) * 100).toFixed(1)}% {gt("of users")}</p>
-                        </div>
-                      </div>
-
-                      {/* Secondary stats */}
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div className="bg-[var(--bg-app)] rounded-lg p-4 border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Calendar className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                            <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("New This Week")}</span>
-                          </div>
-                          <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.newUsersThisWeek.toLocaleString()}</p>
-                        </div>
-                        <div className="bg-[var(--bg-app)] rounded-lg p-4 border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Ban className="w-3.5 h-3.5 text-red-400" />
-                            <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Banned Users")}</span>
-                          </div>
-                          <p className="text-2xl font-bold text-red-400">{adminStats.banned.toLocaleString()}</p>
-                        </div>
-                        <div className="bg-[var(--bg-app)] rounded-lg p-4 border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Bot className="w-3.5 h-3.5 text-[#3B82F6]" />
-                            <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Bot Accounts")}</span>
-                          </div>
-                          <p className="text-2xl font-bold text-[#3B82F6]">{adminStats.bots.toLocaleString()}</p>
-                        </div>
-                        <div className="bg-[var(--bg-app)] rounded-lg p-4 border border-[var(--border-subtle)]">
-                          <div className="flex items-center gap-2 mb-1">
-                            <Users className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                            <span className="text-xs uppercase font-semibold text-[var(--text-muted)]">{gt("Server Memberships")}</span>
-                          </div>
-                          <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.totalMemberships.toLocaleString()}</p>
-                          <p className="text-xs text-[var(--text-muted)] mt-0.5">{gt("across all servers")}</p>
-                        </div>
-                      </div>
-
-                      {/* Refresh button */}
-                      <div className="flex justify-end">
-                        <button
-                          onClick={() => fetchAdminStats()}
-                          className="px-4 py-2 bg-[var(--bg-card)] text-[var(--text-primary)] rounded-lg text-sm hover:bg-[var(--bg-hover)] transition-colors flex items-center gap-2"
-                        >
-                          <RefreshCw className="w-4 h-4" />
-                          {gt("Refresh")}
-                        </button>
-                      </div>
-                    </div>
+                  ) : isLoadingAdmin ? (
+                    <SettingsSkeleton variant="list" count={5} />
                   ) : (
-                    <div className="text-center py-12 text-[var(--text-muted)]">
-                      <BarChart3 className="w-12 h-12 mx-auto mb-3 opacity-50" />
-                      <p>{gt("Failed to load statistics")}</p>
-                    </div>
+                    <SettingsEmptyState icon={Database} title={gt("Search for servers to view details, toggle partner/discovery status, or take moderation actions.")} />
                   )}
                 </div>
               )}
 
-              {/* Admin Panel - Platform Settings */}
+              {/* Admin — Statistics (keeps the last numbers on screen while refreshing) */}
+              {activeTab === "admin-stats" && canOpenAdminTab(activeTab) && (
+                <div className="space-y-6">
+                  <SettingsPageHeader
+                    title={gt("Platform Statistics")}
+                    actions={
+                      <SettingsButton variant="secondary" size="sm" onClick={() => fetchAdminStats()} disabled={isLoadingAdminStats}>
+                        <RefreshCw className={cn(isLoadingAdminStats && "animate-spin")} />
+                        {gt("Refresh")}
+                      </SettingsButton>
+                    }
+                  />
+                  {adminStats ? (
+                    <div className={cn("space-y-3 transition-opacity", isLoadingAdminStats && "opacity-70")}>
+                      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                        <SettingsStatCard icon={Users} label={gt("Total Users")} value={adminStats.users.toLocaleString(locale)} hint={`+${adminStats.newUsersToday} ${gt("today")}`} hintTone="positive" />
+                        <SettingsStatCard icon={Server} label={gt("Total Servers")} value={adminStats.servers.toLocaleString(locale)} hint={`${adminStats.activeServers} ${gt("new (30d)")}`} />
+                        <SettingsStatCard icon={MessageSquare} label={gt("Total Messages")} value={adminStats.messages.toLocaleString(locale)} hint={`${adminStats.messagesToday.toLocaleString(locale)} ${gt("today")}`} hintTone="positive" />
+                        <SettingsStatCard
+                          icon={Activity}
+                          label={gt("Online Now")}
+                          value={adminStats.onlineUsers.toLocaleString(locale)}
+                          valueTone="positive"
+                          hint={`${((adminStats.onlineUsers / Math.max(adminStats.users, 1)) * 100).toFixed(1)}% ${gt("of users")}`}
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                        <SettingsStatCard icon={Calendar} label={gt("New This Week")} value={adminStats.newUsersThisWeek.toLocaleString(locale)} />
+                        <SettingsStatCard icon={Ban} label={gt("Banned Users")} value={adminStats.banned.toLocaleString(locale)} valueTone="danger" />
+                        <SettingsStatCard icon={Bot} label={gt("Bot Accounts")} value={adminStats.bots.toLocaleString(locale)} valueTone="accent" />
+                        <SettingsStatCard icon={Users} label={gt("Server Memberships")} value={adminStats.totalMemberships.toLocaleString(locale)} hint={gt("across all servers")} />
+                      </div>
+                    </div>
+                  ) : isLoadingAdminStats ? (
+                    <SettingsSkeleton variant="stats" count={8} />
+                  ) : (
+                    <SettingsEmptyState icon={BarChart3} title={gt("Failed to load statistics")} action={<SettingsButton variant="secondary" size="sm" onClick={() => fetchAdminStats()}>{gt("Refresh")}</SettingsButton>} />
+                  )}
+                </div>
+              )}
+
+              {/* Admin — Platform Settings */}
               {activeTab === "admin-settings" && canOpenAdminTab(activeTab) && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
-                    <Settings className="w-6 h-6 text-[#8B5CF6]" />
-                    {gt("Platform Settings")}
-                  </h2>
+                <div className="space-y-8">
+                  <SettingsPageHeader title={gt("Platform Settings")} />
 
-                  {/* Stats Overview */}
                   {adminStats && (
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-                      <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
-                        <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.users.toLocaleString()}</p>
-                        <p className="text-sm text-[var(--text-muted)]">{gt("Total Users")}</p>
-                      </div>
-                      <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
-                        <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.servers.toLocaleString()}</p>
-                        <p className="text-sm text-[var(--text-muted)]">{gt("Total Servers")}</p>
-                      </div>
-                      <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
-                        <p className="text-2xl font-bold text-[var(--text-primary)]">{adminStats.messages.toLocaleString()}</p>
-                        <p className="text-sm text-[var(--text-muted)]">{gt("Total Messages")}</p>
-                      </div>
-                      <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center">
-                        <p className="text-2xl font-bold text-green-400">+{adminStats.newUsersToday}</p>
-                        <p className="text-sm text-[var(--text-muted)]">{gt("New Today")}</p>
-                      </div>
+                    <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+                      <SettingsStatCard label={gt("Total Users")} value={adminStats.users.toLocaleString(locale)} />
+                      <SettingsStatCard label={gt("Total Servers")} value={adminStats.servers.toLocaleString(locale)} />
+                      <SettingsStatCard label={gt("Total Messages")} value={adminStats.messages.toLocaleString(locale)} />
+                      <SettingsStatCard label={gt("New Today")} value={`+${adminStats.newUsersToday}`} valueTone="positive" />
                     </div>
                   )}
 
-                  <div className="space-y-4">
-                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("Maintenance Mode")}</h3>
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <div>
-                          <p className="text-[var(--text-primary)]">{gt("Enable Maintenance Mode")}</p>
-                          <p className="text-sm text-[var(--text-muted)]">{gt("Restrict access to staff only")}</p>
-                        </div>
-                        <ToggleSwitch size="sm" checked={platformSettings?.maintenanceMode || false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ maintenanceMode: checked })} />
-                      </label>
-                    </div>
-                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("Registration")}</h3>
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <div>
-                          <p className="text-[var(--text-primary)]">{gt("Allow New Registrations")}</p>
-                          <p className="text-sm text-[var(--text-muted)]">{gt("Enable new user sign-ups")}</p>
-                        </div>
-                        <ToggleSwitch size="sm" checked={platformSettings?.allowRegistration !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ allowRegistration: checked })} />
-                      </label>
-                    </div>
-                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("Connections")}</h3>
-                      <label className="flex items-center justify-between cursor-pointer">
-                        <div>
-                          <p className="text-[var(--text-primary)]">{gt("Enable Account Connections")}</p>
-                          <p className="text-sm text-[var(--text-muted)]">{gt("Allow users to link external accounts (Last.fm, Spotify, GitHub, etc.)")}</p>
-                        </div>
-                        <ToggleSwitch size="sm" checked={platformSettings?.connectionsEnabled !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ connectionsEnabled: checked })} />
-                      </label>
-                      {platformSettings?.connectionsEnabled !== false && (
-                        <div className="mt-4 pt-4 border-t border-[var(--border-subtle)] space-y-3">
-                          <p className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                            {gt("Allowed Providers")}
-                          </p>
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                            {/* Domains (DNS-verified websites) aren't an OAuth provider but share the toggle list. */}
-                            {[...CONNECTION_PROVIDERS, { id: "website", label: gt("Domains"), color: "#8B5CF6", bg: "#8B5CF620" }].map((prov) => {
-                              const isDisabled = platformSettings?.disabledProviders?.includes(prov.id) || false;
-                              return (
-                                <label
-                                  key={prov.id}
-                                  className="flex items-center justify-between p-2 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] cursor-pointer hover:bg-[var(--bg-sidebar-elevated)] transition-colors"
-                                >
-                                  <div className="flex items-center gap-2 min-w-0">
-                                    <div
-                                      className="w-6 h-6 rounded flex items-center justify-center shrink-0"
-                                      style={{ backgroundColor: prov.bg }}
-                                    >
-                                      {(() => {
-                                        const Icon = getConnectionIcon(prov.id);
-                                        return <Icon size={12} style={{ color: prov.color }} />;
-                                      })()}
-                                    </div>
-                                    <span className="text-sm text-[var(--text-primary)] truncate">{prov.label}</span>
-                                  </div>
-                                  <ToggleSwitch
-                                    size="sm"
-                                    checked={!isDisabled}
-                                    onCheckedChange={(checked) => {
-                                      const current = platformSettings?.disabledProviders || [];
-                                      const next = checked
-                                        ? current.filter((id: string) => id !== prov.id)
-                                        : [...current, prov.id];
-                                      handleUpdatePlatformSettings({ disabledProviders: next });
-                                    }}
-                                  />
-                                </label>
-                              );
-                            })}
-                          </div>
-                        </div>
-                      )}
-                    </div>
-                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("OEmbed Whitelist")}</h3>
-                      <p className="text-sm text-[var(--text-muted)] mb-3">{gt("Domains allowed for rich link embeds (Spotify, YouTube, etc.)")}</p>
-                      <div className="flex gap-2 mb-3">
-                        <Input
-                          value={oembedDomainInput}
-                          onChange={(e) => setOembedDomainInput(e.target.value)}
-                          placeholder="example.com"
-                          className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && oembedDomainInput.trim()) {
-                              e.preventDefault();
-                              const domain = oembedDomainInput.trim().toLowerCase();
-                              const current = platformSettings?.oembedWhitelist || [];
-                              if (!current.includes(domain)) {
-                                void handleUpdatePlatformSettings({ oembedWhitelist: [...current, domain] });
-                              }
-                              setOembedDomainInput("");
-                            }
-                          }}
-                        />
-                        <button
-                          onClick={() => {
-                            if (!oembedDomainInput.trim()) return;
-                            const domain = oembedDomainInput.trim().toLowerCase();
-                            const current = platformSettings?.oembedWhitelist || [];
-                            if (!current.includes(domain)) {
-                              void handleUpdatePlatformSettings({ oembedWhitelist: [...current, domain] });
-                            }
-                            setOembedDomainInput("");
-                          }}
-                          className="px-3 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded text-sm font-medium"
-                        >
-                          {gt("Add")}
-                        </button>
-                      </div>
-                      <div className="space-y-1.5 max-h-48 overflow-y-auto">
-                        {(platformSettings?.oembedWhitelist || []).length === 0 ? (
-                          <p className="text-sm text-[var(--text-muted)] italic">{gt("No custom domains. Using defaults.")}</p>
-                        ) : (
-                          (platformSettings?.oembedWhitelist || []).map((domain) => (
-                            <div key={domain} className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-card)] rounded text-sm">
-                              <span className="text-[var(--text-primary)]">{domain}</span>
-                              <button
-                                onClick={() => {
-                                  const current = platformSettings?.oembedWhitelist || [];
-                                  void handleUpdatePlatformSettings({ oembedWhitelist: current.filter((d) => d !== domain) });
-                                }}
-                                className="text-red-400 hover:text-red-300 text-xs"
-                              >
-                                {gt("Remove")}
-                              </button>
-                            </div>
-                          ))
-                        )}
-                      </div>
-                    </div>
-                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("File Type Whitelist")}</h3>
-                      <p className="text-sm text-[var(--text-muted)] mb-3">
-                        {gt("Only whitelisted file types can be uploaded. Add a MIME type (application/zip), a family (video/*), a file ending (.7z.001 or .001, for files without a type) or * for everything. Tag each as safe or bad — bad types are allowed but users get a warning.")}
-                      </p>
-                      <div className="flex gap-2 mb-3">
-                        <Input
-                          value={fileTypeInput}
-                          onChange={(e) => setFileTypeInput(e.target.value)}
-                          placeholder="application/zip, video/*, .7z.001"
-                          className="flex-1 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
-                          onKeyDown={(e) => {
-                            if (e.key === "Enter" && fileTypeInput.trim()) {
-                              e.preventDefault();
-                              const type = fileTypeInput.trim().toLowerCase();
-                              const current = platformSettings?.allowedFileTypes || [];
-                              if (!current.some((f) => f.type === type)) {
-                                void handleUpdatePlatformSettings({ allowedFileTypes: [...current, { type, safe: true }] });
-                              }
-                              setFileTypeInput("");
-                            }
-                          }}
-                        />
-                        <button
-                          onClick={() => {
-                            if (!fileTypeInput.trim()) return;
-                            const type = fileTypeInput.trim().toLowerCase();
-                            const current = platformSettings?.allowedFileTypes || [];
-                            if (!current.some((f) => f.type === type)) {
-                              void handleUpdatePlatformSettings({ allowedFileTypes: [...current, { type, safe: true }] });
-                            }
-                            setFileTypeInput("");
-                          }}
-                          className="px-3 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded text-sm font-medium"
-                        >
-                          {gt("Add")}
-                        </button>
-                      </div>
-                      <div className="space-y-1.5 max-h-48 overflow-y-auto mb-4">
-                        {(platformSettings?.allowedFileTypes || []).length === 0 ? (
-                          <p className="text-sm text-[var(--text-muted)] italic">
-                            {gt("No custom whitelist. Using defaults: image/jpeg, image/png, image/gif, image/webp, audio/mpeg, audio/ogg, audio/wav, video/mp4, video/webm, application/pdf, text/plain")}
-                          </p>
-                        ) : (
-                          (platformSettings?.allowedFileTypes || []).map((entry) => (
-                            <div key={entry.type} className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-card)] rounded text-sm">
-                              <span className="text-[var(--text-primary)]">{entry.type}</span>
-                              <div className="flex items-center gap-3">
-                                <button
-                                  onClick={() => {
-                                    const current = platformSettings?.allowedFileTypes || [];
-                                    void handleUpdatePlatformSettings({
-                                      allowedFileTypes: current.map((f) => f.type === entry.type ? { ...f, safe: !f.safe } : f),
-                                    });
-                                  }}
-                                  className={entry.safe ? "text-green-400 hover:text-green-300 text-xs font-medium" : "text-yellow-400 hover:text-yellow-300 text-xs font-medium"}
-                                >
-                                  {entry.safe ? gt("Safe") : gt("Bad")}
-                                </button>
-                                <button
-                                  onClick={() => {
-                                    const current = platformSettings?.allowedFileTypes || [];
-                                    void handleUpdatePlatformSettings({ allowedFileTypes: current.filter((f) => f.type !== entry.type) });
-                                  }}
-                                  className="text-red-400 hover:text-red-300 text-xs"
-                                >
-                                  {gt("Remove")}
-                                </button>
+                  {!platformSettings ? (
+                    <SettingsSkeleton variant="rows" count={4} />
+                  ) : (
+                    <>
+                      <SettingsSection title={gt("Access")}>
+                        <SettingsCard>
+                          <SettingsToggleRow
+                            label={gt("Enable Maintenance Mode")}
+                            description={gt("Restrict access to staff only")}
+                            checked={platformSettings.maintenanceMode || false}
+                            onCheckedChange={(checked) => handleUpdatePlatformSettings({ maintenanceMode: checked })}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Allow New Registrations")}
+                            description={gt("Enable new user sign-ups")}
+                            checked={platformSettings.allowRegistration !== false}
+                            onCheckedChange={(checked) => handleUpdatePlatformSettings({ allowRegistration: checked })}
+                          />
+                        </SettingsCard>
+                      </SettingsSection>
+
+                      <SettingsSection title={gt("Connections")}>
+                        <SettingsCard>
+                          <SettingsToggleRow
+                            label={gt("Enable Account Connections")}
+                            description={gt("Allow users to link external accounts (Last.fm, Spotify, GitHub, etc.)")}
+                            checked={platformSettings.connectionsEnabled !== false}
+                            onCheckedChange={(checked) => handleUpdatePlatformSettings({ connectionsEnabled: checked })}
+                          >
+                            {platformSettings.connectionsEnabled !== false && (
+                              <div className="space-y-2 pt-1">
+                                <p className="text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">{gt("Allowed Providers")}</p>
+                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                                  {/* Domains (DNS-verified websites) aren't an OAuth provider but share the toggle list. */}
+                                  {[...CONNECTION_PROVIDERS, { id: "website", label: gt("Domains"), color: "var(--app-accent)", bg: "color-mix(in srgb, var(--app-accent) 14%, transparent)" }].map((prov) => {
+                                    const isDisabled = platformSettings.disabledProviders?.includes(prov.id) || false;
+                                    const ProvIcon = getConnectionIcon(prov.id);
+                                    return (
+                                      <div
+                                        key={prov.id}
+                                        className="flex items-center justify-between gap-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] px-2.5 py-2"
+                                      >
+                                        <span className="flex min-w-0 items-center gap-2">
+                                          <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded" style={{ backgroundColor: prov.bg }}>
+                                            <ProvIcon size={12} style={{ color: prov.color }} />
+                                          </span>
+                                          <span className="truncate text-sm text-[var(--text-primary)]">{prov.label}</span>
+                                        </span>
+                                        <ToggleSwitch
+                                          size="sm"
+                                          checked={!isDisabled}
+                                          aria-label={prov.label}
+                                          onCheckedChange={(checked) => {
+                                            const current = platformSettings.disabledProviders || [];
+                                            const next = checked ? current.filter((id: string) => id !== prov.id) : [...current, prov.id];
+                                            handleUpdatePlatformSettings({ disabledProviders: next });
+                                          }}
+                                        />
+                                      </div>
+                                    );
+                                  })}
+                                </div>
                               </div>
+                            )}
+                          </SettingsToggleRow>
+                        </SettingsCard>
+                      </SettingsSection>
+
+                      <SettingsSection title={gt("OEmbed Whitelist")} description={gt("Domains allowed for rich link embeds (Spotify, YouTube, etc.)")}>
+                        <SettingsCard>
+                          <form
+                            className="flex gap-2 px-4 py-3"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              if (!oembedDomainInput.trim()) return;
+                              const domain = oembedDomainInput.trim().toLowerCase();
+                              const current = platformSettings.oembedWhitelist || [];
+                              if (!current.includes(domain)) void handleUpdatePlatformSettings({ oembedWhitelist: [...current, domain] });
+                              setOembedDomainInput("");
+                            }}
+                          >
+                            <Input
+                              value={oembedDomainInput}
+                              onChange={(e) => setOembedDomainInput(e.target.value)}
+                              placeholder="example.com"
+                              className="h-9 flex-1 border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)]"
+                            />
+                            <SettingsButton type="submit" size="sm" className="h-9">{gt("Add")}</SettingsButton>
+                          </form>
+                          {(platformSettings.oembedWhitelist || []).length === 0 ? (
+                            <p className="px-4 py-3 text-sm italic text-[var(--text-muted)]">{gt("No custom domains. Using defaults.")}</p>
+                          ) : (
+                            <div className="max-h-56 divide-y divide-[var(--border-subtle)] overflow-y-auto">
+                              {(platformSettings.oembedWhitelist || []).map((domain) => (
+                                <div key={domain} className="group flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-hover)]/50">
+                                  <span className="truncate font-mono text-[var(--text-primary)]">{domain}</span>
+                                  <SettingsButton
+                                    variant="ghost"
+                                    size="sm"
+                                    className="h-7 text-red-500 hover:text-red-500"
+                                    onClick={() => {
+                                      const current = platformSettings.oembedWhitelist || [];
+                                      void handleUpdatePlatformSettings({ oembedWhitelist: current.filter((d) => d !== domain) });
+                                    }}
+                                  >
+                                    {gt("Remove")}
+                                  </SettingsButton>
+                                </div>
+                              ))}
                             </div>
-                          ))
-                        )}
+                          )}
+                        </SettingsCard>
+                      </SettingsSection>
+
+                      <SettingsSection
+                        title={gt("File Type Whitelist")}
+                        description={gt("Only whitelisted file types can be uploaded. Add a MIME type (application/zip), a family (video/*), a file ending (.7z.001 or .001, for files without a type) or * for everything. Tag each as safe or bad — bad types are allowed but users get a warning.")}
+                      >
+                        <SettingsCard>
+                          <form
+                            className="flex gap-2 px-4 py-3"
+                            onSubmit={(e) => {
+                              e.preventDefault();
+                              if (!fileTypeInput.trim()) return;
+                              const type = fileTypeInput.trim().toLowerCase();
+                              const current = platformSettings.allowedFileTypes || [];
+                              if (!current.some((f) => f.type === type)) void handleUpdatePlatformSettings({ allowedFileTypes: [...current, { type, safe: true }] });
+                              setFileTypeInput("");
+                            }}
+                          >
+                            <Input
+                              value={fileTypeInput}
+                              onChange={(e) => setFileTypeInput(e.target.value)}
+                              placeholder="application/zip, video/*, .7z.001"
+                              className="h-9 flex-1 border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)]"
+                            />
+                            <SettingsButton type="submit" size="sm" className="h-9">{gt("Add")}</SettingsButton>
+                          </form>
+                          {(platformSettings.allowedFileTypes || []).length === 0 ? (
+                            <p className="px-4 py-3 text-sm italic text-[var(--text-muted)]">
+                              {gt("No custom whitelist. Using defaults: image/jpeg, image/png, image/gif, image/webp, audio/mpeg, audio/ogg, audio/wav, video/mp4, video/webm, application/pdf, text/plain")}
+                            </p>
+                          ) : (
+                            <div className="max-h-56 divide-y divide-[var(--border-subtle)] overflow-y-auto">
+                              {(platformSettings.allowedFileTypes || []).map((entry) => (
+                                <div key={entry.type} className="flex items-center justify-between gap-3 px-4 py-2 text-sm hover:bg-[var(--bg-hover)]/50">
+                                  <span className="truncate font-mono text-[var(--text-primary)]">{entry.type}</span>
+                                  <div className="flex shrink-0 items-center gap-2">
+                                    <button
+                                      type="button"
+                                      title={gt("Toggle")}
+                                      onClick={() => {
+                                        const current = platformSettings.allowedFileTypes || [];
+                                        void handleUpdatePlatformSettings({ allowedFileTypes: current.map((f) => (f.type === entry.type ? { ...f, safe: !f.safe } : f)) });
+                                      }}
+                                    >
+                                      <SettingsStatusPill tone={entry.safe ? "success" : "warning"} dot>{entry.safe ? gt("Safe") : gt("Bad")}</SettingsStatusPill>
+                                    </button>
+                                    <SettingsButton
+                                      variant="ghost"
+                                      size="sm"
+                                      className="h-7 text-red-500 hover:text-red-500"
+                                      onClick={() => {
+                                        const current = platformSettings.allowedFileTypes || [];
+                                        void handleUpdatePlatformSettings({ allowedFileTypes: current.filter((f) => f.type !== entry.type) });
+                                      }}
+                                    >
+                                      {gt("Remove")}
+                                    </SettingsButton>
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+                          )}
+                          <SettingsToggleRow
+                            label={gt("Warn on unknown file types")}
+                            description={gt("Show a warning to users when they upload a file type not in the whitelist")}
+                            checked={platformSettings.warnOnUnknownFileTypes !== false}
+                            onCheckedChange={(checked) => handleUpdatePlatformSettings({ warnOnUnknownFileTypes: checked })}
+                          />
+                        </SettingsCard>
+                      </SettingsSection>
+                    </>
+                  )}
+
+                  <SettingsSection title={gt("Font Testing")} description={gt("Preview how different fonts look across the app.")}>
+                    <SettingsCard>
+                      <div className="px-4 py-3">
+                        <Input
+                          value={fontTestText}
+                          onChange={(e) => setFontTestText(e.target.value)}
+                          className="h-9 border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)]"
+                          placeholder={gt("Type text to preview...")}
+                        />
                       </div>
-                      <label className="flex items-center justify-between cursor-pointer pt-3 border-t border-[var(--border-subtle)]">
-                        <div>
-                          <p className="text-[var(--text-primary)]">{gt("Warn on unknown file types")}</p>
-                          <p className="text-sm text-[var(--text-muted)]">{gt("Show a warning to users when they upload a file type not in the whitelist")}</p>
+                      {[
+                        { name: gt("Inter (Default)"), className: "font-sans" },
+                        { name: gt("Mono"), className: "font-mono" },
+                        { name: gt("Serif"), className: "font-serif" },
+                      ].map((font) => (
+                        <div key={font.name} className="px-4 py-3">
+                          <p className="mb-1 text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-muted)]">{font.name}</p>
+                          <p className={cn("text-base text-[var(--text-primary)]", font.className)}>{fontTestText}</p>
                         </div>
-                        <ToggleSwitch size="sm" checked={platformSettings?.warnOnUnknownFileTypes !== false} onCheckedChange={(checked) => handleUpdatePlatformSettings({ warnOnUnknownFileTypes: checked })} />
-                      </label>
-                    </div>
-                    <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                      <h3 className="text-[var(--text-primary)] font-semibold mb-3">{gt("Font Testing")}</h3>
-                      <p className="text-sm text-[var(--text-muted)] mb-3">{gt("Preview how different fonts look across the app.")}</p>
-                      <Input
-                        value={fontTestText}
-                        onChange={(e) => setFontTestText(e.target.value)}
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] mb-4"
-                        placeholder={gt("Type text to preview...")}
-                      />
-                      <div className="space-y-3">
-                        {[
-                          { name: gt("Inter (Default)"), className: "font-sans" },
-                          { name: gt("Mono"), className: "font-mono" },
-                          { name: gt("Serif"), className: "font-serif" },
-                        ].map((font) => (
-                          <div key={font.name} className="p-3 bg-[var(--bg-card)] rounded-lg">
-                            <p className="text-xs text-[var(--text-muted)] mb-1">{font.name}</p>
-                            <p className={cn("text-[var(--text-primary)] text-base", font.className)}>{fontTestText}</p>
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
+                      ))}
+                    </SettingsCard>
+                  </SettingsSection>
                 </div>
               )}
+
+              {/* Admin — Activity Logs (old entries stay while a page/filter loads) */}
               {activeTab === "admin-logs" && canOpenAdminTab(activeTab) && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-5 flex items-center gap-2">
-                    <Activity className="w-6 h-6 text-[#8B5CF6]" />
-                    {gt("Activity Logs")}
-                  </h2>
-                  <div className="bg-[var(--bg-app)] rounded-lg p-4">
-                    {/* Filter buttons */}
-                    <div className="flex gap-2 mb-4 flex-wrap">
+                <div className="space-y-4">
+                  <SettingsPageHeader title={gt("Activity Logs")} description={gt("Admin actions will appear here")} />
+                  <SettingsToolbar>
+                    <div role="tablist" aria-label={gt("Activity Logs")} className="inline-flex max-w-full gap-0.5 overflow-x-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-0.5">
                       {(["all", "bans", "reports", "admin"] as const).map((f) => (
                         <button
                           key={f}
+                          type="button"
+                          role="tab"
+                          aria-selected={adminLogFilter === f}
                           onClick={() => {
                             setAdminLogFilter(f);
                             setAdminLogPage(1);
                             fetchAdminLogs(f, 1);
                           }}
                           className={cn(
-                            "px-3 py-1.5 rounded text-sm transition-colors",
+                            "h-7 shrink-0 rounded-md px-3 text-xs font-semibold transition-colors duration-(--motion-fast)",
                             adminLogFilter === f
-                              ? "bg-[#8B5CF6] text-white"
-                              : "bg-[var(--bg-card)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                              ? "bg-[var(--app-accent)] text-white shadow-sm"
+                              : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
                           )}
                         >
                           {f === "all" ? gt("All") : f === "bans" ? gt("Bans") : f === "reports" ? gt("Reports") : gt("Admin Actions")}
                         </button>
                       ))}
                     </div>
+                    {isLoadingAdminLogs && adminLogs.length > 0 && <RefreshCw className="h-4 w-4 animate-spin text-[var(--text-muted)]" aria-hidden />}
+                  </SettingsToolbar>
 
-                    {/* Log entries */}
-                    <div className="space-y-2">
-                      {isLoadingAdmin ? (
-                        <div className="flex items-center justify-center py-8">
-                          <Loader size={24} />
-                        </div>
-                      ) : adminLogs.length === 0 ? (
-                        <div className="p-4 bg-[var(--bg-card)] rounded-lg text-center">
-                          <FileText className="w-8 h-8 text-[var(--text-muted)] mx-auto mb-2" />
-                          <p className="text-[var(--text-primary)] text-sm">{gt("No activity logs yet")}</p>
-                          <p className="text-[var(--text-muted)] text-xs mt-1">{gt("Admin actions will appear here")}</p>
-                        </div>
-                      ) : (
-                        adminLogs.map((log) => {
-                          const isExpanded = expandedLogId === log.id;
-                          const actionIcon = (() => {
-                            const a = log.action;
-                            if (a.includes("ban")) return { icon: Ban, color: "#EF4444" };
-                            if (a.includes("report")) return { icon: AlertTriangle, color: "#F59E0B" };
-                            if (a.includes("broadcast") || a.includes("announcement")) return { icon: Megaphone, color: "#3B82F6" };
-                            if (a.includes("partner") || a.includes("discovery")) return { icon: Globe, color: "#10B981" };
-                            if (a.includes("server") || a.includes("transfer")) return { icon: Server, color: "#8B5CF6" };
-                            if (a.includes("badge")) return { icon: Award, color: "#F59E0B" };
-                            if (a.includes("experiment")) return { icon: FlaskConical, color: "#06B6D4" };
-                            if (a.includes("timeout")) return { icon: Clock, color: "#F59E0B" };
-                            if (a.includes("settings") || a.includes("update")) return { icon: Settings, color: "#6B7280" };
-                            return { icon: Zap, color: "#8B5CF6" };
-                          })();
-                          const ActionIcon = actionIcon.icon;
-                          const targetIcon = log.targetType === "user" ? UserCog : log.targetType === "server" ? Server : log.targetType === "message" ? MessageSquare : Globe;
-                          const TargetIcon = targetIcon;
-                          const timeAgo = (() => {
-                            const diff = Date.now() - new Date(log.createdAt).getTime();
-                            const mins = Math.floor(diff / 60000);
-                            const hours = Math.floor(mins / 60);
-                            const days = Math.floor(hours / 24);
-                            if (days > 0) return `${days}d ago`;
-                            if (hours > 0) return `${hours}h ago`;
-                            if (mins > 0) return `${mins}m ago`;
-                            return "just now";
-                          })();
-                          return (
-                            <div
-                              key={log.id}
-                              className="rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] overflow-hidden transition-all hover:border-[var(--border-strong)]"
+                  {adminLogs.length === 0 ? (
+                    isLoadingAdminLogs ? (
+                      <SettingsSkeleton variant="list" count={6} />
+                    ) : (
+                      <SettingsEmptyState icon={FileText} title={gt("No activity logs yet")} description={gt("Admin actions will appear here")} />
+                    )
+                  ) : (
+                    <div className={cn("overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] divide-y divide-[var(--border-subtle)] transition-opacity", isLoadingAdminLogs && "opacity-60")}>
+                      {adminLogs.map((log) => {
+                        const isExpanded = expandedLogId === log.id;
+                        const actionStyle = adminLogActionStyle(log.action);
+                        const ActionIcon = actionStyle.icon;
+                        const TargetIcon = log.targetType === "user" ? UserCog : log.targetType === "server" ? Server : log.targetType === "message" ? MessageSquare : Globe;
+                        return (
+                          <div key={log.id}>
+                            <button
+                              type="button"
+                              aria-expanded={isExpanded}
+                              onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
+                              className="flex w-full items-center justify-between gap-3 px-4 py-3 text-left transition-colors hover:bg-[var(--bg-hover)]/60"
                             >
-                              {/* Header row — clickable to expand */}
-                              <button
-                                onClick={() => setExpandedLogId(isExpanded ? null : log.id)}
-                                className="w-full p-3 flex items-center justify-between gap-3 text-left hover:bg-[var(--bg-hover)]/50 transition-colors"
-                              >
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  {/* Action icon */}
-                                  <div
-                                    className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
-                                    style={{ backgroundColor: `${actionIcon.color}15` }}
-                                  >
-                                    <ActionIcon className="w-4 h-4" style={{ color: actionIcon.color }} />
+                              <div className="flex min-w-0 items-center gap-3">
+                                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: `${actionStyle.color}1f` }}>
+                                  <ActionIcon className="h-4 w-4" style={{ color: actionStyle.color }} />
+                                </span>
+                                <Avatar className="h-6 w-6 shrink-0">
+                                  <AvatarImage src={cdnImage(log.admin?.avatar)} />
+                                  <AvatarFallback className="bg-[var(--app-accent)] text-xs text-white">
+                                    {log.admin?.displayName?.charAt(0) || log.admin?.username?.charAt(0) || "?"}
+                                  </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                  <div className="flex flex-wrap items-center gap-1.5">
+                                    <span className="truncate text-sm font-medium text-[var(--text-primary)]">
+                                      {log.admin?.displayName || log.admin?.username || gt("Unknown")}
+                                    </span>
+                                    <span
+                                      className="rounded px-1.5 py-0.5 text-[10px] font-semibold uppercase"
+                                      style={{ backgroundColor: `${actionStyle.color}24`, color: actionStyle.color }}
+                                    >
+                                      {log.action.replace(/_/g, " ")}
+                                    </span>
                                   </div>
-                                  {/* Admin avatar + name */}
-                                  <Avatar className="w-6 h-6 flex-shrink-0">
-                                    <AvatarImage src={cdnImage(log.admin?.avatar)} />
-                                    <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
-                                      {log.admin?.displayName?.charAt(0) || log.admin?.username?.charAt(0) || "?"}
-                                    </AvatarFallback>
-                                  </Avatar>
-                                  <div className="min-w-0 flex-1">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="text-[var(--text-primary)] text-sm font-medium truncate">
-                                        {log.admin?.displayName || log.admin?.username || "Unknown"}
-                                      </span>
-                                      <span
-                                        className="text-[10px] font-semibold uppercase px-1.5 py-0.5 rounded"
-                                        style={{ backgroundColor: `${actionIcon.color}20`, color: actionIcon.color }}
-                                      >
-                                        {log.action.replace(/_/g, " ")}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-1.5 text-xs text-[var(--text-muted)] mt-0.5">
-                                      <TargetIcon className="w-3 h-3" />
-                                      <span>{log.targetType}</span>
-                                      <span className="font-mono opacity-60">{log.targetId.slice(0, 8)}...</span>
-                                    </div>
+                                  <div className="mt-0.5 flex items-center gap-1.5 text-xs text-[var(--text-muted)]">
+                                    <TargetIcon className="h-3 w-3" />
+                                    <span>{log.targetType}</span>
+                                    <span className="font-mono opacity-70">{log.targetId.slice(0, 8)}…</span>
                                   </div>
                                 </div>
-                                <div className="flex items-center gap-2 flex-shrink-0">
-                                  <span className="text-[var(--text-muted)] text-xs hidden sm:inline">
-                                    {timeAgo}
-                                  </span>
-                                  <ChevronDown
-                                    className={cn(
-                                      "w-4 h-4 text-[var(--text-muted)] transition-transform",
-                                      isExpanded && "rotate-180"
-                                    )}
-                                  />
+                              </div>
+                              <div className="flex shrink-0 items-center gap-2">
+                                <time dateTime={log.createdAt} className="hidden text-xs text-[var(--text-muted)] sm:inline">
+                                  {formatRelativeTime(log.createdAt, locale)}
+                                </time>
+                                <ChevronDown className={cn("h-4 w-4 text-[var(--text-muted)] transition-transform", isExpanded && "rotate-180")} />
+                              </div>
+                            </button>
+
+                            {isExpanded && (
+                              <div className="space-y-2 border-t border-[var(--border-subtle)] bg-[var(--bg-card)]/40 px-4 py-3">
+                                <div className="flex items-center gap-2 text-xs text-[var(--text-muted)]">
+                                  <Clock className="h-3 w-3" />
+                                  <span>{new Date(log.createdAt).toLocaleString(locale)}</span>
                                 </div>
-                              </button>
-
-                              {/* Expanded details */}
-                              {isExpanded && (
-                                <div className="px-3 pb-3 pt-1 space-y-2 border-t border-[var(--border-subtle)]">
-                                  {/* Timestamp */}
-                                  <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] pt-2">
-                                    <Clock className="w-3 h-3" />
-                                    <span>{new Date(log.createdAt).toLocaleString()}</span>
-                                  </div>
-
-                                  {/* Reason */}
-                                  {log.reason && (
-                                    <div className="flex items-start gap-2 text-sm">
-                                      <AlertTriangle className="w-4 h-4 text-[#F59E0B] flex-shrink-0 mt-0.5" />
-                                      <div>
-                                        <span className="text-[var(--text-muted)] text-xs uppercase font-semibold">{gt("Reason")}</span>
-                                        <p className="text-[var(--text-secondary)]">{log.reason}</p>
-                                      </div>
-                                    </div>
-                                  )}
-
-                                  {/* Target ID full */}
-                                  <div className="flex items-center gap-2 text-xs">
-                                    <TargetIcon className="w-3 h-3 text-[var(--text-muted)]" />
-                                    <span className="text-[var(--text-muted)] uppercase font-semibold">{gt("Target")}:</span>
-                                    <span className="font-mono text-[var(--text-secondary)]">{log.targetId}</span>
-                                  </div>
-
-                                  {/* Admin ID */}
-                                  {log.admin?.id && (
-                                    <div className="flex items-center gap-2 text-xs">
-                                      <UserCog className="w-3 h-3 text-[var(--text-muted)]" />
-                                      <span className="text-[var(--text-muted)] uppercase font-semibold">{gt("Admin ID")}:</span>
-                                      <span className="font-mono text-[var(--text-secondary)]">{log.admin.id}</span>
-                                    </div>
-                                  )}
-
-                                  {/* Details JSON */}
-                                  {log.details && Object.keys(log.details).length > 0 && (
+                                {log.reason && (
+                                  <div className="flex items-start gap-2 text-sm">
+                                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
                                     <div>
-                                      <p className="text-[var(--text-muted)] text-xs uppercase font-semibold mb-1">{gt("Details")}</p>
-                                      <pre className="p-2.5 rounded bg-[var(--bg-app)] text-xs overflow-x-auto text-[var(--text-secondary)] border border-[var(--border-subtle)] max-h-60">
-                                        {JSON.stringify(log.details, null, 2)}
-                                      </pre>
+                                      <span className="text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-muted)]">{gt("Reason")}</span>
+                                      <p className="text-[var(--text-secondary)]">{log.reason}</p>
                                     </div>
-                                  )}
+                                  </div>
+                                )}
+                                <div className="flex items-center gap-2 text-xs">
+                                  <TargetIcon className="h-3 w-3 text-[var(--text-muted)]" />
+                                  <span className="font-semibold uppercase text-[var(--text-muted)]">{gt("Target")}:</span>
+                                  <span className="select-all font-mono text-[var(--text-secondary)]">{log.targetId}</span>
                                 </div>
-                              )}
-                            </div>
-                          );
-                        })
-                      )}
+                                {log.admin?.id && (
+                                  <div className="flex items-center gap-2 text-xs">
+                                    <UserCog className="h-3 w-3 text-[var(--text-muted)]" />
+                                    <span className="font-semibold uppercase text-[var(--text-muted)]">{gt("Admin ID")}:</span>
+                                    <span className="select-all font-mono text-[var(--text-secondary)]">{log.admin.id}</span>
+                                  </div>
+                                )}
+                                {log.details && Object.keys(log.details).length > 0 && (
+                                  <div>
+                                    <p className="mb-1 text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-muted)]">{gt("Details")}</p>
+                                    <pre className="max-h-60 overflow-x-auto rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] p-2.5 text-xs text-[var(--text-secondary)]">
+                                      {JSON.stringify(log.details, null, 2)}
+                                    </pre>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
                     </div>
+                  )}
 
-                    {/* Pagination */}
-                    {adminLogPagination && adminLogPagination.pages > 1 && (
-                      <div className="flex items-center justify-between mt-4 pt-3 border-t border-[var(--border-subtle)]">
-                        <span className="text-xs text-[var(--text-muted)]">
-                          {gt("Page {page} of {pages}", { page: adminLogPagination.page, pages: adminLogPagination.pages })}
-                          {" · "}
-                          {adminLogPagination.total} {gt("total")}
-                        </span>
-                        <div className="flex gap-2">
-                          <button
-                            onClick={() => {
-                              const prev = Math.max(1, adminLogPage - 1);
-                              setAdminLogPage(prev);
-                              fetchAdminLogs(adminLogFilter, prev);
-                            }}
-                            disabled={adminLogPage <= 1}
-                            className="px-3 py-1.5 rounded text-sm bg-[var(--bg-card)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                          >
-                            {gt("Previous")}
-                          </button>
-                          <button
-                            onClick={() => {
-                              const next = Math.min(adminLogPagination.pages, adminLogPage + 1);
-                              setAdminLogPage(next);
-                              fetchAdminLogs(adminLogFilter, next);
-                            }}
-                            disabled={adminLogPage >= adminLogPagination.pages}
-                            className="px-3 py-1.5 rounded text-sm bg-[var(--bg-card)] text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
-                          >
-                            {gt("Next")}
-                          </button>
-                        </div>
+                  {adminLogPagination && adminLogPagination.pages > 1 && (
+                    <div className="flex items-center justify-between gap-3 pt-1">
+                      <span className="text-xs text-[var(--text-muted)]">
+                        {gt("Page {page} of {pages}", { page: adminLogPagination.page, pages: adminLogPagination.pages })}
+                        {" · "}
+                        {adminLogPagination.total} {gt("total")}
+                      </span>
+                      <div className="flex gap-2">
+                        <SettingsButton
+                          variant="secondary"
+                          size="sm"
+                          disabled={adminLogPage <= 1 || isLoadingAdminLogs}
+                          onClick={() => {
+                            const prev = Math.max(1, adminLogPage - 1);
+                            setAdminLogPage(prev);
+                            fetchAdminLogs(adminLogFilter, prev);
+                          }}
+                        >
+                          {gt("Previous")}
+                        </SettingsButton>
+                        <SettingsButton
+                          variant="secondary"
+                          size="sm"
+                          disabled={adminLogPage >= adminLogPagination.pages || isLoadingAdminLogs}
+                          onClick={() => {
+                            const next = Math.min(adminLogPagination.pages, adminLogPage + 1);
+                            setAdminLogPage(next);
+                            fetchAdminLogs(adminLogFilter, next);
+                          }}
+                        >
+                          {gt("Next")}
+                        </SettingsButton>
                       </div>
-                    )}
-                  </div>
+                    </div>
+                  )}
                 </div>
               )}
 
-              {/* Admin Panel - Badge Management (create/define badges) */}
+              {/* Admin — Badge Management (create/define badges) */}
               {activeTab === "admin-badges" && canOpenAdminTab(activeTab) && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">{gt("Badge Management")}</h2>
-                  <p className="text-sm text-[var(--text-muted)] mb-6">{gt("Create, edit, and manage the platform's badge definitions. To assign badges to a user, use the User Management tab.")}</p>
+                <div className="space-y-6">
+                  <SettingsPageHeader
+                    title={gt("Badge Management")}
+                    description={gt("Create, edit, and manage the platform's badge definitions. To assign badges to a user, use the User Management tab.")}
+                  />
                   <AdminBadgesPanel />
                 </div>
               )}
 
-              {/* Admin Panel - Announcements */}
+              {/* Admin — Announcements */}
               {activeTab === "admin-announcements" && canOpenAdminTab(activeTab) && (
-                <div>
-                  <h2 className="text-xl font-bold text-[var(--text-primary)] mb-2">{gt("Announcements")}</h2>
-                  <p className="text-sm text-[var(--text-muted)] mb-6">{can("settings.manage") && can("broadcast.send") ? gt("Publish a global banner and send it to users by direct message. Blank lines are preserved.") : can("settings.manage") ? gt("Publish a global banner announcement visible to all users. Blank lines are preserved.") : gt("Send a platform announcement to users by direct message.")}</p>
-                  <div className="bg-[var(--bg-app)] rounded-xl p-5 space-y-4">
-                    {can("settings.manage") && platformSettings?.globalAnnouncement && (
-                      <div className="p-3 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 text-sm text-[var(--text-primary)]">
-                        <p className="text-[10px] uppercase font-semibold text-[var(--text-muted)] mb-1.5">{gt("Current Live Announcement")}</p>
-                        {platformSettings.globalAnnouncement.split("\n").map((line: string, i: number, arr: string[]) => (
-                          <span key={i}>{line || "\u00A0"}{i < arr.length - 1 && <br />}</span>
-                        ))}
-                      </div>
-                    )}
-                    <div>
-                      <p className="text-xs text-[var(--text-muted)] uppercase font-semibold mb-2">{gt("New Announcement")}</p>
-                      <Textarea
-                        value={announcementText}
-                        onChange={(e) => setAnnouncementText(e.target.value)}
-                        placeholder={gt("Enter announcement text… Blank lines will be preserved as visual breaks.")}
-                        className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] resize-none overflow-y-auto"
-                        rows={8}
-                        style={{ maxHeight: "240px" }}
-                      />
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={handlePublishAnnouncement}
-                        className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] text-white rounded-lg font-medium text-sm flex items-center gap-2"
-                      >
-                        <Megaphone className="w-4 h-4" />
-                        {gt("Publish")}
-                      </button>
-                      {can("settings.manage") && platformSettings?.globalAnnouncement && (
-                        <button
+                <div className="space-y-8">
+                  <SettingsPageHeader
+                    title={gt("Announcements")}
+                    description={can("settings.manage") && can("broadcast.send") ? gt("Publish a global banner and send it to users by direct message. Blank lines are preserved.") : can("settings.manage") ? gt("Publish a global banner announcement visible to all users. Blank lines are preserved.") : gt("Send a platform announcement to users by direct message.")}
+                  />
+                  {can("settings.manage") && platformSettings?.globalAnnouncement && (
+                    <SettingsSection
+                      title={gt("Current Live Announcement")}
+                      action={
+                        <SettingsButton
+                          variant="secondary"
+                          size="sm"
                           onClick={async () => {
                             setAnnouncementText("");
                             try {
@@ -5119,52 +3498,46 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                               if (res.ok) { const data = await res.json(); setPlatformSettings(data); toast.success(gt("Announcement cleared")); }
                             } catch { toast.error(gt("Failed to clear announcement")); }
                           }}
-                          className="px-4 py-2 bg-[var(--bg-card)] hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] rounded-lg font-medium text-sm"
                         >
                           {gt("Clear Live")}
-                        </button>
-                      )}
+                        </SettingsButton>
+                      }
+                    >
+                      <div className="rounded-xl border border-[color-mix(in_srgb,var(--app-accent)_30%,transparent)] bg-[color-mix(in_srgb,var(--app-accent)_8%,var(--bg-app))] p-4 text-sm text-[var(--text-primary)]">
+                        {platformSettings.globalAnnouncement.split("\n").map((line: string, i: number, arr: string[]) => (
+                          <span key={i}>{line || " "}{i < arr.length - 1 && <br />}</span>
+                        ))}
+                      </div>
+                    </SettingsSection>
+                  )}
+                  <SettingsSection title={gt("New Announcement")}>
+                    <div className={FORM_CARD}>
+                      <Textarea
+                        value={announcementText}
+                        onChange={(e) => setAnnouncementText(e.target.value)}
+                        placeholder={gt("Enter announcement text… Blank lines will be preserved as visual breaks.")}
+                        className="resize-none overflow-y-auto border-[var(--border-subtle)] bg-[var(--bg-input)] text-[var(--text-primary)]"
+                        rows={8}
+                        style={{ maxHeight: "240px" }}
+                      />
+                      <div className="flex justify-end">
+                        <SettingsButton onClick={handlePublishAnnouncement}>
+                          <Megaphone />
+                          {gt("Publish")}
+                        </SettingsButton>
+                      </div>
                     </div>
-                  </div>
+                  </SettingsSection>
                 </div>
               )}
 
-              {/* Admin Panel - Experiments */}
-              {activeTab === "admin-experiments" && canOpenAdminTab(activeTab) && (
-                <AdminExperimentsPanel />
-              )}
+              {activeTab === "admin-experiments" && canOpenAdminTab(activeTab) && <AdminExperimentsPanel />}
+              {activeTab === "admin-tts-sounds" && canOpenAdminTab(activeTab) && <AdminTtsSoundsPanel />}
+              {activeTab === "admin-tts-voices" && canOpenAdminTab(activeTab) && <AdminTtsVoicesPanel />}
+              {activeTab === "admin-translations" && canOpenAdminTab(activeTab) && <AdminTranslationsPanel />}
+              {activeTab === "admin-bug-reports" && canOpenAdminTab(activeTab) && <AdminBugReportsPanel />}
 
-              {/* Admin Panel - TTS Sounds */}
-              {activeTab === "admin-tts-sounds" && canOpenAdminTab(activeTab) && (
-                <AdminTtsSoundsPanel />
-              )}
-
-              {/* Admin Panel - TTS Voices */}
-              {activeTab === "admin-tts-voices" && canOpenAdminTab(activeTab) && (
-                <AdminTtsVoicesPanel />
-              )}
-
-              {/* Admin Panel - Translations */}
-              {activeTab === "admin-translations" && canOpenAdminTab(activeTab) && (
-                <AdminTranslationsPanel />
-              )}
-
-              {/* Bug Reports - User */}
-              {activeTab === "bug-reports" && (
-                <BugReportPanel />
-              )}
-
-              {/* Admin Panel - Bug Reports */}
-              {activeTab === "admin-bug-reports" && canOpenAdminTab(activeTab) && (
-                <AdminBugReportsPanel />
-              )}
-
-              {/* Account Standing - strikes, restrictions, appeals */}
-              <MountWhenOpened open={activeTab === "account-standing"}>
-                {activeTab === "account-standing" && <AccountStanding key={user?.id} showTitle />}
-              </MountWhenOpened>
-
-              {/* Admin Panel - Trust & Safety */}
+              {/* Admin — Trust & Safety */}
               <MountWhenOpened open={activeTab === "admin-trust-safety" && canOpenAdminTab(activeTab)}>
                 {activeTab === "admin-trust-safety" && canOpenAdminTab(activeTab) && <AdminTrustSafetyPanel key={user?.id} />}
               </MountWhenOpened>

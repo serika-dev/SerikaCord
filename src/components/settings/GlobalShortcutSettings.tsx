@@ -5,6 +5,9 @@ import { useGT } from "gt-next";
 import { Globe, RotateCcw, X } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { SettingsButton } from "@/components/settings/blocks/SettingsButton";
+import { SettingsKeycaps } from "@/components/settings/blocks/SettingsKeycaps";
+import { SettingsStatusPill } from "@/components/settings/blocks/SettingsStatusPill";
 import { getEffectiveBinding } from "@/lib/keybinds";
 import { voiceService } from "@/lib/services/voiceService";
 import { GLOBAL_KEYS_EVENT, getDesktopSettings, loadGlobalKeys, saveGlobalKey } from "@/lib/desktop/bridge";
@@ -117,73 +120,68 @@ export function GlobalShortcutSettings() {
   ];
 
   return (
-    <div>
-      <h3 className="mb-2 flex items-center gap-1.5 px-1 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-        <Globe className="h-3 w-3" />
-        {gt("Global (desktop app)")}
-      </h3>
-      {enabled === false && (
-        <p className="mb-2 px-1 text-xs text-[var(--text-secondary)]">
-          {gt("Global shortcuts are off. Turn them on in Desktop settings.")}
+    <section className="space-y-3">
+      <div className="px-0.5">
+        <h3 className="flex items-center gap-1.5 text-[15px] font-semibold text-[var(--text-primary)]">
+          <Globe className="h-4 w-4 text-[var(--text-secondary)]" />
+          {gt("Global (desktop app)")}
+        </h3>
+        <p className="mt-0.5 text-[13px] leading-snug text-[var(--text-secondary)]">
+          {enabled === false
+            ? gt("Global shortcuts are off. Turn them on in Desktop settings.")
+            : gt("These work even when SerikaCord isn't focused. By default they use the same keys as in the app.")}
         </p>
-      )}
-      <div className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-lg border border-[var(--border-subtle)]">
+      </div>
+      <div className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
         {rows.map((row) => {
           const custom = state.store[row.slot] ?? null;
           const current = custom ?? row.fallback;
           const isRecording = recording === row.slot;
           return (
-            <div key={row.slot} className="flex items-center justify-between gap-3 bg-[var(--bg-card)] px-3 py-2.5">
+            <div
+              key={row.slot}
+              data-settings-row
+              className={cn(
+                "group grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 px-4 py-2.5 transition-colors duration-(--motion-fast) [@media(hover:hover)]:hover:bg-[var(--bg-hover)]/50",
+                isRecording && "bg-[color-mix(in_srgb,var(--app-accent)_8%,transparent)]",
+              )}
+            >
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="truncate text-sm text-[var(--text-primary)]">{row.label}</span>
-                  {custom && (
-                    <span className="shrink-0 rounded bg-[var(--app-accent)]/15 px-1.5 py-0.5 text-[9px] font-semibold uppercase text-[var(--app-accent)]">
-                      {gt("Custom")}
-                    </span>
-                  )}
+                  <span className="truncate text-sm font-medium text-[var(--text-primary)]">{row.label}</span>
+                  {custom && <SettingsStatusPill tone="accent">{gt("Custom")}</SettingsStatusPill>}
                 </div>
-                <p className="text-xs text-[var(--text-secondary)]">{row.hint}</p>
+                <p className="mt-0.5 text-[13px] leading-snug text-[var(--text-secondary)]">{row.hint}</p>
               </div>
-              <div className="flex shrink-0 items-center gap-2">
+              <div className="flex items-center justify-end gap-1.5">
                 {isRecording ? (
                   <>
-                    <span className="animate-pulse text-xs text-[var(--app-accent)]">{gt("Press a key or mouse button...")}</span>
-                    <button
-                      type="button"
-                      onClick={() => setRecording(null)}
-                      className="rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                      aria-label={gt("Cancel")}
-                    >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
+                    <span className="animate-pulse text-xs font-medium text-[var(--app-accent)]">{gt("Press a key or mouse button...")}</span>
+                    <SettingsButton variant="ghost" size="sm" className="h-7 w-7 px-0" onClick={() => setRecording(null)} aria-label={gt("Cancel")}>
+                      <X />
+                    </SettingsButton>
                   </>
                 ) : (
                   <>
-                    <kbd
-                      className={cn(
-                        "whitespace-nowrap rounded-md border px-2 py-1 font-mono text-xs",
-                        "border-[var(--border-subtle)] bg-[var(--bg-app)] text-[var(--text-secondary)]",
-                      )}
-                    >
-                      {current ? formatAccelerator(current, isMac) : gt("Not set")}
-                    </kbd>
-                    <button
-                      type="button"
-                      onClick={() => setRecording(row.slot)}
-                      className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1 text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--app-accent)] hover:text-[var(--text-primary)]"
-                    >
+                    {current ? (
+                      <SettingsKeycaps combo={formatAccelerator(current, isMac)} />
+                    ) : (
+                      <span className="text-xs text-[var(--text-muted)]">{gt("Not set")}</span>
+                    )}
+                    <SettingsButton variant="ghost" size="sm" onClick={() => setRecording(row.slot)}>
                       {gt("Edit")}
-                    </button>
+                    </SettingsButton>
                     {custom && (
-                      <button
-                        type="button"
+                      <SettingsButton
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 w-7 px-0"
                         onClick={() => saveGlobalKey(row.slot, null)}
-                        className="rounded p-1 text-[var(--text-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
                         title={gt("Reset to default")}
+                        aria-label={gt("Reset to default")}
                       >
-                        <RotateCcw className="h-3.5 w-3.5" />
-                      </button>
+                        <RotateCcw />
+                      </SettingsButton>
                     )}
                   </>
                 )}
@@ -192,9 +190,6 @@ export function GlobalShortcutSettings() {
           );
         })}
       </div>
-      <p className="mt-2 px-1 text-xs text-[var(--text-muted)]">
-        {gt("These work even when SerikaCord isn't focused. By default they use the same keys as in the app.")}
-      </p>
-    </div>
+    </section>
   );
 }

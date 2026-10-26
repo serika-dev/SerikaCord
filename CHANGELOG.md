@@ -16,11 +16,15 @@
 - **Bridge status** — see when messages last crossed each Discord link, repair broken webhooks in one click and send a test message.
 - **Discord-style webhooks** — New Webhook creates one instantly with a fun default name and opens a card with its picture, name, channel, Copy Webhook URL and Delete. Bots can set a webhook name and picture too, and Server Settings → Integrations lists every webhook in the server.
 - **Webhook badge** — webhook messages show a "Webhook" badge, and clicking them no longer opens an empty profile.
+- **New My Account page** — see your username and email (with Reveal), change your password, manage passkeys and devices, or delete your account, all in one place.
+- **Inactive channel settings** — set the inactive (AFK) channel and timeout in Server Settings → Overview.
 
 ### Changes
 - **Nicer settings** — both settings windows have a grouped sidebar with search (it also finds settings like "dark mode" and jumps to them), tidier rows, sticky page titles, an ESC close button and smooth page transitions.
 - **Unsaved changes are safe** — trying to leave settings with unsaved changes shakes the save bar instead of losing your edits.
 - **Smoother app** — menus, dialogs, tooltips and buttons animate quickly and consistently, tooltips have arrows, and animations switch off when reduced motion is on.
+- **Settings look like Discord** — every User and Server Settings page has clean grouped cards; Devices, Authorized Apps, Connections, Members, Invites and Bans are proper lists with actions on hover; roles open in an editor with Display, Permissions, Links and Manage Members tabs; Integrations is an overview of cards; keybinds show as keycaps.
+- **Server Guide redesign** — a Discord-style guide: the owner welcome as a highlighted message, a Get Started checklist, and a sidebar with the server card, resources and connections.
 
 ### Bug Fixes
 - **Syncing a linked Discord server** — no longer fails with "That Discord server is already linked to another server".
@@ -30,6 +34,9 @@
 - **Webhook posts split correctly** — posts from one webhook with a different picture no longer merge under one header.
 - **Light theme and accent colours** — several Appearance labels, loading skeletons and badge popups are readable in light theme, Server Settings use your accent colour instead of a fixed purple, and accent buttons visibly change on hover.
 - **Serika Wishlist on your profile** — add a Wishlist widget (Add a widget on your profile, or Settings → Profiles) to show the lists you made public on Serika Wishlist: emoji, title, item count, total, product photos and "most wanted" picks, each linking to the list. Feature one list or show up to three. Friends-only and private lists never appear, and nothing shows until you turn it on.
+- **Settings clicks** — clicks near the top of a settings page no longer do nothing.
+- **App Discovery search** — now filters as you type.
+- **Admin tools in light theme** — white text and fixed purple colours in staff tools now follow your theme.
 
 ### Changes
 - **Reorder everything on your Board** — every widget (game sections, Serika Wishlist lists, app widgets, Connections and Recent activity) has up/down arrows, and the order you pick is the one everyone sees. Works with the keyboard and on phones. Visitors no longer see an empty Recent activity box.
@@ -47,6 +54,7 @@
 - **Profile widget changes show up right away** — your own board could keep showing the old widgets for a few minutes after a change.
 
 ### Performance
+- **Smoother settings** — switching tabs no longer freezes for a moment or flashes spinners, pages you already opened show their data right away, and typing in searches or your profile no longer lags.
 
 ### Security
 - **Smaller bot invite** — the Discord bridge invite asks only for the permissions it needs instead of Administrator, and Discord webhook URLs are never sent to the browser.

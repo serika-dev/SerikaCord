@@ -1,7 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useDeferredValue, useRef, memo } from "react";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from "react";
 import { useServer } from "@/contexts/ServerContext";
 import { ServerThemeSettings } from "@/components/settings/ServerThemeSettings";
 import { useAuth } from "@/contexts/AuthContext";
@@ -9,19 +8,9 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ScrollArea } from "@/components/ui/scroll-area";
 import { ImageCropper } from "@/components/ui/image-cropper";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuCheckboxItem,
-  DropdownMenuTrigger,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-} from "@/components/ui/dropdown-menu";
 import { toast } from "sonner";
 import {
-  X,
   Settings,
   Shield,
   Users,
@@ -31,46 +20,53 @@ import {
   Ban,
   FileText,
   Folder,
-  Camera, 
-  Check,
+  Camera,
   Trash2,
   Plus,
   Copy,
   ExternalLink,
-  Crown,
   Volume2,
   AlertTriangle,
-  GripVertical,
-  Search,
   Play,
   Lock,
   Mail,
   Globe,
   ClipboardList,
-  Pencil,
   Bot,
-  Sparkles,
   ChevronRight,
   Compass,
   BadgeCheck,
+  Twitch,
+  Youtube,
+  Webhook,
+  Image as ImageIcon,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
-import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
-import { hasPermissionBit, setPermissionBit } from "@/lib/roles/bitfield";
 import { moveRoleId } from "@/lib/roles/reorder";
 import { effectiveSoundPercent, soundVolume } from "@/lib/servers/soundboardVolume";
-import { filterAndSortMembers, type MemberSort } from "@/lib/servers/memberView";
 import { openUserAction, type UserActionKind } from "@/lib/social/userActions";
 import { useSettingsDraft, type SettingsDraft } from "@/hooks/useSettingsDraft";
 import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
 import { SettingsContent, SettingsNav, type SettingsNavSection } from "@/components/settings/SettingsShell";
+import {
+  SettingsCard,
+  SettingsPageHeader,
+  SettingsRow,
+  SettingsSection,
+  SettingsToggleRow,
+} from "@/components/settings/SettingsSection";
+import { SettingsButton } from "@/components/settings/blocks/SettingsButton";
+import { SettingsDangerZone } from "@/components/settings/blocks/SettingsDangerZone";
+import { SettingsEmptyState } from "@/components/settings/blocks/SettingsEmptyState";
+import { SettingsRadioCards } from "@/components/settings/blocks/SettingsRadioCards";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
+import { SettingsStatusPill } from "@/components/settings/blocks/SettingsStatusPill";
+import { SettingsSubTabs } from "@/components/settings/blocks/SettingsSubTabs";
 import { AudioTrimmerDialog } from "@/components/dialogs/AudioTrimmerDialog";
-import { T, useGT, useLocale } from "gt-next";
+import { useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import dynamic from "next/dynamic";
-import { RoleIconEditor } from "@/components/dialogs/RoleIconEditor";
-import { RoleIcon } from "@/components/chat/RoleIcon";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import {
@@ -94,28 +90,65 @@ import {
   openMobileSection,
   type MobileSettingsNav,
 } from "@/lib/settings/mobileSettingsNav";
+import {
+  byPositionDesc,
+  type BannedUser,
+  type Invite,
+  type Role,
+  type RoleDraft,
+  type ServerApplication,
+  type ServerChannel,
+  type ServerEmoji,
+  type ServerMember,
+  type ServerSticker,
+  type VanityInfo,
+} from "@/components/dialogs/serverSettings/types";
+import { useStableHandler } from "@/components/dialogs/serverSettings/useStableHandler";
+import { MembersPage } from "@/components/dialogs/serverSettings/MembersPage";
+import { RolesListPage } from "@/components/dialogs/serverSettings/RolesListPage";
+import { RoleEditor } from "@/components/dialogs/serverSettings/RoleEditor";
+import { InvitesPage } from "@/components/dialogs/serverSettings/InvitesPage";
+import { BansPage } from "@/components/dialogs/serverSettings/BansPage";
+import { EmojiPage } from "@/components/dialogs/serverSettings/EmojiPage";
+import { StickersPage } from "@/components/dialogs/serverSettings/StickersPage";
+import { AppDiscoveryPage } from "@/components/dialogs/serverSettings/AppDiscoveryPage";
+import { IntegrationCard } from "@/components/dialogs/serverSettings/IntegrationCard";
+import { UploadRequirements } from "@/components/dialogs/serverSettings/UploadRequirements";
+
+/** Skeleton shown while a lazily loaded settings page's code arrives. */
+function PanelSkeleton() {
+  return (
+    <div aria-hidden className="space-y-6">
+      <div className="space-y-2 max-md:hidden">
+        <span className="block h-5 w-40 animate-pulse rounded bg-[var(--bg-hover)]" />
+        <span className="block h-3.5 w-72 max-w-full animate-pulse rounded bg-[var(--bg-hover)]" />
+      </div>
+      <SettingsSkeleton variant="rows" count={5} />
+    </div>
+  );
+}
 
 // The audit log tab (filters, diffs, pagination) loads on first open.
 const ServerAuditLogPanel = dynamic(
   () => import("@/components/dialogs/ServerAuditLogPanel").then((m) => m.ServerAuditLogPanel),
-  { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={32} /></div> },
+  { ssr: false, loading: PanelSkeleton },
 );
 
 // AutoMod rules (keyword / spam / mention / link filters) load on first open.
 const AutoModPanel = dynamic(
   () => import("@/components/dialogs/ServerAutoModPanel").then((m) => m.ServerAutoModPanel),
-  { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={32} /></div> },
+  { ssr: false, loading: PanelSkeleton },
 );
 // Community tabs (onboarding, welcome screen, rules screening, connections,
 // server template) load on first open.
-const ServerOnboardingPanel = dynamic(() => import("@/components/server/community/ServerOnboardingPanel"), { ssr: false });
-const ServerConnectionsPanel = dynamic(() => import("@/components/server/community/ServerConnectionsPanel"), { ssr: false });
-const ServerWelcomeScreenPanel = dynamic(() => import("@/components/server/community/ServerWelcomeScreenPanel"), { ssr: false });
-const ServerScreeningPanel = dynamic(() => import("@/components/server/community/ServerScreeningPanel"), { ssr: false });
-const ServerTemplatePanel = dynamic(() => import("@/components/server/community/ServerTemplatePanel"), { ssr: false });
-const ServerProfileSettings = dynamic(() => import("@/components/settings/ServerProfileSettings").then((m) => m.ServerProfileSettings), { ssr: false });
-const DiscordBridgePanel = dynamic(() => import("@/components/server/discordBridge/DiscordBridgePanel"), { ssr: false });
-const ServerWebhooksPanel = dynamic(() => import("@/components/dialogs/ServerWebhooksPanel"), { ssr: false });
+const ServerOnboardingPanel = dynamic(() => import("@/components/server/community/ServerOnboardingPanel"), { ssr: false, loading: PanelSkeleton });
+const ServerConnectionsPanel = dynamic(() => import("@/components/server/community/ServerConnectionsPanel"), { ssr: false, loading: PanelSkeleton });
+const ServerWelcomeScreenPanel = dynamic(() => import("@/components/server/community/ServerWelcomeScreenPanel"), { ssr: false, loading: PanelSkeleton });
+const ServerScreeningPanel = dynamic(() => import("@/components/server/community/ServerScreeningPanel"), { ssr: false, loading: PanelSkeleton });
+const ServerTemplatePanel = dynamic(() => import("@/components/server/community/ServerTemplatePanel"), { ssr: false, loading: PanelSkeleton });
+const ServerProfileSettings = dynamic(() => import("@/components/settings/ServerProfileSettings").then((m) => m.ServerProfileSettings), { ssr: false, loading: PanelSkeleton });
+const DiscordBridgePanel = dynamic(() => import("@/components/server/discordBridge/DiscordBridgePanel"), { ssr: false, loading: () => <SettingsSkeleton variant="list" count={1} /> });
+const ServerWebhooksPanel = dynamic(() => import("@/components/dialogs/ServerWebhooksPanel"), { ssr: false, loading: () => <SettingsSkeleton variant="list" count={3} /> });
 
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
@@ -132,29 +165,6 @@ function getAudioDuration(file: File): Promise<number> {
     audio.src = URL.createObjectURL(file);
   });
 }
-
-const ColorInput = memo(function ColorInput({
-  value,
-  onChange,
-  disabled,
-}: {
-  value: string;
-  onChange: (v: string) => void;
-  disabled?: boolean;
-}) {
-  const [localColor, setLocalColor] = useState(value);
-  useEffect(() => { setLocalColor(value); }, [value]);
-  return (
-    <input
-      type="color"
-      value={localColor}
-      onChange={(e) => setLocalColor(e.target.value)}
-      onBlur={() => onChange(localColor)}
-      disabled={disabled}
-      className="w-10 h-10 p-1 rounded bg-[var(--bg-app)] border border-[var(--border-subtle)] disabled:opacity-60 cursor-pointer"
-    />
-  );
-});
 
 type WaitUnit = "minutes" | "hours" | "days";
 const WAIT_UNIT_MINUTES: Record<WaitUnit, number> = { minutes: 1, hours: 60, days: 1440 };
@@ -262,116 +272,39 @@ type SettingsTab =
 
 /** Tabs whose content is a multi-column / table layout and needs full width. */
 const WIDE_SETTINGS_TABS = new Set<SettingsTab>([
-  "roles",
   "members",
-  "bans",
   "audit-log",
-  "channels",
-  "emoji",
   "stickers",
   "soundboard",
+  "app_discovery",
 ]);
 
-interface Role {
-  id: string;
-  name: string;
-  color: string;
-  position: number;
-  permissions: string;
-  hoist: boolean;
-  mentionable: boolean;
-  managed: boolean;
-  isDefault: boolean;
-  memberCount?: number;
-  icon?: string | null;
-  unicodeEmoji?: string | null;
-}
+export type ServerSettingsTab = SettingsTab;
 
-interface Invite {
-  code: string;
-  uses: number;
-  maxUses: number | null;
-  expiresAt: string | null;
-  createdBy: {
-    id: string;
-    username: string;
-    avatar?: string;
-  };
-  channel: {
-    id: string;
-    name: string;
-  };
-  createdAt: string;
-}
-
-interface BannedUser {
-  id: string;
-  username: string;
-  avatar?: string;
-  reason?: string;
-  bannedAt: string;
-  bannedBy: {
-    id: string;
-    username: string;
+/** The editable copy of a role (role editor draft). */
+function draftFromRole(role: Role): RoleDraft {
+  return {
+    name: role.name,
+    color: role.color || "#99AAB5",
+    permissions: role.permissions || "0",
+    hoist: Boolean(role.hoist),
+    mentionable: Boolean(role.mentionable),
+    icon: role.icon ?? null,
+    unicodeEmoji: role.unicodeEmoji ?? null,
   };
 }
 
-interface ServerMember {
-  id: string;
-  membershipId: string;
-  username: string;
-  displayName?: string;
-  avatar?: string;
-  status: "online" | "idle" | "dnd" | "offline";
-  customStatus?: string | null;
-  isPremium?: boolean;
-  roles: Role[];
-  highestRole?: Role | null;
-  highestHoistedRole?: Role | null;
-  joinedAt: string;
-  accountCreatedAt?: string | null;
-  communicationDisabledUntil?: string | null;
-  isBot?: boolean;
-}
-
-interface ServerEmoji {
-  id: string;
+/** Emoji / sticker rows as the API returns them (older rows use `_id` / `url`). */
+interface RawMedia {
+  id?: string;
+  _id?: string;
   name: string;
-  imageUrl: string;
-  animated: boolean;
-}
-
-interface ServerChannel {
-  id: string;
-  name: string;
-  type: string;
-}
-
-interface ServerSticker {
-  id: string;
-  name: string;
+  imageUrl?: string;
+  url?: string;
+  animated?: boolean;
   description?: string;
-  imageUrl: string;
   tags?: string[];
 }
-
-interface ServerApplication {
-  id: string;
-  user: {
-    id: string;
-    username: string;
-    displayName?: string;
-    avatar?: string;
-    createdAt: string;
-  };
-  status: "pending" | "approved" | "rejected" | "interviewed";
-  answers: { question: string; answer: string }[];
-  createdAt: string;
-  processedAt?: string;
-  rejectionReason?: string;
-}
-
-export type ServerSettingsTab = SettingsTab;
 
 export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: ServerSettingsDialogProps) {
   const { currentServer, fetchServers, channels } = useServer();
@@ -391,12 +324,15 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const [mobileNav, setMobileNav] = useState<MobileSettingsNav<SettingsTab>>(
     initialTab ? { section: initialTab, page: true, detail: null } : { section: "overview", page: false, detail: null },
   );
+  // Desktop: Roles shows the role list until a role is opened (phones use mobileNav.detail).
+  const [roleEditorOpen, setRoleEditorOpen] = useState(false);
   // Every (re)open starts at the section list, or at `initialTab` when given
   // (adjusted during render, not in an effect).
   const [lastOpen, setLastOpen] = useState(open);
   if (open !== lastOpen) {
     setLastOpen(open);
     if (open) {
+      setRoleEditorOpen(false);
       setMobileNav(initialTab ? { section: initialTab, page: true, detail: null } : { section: "overview", page: false, detail: null });
       if (initialTab) setActiveTab(initialTab);
     }
@@ -437,45 +373,19 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   // Data state
   const [roles, setRoles] = useState<Role[]>([]);
   const [selectedRoleId, setSelectedRoleId] = useState<string | null>(null);
-  const [roleDraft, setRoleDraft] = useState<{
-    name: string;
-    color: string;
-    permissions: string;
-    hoist: boolean;
-    mentionable: boolean;
-    icon?: string | null;
-    unicodeEmoji?: string | null;
-  } | null>(null);
-  const [roleSearch, setRoleSearch] = useState("");
-  const [permissionSearch, setPermissionSearch] = useState("");
-  const [draggingRoleId, setDraggingRoleId] = useState<string | null>(null);
-  // Where the dragged role would land: above or below this row (CORD-32).
+  const [roleDraft, setRoleDraft] = useState<RoleDraft | null>(null);
   // Linked roles (CORD-57): role id (lowercase) → role ids members also get.
   const [roleLinks, setRoleLinks] = useState<Record<string, string[]>>({});
   const [isSavingRoleLinks, setIsSavingRoleLinks] = useState(false);
-  const [roleDropTarget, setRoleDropTarget] = useState<{ roleId: string; mode: "before" | "after" } | null>(null);
   const [isSavingRole, setIsSavingRole] = useState(false);
   const [isReorderingRoles, setIsReorderingRoles] = useState(false);
   const [invites, setInvites] = useState<Invite[]>([]);
   // Vanity URL (partnered servers)
-  const [vanityInfo, setVanityInfo] = useState<{ code: string | null; uses: number; isPartnered: boolean; lockToVanity: boolean } | null>(null);
-  const [vanityDraft, setVanityDraft] = useState("");
-  const [isSavingVanity, setIsSavingVanity] = useState(false);
-  const [vanityError, setVanityError] = useState<string | null>(null);
-  const [isTogglingLock, setIsTogglingLock] = useState(false);
+  const [vanityInfo, setVanityInfo] = useState<VanityInfo | null>(null);
   const [bans, setBans] = useState<BannedUser[]>([]);
   const [members, setMembers] = useState<ServerMember[]>([]);
-  const [memberSearch, setMemberSearch] = useState("");
-  const [memberSort, setMemberSort] = useState<MemberSort>("joined_desc");
-  const [memberRoleFilter, setMemberRoleFilter] = useState<string>("");
   const [emojis, setEmojis] = useState<ServerEmoji[]>([]);
   const [stickers, setStickers] = useState<ServerSticker[]>([]);
-  const [emojiSearch, setEmojiSearch] = useState("");
-  const [stickerSearch, setStickerSearch] = useState("");
-  const [renamingEmojiId, setRenamingEmojiId] = useState<string | null>(null);
-  const [emojiRenameValue, setEmojiRenameValue] = useState("");
-  const [renamingStickerId, setRenamingStickerId] = useState<string | null>(null);
-  const [stickerRenameValue, setStickerRenameValue] = useState("");
   const [soundboardSounds, setSoundboardSounds] = useState<{ id: string; name: string; url: string; emoji: string; volume?: number }[]>([]);
   // Debounced saves of per-sound volume sliders (CORD-31), keyed by sound id.
   const soundVolumeTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
@@ -484,15 +394,13 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const [trimmerFile, setTrimmerFile] = useState<File | null>(null);
   const soundInputRef = useRef<HTMLInputElement>(null);
   const [playingSoundId, setPlayingSoundId] = useState<string | null>(null);
-  const [textChannels, setTextChannels] = useState<ServerChannel[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
   const [pendingAppCount, setPendingAppCount] = useState(0);
   const [applications, setApplications] = useState<ServerApplication[]>([]);
   const [applicationFilter, setApplicationFilter] = useState<"all" | "pending" | "approved" | "rejected" | "interviewed">("all");
   // Inline reject form on one application: optional reason + remove-from-server.
   const [rejecting, setRejecting] = useState<{ id: string; reason: string; remove: boolean } | null>(null);
-  const [discoverableApps, setDiscoverableApps] = useState<any[]>([]);
-  const [appSearch, setAppSearch] = useState("");
+  // Integrations overview: which card is expanded.
+  const [openIntegration, setOpenIntegration] = useState<"twitch" | "youtube" | "webhooks" | null>(null);
 
   const [isTriggeringTwitch, setIsTriggeringTwitch] = useState(false);
   const [isTriggeringYoutube, setIsTriggeringYoutube] = useState(false);
@@ -541,10 +449,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     }
   };
 
-  // Emoji upload refs
-  const emojiInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingEmoji, setIsUploadingEmoji] = useState(false);
-  const stickerInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingSticker, setIsUploadingSticker] = useState(false);
 
   // Load overview + advanced settings into one draft when the dialog opens
@@ -667,19 +572,15 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [open, currentServer?.id, loadDraft]);
 
-  // Extract text channels from channels context
-  useEffect(() => {
-    if (channels) {
-      const textChs = channels
-        .filter((ch) => ch.type === "text")
-        .map((ch) => ({
-          id: ch.id,
-          name: ch.name,
-          type: ch.type,
-        }));
-      setTextChannels(textChs);
-    }
-  }, [channels]);
+  // Text / voice channels for the channel pickers (derived, not mirrored into state).
+  const textChannels = useMemo<ServerChannel[]>(
+    () => (channels ?? []).filter((ch) => ch.type === "text").map((ch) => ({ id: ch.id, name: ch.name, type: ch.type })),
+    [channels],
+  );
+  const voiceChannels = useMemo<ServerChannel[]>(
+    () => (channels ?? []).filter((ch) => ch.type === "voice").map((ch) => ({ id: ch.id, name: ch.name, type: ch.type })),
+    [channels],
+  );
 
   // Keyed on the id: the server-list poll swaps in a fresh currentServer
   // object every 25s, which used to refetch the open tab (incl. 1000 members).
@@ -702,21 +603,28 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     setMembers((data.members || []) as ServerMember[]);
   }, [serverId]);
 
-  // Tabs (per server) that have loaded once. Later refreshes, such as when the server
-  // object updates, keep the current data on screen instead of flashing a spinner (CORD-30).
-  const loadedTabsRef = useRef(new Set<string>());
+  // Tabs (per server) that have loaded once. Pages render their last data on
+  // a revisit and refresh it in the background; only a first visit (no data
+  // yet) shows skeleton rows (CORD-30). Derived per tab, so a slow fetch on
+  // one tab never puts another tab into a loading state.
+  const [loadedKeys, setLoadedKeys] = useState<ReadonlySet<string>>(() => new Set());
+  const markLoaded = useCallback((key: string) => {
+    setLoadedKeys((prev) => (prev.has(key) ? prev : new Set(prev).add(key)));
+  }, []);
+  const isTabLoaded = (tab: SettingsTab) => loadedKeys.has(`${serverId}:${tab}`);
 
   // Fetch data based on active tab
   useEffect(() => {
-    if (!open || !currentServer) return;
+    if (!open || !serverId) return;
     const loadKey = `${serverId}:${activeTab}`;
 
     const fetchData = async () => {
-      if (!loadedTabsRef.current.has(loadKey)) setIsLoading(true);
       try {
         switch (activeTab) {
           case "roles":
           case "onboarding":
+          case "audit-log":
+          case "automod":
             await fetchRolesData();
             break;
           case "invites": {
@@ -736,35 +644,36 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 isPartnered: Boolean(data.isPartnered),
                 lockToVanity: Boolean(data.lockToVanity),
               });
-              setVanityDraft(data.code ?? "");
-              setVanityError(null);
             }
             break;
           }
-          case "bans":
+          case "bans": {
             const bansRes = await fetch(`/api/servers/${serverId}/bans`);
             if (bansRes.ok) {
               const data = await bansRes.json();
               setBans(data.bans || []);
             }
             break;
+          }
           case "members":
             await Promise.all([fetchMembersData(), fetchRolesData()]);
             break;
-          case "emoji":
+          case "emoji": {
             const emojisRes = await fetch(`/api/servers/${serverId}/emojis`);
             if (emojisRes.ok) {
               const data = await emojisRes.json();
-              setEmojis((data.emojis || []).map((e: any) => ({ id: e.id || e._id, name: e.name, imageUrl: e.imageUrl || e.url, animated: e.animated })));
+              setEmojis((data.emojis || []).map((e: RawMedia) => ({ id: e.id || e._id || "", name: e.name, imageUrl: e.imageUrl || e.url || "", animated: Boolean(e.animated) })));
             }
             break;
-          case "stickers":
+          }
+          case "stickers": {
             const stickersRes = await fetch(`/api/servers/${serverId}/stickers`);
             if (stickersRes.ok) {
               const data = await stickersRes.json();
-              setStickers((data.stickers || []).map((s: any) => ({ id: s.id || s._id, name: s.name, description: s.description, imageUrl: s.imageUrl || s.url, tags: s.tags })));
+              setStickers((data.stickers || []).map((s: RawMedia) => ({ id: s.id || s._id || "", name: s.name, description: s.description, imageUrl: s.imageUrl || s.url || "", tags: s.tags })));
             }
             break;
+          }
           case "soundboard": {
             // Settings themselves live in the shared draft (loaded on open);
             // only the sound list needs fetching per visit.
@@ -783,25 +692,25 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             }
             break;
           }
-          case "app_discovery": {
-            const discoverRes = await fetch(`/api/developers/discoverable-apps${appSearch ? `?search=${encodeURIComponent(appSearch)}` : ""}`);
-            if (discoverRes.ok) {
-              const discoverData = await discoverRes.json();
-              setDiscoverableApps(discoverData.apps || []);
-            }
-            break;
-          }
         }
       } catch (error) {
         console.error("Failed to fetch data:", error);
       } finally {
-        loadedTabsRef.current.add(loadKey);
-        setIsLoading(false);
+        markLoaded(loadKey);
       }
     };
 
-    fetchData();
-  }, [activeTab, open, serverId, fetchMembersData, fetchRolesData, applicationFilter]);
+    void fetchData();
+  }, [activeTab, open, serverId, fetchMembersData, fetchRolesData, applicationFilter, markLoaded]);
+
+  // The role editor's Manage Members tab needs the member list even when the
+  // Members page hasn't been opened yet.
+  const membersRequestedRef = useRef<string | null>(null);
+  const requestMembers = useCallback(() => {
+    if (!serverId || membersRequestedRef.current === serverId) return;
+    membersRequestedRef.current = serverId;
+    void fetchMembersData().finally(() => markLoaded(`${serverId}:members`));
+  }, [serverId, fetchMembersData, markLoaded]);
 
   // Reset role draft init ref when dialog closes (so opening again starts fresh)
   useEffect(() => {
@@ -829,6 +738,16 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   // roles list (e.g. after a member role assignment) don't wipe unsaved edits.
   const roleDraftInitIdRef = useRef<string | null>(null);
 
+  /**
+   * Select a role and load its draft in the same render, so the editor never
+   * shows one role with another role's draft (which flashed the save bar).
+   */
+  const selectRole = (role: Role) => {
+    roleDraftInitIdRef.current = role.id;
+    setSelectedRoleId(role.id);
+    setRoleDraft(draftFromRole(role));
+  };
+
   useEffect(() => {
     if (!roles.length) {
       roleDraftInitIdRef.current = null;
@@ -852,15 +771,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     // the roles array is refreshed (which would discard the user's edits).
     if (roleDraftInitIdRef.current !== effectiveId) {
       roleDraftInitIdRef.current = effectiveId;
-      setRoleDraft({
-        name: targetRole.name,
-        color: targetRole.color || "#99AAB5",
-        permissions: targetRole.permissions || "0",
-        hoist: Boolean(targetRole.hoist),
-        mentionable: Boolean(targetRole.mentionable),
-        icon: targetRole.icon ?? null,
-        unicodeEmoji: targetRole.unicodeEmoji ?? null,
-      });
+      setRoleDraft(draftFromRole(targetRole));
     }
   }, [roles, selectedRoleId]);
 
@@ -1143,8 +1054,9 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           const deduped = prev.filter((role) => role.id !== createdRole.id);
           return [...deduped, createdRole].sort((a, b) => b.position - a.position);
         });
-        setSelectedRoleId(createdRole.id);
+        selectRole(createdRole);
         if (isMobile) setMobileNav((nav) => openMobileDetail(nav, createdRole.id));
+        else setRoleEditorOpen(true);
         toast.success(gt("Role created!"));
       } else {
         toast.error(gt("Failed to create role"));
@@ -1176,6 +1088,10 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         } else {
           setRoles(prev => prev.filter(r => r.id !== roleId));
         }
+        if (roleId === selectedRoleId) {
+          setRoleEditorOpen(false);
+          setMobileNav((nav) => (nav.detail === roleId ? { ...nav, detail: null } : nav));
+        }
         toast.success(gt("Role deleted"));
       } else {
         const data = await response.json();
@@ -1203,25 +1119,26 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     );
   })();
 
+  // Put the role editor back to the saved role.
+  const resetRoleDraft = () => {
+    if (selectedRole) setRoleDraft(draftFromRole(selectedRole));
+  };
+
+  /** Asks before throwing away unsaved role edits; true when it's fine to move on. */
+  const confirmLeaveRole = async () => {
+    if (!hasUnsavedRoleChanges || !selectedRole) return true;
+    const discard = await confirmDialog({
+      title: gt("Discard unsaved changes to this role?"),
+      confirmLabel: gt("Discard"),
+    });
+    if (discard) resetRoleDraft();
+    return discard;
+  };
+
   // Phone: one back press (header arrow or Android back) walks
   // role editor → section page → section list → close.
   const handleMobileBack = async () => {
-    if (mobileNav.detail !== null && hasUnsavedRoleChanges && selectedRole) {
-      const discard = await confirmDialog({
-        title: gt("Discard unsaved changes to this role?"),
-        confirmLabel: gt("Discard"),
-      });
-      if (!discard) return;
-      setRoleDraft({
-        name: selectedRole.name,
-        color: selectedRole.color || "#99AAB5",
-        permissions: selectedRole.permissions || "0",
-        hoist: Boolean(selectedRole.hoist),
-        mentionable: Boolean(selectedRole.mentionable),
-        icon: selectedRole.icon ?? null,
-        unicodeEmoji: selectedRole.unicodeEmoji ?? null,
-      });
-    }
+    if (mobileNav.detail !== null && !(await confirmLeaveRole())) return;
     const next = mobileSettingsBack(mobileNav);
     if (next) setMobileNav(next);
     else void handleRequestClose();
@@ -1236,19 +1153,12 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     setMobileNav((nav) => openMobileSection(nav, tab));
   };
 
-  const handleRoleDrop = async (targetRoleId: string, mode: "before" | "after") => {
-    setRoleDropTarget(null);
-    if (!draggingRoleId || !currentServer || draggingRoleId === targetRoleId) {
-      setDraggingRoleId(null);
-      return;
-    }
+  const handleReorderRoles = async (draggedRoleId: string, targetRoleId: string, mode: "before" | "after") => {
+    if (!currentServer || draggedRoleId === targetRoleId) return;
 
-    const reorderable = roles.filter((role) => !role.isDefault).sort((a, b) => b.position - a.position);
-    const orderedIds = moveRoleId(reorderable.map((role) => role.id), draggingRoleId, targetRoleId, mode);
-    if (!orderedIds) {
-      setDraggingRoleId(null);
-      return;
-    }
+    const reorderable = roles.filter((role) => !role.isDefault).sort(byPositionDesc);
+    const orderedIds = moveRoleId(reorderable.map((role) => role.id), draggedRoleId, targetRoleId, mode);
+    if (!orderedIds) return;
     const byId = new Map(reorderable.map((role) => [role.id, role]));
     const reordered = orderedIds.map((id) => byId.get(id)!);
 
@@ -1281,7 +1191,6 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       toast.error(error instanceof Error ? error.message : gt("Failed to reorder roles"));
     } finally {
       setIsReorderingRoles(false);
-      setDraggingRoleId(null);
     }
   };
 
@@ -1319,16 +1228,6 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     } finally {
       setIsSavingRoleLinks(false);
     }
-  };
-
-  const handleRolePermissionToggle = (bit: bigint, enabled: boolean) => {
-    setRoleDraft((prev) => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        permissions: setPermissionBit(prev.permissions, bit, enabled),
-      };
-    });
   };
 
   const handleSaveRole = async () => {
@@ -1500,9 +1399,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       toast.error(gt("Failed to upload emoji"));
     } finally {
       setIsUploadingEmoji(false);
-      if (emojiInputRef.current) {
-        emojiInputRef.current.value = "";
-      }
+      e.target.value = "";
     }
   };
 
@@ -1526,50 +1423,48 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     }
   };
 
-  const handleRenameEmoji = async (emojiId: string) => {
-    if (!currentServer || !emojiRenameValue.trim()) return;
+  const handleRenameEmoji = async (emojiId: string, name: string): Promise<boolean> => {
+    if (!currentServer || !name.trim()) return false;
     try {
       const response = await fetch(`/api/servers/${currentServer.id}/emojis/${emojiId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: emojiRenameValue.trim() }),
+        body: JSON.stringify({ name: name.trim() }),
       });
       if (response.ok) {
         const data = await response.json();
         setEmojis(prev => prev.map(e => e.id === emojiId ? { ...e, name: data.emoji.name } : e));
         toast.success(gt("Emoji renamed"));
-        setRenamingEmojiId(null);
-        setEmojiRenameValue("");
-      } else {
-        const data = await response.json().catch(() => null);
-        toast.error(data?.error || gt("Failed to rename emoji"));
+        return true;
       }
+      const data = await response.json().catch(() => null);
+      toast.error(data?.error || gt("Failed to rename emoji"));
     } catch {
       toast.error(gt("Failed to rename emoji"));
     }
+    return false;
   };
 
-  const handleRenameSticker = async (stickerId: string) => {
-    if (!currentServer || !stickerRenameValue.trim()) return;
+  const handleRenameSticker = async (stickerId: string, name: string): Promise<boolean> => {
+    if (!currentServer || !name.trim()) return false;
     try {
       const response = await fetch(`/api/servers/${currentServer.id}/stickers/${stickerId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: stickerRenameValue.trim() }),
+        body: JSON.stringify({ name: name.trim() }),
       });
       if (response.ok) {
         const data = await response.json();
         setStickers(prev => prev.map(s => s.id === stickerId ? { ...s, name: data.sticker.name } : s));
         toast.success(gt("Sticker renamed"));
-        setRenamingStickerId(null);
-        setStickerRenameValue("");
-      } else {
-        const data = await response.json().catch(() => null);
-        toast.error(data?.error || gt("Failed to rename sticker"));
+        return true;
       }
+      const data = await response.json().catch(() => null);
+      toast.error(data?.error || gt("Failed to rename sticker"));
     } catch {
       toast.error(gt("Failed to rename sticker"));
     }
+    return false;
   };
 
   const handleStickerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1627,9 +1522,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       toast.error(error instanceof Error ? error.message : gt("Failed to upload sticker"));
     } finally {
       setIsUploadingSticker(false);
-      if (stickerInputRef.current) {
-        stickerInputRef.current.value = "";
-      }
+      e.target.value = "";
     }
   };
 
@@ -1923,6 +1816,124 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     }
   };
 
+  // Highest role first: shared by the roles list, the role editor and the member pages.
+  const sortedRoles = useMemo(() => [...roles].sort(byPositionDesc), [roles]);
+
+  // Stable handlers for the memoized pages: they always run the latest
+  // handler, so those pages only re-render when their own data changes.
+  const onToggleMemberRole = useStableHandler((member: ServerMember, roleId: string, checked: boolean) => {
+    void handleToggleMemberRole(member, roleId, checked);
+  });
+  const onMemberAction = useStableHandler((kind: UserActionKind, member: ServerMember) => {
+    if (!currentServer) return;
+    openUserAction(kind, {
+      id: member.id,
+      username: member.username,
+      displayName: member.displayName ?? null,
+      avatar: member.avatar ?? null,
+      isBot: member.isBot,
+      serverId: currentServer.id,
+      communicationDisabledUntil: member.communicationDisabledUntil ?? null,
+      onDone: () => void fetchMembersData(),
+    });
+  });
+  const onUnban = useStableHandler((userId: string) => void handleUnban(userId));
+  const onCreateInvite = useStableHandler(() => void handleCreateInvite());
+  const onRevokeInvite = useStableHandler((code: string) => void handleDeleteInvite(code));
+  const onEmojiUpload = useStableHandler((e: React.ChangeEvent<HTMLInputElement>) => void handleEmojiUpload(e));
+  const onEmojiRename = useStableHandler(handleRenameEmoji);
+  const onEmojiDelete = useStableHandler((id: string) => void handleDeleteEmoji(id));
+  const onStickerUpload = useStableHandler((e: React.ChangeEvent<HTMLInputElement>) => void handleStickerUpload(e));
+  const onStickerRename = useStableHandler(handleRenameSticker);
+  const onStickerDelete = useStableHandler((id: string) => void handleDeleteSticker(id));
+  const onCreateRole = useStableHandler(() => void handleCreateRole());
+  const onDeleteRole = useStableHandler((roleId: string) => void handleDeleteRole(roleId));
+  const onReorderRoles = useStableHandler((dragged: string, target: string, mode: "before" | "after") => {
+    void handleReorderRoles(dragged, target, mode);
+  });
+  const onSetRoleLinks = useStableHandler((roleId: string, ids: string[]) => void handleSetRoleLinks(roleId, ids));
+  const onOpenRole = useStableHandler((roleId: string) => {
+    const role = roles.find((r) => r.id === roleId);
+    if (!role) return;
+    if (roleId !== selectedRoleId) selectRole(role);
+    if (isMobile) setMobileNav((nav) => openMobileDetail(nav, roleId));
+    else setRoleEditorOpen(true);
+  });
+  const onSelectRoleInEditor = useStableHandler(async (roleId: string) => {
+    if (roleId === selectedRoleId || !(await confirmLeaveRole())) return;
+    const role = roles.find((r) => r.id === roleId);
+    if (role) selectRole(role);
+  });
+  const onRoleEditorBack = useStableHandler(async () => {
+    if (!(await confirmLeaveRole())) return;
+    setRoleEditorOpen(false);
+  });
+
+  const menuSections = useMemo(
+    () => [
+      {
+        title: currentServer?.name ?? "",
+        items: [
+          { id: "overview" as SettingsTab, label: gt("Overview"), icon: Settings },
+          { id: "roles" as SettingsTab, label: gt("Roles"), icon: Shield },
+          { id: "emoji" as SettingsTab, label: gt("Emoji"), icon: Smile },
+          { id: "stickers" as SettingsTab, label: gt("Stickers"), icon: Sticker },
+          { id: "soundboard" as SettingsTab, label: gt("Soundboard"), icon: Volume2 },
+          { id: "widget" as SettingsTab, label: gt("Widget"), icon: ExternalLink },
+        ],
+      },
+      {
+        title: gt("Moderation"),
+        items: [
+          { id: "safety" as SettingsTab, label: gt("Safety Setup"), icon: Shield },
+          { id: "moderation" as SettingsTab, label: gt("Moderation"), icon: AlertTriangle },
+          { id: "automod" as SettingsTab, label: gt("AutoMod"), icon: Shield },
+          { id: "audit-log" as SettingsTab, label: gt("Audit Log"), icon: FileText },
+          { id: "bans" as SettingsTab, label: gt("Bans"), icon: Ban },
+        ],
+      },
+      {
+        title: gt("User Management"),
+        items: [
+          { id: "members" as SettingsTab, label: gt("Members"), icon: Users },
+          { id: "applications" as SettingsTab, label: gt("Applications"), icon: ClipboardList },
+          { id: "app_discovery" as SettingsTab, label: gt("App Discovery"), icon: Bot },
+          { id: "invites" as SettingsTab, label: gt("Invites"), icon: Link2 },
+          { id: "integrations" as SettingsTab, label: gt("Integrations"), icon: Folder },
+        ],
+      },
+      {
+        title: gt("Access"),
+        items: [
+          { id: "access" as SettingsTab, label: gt("Access"), icon: Lock },
+          { id: "server_profile" as SettingsTab, label: gt("Server Profile"), icon: BadgeCheck },
+        ],
+      },
+      {
+        title: gt("Community"),
+        items: [
+          { id: "onboarding" as SettingsTab, label: gt("Onboarding"), icon: Compass },
+          { id: "welcome" as SettingsTab, label: gt("Welcome Screen"), icon: Smile },
+          { id: "screening" as SettingsTab, label: gt("Rules Screening"), icon: ClipboardList },
+          { id: "connections" as SettingsTab, label: gt("Server Connections"), icon: BadgeCheck },
+          { id: "template" as SettingsTab, label: gt("Server Template"), icon: Folder },
+        ],
+      },
+    ],
+    [gt, currentServer?.name],
+  );
+  const navSections = useMemo<SettingsNavSection<SettingsTab>[]>(
+    () =>
+      menuSections.map((section) => ({
+        ...section,
+        items: section.items.map((item) => ({
+          ...item,
+          badge: pendingAppCount > 0 && (item.id === "applications" || item.id === "members") ? pendingAppCount : undefined,
+        })),
+      })),
+    [menuSections, pendingAppCount],
+  );
+
   if (!open || !currentServer) return null;
 
   // Permission guard: non-admin users cannot access server settings UI
@@ -1931,1570 +1942,428 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       <div
         role="dialog"
         aria-modal="true"
-        aria-label="Access denied"
-        className="fixed inset-0 z-50 bg-[var(--bg-app)] flex items-center justify-center"
+        aria-label={gt("Access Denied")}
+        className="fixed inset-0 z-50 bg-[var(--bg-app)] flex items-center justify-center p-6"
       >
-        <div className="text-center p-8">
-          <p className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>Access Denied</T></p>
-          <p className="text-sm text-[var(--text-secondary)] mb-4"><T>You don&apos;t have permission to view server settings.</T></p>
-          <button
-            onClick={() => onOpenChange(false)}
-            className="px-4 py-2 rounded-lg bg-[var(--app-accent)] text-white text-sm hover:brightness-110 transition"
-          >
-            <T>Close</T>
-          </button>
-        </div>
+        <SettingsEmptyState
+          icon={Lock}
+          title={gt("Access Denied")}
+          description={gt("You don't have permission to view server settings.")}
+          action={
+            <SettingsButton variant="primary" onClick={() => onOpenChange(false)}>
+              {gt("Close")}
+            </SettingsButton>
+          }
+          className="max-w-md border-none"
+        />
       </div>
     );
   }
 
   const isOwner = currentServer.ownerId === user?.id;
+  const selectClass =
+    "h-10 w-full rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-3 text-sm text-[var(--text-primary)] outline-none transition-colors focus:border-[var(--app-accent)] disabled:opacity-60";
+  const inputClass = "h-10 bg-[var(--bg-input)] border-[var(--border-subtle)] text-[var(--text-primary)]";
+  const fieldError = (key: string) =>
+    fieldErrors[key] ? <p className="mt-1.5 text-xs text-red-500">{fieldErrors[key]}</p> : null;
 
-  const menuSections = [
-    {
-      title: currentServer.name,
-      items: [
-        { id: "overview" as SettingsTab, label: gt("Overview"), icon: Settings },
-        { id: "roles" as SettingsTab, label: gt("Roles"), icon: Shield },
-        { id: "emoji" as SettingsTab, label: gt("Emoji"), icon: Smile },
-        { id: "stickers" as SettingsTab, label: gt("Stickers"), icon: Sticker },
-        { id: "soundboard" as SettingsTab, label: gt("Soundboard"), icon: Volume2 },
-        { id: "widget" as SettingsTab, label: gt("Widget"), icon: ExternalLink },
-      ],
-    },
-    {
-      title: gt("Moderation"),
-      items: [
-        { id: "safety" as SettingsTab, label: gt("Safety Setup"), icon: Shield },
-        { id: "moderation" as SettingsTab, label: gt("Moderation"), icon: AlertTriangle },
-        { id: "automod" as SettingsTab, label: gt("AutoMod"), icon: Shield },
-        { id: "audit-log" as SettingsTab, label: gt("Audit Log"), icon: FileText },
-        { id: "bans" as SettingsTab, label: gt("Bans"), icon: Ban },
-      ],
-    },
-    {
-      title: gt("User Management"),
-      items: [
-        { id: "members" as SettingsTab, label: gt("Members"), icon: Users },
-        { id: "applications" as SettingsTab, label: gt("Applications"), icon: ClipboardList },
-        { id: "app_discovery" as SettingsTab, label: gt("App Discovery"), icon: Bot },
-        { id: "invites" as SettingsTab, label: gt("Invites"), icon: Link2 },
-        { id: "integrations" as SettingsTab, label: gt("Integrations"), icon: Folder },
-      ],
-    },
-    {
-      title: gt("Access"),
-      items: [
-        { id: "access" as SettingsTab, label: gt("Access"), icon: Lock },
-        { id: "server_profile" as SettingsTab, label: gt("Server Profile"), icon: BadgeCheck },
-      ],
-    },
-    {
-      title: gt("Community"),
-      items: [
-        { id: "onboarding" as SettingsTab, label: gt("Onboarding"), icon: Compass },
-        { id: "welcome" as SettingsTab, label: gt("Welcome Screen"), icon: Smile },
-        { id: "screening" as SettingsTab, label: gt("Rules Screening"), icon: ClipboardList },
-        { id: "connections" as SettingsTab, label: gt("Server Connections"), icon: BadgeCheck },
-        { id: "template" as SettingsTab, label: gt("Server Template"), icon: Folder },
-      ],
-    },
-  ];
+  const renderOverview = () => {
+    const afkTimeout = draftNumber("afkTimeout", 300);
+    const afkOptions = [
+      { value: 60, label: gt("1 minute") },
+      { value: 300, label: gt("{n} minutes", { n: 5 }) },
+      { value: 900, label: gt("{n} minutes", { n: 15 }) },
+      { value: 1800, label: gt("{n} minutes", { n: 30 }) },
+      { value: 3600, label: gt("1 hour") },
+    ];
+    if (!afkOptions.some((o) => o.value === afkTimeout)) {
+      afkOptions.push({ value: afkTimeout, label: gt("{n} seconds", { n: afkTimeout }) });
+    }
+    const initial = (draftString("name") || currentServer.name || "?").charAt(0).toUpperCase();
+    return (
+      <div className="space-y-8">
+        <SettingsPageHeader title={gt("Server Overview")} description={gt("Customize your server's identity")} className="mb-0" />
 
-  const renderOverview = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Overview</T></h2>
-        <p className="text-sm text-[var(--text-secondary)]"><T>Customize your server&apos;s identity</T></p>
-      </div>
+        {/* Hidden file inputs */}
+        <input type="file" ref={iconInputRef} onChange={handleIconUpload} accept="image/*" className="hidden" />
+        <input type="file" ref={bannerInputRef} onChange={handleBannerUpload} accept="image/*" className="hidden" />
 
-      {/* Hidden file inputs */}
-      <input
-        type="file"
-        ref={iconInputRef}
-        onChange={handleIconUpload}
-        accept="image/*"
-        className="hidden"
-      />
-      <input
-        type="file"
-        ref={bannerInputRef}
-        onChange={handleBannerUpload}
-        accept="image/*"
-        className="hidden"
-      />
-
-      {/* Server Icon & Banner */}
-      <div className="flex gap-4 sm:gap-6">
-        {/* Icon */}
-        <div className="flex flex-col items-center gap-2">
-          <div className="relative group">
-            <Avatar className="w-24 h-24 rounded-2xl">
-              <AvatarImage src={cdnImage(serverIcon || undefined)} />
-              <AvatarFallback className="bg-[var(--app-accent)] text-white text-3xl rounded-2xl">
-                {(draftString("name") || currentServer?.name || "?").charAt(0).toUpperCase()}
-              </AvatarFallback>
-            </Avatar>
+        {/* Icon uploader + name side by side (Discord) */}
+        <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="flex items-center gap-4">
             <button
+              type="button"
               onClick={() => iconInputRef.current?.click()}
               disabled={isUploadingIcon}
-              className="absolute inset-0 flex items-center justify-center bg-black/60 max-md:bg-black/35 opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity rounded-2xl disabled:cursor-not-allowed"
+              aria-label={gt("Change server icon")}
+              className="group relative h-[88px] w-[88px] shrink-0 rounded-2xl disabled:cursor-not-allowed"
             >
-              {isUploadingIcon ? (
-                <Loader size={32} />
-              ) : (
-                <Camera className="w-8 h-8 text-[var(--text-primary)]" />
-              )}
+              <Avatar className="h-full w-full rounded-2xl">
+                <AvatarImage src={cdnImage(serverIcon || undefined)} />
+                <AvatarFallback className="rounded-2xl bg-[var(--app-accent)] text-3xl text-white">{initial}</AvatarFallback>
+              </Avatar>
+              <span className="absolute inset-0 flex flex-col items-center justify-center gap-0.5 rounded-2xl bg-black/55 text-[10px] font-bold uppercase text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 max-md:opacity-100 max-md:bg-black/35">
+                {isUploadingIcon ? <Loader size={28} /> : <><Camera className="h-5 w-5" />{gt("Change Icon")}</>}
+              </span>
             </button>
+            <div className="min-w-0 space-y-2">
+              <p className="text-[13px] leading-snug text-[var(--text-secondary)]">
+                {gt("We recommend an image of at least 512x512 for the server.")}
+              </p>
+              <SettingsButton variant="secondary" onClick={() => iconInputRef.current?.click()} disabled={isUploadingIcon}>
+                {gt("Upload Image")}
+              </SettingsButton>
+            </div>
           </div>
-          <span className="text-xs text-[var(--text-muted)]"><T>Server Icon</T></span>
+          <SettingsSection title={gt("Server name")}>
+            <div>
+              <Input
+                value={draftString("name")}
+                onChange={(e) => settingsDraft.update("name", e.target.value)}
+                aria-invalid={Boolean(fieldErrors.name)}
+                aria-label={gt("Server name")}
+                maxLength={100}
+                className={cn(inputClass, fieldErrors.name && "border-red-500 focus-visible:ring-red-500")}
+                placeholder={gt("Enter server name")}
+              />
+              {fieldError("name")}
+            </div>
+          </SettingsSection>
         </div>
 
-        {/* Banner */}
-        <div className="flex-1">
-          <div className="relative group aspect-[2/1] max-h-40 rounded-lg overflow-hidden bg-gradient-to-r from-[var(--app-accent)] to-[var(--accent-hover)]">
-            {serverBanner && (
-              <img src={cdnImage(serverBanner)} alt="Banner" className="w-full h-full object-cover" />
-            )}
+        <div className="h-px bg-[var(--border-subtle)]" />
+
+        <SettingsSection title={gt("Description")} description={gt("Describe what your server is about")}>
+          <div>
+            <Textarea
+              value={draftString("description")}
+              onChange={(e) => settingsDraft.update("description", e.target.value)}
+              aria-invalid={Boolean(fieldErrors.description)}
+              aria-label={gt("Description")}
+              maxLength={1024}
+              className={cn(
+                "min-h-[96px] bg-[var(--bg-input)] border-[var(--border-subtle)] text-[var(--text-primary)]",
+                fieldErrors.description && "border-red-500 focus-visible:ring-red-500",
+              )}
+              placeholder={gt("Describe what your server is about")}
+            />
+            {fieldError("description")}
+          </div>
+        </SettingsSection>
+
+        <SettingsSection
+          title={gt("Inactive channel")}
+          description={gt("Members idle for longer than the inactive timeout are moved to this voice channel and muted.")}
+        >
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div>
+              <select
+                value={draftString("afkChannelId", "") || ""}
+                onChange={(e) => settingsDraft.update("afkChannelId", e.target.value || null)}
+                aria-label={gt("AFK channel")}
+                className={selectClass}
+              >
+                <option value="">{gt("No inactive channel")}</option>
+                {voiceChannels.map((ch) => (
+                  <option key={ch.id} value={ch.id}>
+                    {ch.name}
+                  </option>
+                ))}
+              </select>
+              {fieldError("afkChannelId")}
+            </div>
+            <div>
+              <select
+                value={afkTimeout}
+                onChange={(e) => settingsDraft.update("afkTimeout", Number(e.target.value))}
+                aria-label={gt("AFK timeout")}
+                className={selectClass}
+              >
+                {afkOptions.map((o) => (
+                  <option key={o.value} value={o.value}>
+                    {o.label}
+                  </option>
+                ))}
+              </select>
+              {fieldError("afkTimeout")}
+            </div>
+          </div>
+        </SettingsSection>
+
+        <SettingsSection title={gt("System messages channel")} description={gt("Where system messages like welcome messages are sent")}>
+          <div>
+            <select
+              value={draftString("systemChannelId", "") || ""}
+              onChange={(e) => settingsDraft.update("systemChannelId", e.target.value || null)}
+              aria-label={gt("System messages channel")}
+              className={selectClass}
+            >
+              <option value="">{gt("No system messages")}</option>
+              {textChannels.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  #{ch.name}
+                </option>
+              ))}
+            </select>
+            {fieldError("systemChannelId")}
+          </div>
+        </SettingsSection>
+
+        <SettingsSection title={gt("Rules channel")} description={gt("Display your server rules in Community servers")}>
+          <div>
+            <select
+              value={draftString("rulesChannelId", "") || ""}
+              onChange={(e) => settingsDraft.update("rulesChannelId", e.target.value || null)}
+              aria-label={gt("Rules channel")}
+              className={selectClass}
+            >
+              <option value="">{gt("No rules channel")}</option>
+              {textChannels.map((ch) => (
+                <option key={ch.id} value={ch.id}>
+                  #{ch.name}
+                </option>
+              ))}
+            </select>
+            {fieldError("rulesChannelId")}
+          </div>
+        </SettingsSection>
+
+        <div className="h-px bg-[var(--border-subtle)]" />
+
+        <SettingsSection
+          title={gt("Server Banner")}
+          description={gt("Shown at the top of your channel list and in invites. GIFs keep their animation.")}
+        >
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
             <button
+              type="button"
               onClick={() => bannerInputRef.current?.click()}
               disabled={isUploadingBanner}
-              className="absolute inset-0 flex items-center justify-center bg-black/60 max-md:bg-black/35 opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity disabled:cursor-not-allowed"
+              aria-label={gt("Change server banner")}
+              className="group relative aspect-[2/1] w-full max-w-[320px] overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-gradient-to-br from-[var(--app-accent)] to-[var(--accent-hover)] disabled:cursor-not-allowed"
             >
-              {isUploadingBanner ? (
-                <Loader size={32} />
+              {serverBanner ? (
+                <img src={cdnImage(serverBanner)} alt="" className="h-full w-full object-cover" />
               ) : (
-                <Camera className="w-8 h-8 text-[var(--text-primary)]" />
-              )}
-            </button>
-          </div>
-          <span className="text-xs text-[var(--text-muted)] mt-1 block"><T>Server Banner</T></span>
-        </div>
-      </div>
-
-      {/* Server Name */}
-      <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-          <T>SERVER NAME</T>
-        </label>
-        <Input
-          value={draftString("name")}
-          onChange={(e) => settingsDraft.update("name", e.target.value)}
-          aria-invalid={Boolean(fieldErrors.name)}
-          className={cn(
-            "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]",
-            fieldErrors.name && "border-red-500 focus-visible:ring-red-500"
-          )}
-          placeholder={gt("Enter server name")}
-        />
-        {fieldErrors.name && <p className="text-xs text-red-400 mt-1">{fieldErrors.name}</p>}
-      </div>
-
-      {/* Description */}
-      <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-          <T>SERVER DESCRIPTION</T>
-        </label>
-        <Textarea
-          value={draftString("description")}
-          onChange={(e) => settingsDraft.update("description", e.target.value)}
-          aria-invalid={Boolean(fieldErrors.description)}
-          className={cn(
-            "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] min-h-[100px]",
-            fieldErrors.description && "border-red-500 focus-visible:ring-red-500"
-          )}
-          placeholder={gt("Describe what your server is about")}
-        />
-        {fieldErrors.description && <p className="text-xs text-red-400 mt-1">{fieldErrors.description}</p>}
-      </div>
-
-      {/* System Messages Channel */}
-      <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-          <T>SYSTEM MESSAGES CHANNEL</T>
-        </label>
-        <select
-          value={draftString("systemChannelId", "") || ""}
-          onChange={(e) => settingsDraft.update("systemChannelId", e.target.value || null)}
-          aria-label="System messages channel"
-          className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-        >
-          <option value="">{gt("No system messages")}</option>
-          {textChannels.map((ch) => (
-            <option key={ch.id} value={ch.id}>
-              #{ch.name}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-[var(--text-muted)] mt-1">
-          <T>Where system messages like welcome messages are sent</T>
-        </p>
-      </div>
-
-      {/* Rules Channel */}
-      <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-          <T>RULES CHANNEL</T>
-        </label>
-        <select
-          value={draftString("rulesChannelId", "") || ""}
-          onChange={(e) => settingsDraft.update("rulesChannelId", e.target.value || null)}
-          aria-label="Rules channel"
-          className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-        >
-          <option value="">{gt("No rules channel")}</option>
-          {textChannels.map((ch) => (
-            <option key={ch.id} value={ch.id}>
-              #{ch.name}
-            </option>
-          ))}
-        </select>
-        <p className="text-xs text-[var(--text-muted)] mt-1">
-          <T>Display your server rules in Community servers</T>
-        </p>
-      </div>
-
-      {/* Server theme (CORD-50) */}
-      {currentServer && canManageServer && (
-        <ServerThemeSettings key={currentServer.id} serverId={currentServer.id} theme={currentServer.theme} onSaved={fetchServers} />
-      )}
-
-      {/* Danger Zone */}
-      {isOwner && (
-        <div className="pt-6 border-t border-[var(--border-subtle)]">
-          <h3 className="text-lg font-semibold text-red-500 mb-4"><T>Danger Zone</T></h3>
-          <button
-            onClick={handleDeleteServer}
-            className="px-4 py-2 bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/50 rounded-md flex items-center gap-2"
-          >
-            <Trash2 className="w-4 h-4" />
-            <T>Delete Server</T>
-          </button>
-        </div>
-      )}
-    </div>
-  );
-
-  const renderRoles = () => {
-    const filteredRoles = roleSearch.trim()
-      ? roles.filter((r) => r.name.toLowerCase().includes(roleSearch.toLowerCase()))
-      : roles;
-    const permNeedle = permissionSearch.trim().toLowerCase();
-    const filteredCategories = permNeedle
-      ? ROLE_PERMISSION_CATEGORIES.map((cat) => {
-          const perms = cat.permissions.filter(
-            (p) =>
-              p.label.toLowerCase().includes(permNeedle) ||
-              p.description.toLowerCase().includes(permNeedle),
-          );
-          return { ...cat, permissions: perms };
-        }).filter((cat) => cat.permissions.length > 0)
-      : ROLE_PERMISSION_CATEGORIES;
-    // Phone: the role list and the role editor are separate pushed pages.
-    const mobileRoleDetail = isMobile && mobileNav.detail !== null;
-    return (
-    <div className="space-y-6">
-      <div className={cn("flex flex-wrap items-center justify-between gap-3", mobileRoleDetail && "hidden")}>
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Roles</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]"><T>Manage role order, display, and permissions</T></p>
-        </div>
-        <button
-          onClick={handleCreateRole}
-          className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          <T>Create Role</T>
-        </button>
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader size={32} />
-        </div>
-      ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-[280px_1fr] gap-6">
-          {/* Role list sidebar. Drops in the gaps between rows use the last
-              insertion bar shown, so it doesn't flicker between rows. */}
-          <div
-            className={cn("space-y-2", mobileRoleDetail && "hidden")}
-            onDragOver={(event) => {
-              if (draggingRoleId) event.preventDefault();
-            }}
-            onDrop={(event) => {
-              if (!draggingRoleId) return;
-              event.preventDefault();
-              if (roleDropTarget) void handleRoleDrop(roleDropTarget.roleId, roleDropTarget.mode);
-              else setDraggingRoleId(null);
-            }}
-          >
-            {roles.length > 0 && (
-              <div className="relative mb-2">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-                <input
-                  type="text"
-                  value={roleSearch}
-                  onChange={(e) => setRoleSearch(e.target.value)}
-                  placeholder={gt("Search roles...")}
-                  className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
-                />
-              </div>
-            )}
-            {filteredRoles
-              .slice()
-              .sort((a, b) => b.position - a.position)
-              .map((role) => {
-                const isSelected = role.id === selectedRoleId;
-                // No HTML5 drag-and-drop on touch screens.
-                const canDrag = !isMobile && !role.isDefault && !role.managed;
-                const isDragged = draggingRoleId === role.id;
-                const dropMode = roleDropTarget?.roleId === role.id ? roleDropTarget.mode : null;
-                return (
-                  <div
-                    key={role.id}
-                    draggable={canDrag}
-                    onDragStart={(event) => {
-                      event.dataTransfer.effectAllowed = "move";
-                      event.dataTransfer.setData("text/plain", role.id);
-                      setDraggingRoleId(role.id);
-                    }}
-                    onDragEnd={() => {
-                      setDraggingRoleId(null);
-                      setRoleDropTarget(null);
-                    }}
-                    onDragOver={(event) => {
-                      // @everyone stays at the bottom: it is never a drop target.
-                      if (!draggingRoleId || role.isDefault) return;
-                      event.preventDefault();
-                      event.dataTransfer.dropEffect = "move";
-                      const rect = event.currentTarget.getBoundingClientRect();
-                      const mode = event.clientY < rect.top + rect.height / 2 ? "before" : "after";
-                      const ids = roles.filter((r) => !r.isDefault).sort((a, b) => b.position - a.position).map((r) => r.id);
-                      const next = moveRoleId(ids, draggingRoleId, role.id, mode) ? { roleId: role.id, mode } as const : null;
-                      if (next?.roleId !== roleDropTarget?.roleId || next?.mode !== roleDropTarget?.mode) setRoleDropTarget(next);
-                    }}
-                    onDrop={(event) => {
-                      event.preventDefault();
-                      event.stopPropagation();
-                      if (dropMode) void handleRoleDrop(role.id, dropMode);
-                      else {
-                        setRoleDropTarget(null);
-                        setDraggingRoleId(null);
-                      }
-                    }}
-                    onClick={() => {
-                      setSelectedRoleId(role.id);
-                      if (isMobile) setMobileNav((nav) => openMobileDetail(nav, role.id));
-                    }}
-                    className={cn(
-                      "flex items-center gap-3 p-3 rounded-lg border transition-all cursor-pointer max-md:min-h-[56px] touch-manipulation",
-                      isSelected && !isMobile
-                        ? "bg-[var(--bg-active)] border-[var(--app-accent)] shadow-[0_0_12px_rgba(139,92,246,0.15)]"
-                        : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] hover:border-[var(--border-strong)] active:bg-[var(--bg-active)]",
-                      "relative",
-                      canDrag && "cursor-grab active:cursor-grabbing",
-                      isDragged && "opacity-40 border-dashed border-[var(--app-accent)] bg-[var(--bg-hover)]"
-                    )}
-                  >
-                    {/* Insertion bar where the dragged role will land (CORD-32) */}
-                    {dropMode === "before" && (
-                      <span aria-hidden className="pointer-events-none absolute -top-[5px] left-1 right-1 h-1 rounded-full bg-[var(--app-accent)] shadow-[0_0_6px_var(--app-accent)]" />
-                    )}
-                    {dropMode === "after" && (
-                      <span aria-hidden className="pointer-events-none absolute -bottom-[5px] left-1 right-1 h-1 rounded-full bg-[var(--app-accent)] shadow-[0_0_6px_var(--app-accent)]" />
-                    )}
-                    <GripVertical className={cn("w-4 h-4 flex-shrink-0 max-md:hidden", isDragged ? "text-[var(--app-accent)]" : "text-[var(--text-muted)]")} />
-                    <div className="w-3 h-3 rounded-full flex-shrink-0" style={{ backgroundColor: role.color || "#888888" }} />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[var(--text-primary)] text-sm max-md:text-[15px] font-medium truncate flex items-center gap-1"><span className="truncate">{role.name}</span><RoleIcon role={role} size={14} /></p>
-                      <p className="text-[11px] text-[var(--text-muted)]">
-                        {gt("{count} members", { count: role.memberCount ?? 0 })}
-                        {role.isDefault ? ` • ${gt("default")}` : role.managed ? ` • ${gt("managed")}` : ""}
-                        {(roleLinks[role.id.toLowerCase()]?.length ?? 0) > 0 && ` • ${gt("{count} linked", { count: roleLinks[role.id.toLowerCase()].length })}`}
-                      </p>
-                    </div>
-                    {!role.isDefault && (
-                      <button
-                        onClick={(event) => {
-                          event.stopPropagation();
-                          void handleDeleteRole(role.id);
-                        }}
-                        aria-label={gt("Delete role {role}", { role: role.name })}
-                        className="p-1 max-md:p-2.5 hover:bg-red-500/10 rounded text-[var(--text-muted)] hover:text-red-500 transition-all"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    )}
-                    {isMobile && <ChevronRight className="w-5 h-5 shrink-0 text-[var(--text-muted)]" />}
-                  </div>
-                );
-              })}
-            {isReorderingRoles && (
-              <p className="text-xs text-[var(--text-secondary)] flex items-center gap-1.5">
-                <Loader size={undefined} />
-                <T>Saving role order...</T>
-              </p>
-            )}
-          </div>
-
-          {/* Role editor panel */}
-          <div
-            className={cn(
-              "rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] flex flex-col",
-              isMobile ? "border-0 bg-transparent" : "max-h-[calc(100vh-220px)]",
-              isMobile && !mobileRoleDetail && "hidden",
-            )}
-          >
-            {!selectedRole || !roleDraft ? (
-              <div className="flex items-center justify-center py-16 text-sm text-[var(--text-secondary)]">
-                <T>Select a role to edit.</T>
-              </div>
-            ) : (
-              <>
-                {/* Header */}
-                <div className={cn("flex items-center gap-3 p-4 border-b border-[var(--border-subtle)] flex-shrink-0", isMobile && "hidden")}>
-                  <div className="w-4 h-4 rounded-full" style={{ backgroundColor: roleDraft.color || "#888888" }} />
-                  <h3 className="text-lg text-[var(--text-primary)] font-semibold">{selectedRole.name}</h3>
-                  {selectedRole.isDefault && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-[var(--app-surface-alt)] text-[var(--text-secondary)]"><T>Default</T></span>
-                  )}
-                  {selectedRole.managed && (
-                    <span className="text-xs px-2 py-0.5 rounded bg-[var(--app-surface-alt)] text-[var(--text-secondary)]"><T>Managed</T></span>
-                  )}
-                </div>
-
-                {/* Scrollable content */}
-                <div className={cn("flex-1 space-y-5", isMobile ? "p-0" : "overflow-y-auto p-4")}>
-                  {/* Name + Colour */}
-                  <div className="grid sm:grid-cols-[1fr_auto] gap-3 items-end">
-                    <div>
-                      <label className="block text-xs text-[var(--text-secondary)] mb-1.5"><T>Role Name</T></label>
-                      <Input
-                        value={roleDraft.name}
-                        onChange={(event) => setRoleDraft((prev) => (prev ? { ...prev, name: event.target.value } : prev))}
-                        disabled={selectedRole.isDefault || selectedRole.managed}
-                        className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] disabled:opacity-60"
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-[var(--text-secondary)] mb-1.5"><T>Colour</T></label>
-                      <div className="flex items-center gap-2">
-                        <ColorInput
-                          value={roleDraft.color}
-                          onChange={(color) =>
-                            setRoleDraft((prev) => (prev ? { ...prev, color } : prev))
-                          }
-                          disabled={selectedRole.managed}
-                        />
-                        <span className="text-sm text-[var(--text-secondary)] font-mono">{roleDraft.color}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Role icon (not for @everyone) */}
-                  {!selectedRole.isDefault && (
-                    <RoleIconEditor
-                      roleName={roleDraft.name || selectedRole.name}
-                      roleColor={roleDraft.color}
-                      icon={roleDraft.icon}
-                      unicodeEmoji={roleDraft.unicodeEmoji}
-                      disabled={selectedRole.managed}
-                      onChange={(next) => setRoleDraft((prev) => (prev ? { ...prev, ...next } : prev))}
-                    />
-                  )}
-
-                  {/* Toggles */}
-                  <div className="grid sm:grid-cols-2 gap-3">
-                    <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] cursor-pointer hover:border-[var(--border-strong)] transition-colors">
-                      <div>
-                        <span className="text-sm text-[var(--text-primary)]"><T>Display separately</T></span>
-                        <p className="text-xs text-[var(--text-muted)] mt-0.5"><T>Show members with this role separately</T></p>
-                      </div>
-                      <ToggleSwitch
-                        size="sm"
-                        checked={roleDraft.hoist}
-                        disabled={selectedRole.managed}
-                        aria-label="Display role members separately"
-                        onCheckedChange={(checked) =>
-                          setRoleDraft((prev) => (prev ? { ...prev, hoist: checked } : prev))
-                        }
-                      />
-                    </label>
-                    <label className="flex items-center justify-between p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] cursor-pointer hover:border-[var(--border-strong)] transition-colors">
-                      <div>
-                        <span className="text-sm text-[var(--text-primary)]"><T>Allow mention</T></span>
-                        <p className="text-xs text-[var(--text-muted)] mt-0.5"><T>Anyone can mention this role</T></p>
-                      </div>
-                      <ToggleSwitch
-                        size="sm"
-                        checked={roleDraft.mentionable}
-                        disabled={selectedRole.managed}
-                        aria-label="Allow anyone to mention this role"
-                        onCheckedChange={(checked) =>
-                          setRoleDraft((prev) => (prev ? { ...prev, mentionable: checked } : prev))
-                        }
-                      />
-                    </label>
-                  </div>
-
-                  {/* Linked roles (CORD-57) */}
-                  {!selectedRole.isDefault && !selectedRole.managed && (() => {
-                    const linked = roleLinks[selectedRole.id.toLowerCase()] ?? [];
-                    const linkable = roles
-                      .filter((r) => !r.isDefault && !r.managed && r.id !== selectedRole.id)
-                      .sort((a, b) => b.position - a.position);
-                    const linkedRoles = linked
-                      .map((id) => roles.find((r) => r.id.toLowerCase() === id))
-                      .filter((r): r is Role => Boolean(r));
-                    const available = linkable.filter((r) => !linked.includes(r.id.toLowerCase()));
-                    return (
-                      <div className="space-y-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
-                        <div className="flex items-start justify-between gap-3">
-                          <div>
-                            <h4 className="text-sm font-semibold text-[var(--text-primary)]"><T>Linked roles</T></h4>
-                            <p className="text-xs text-[var(--text-muted)] mt-0.5">
-                              <T>Members who get this role also get these roles. It only works one way, and removing this role later keeps the linked roles.</T>
-                            </p>
-                          </div>
-                          {isSavingRoleLinks && <Loader size={16} />}
-                        </div>
-                        <div className="flex flex-wrap gap-1.5">
-                          {linkedRoles.length === 0 && (
-                            <span className="text-xs text-[var(--text-muted)]"><T>No linked roles yet.</T></span>
-                          )}
-                          {linkedRoles.map((r) => (
-                            <span key={r.id} className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-card)] pl-2 pr-1 py-0.5 text-xs text-[var(--text-primary)]">
-                              <span className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: r.color || "#888888" }} />
-                              {r.name}
-                              <button
-                                type="button"
-                                disabled={isSavingRoleLinks}
-                                onClick={() => void handleSetRoleLinks(selectedRole.id, linkedRoles.filter((x) => x.id !== r.id).map((x) => x.id))}
-                                aria-label={gt("Unlink role {role}", { role: r.name })}
-                                className="p-0.5 rounded-full text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-50"
-                              >
-                                <X className="w-3 h-3" />
-                              </button>
-                            </span>
-                          ))}
-                        </div>
-                        {available.length > 0 && linked.length < 10 && (
-                          <select
-                            value=""
-                            disabled={isSavingRoleLinks}
-                            onChange={(event) => {
-                              const id = event.target.value;
-                              if (id) void handleSetRoleLinks(selectedRole.id, [...linkedRoles.map((x) => x.id), id]);
-                            }}
-                            aria-label={gt("Add a linked role")}
-                            className="h-9 w-full sm:w-64 px-2 rounded-md bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--app-accent)] disabled:opacity-50"
-                          >
-                            <option value="">{gt("Add a linked role...")}</option>
-                            {available.map((r) => (
-                              <option key={r.id} value={r.id}>{r.name}</option>
-                            ))}
-                          </select>
-                        )}
-                      </div>
-                    );
-                  })()}
-
-                  {/* Permissions */}
-                  <div className="space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <h4 className="text-sm font-semibold text-[var(--text-primary)]"><T>Permissions</T></h4>
-                      <div className="relative flex-1 max-w-[240px]">
-                        <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
-                        <input
-                          type="text"
-                          value={permissionSearch}
-                          onChange={(e) => setPermissionSearch(e.target.value)}
-                          placeholder={gt("Filter permissions...")}
-                          className="w-full pl-8 pr-3 py-1.5 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-md text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
-                        />
-                      </div>
-                    </div>
-                    {filteredCategories.length === 0 ? (
-                      <p className="text-sm text-[var(--text-muted)] text-center py-4"><T>No permissions match your search.</T></p>
-                    ) : (
-                      filteredCategories.map((category) => (
-                        <div key={category.id} className="rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3 space-y-2">
-                          <p className="text-xs uppercase tracking-wide text-[var(--text-secondary)] font-semibold">{category.label}</p>
-                          {category.permissions.map((permission) => {
-                            const checked = hasPermissionBit(roleDraft.permissions, permission.bit);
-                            return (
-                              <label key={permission.key} className="flex items-start justify-between gap-3 py-1.5 cursor-pointer hover:bg-[var(--bg-hover)] -mx-2 px-2 rounded transition-colors">
-                                <div>
-                                  <p className={cn("text-sm", checked ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>{permission.label}</p>
-                                  <p className="text-xs text-[var(--text-muted)]">{permission.description}</p>
-                                </div>
-                                <ToggleSwitch
-                                  size="sm"
-                                  checked={checked}
-                                  disabled={selectedRole.managed}
-                                  aria-label={permission.label}
-                                  onCheckedChange={(next) => handleRolePermissionToggle(permission.bit, next)}
-                                  className="mt-1"
-                                />
-                              </label>
-                            );
-                          })}
-                        </div>
-                      ))
-                    )}
-                  </div>
-                </div>
-
-                {/* Sticky save bar */}
-                <div className={cn("flex items-center justify-between p-3 border-t border-[var(--border-subtle)] flex-shrink-0 bg-[var(--bg-app)] rounded-b-lg", isMobile && "hidden")}>
-                  <p className="text-xs text-[var(--text-muted)]">
-                    {hasUnsavedRoleChanges ? gt("You have unsaved changes") : gt("All changes saved")}
-                  </p>
-                  <button
-                    onClick={() => void handleSaveRole()}
-                    disabled={isSavingRole || selectedRole.managed || !hasUnsavedRoleChanges}
-                    className={cn(
-                      "px-4 py-2 rounded-md flex items-center gap-2 transition-all",
-                      hasUnsavedRoleChanges
-                        ? "bg-[var(--app-accent)] hover:brightness-110 text-white"
-                        : "bg-[var(--app-surface-alt)] text-[var(--text-muted)]"
-                    )}
-                  >
-                    {isSavingRole && <Loader size={16} />}
-                    {hasUnsavedRoleChanges ? gt("Save Changes") : gt("Saved")}
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-    );
-  };
-
-  const handleSaveVanity = async () => {
-    if (!currentServer) return;
-    setIsSavingVanity(true);
-    setVanityError(null);
-    try {
-      const trimmed = vanityDraft.trim().toLowerCase();
-      const res = await fetch(`/api/servers/${currentServer.id}/vanity-url`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ code: trimmed || null }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        setVanityError(data.error || gt("Failed to update custom invite"));
-        return;
-      }
-      setVanityInfo((prev) => ({
-        code: data.code ?? null,
-        uses: data.uses ?? 0,
-        isPartnered: prev?.isPartnered ?? true,
-        lockToVanity: data.lockToVanity ?? prev?.lockToVanity ?? false,
-      }));
-      setVanityDraft(data.code ?? "");
-      toast.success(data.code ? gt("Custom invite link updated!") : gt("Custom invite link removed"));
-    } catch {
-      setVanityError(gt("Something went wrong. Please try again."));
-    } finally {
-      setIsSavingVanity(false);
-    }
-  };
-
-  const handleToggleLockVanity = async () => {
-    if (!currentServer || !vanityInfo) return;
-    const next = !vanityInfo.lockToVanity;
-    setIsTogglingLock(true);
-    try {
-      const res = await fetch(`/api/servers/${currentServer.id}/vanity-url/lock`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ locked: next }),
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        toast.error(data.error || gt("Failed to update invite lock"));
-        return;
-      }
-      setVanityInfo((prev) => prev ? { ...prev, lockToVanity: next } : prev);
-      toast.success(next ? gt("Server invites locked to custom link") : gt("Server invites unlocked"));
-    } catch {
-      toast.error(gt("Something went wrong. Please try again."));
-    } finally {
-      setIsTogglingLock(false);
-    }
-  };
-
-  const renderVanitySection = () => {
-    if (!vanityInfo?.isPartnered) return null;
-    const vanityDirty = vanityDraft.trim().toLowerCase() !== (vanityInfo.code ?? "");
-    return (
-      <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <h3 className="text-[var(--text-primary)] font-semibold flex items-center gap-2">
-              <Crown className="w-4 h-4 text-[#F0B232]" />
-              <T>Custom Invite Link</T>
-            </h3>
-            <p className="text-xs text-[var(--text-secondary)] mt-0.5">
-              <T>As a partnered server, you can claim a personalized invite link.</T>
-            </p>
-          </div>
-          {vanityInfo.code && (
-            <span className="text-xs text-[var(--text-secondary)]">{vanityInfo.uses} {gt('uses')}</span>
-          )}
-        </div>
-        <div className="flex gap-2">
-          <div className="flex items-center flex-1 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] focus-within:border-[var(--app-accent)] transition-colors overflow-hidden">
-            <span className="pl-3 text-sm text-[var(--text-muted)] font-mono select-none">serika.cc/</span>
-            <input
-              value={vanityDraft}
-              onChange={(e) => {
-                setVanityDraft(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""));
-                setVanityError(null);
-              }}
-              placeholder="your-server"
-              maxLength={32}
-              aria-label="Custom invite link code"
-              className="flex-1 h-10 bg-transparent text-[var(--text-primary)] font-mono text-sm outline-none pr-3 min-w-0"
-            />
-          </div>
-          <button
-            onClick={handleSaveVanity}
-            disabled={isSavingVanity || !vanityDirty}
-            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md flex items-center gap-2 text-sm font-medium transition-colors"
-          >
-            {isSavingVanity ? <Loader size={16} /> : <Check className="w-4 h-4" />}
-            <T>Save</T>
-          </button>
-          {vanityInfo.code && (
-            <button
-              onClick={() => copyToClipboard(`https://serika.cc/${vanityInfo.code}`)}
-              aria-label="Copy custom invite link"
-              className="p-2 hover:bg-[var(--bg-hover)] rounded-md text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-            >
-              <Copy className="w-4 h-4" />
-            </button>
-          )}
-        </div>
-        {vanityError ? (
-          <p className="text-xs text-red-400">{vanityError}</p>
-        ) : (
-          <p className="text-xs text-[var(--text-muted)]">
-            <T>3-32 characters. Lowercase letters, numbers, and hyphens only. Leave empty and save to remove.</T>
-          </p>
-        )}
-        {vanityInfo.code && (
-          <div className="flex items-center justify-between pt-3 border-t border-[var(--border-subtle)]">
-            <div>
-              <span className="text-sm text-[var(--text-primary)]"><T>Lock to Custom Invite</T></span>
-              <p className="text-xs text-[var(--text-muted)] mt-0.5"><T>Only allow joins through this custom invite link. Hides all other invite links.</T></p>
-            </div>
-            <ToggleSwitch
-              checked={vanityInfo.lockToVanity}
-              onCheckedChange={handleToggleLockVanity}
-              disabled={isTogglingLock}
-              aria-label="Lock invites to custom link"
-            />
-          </div>
-        )}
-      </div>
-    );
-  };
-
-  const renderInvites = () => (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Invites</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]"><T>Create and manage invite links</T></p>
-        </div>
-        <button
-          onClick={handleCreateInvite}
-          className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2"
-        >
-          <Plus className="w-4 h-4" />
-          <T>Create Invite</T>
-        </button>
-      </div>
-
-      {renderVanitySection()}
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader size={32} />
-        </div>
-      ) : invites.length === 0 ? (
-        <div className="text-center py-12">
-          <Link2 className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No invites yet</T></h3>
-          <p className="text-[var(--text-secondary)] text-sm"><T>Create an invite link to share with others</T></p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {invites.map((invite) => (
-            <div
-              key={invite.code}
-              className="flex items-center gap-3 sm:gap-4 p-3 sm:p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]"
-            >
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center gap-2 min-w-0">
-                  <code className="text-[var(--app-accent)] font-mono truncate min-w-0">
-                    serika.cc/{invite.code}
-                  </code>
-                  <button
-                    onClick={() => copyToClipboard(`https://serika.cc/${invite.code}`)}
-                    aria-label="Copy invite link"
-                    className="p-1 hover:bg-[var(--bg-hover)] rounded transition-colors"
-                  >
-                    <Copy className="w-4 h-4 text-[var(--text-secondary)]" />
-                  </button>
-                </div>
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-0.5 mt-1 text-xs text-[var(--text-muted)]">
-                  <span>#{invite.channel?.name || gt('deleted-channel')}</span>
-                  <span>{invite.uses} {gt('uses')}</span>
-                  {invite.expiresAt && (
-                    <span>{gt('Expires')} {new Date(invite.expiresAt).toLocaleDateString()}</span>
-                  )}
-                </div>
-              </div>
-              <Avatar className="w-8 h-8">
-                <AvatarImage src={cdnImage(invite.createdBy?.avatar)} />
-                <AvatarFallback className="bg-[var(--app-accent)] text-white text-xs">
-                  {invite.createdBy?.username?.charAt(0) || "?"}
-                </AvatarFallback>
-              </Avatar>
-              <button
-                onClick={() => handleDeleteInvite(invite.code)}
-                aria-label={gt("Delete invite")}
-                className="p-2 max-md:p-3 hover:bg-red-500/10 rounded-md text-[var(--text-secondary)] hover:text-red-500 transition-colors"
-              >
-                <Trash2 className="w-4 h-4" />
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  const renderBans = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Bans</T></h2>
-        <p className="text-sm text-[var(--text-secondary)]"><T>View and manage banned users</T></p>
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader size={32} />
-        </div>
-      ) : bans.length === 0 ? (
-        <div className="text-center py-12">
-          <Ban className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No bans</T></h3>
-          <p className="text-[var(--text-secondary)] text-sm"><T>There are no banned users in this server</T></p>
-        </div>
-      ) : (
-        <div className="space-y-2">
-          {bans.map((ban) => (
-            <div
-              key={ban.id}
-              className="flex items-center gap-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]"
-            >
-              <Avatar className="w-10 h-10">
-                <AvatarImage src={cdnImage(ban.avatar)} />
-                <AvatarFallback className="bg-[var(--app-accent)] text-white">
-                  {ban.username.charAt(0)}
-                </AvatarFallback>
-              </Avatar>
-              <div className="flex-1 min-w-0">
-                <p className="text-[var(--text-primary)] font-medium truncate">{ban.username}</p>
-                {ban.reason && (
-                  <p className="text-sm text-[var(--text-secondary)] truncate">{ban.reason}</p>
-                )}
-              </div>
-              <button
-                onClick={() => handleUnban(ban.id)}
-                className="shrink-0 px-3 py-1.5 max-md:py-2.5 bg-[var(--app-surface-alt)] hover:bg-[var(--bg-hover)] text-[var(--text-primary)] text-sm rounded-md transition-colors"
-              >
-                <T>Revoke Ban</T>
-              </button>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-
-  const renderMembers = () => {
-    const visibleMembers = filterAndSortMembers(members, { search: memberSearch, roleId: memberRoleFilter || null, sort: memberSort });
-    const canKick = can("KICK_MEMBERS");
-    const canBan = can("BAN_MEMBERS");
-    const canTimeout = can("MODERATE_MEMBERS");
-    const formatDate = (value?: string | null) => {
-      if (!value) return null;
-      const d = new Date(value);
-      return Number.isFinite(d.getTime()) ? d.toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" }) : null;
-    };
-    const openAction = (kind: UserActionKind, member: ServerMember) => {
-      if (!currentServer) return;
-      openUserAction(kind, {
-        id: member.id,
-        username: member.username,
-        displayName: member.displayName ?? null,
-        avatar: member.avatar ?? null,
-        isBot: member.isBot,
-        serverId: currentServer.id,
-        communicationDisabledUntil: member.communicationDisabledUntil ?? null,
-        onDone: () => void fetchMembersData(),
-      });
-    };
-    const selectClass = "h-9 px-2 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] focus:outline-none focus:border-[var(--app-accent)]";
-    return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Members</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]">
-            {visibleMembers.length === members.length
-              ? gt("{count} members", { count: members.length })
-              : gt("Showing {shown} of {count} members", { shown: visibleMembers.length, count: members.length })}
-          </p>
-        </div>
-        <Input
-          placeholder={gt("Search members...")}
-          value={memberSearch}
-          onChange={(event) => setMemberSearch(event.target.value)}
-          className="w-full sm:w-64 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"
-        />
-      </div>
-
-      {/* Sort + role filter (CORD-54) */}
-      <div className="flex flex-wrap items-center gap-2">
-        <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-          <T>Sort by</T>
-          <select value={memberSort} onChange={(event) => setMemberSort(event.target.value as MemberSort)} className={selectClass}>
-            <option value="joined_desc">{gt("Joined server (newest)")}</option>
-            <option value="joined_asc">{gt("Joined server (oldest)")}</option>
-            <option value="created_desc">{gt("Account created (newest)")}</option>
-            <option value="created_asc">{gt("Account created (oldest)")}</option>
-            <option value="name_asc">{gt("Name (A to Z)")}</option>
-            <option value="name_desc">{gt("Name (Z to A)")}</option>
-          </select>
-        </label>
-        <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)]">
-          <T>Role</T>
-          <select value={memberRoleFilter} onChange={(event) => setMemberRoleFilter(event.target.value)} className={selectClass}>
-            <option value="">{gt("All roles")}</option>
-            {roles
-              .filter((r) => !r.isDefault)
-              .sort((a, b) => b.position - a.position)
-              .map((r) => (
-                <option key={r.id} value={r.id}>{r.name}</option>
-              ))}
-          </select>
-        </label>
-      </div>
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader size={32} />
-        </div>
-      ) : visibleMembers.length === 0 ? (
-        <p className="text-sm text-[var(--text-muted)] text-center py-8"><T>No members match these filters.</T></p>
-      ) : (
-        <div className="space-y-1">
-          {visibleMembers
-            .map((member, index) => (
-              <div
-                key={member.id || `member-${index}`}
-                className="flex items-center max-md:flex-wrap gap-3 p-3 rounded-lg hover:bg-[var(--bg-hover)] transition-colors border border-transparent hover:border-[var(--border-strong)]"
-              >
-                <Avatar className="w-10 h-10">
-                  <AvatarImage src={cdnImage(member.avatar || undefined)} />
-                  <AvatarFallback className="bg-[var(--app-accent)] text-white">
-                    {(member.displayName || member.username || '?').charAt(0)}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2">
-                    <span className="text-[var(--text-primary)] font-medium">
-                      {member.displayName || member.username}
-                    </span>
-                    {currentServer.ownerId === member.id && (
-                      <Crown className="w-4 h-4 text-[#F59E0B]" />
-                    )}
-                  </div>
-                  <span className="text-sm text-[var(--text-secondary)]">@{member.username}</span>
-                  <div className="flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-[var(--text-muted)]">
-                    {formatDate(member.joinedAt) && <span>{gt("Joined {date}", { date: formatDate(member.joinedAt) })}</span>}
-                    {formatDate(member.accountCreatedAt) && <span>{gt("Account created {date}", { date: formatDate(member.accountCreatedAt) })}</span>}
-                    {member.communicationDisabledUntil && new Date(member.communicationDisabledUntil).getTime() > Date.now() && (
-                      <span className="text-red-500">{gt("Timed out")}</span>
-                    )}
-                  </div>
-                  <div className="flex flex-wrap gap-1 mt-1 items-center">
-                    {member.roles
-                      .filter(r => !r.isDefault)
-                      .slice(0, 3)
-                      .map((role) => (
-                        <span
-                          key={`${member.id}-${role.id}`}
-                          className="group/role inline-flex items-center gap-1 px-2 py-0.5 rounded text-[11px]"
-                          style={{ backgroundColor: `${role.color}22`, color: role.color }}
-                        >
-                          {role.name}
-                          {!role.managed && (
-                            <button
-                              type="button"
-                              onClick={() => void handleToggleMemberRole(member, role.id, false)}
-                              className="opacity-60 hover:opacity-100 focus-visible:opacity-100 transition-opacity max-md:p-1 max-md:-m-1"
-                              title={gt("Remove role")}
-                              aria-label={gt("Remove role {role}", { role: role.name })}
-                            >
-                              <X className="w-3 h-3" />
-                            </button>
-                          )}
-                        </span>
-                      ))}
-                    {member.roles.filter(r => !r.isDefault).length > 3 && (
-                      <span className="px-2 py-0.5 rounded text-[11px] bg-[var(--app-surface-alt)] text-[var(--text-muted)]">
-                        +{member.roles.filter(r => !r.isDefault).length - 3}
-                      </span>
-                    )}
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <button className="p-0.5 max-md:p-2 max-md:-m-1.5 text-[var(--text-secondary)] hover:text-[var(--app-accent)] transition-colors" title={gt("Assign roles")} aria-label={gt("Assign roles")}>
-                          <Plus className="w-3.5 h-3.5" />
-                        </button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent className="w-56 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-secondary)]">
-                        <DropdownMenuLabel className="text-xs font-bold text-[var(--text-muted)] uppercase">
-                          <T>Manage Roles</T>
-                        </DropdownMenuLabel>
-                        <DropdownMenuSeparator className="bg-[var(--app-surface-alt)]" />
-                        <ScrollArea className="h-[200px]">
-                          {roles
-                            .filter(r => !r.isDefault && !r.managed)
-                            .sort((a, b) => b.position - a.position)
-                            .map((role) => {
-                              const hasRole = member.roles.some(r => r.id === role.id);
-                              return (
-                                <DropdownMenuCheckboxItem
-                                  key={role.id}
-                                  checked={hasRole}
-                                  onCheckedChange={(checked) =>
-                                    handleToggleMemberRole(member, role.id, checked)
-                                  }
-                                  className="focus:bg-[var(--app-accent)] focus:text-white"
-                                >
-                                  <div className="flex items-center gap-2">
-                                    <div
-                                      className="w-2 h-2 rounded-full"
-                                      style={{ backgroundColor: role.color }}
-                                    />
-                                    <span className={hasRole ? "text-[var(--text-primary)]" : ""}>{role.name}</span>
-                                  </div>
-                                </DropdownMenuCheckboxItem>
-                              );
-                            })}
-                        </ScrollArea>
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  </div>
-                </div>
-                {/* Moderation (the server re-checks permissions and role hierarchy) */}
-                {member.id !== user?.id && member.id !== currentServer?.ownerId && (canKick || canBan || canTimeout) && (
-                  <div className="flex items-center gap-1 shrink-0 max-md:w-full max-md:justify-end">
-                    {canTimeout && (
-                      <button
-                        type="button"
-                        onClick={() => openAction("timeout", member)}
-                        className="px-2 py-1 max-md:py-2 rounded text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-colors"
-                      >
-                        {gt("Timeout")}
-                      </button>
-                    )}
-                    {canKick && (
-                      <button
-                        type="button"
-                        onClick={() => openAction("kick", member)}
-                        className="px-2 py-1 max-md:py-2 rounded text-xs text-red-500 hover:bg-red-500/10 transition-colors"
-                      >
-                        {gt("Kick")}
-                      </button>
-                    )}
-                    {canBan && (
-                      <button
-                        type="button"
-                        onClick={() => openAction("ban", member)}
-                        className="px-2 py-1 max-md:py-2 rounded text-xs text-red-500 hover:bg-red-500/10 transition-colors"
-                      >
-                        {gt("Ban")}
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-            ))}
-        </div>
-      )}
-    </div>
-    );
-  };
-
-  const renderEmoji = () => {
-    const filteredEmojis = emojiSearch.trim()
-      ? emojis.filter((e) => e.name.toLowerCase().includes(emojiSearch.toLowerCase()))
-      : emojis;
-    return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Emoji</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]"><T>Upload custom emoji for your server</T> ({emojis.length}/500)</p>
-        </div>
-        <button
-          onClick={() => emojiInputRef.current?.click()}
-          disabled={isUploadingEmoji}
-          className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2 disabled:opacity-50"
-        >
-          {isUploadingEmoji ? (
-            <Loader size={16} />
-          ) : (
-            <Plus className="w-4 h-4" />
-          )}
-          <T>Upload Emoji</T>
-        </button>
-      </div>
-
-      {/* Hidden file input */}
-      <input
-        type="file"
-        ref={emojiInputRef}
-        onChange={handleEmojiUpload}
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        className="hidden"
-      />
-
-      {/* Search */}
-      {emojis.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-          <input
-            type="text"
-            value={emojiSearch}
-            onChange={(e) => setEmojiSearch(e.target.value)}
-            placeholder={gt("Search emoji by name...")}
-            className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
-          />
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader size={32} />
-        </div>
-      ) : emojis.length === 0 ? (
-        <div className="text-center py-12 border-2 border-dashed border-[var(--border-subtle)] rounded-lg">
-          <Smile className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No custom emoji yet</T></h3>
-          <p className="text-[var(--text-secondary)] text-sm mb-4"><T>Upload emoji to use in your server</T></p>
-          <button
-            onClick={() => emojiInputRef.current?.click()}
-            disabled={isUploadingEmoji}
-            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md disabled:opacity-50"
-          >
-            <T>Upload Emoji</T>
-          </button>
-        </div>
-      ) : filteredEmojis.length === 0 ? (
-        <div className="text-center py-8 text-[var(--text-secondary)] text-sm">
-          {gt("No emoji matching")} "{emojiSearch}"
-        </div>
-      ) : (
-        <div className="grid grid-cols-4 sm:grid-cols-6 md:grid-cols-8 gap-2">
-          {filteredEmojis.map((emoji) => (
-            <div
-              key={emoji.id}
-              className="relative group aspect-square bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2 flex flex-col items-center justify-center hover:border-[var(--app-accent)]/50 transition-colors"
-              title={`:${emoji.name}:`}
-            >
-              <img
-                src={cdnImage(emoji.imageUrl)}
-                alt={`:${emoji.name}:`}
-                className="w-8 h-8 object-contain"
-              />
-              {emoji.animated && (
-                <span className="absolute top-1 left-1 px-1 py-0.5 text-[8px] font-bold bg-[var(--app-accent)] text-white rounded">GIF</span>
-              )}
-              <button
-                onClick={() => handleDeleteEmoji(emoji.id)}
-                className="absolute top-1 right-1 p-1 max-md:p-1.5 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
-              >
-                <X className="w-3 h-3 text-white" />
-              </button>
-              <button
-                onClick={() => {
-                  setRenamingEmojiId(emoji.id);
-                  setEmojiRenameValue(emoji.name);
-                }}
-                className="absolute top-1 right-7 max-md:right-9 p-1 max-md:p-1.5 bg-[var(--app-accent)]/80 hover:bg-[var(--app-accent)] rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
-              >
-                <Pencil className="w-3 h-3 text-white" />
-              </button>
-              {renamingEmojiId === emoji.id ? (
-                <div className="absolute inset-0 bg-[var(--bg-card)] flex flex-col items-center justify-center gap-1 p-2 z-10">
-                  <input
-                    type="text"
-                    value={emojiRenameValue}
-                    onChange={(e) => setEmojiRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleRenameEmoji(emoji.id);
-                      if (e.key === "Escape") { setRenamingEmojiId(null); setEmojiRenameValue(""); }
-                    }}
-                    autoFocus
-                    maxLength={32}
-                    className="w-full text-xs bg-[var(--app-surface-alt)] text-[var(--text-primary)] rounded px-1.5 py-1 text-center border border-[var(--app-accent)]/50 focus:outline-none focus:border-[var(--app-accent)]"
-                    placeholder={gt("Name")}
-                  />
-                  <div className="flex gap-1">
-                    <button
-                      onClick={() => handleRenameEmoji(emoji.id)}
-                      className="p-1 bg-[var(--app-accent)] hover:brightness-110 rounded"
-                    >
-                      <Check className="w-3 h-3 text-white" />
-                    </button>
-                    <button
-                      onClick={() => { setRenamingEmojiId(null); setEmojiRenameValue(""); }}
-                      className="p-1 bg-[var(--app-border)] hover:bg-[var(--bg-hover)] rounded"
-                    >
-                      <X className="w-3 h-3 text-[var(--text-primary)]" />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <span className="absolute bottom-0 left-0 right-0 text-xs text-center text-[var(--text-secondary)] truncate px-1">
-                  :{emoji.name}:
+                <span className="absolute inset-0 flex items-center justify-center text-white/80">
+                  <ImageIcon className="h-8 w-8" />
                 </span>
               )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-    );
-  };
-
-  const renderStickers = () => {
-    const filteredStickers = stickerSearch.trim()
-      ? stickers.filter((s) => s.name.toLowerCase().includes(stickerSearch.toLowerCase()))
-      : stickers;
-    return (
-    <div className="space-y-6">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Stickers</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]"><T>Upload custom stickers for your server</T> ({stickers.length}/500)</p>
-        </div>
-        <button
-          onClick={() => stickerInputRef.current?.click()}
-          disabled={isUploadingSticker}
-          className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2 disabled:opacity-50"
-        >
-          {isUploadingSticker ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
-          {isUploadingSticker ? gt("Uploading...") : gt("Upload Sticker")}
-        </button>
-      </div>
-
-      <input
-        type="file"
-        ref={stickerInputRef}
-        onChange={handleStickerUpload}
-        accept="image/png,image/apng,image/gif,image/webp"
-        className="hidden"
-      />
-
-      {/* Search */}
-      {stickers.length > 0 && (
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-          <input
-            type="text"
-            value={stickerSearch ?? ""}
-            onChange={(e) => setStickerSearch(e.target.value)}
-            placeholder={gt("Search stickers by name...")}
-            className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
-          />
-        </div>
-      )}
-
-      {isLoading ? (
-        <div className="flex items-center justify-center py-12">
-          <Loader size={32} />
-        </div>
-      ) : stickers.length === 0 ? (
-        <div className="text-center py-12 border-2 border-dashed border-[var(--border-subtle)] rounded-lg">
-          <Sticker className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-          <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No stickers yet</T></h3>
-          <p className="text-[var(--text-secondary)] text-sm mb-4"><T>Upload stickers to use in messages</T></p>
-          <button
-            onClick={() => stickerInputRef.current?.click()}
-            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md"
-          >
-            <T>Upload First Sticker</T>
-          </button>
-        </div>
-      ) : filteredStickers.length === 0 ? (
-        <div className="text-center py-8 text-[var(--text-secondary)] text-sm">
-          {gt("No stickers matching")} "{stickerSearch}"
-        </div>
-      ) : (
-        <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 gap-3">
-          {filteredStickers.map((sticker) => (
-            <div
-              key={sticker.id}
-              className="relative group rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] p-2 hover:border-[var(--app-accent)]/50 transition-colors"
-              title={sticker.name}
-            >
-              <img
-                src={cdnImage(sticker.imageUrl)}
-                alt={sticker.name}
-                className="w-full aspect-square object-contain rounded"
-              />
-              <button
-                onClick={() => handleDeleteSticker(sticker.id)}
-                className="absolute top-1 right-1 p-1 max-md:p-1.5 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
-              >
-                <X className="w-3 h-3 text-white" />
-              </button>
-              <button
-                onClick={() => {
-                  setRenamingStickerId(sticker.id);
-                  setStickerRenameValue(sticker.name);
-                }}
-                className="absolute top-1 right-7 max-md:right-9 p-1 max-md:p-1.5 bg-[var(--app-accent)]/80 hover:bg-[var(--app-accent)] rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
-              >
-                <Pencil className="w-3 h-3 text-white" />
-              </button>
-              {renamingStickerId === sticker.id ? (
-                <div className="mt-2 flex flex-col gap-1">
-                  <input
-                    type="text"
-                    value={stickerRenameValue}
-                    onChange={(e) => setStickerRenameValue(e.target.value)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") handleRenameSticker(sticker.id);
-                      if (e.key === "Escape") { setRenamingStickerId(null); setStickerRenameValue(""); }
-                    }}
-                    autoFocus
-                    maxLength={30}
-                    className="w-full text-xs bg-[var(--app-surface-alt)] text-[var(--text-primary)] rounded px-1.5 py-1 text-center border border-[var(--app-accent)]/50 focus:outline-none focus:border-[var(--app-accent)]"
-                    placeholder={gt("Name")}
-                  />
-                  <div className="flex gap-1 justify-center">
-                    <button
-                      onClick={() => handleRenameSticker(sticker.id)}
-                      className="p-1 bg-[var(--app-accent)] hover:brightness-110 rounded"
-                    >
-                      <Check className="w-3 h-3 text-white" />
-                    </button>
-                    <button
-                      onClick={() => { setRenamingStickerId(null); setStickerRenameValue(""); }}
-                      className="p-1 bg-[var(--app-border)] hover:bg-[var(--bg-hover)] rounded"
-                    >
-                      <X className="w-3 h-3 text-[var(--text-primary)]" />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <p className="text-xs text-center text-[var(--text-secondary)] mt-1 truncate">{sticker.name}</p>
-              )}
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-    );
-  };
-
-  const renderAccess = () => {
-    const joinMode = draftString("access.joinMode", "invite_only");
-    const options = [
-      {
-        key: "invite_only",
-        icon: Lock,
-        title: gt("Invite Only"),
-        description: gt("People can join your server directly with an invite"),
-      },
-      {
-        key: "apply_to_join",
-        icon: Mail,
-        title: gt("Apply to Join"),
-        description: gt("People must submit an application and be approved to join"),
-      },
-      {
-        key: "discoverable",
-        icon: Globe,
-        title: gt("Discoverable"),
-        description: gt("Anyone can join your server directly through Server Discovery"),
-      },
-    ] as const;
-
-    return (
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Access</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]"><T>Control how people join your server</T></p>
-        </div>
-
-        <div className="space-y-3">
-          <h3 className="text-[var(--text-primary)] font-medium"><T>How can people join your server?</T></h3>
-          <p className="text-sm text-[var(--text-secondary)]">
-            <T>Keep your server private, or open it up for more people to join.</T>{" "}
-            <a
-              href="https://support.discord.com/hc/en-us/articles/29729107418519-Server-Member-Applications"
-              target="_blank"
-              rel="noreferrer"
-              className="text-[var(--app-accent)] hover:underline"
-            >
-              <T>Learn More</T>
-            </a>
-          </p>
-
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {options.map((option) => {
-              const Icon = option.icon;
-              const selected = joinMode === option.key;
-              return (
-                <button
-                  key={option.key}
-                  onClick={() => settingsDraft.update("access.joinMode", option.key)}
-                  className={cn(
-                    "flex flex-col items-center text-center p-4 rounded-xl border transition-colors",
-                    selected
-                      ? "bg-[var(--app-accent)]/10 border-[var(--app-accent)]/50"
-                      : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
-                  )}
-                >
-                  <div className={cn("p-2 rounded-full mb-2", selected ? "text-[var(--app-accent)]" : "text-[var(--text-secondary)]")}>
-                    <Icon className="w-5 h-5" />
-                  </div>
-                  <span className={cn("font-medium", selected ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
-                    {option.title}
-                  </span>
-                  <span className="text-xs text-[var(--text-secondary)] mt-1">{option.description}</span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-        {joinMode === "discoverable" && (
-          <div className="space-y-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] animate-in fade-in slide-in-from-top-2 duration-200">
+              <span className="absolute inset-0 flex items-center justify-center bg-black/55 text-white opacity-0 transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100 max-md:opacity-100 max-md:bg-black/30">
+                {isUploadingBanner ? <Loader size={28} /> : <Camera className="h-6 w-6" />}
+              </span>
+            </button>
             <div className="space-y-2">
-              <label className="text-[var(--text-primary)] font-medium text-sm"><T>Discovery Description</T></label>
-              <Textarea
-                placeholder={gt("A brief description of your server shown in Server Discovery...")}
-                value={draftString("discoveryDescription")}
-                onChange={(e) => settingsDraft.update("discoveryDescription", e.target.value)}
-                maxLength={1024}
-                className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--app-accent)] min-h-[80px]"
-              />
-              <p className="text-xs text-[var(--text-secondary)] text-right">
-                {draftString("discoveryDescription").length}/1024
+              <p className="text-[13px] leading-snug text-[var(--text-secondary)]">
+                {gt("We recommend an image of at least 960x480. Images up to 8MB, GIFs up to 50MB.")}
               </p>
-            </div>
-
-            <div className="space-y-2">
-              <label className="text-[var(--text-primary)] font-medium text-sm"><T>Discovery Categories</T></label>
-              <p className="text-xs text-[var(--text-secondary)]"><T>Select up to 3 categories that best describe your server</T></p>
-              <div className="flex flex-wrap gap-2 pt-1">
-                {[
-                  { id: "gaming", name: gt("Gaming") },
-                  { id: "music", name: gt("Music") },
-                  { id: "tech", name: gt("Tech & Programming") },
-                  { id: "art", name: gt("Art & Design") },
-                  { id: "education", name: gt("Education") },
-                  { id: "entertainment", name: gt("Entertainment") },
-                  { id: "anime", name: gt("Anime & Manga") },
-                  { id: "science", name: gt("Science") },
-                  { id: "sports", name: gt("Sports & Fitness") },
-                  { id: "food", name: gt("Food & Drink") },
-                  { id: "travel", name: gt("Travel") },
-                  { id: "languages", name: gt("Languages") },
-                  { id: "photography", name: gt("Photography") },
-                  { id: "business", name: gt("Business") },
-                  { id: "lifestyle", name: gt("Lifestyle") },
-                ].map((cat) => {
-                  const selectedCats = (settingsDraft.draft.discoveryCategories as string[]) || [];
-                  const isSelected = selectedCats.includes(cat.id);
-                  return (
-                    <button
-                      key={cat.id}
-                      type="button"
-                      onClick={() => {
-                        const nextCats = [...selectedCats];
-                        const idx = nextCats.indexOf(cat.id);
-                        if (idx > -1) {
-                          nextCats.splice(idx, 1);
-                        } else {
-                          if (nextCats.length >= 3) {
-                            toast.error(gt("You can select up to 3 categories"));
-                            return;
-                          }
-                          nextCats.push(cat.id);
-                        }
-                        settingsDraft.update("discoveryCategories", nextCats);
-                      }}
-                      className={cn(
-                        "px-3 py-1.5 rounded-full text-xs font-medium border transition-all active:scale-95",
-                        isSelected
-                          ? "bg-[var(--app-accent)] border-[var(--app-accent)] text-white shadow-md shadow-[var(--app-accent)]/20"
-                          : "bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
-                      )}
-                    >
-                      {cat.name}
-                    </button>
-                  );
-                })}
-              </div>
+              <SettingsButton variant="secondary" onClick={() => bannerInputRef.current?.click()} disabled={isUploadingBanner}>
+                {gt("Upload Banner")}
+              </SettingsButton>
             </div>
           </div>
+        </SettingsSection>
+
+        {/* Server theme (CORD-50) */}
+        {canManageServer && (
+          <ServerThemeSettings key={currentServer.id} serverId={currentServer.id} theme={currentServer.theme} onSaved={fetchServers} />
         )}
 
-        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <span className="text-[var(--text-primary)] font-medium"><T>Age-Restricted Server</T></span>
-              <p className="text-sm text-[var(--text-secondary)] mt-1">
-                <T>Users will need to confirm they are over the legal age to view the content in this server.</T>{" "}
+        {isOwner && (
+          <SettingsDangerZone title={gt("Danger Zone")}>
+            <SettingsRow
+              label={gt("Delete Server")}
+              description={gt("Permanently delete this server and everything in it. This can't be undone.")}
+              danger
+              control={
+                <SettingsButton variant="danger" onClick={() => void handleDeleteServer()}>
+                  <Trash2 />
+                  {gt("Delete Server")}
+                </SettingsButton>
+              }
+            />
+          </SettingsDangerZone>
+        )}
+      </div>
+    );
+  };
+
+  // Phone: the role list and the role editor are separate pushed pages.
+  const roleEditing = isMobile ? mobileNav.detail !== null : roleEditorOpen;
+
+  const renderRoles = () =>
+    roleEditing && selectedRole && roleDraft ? (
+      <RoleEditor
+        role={selectedRole}
+        draft={roleDraft}
+        setDraft={setRoleDraft}
+        roles={sortedRoles}
+        roleLinks={roleLinks}
+        isSavingRoleLinks={isSavingRoleLinks}
+        members={members}
+        membersLoading={!isTabLoaded("members")}
+        isMobile={isMobile}
+        onRequestMembers={requestMembers}
+        onBack={onRoleEditorBack}
+        onSelectRole={onSelectRoleInEditor}
+        onCreateRole={onCreateRole}
+        onDeleteRole={onDeleteRole}
+        onSetRoleLinks={onSetRoleLinks}
+        onToggleMemberRole={onToggleMemberRole}
+      />
+    ) : (
+      <RolesListPage
+        roles={sortedRoles}
+        roleLinks={roleLinks}
+        loading={!isTabLoaded("roles")}
+        isMobile={isMobile}
+        isReordering={isReorderingRoles}
+        onOpenRole={onOpenRole}
+        onCreateRole={onCreateRole}
+        onDeleteRole={onDeleteRole}
+        onReorder={onReorderRoles}
+      />
+    );
+
+  const renderAccess = () => {
+    const joinMode = draftString("access.joinMode", "invite_only") as "invite_only" | "apply_to_join" | "discoverable";
+    const categories = [
+      { id: "gaming", name: gt("Gaming") },
+      { id: "music", name: gt("Music") },
+      { id: "tech", name: gt("Tech & Programming") },
+      { id: "art", name: gt("Art & Design") },
+      { id: "education", name: gt("Education") },
+      { id: "entertainment", name: gt("Entertainment") },
+      { id: "anime", name: gt("Anime & Manga") },
+      { id: "science", name: gt("Science") },
+      { id: "sports", name: gt("Sports & Fitness") },
+      { id: "food", name: gt("Food & Drink") },
+      { id: "travel", name: gt("Travel") },
+      { id: "languages", name: gt("Languages") },
+      { id: "photography", name: gt("Photography") },
+      { id: "business", name: gt("Business") },
+      { id: "lifestyle", name: gt("Lifestyle") },
+    ];
+    const selectedCats = (settingsDraft.draft.discoveryCategories as string[]) || [];
+
+    return (
+      <div className="space-y-8">
+        <SettingsPageHeader title={gt("Access")} description={gt("Control how people join your server")} className="mb-0" />
+
+        <SettingsSection
+          title={gt("How can people join your server?")}
+          description={
+            <>
+              {gt("Keep your server private, or open it up for more people to join.")}{" "}
+              <a
+                href="https://support.discord.com/hc/en-us/articles/29729107418519-Server-Member-Applications"
+                target="_blank"
+                rel="noreferrer"
+                className="text-[var(--app-accent)] hover:underline"
+              >
+                {gt("Learn More")}
+              </a>
+            </>
+          }
+        >
+          <SettingsRadioCards
+            layout="tiles"
+            ariaLabel={gt("How can people join your server?")}
+            value={joinMode}
+            onChange={(value) => settingsDraft.update("access.joinMode", value)}
+            options={[
+              { value: "invite_only", icon: Lock, label: gt("Invite Only"), description: gt("People can join your server directly with an invite") },
+              { value: "apply_to_join", icon: Mail, label: gt("Apply to Join"), description: gt("People must submit an application and be approved to join") },
+              { value: "discoverable", icon: Globe, label: gt("Discoverable"), description: gt("Anyone can join your server directly through Server Discovery") },
+            ]}
+          />
+        </SettingsSection>
+
+        {joinMode === "discoverable" && (
+          <SettingsSection title={gt("Server Discovery")}>
+            <SettingsCard>
+              <div className="space-y-2 px-4 py-3.5" data-settings-row>
+                <label className="text-sm font-medium text-[var(--text-primary)]" htmlFor="discovery-description">
+                  {gt("Discovery Description")}
+                </label>
+                <Textarea
+                  id="discovery-description"
+                  placeholder={gt("A brief description of your server shown in Server Discovery...")}
+                  value={draftString("discoveryDescription")}
+                  onChange={(e) => settingsDraft.update("discoveryDescription", e.target.value)}
+                  maxLength={1024}
+                  className="min-h-[80px] bg-[var(--bg-input)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--app-accent)]"
+                />
+                <p className="text-right text-xs text-[var(--text-muted)]">{draftString("discoveryDescription").length}/1024</p>
+              </div>
+              <div className="space-y-2 px-4 py-3.5" data-settings-row>
+                <p className="text-sm font-medium text-[var(--text-primary)]">{gt("Discovery Categories")}</p>
+                <p className="text-[13px] text-[var(--text-secondary)]">{gt("Select up to 3 categories that best describe your server")}</p>
+                <div className="flex flex-wrap gap-2 pt-1">
+                  {categories.map((cat) => {
+                    const isSelected = selectedCats.includes(cat.id);
+                    return (
+                      <button
+                        key={cat.id}
+                        type="button"
+                        aria-pressed={isSelected}
+                        onClick={() => {
+                          const nextCats = [...selectedCats];
+                          const idx = nextCats.indexOf(cat.id);
+                          if (idx > -1) {
+                            nextCats.splice(idx, 1);
+                          } else {
+                            if (nextCats.length >= 3) {
+                              toast.error(gt("You can select up to 3 categories"));
+                              return;
+                            }
+                            nextCats.push(cat.id);
+                          }
+                          settingsDraft.update("discoveryCategories", nextCats);
+                        }}
+                        className={cn(
+                          "rounded-full border px-3 py-1.5 text-xs font-medium transition-colors active:scale-95",
+                          isSelected
+                            ? "border-[var(--app-accent)] bg-[var(--app-accent)] text-white"
+                            : "border-[var(--border-subtle)] bg-[var(--bg-card)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]",
+                        )}
+                      >
+                        {cat.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            </SettingsCard>
+          </SettingsSection>
+        )}
+
+        <SettingsCard>
+          <SettingsToggleRow
+            label={gt("Age-Restricted Server")}
+            description={
+              <>
+                {gt("Users will need to confirm they are over the legal age to view the content in this server.")}{" "}
                 <a
                   href="https://support.discord.com/hc/en-us/articles/115000084051"
                   target="_blank"
                   rel="noreferrer"
                   className="text-[var(--app-accent)] hover:underline"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <T>Learn more</T>
+                  {gt("Learn more")}
                 </a>
-              </p>
-            </div>
-            <ToggleSwitch
-              checked={draftBool("isAgeGated")}
-              onCheckedChange={(checked) => {
-                settingsDraft.update("isAgeGated", checked);
-                if (checked) {
-                  settingsDraft.update("access.joinMode", "invite_only");
-                }
-              }}
-              aria-label="Age-restricted server"
-            />
-          </div>
-        </div>
+              </>
+            }
+            checked={draftBool("isAgeGated")}
+            onCheckedChange={(checked) => {
+              settingsDraft.update("isAgeGated", checked);
+              if (checked) {
+                settingsDraft.update("access.joinMode", "invite_only");
+              }
+            }}
+          />
+        </SettingsCard>
       </div>
     );
   };
@@ -3504,24 +2373,15 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       ? applications
       : applications.filter((app) => app.status === applicationFilter);
 
-    const statusBadge = (status: ServerApplication["status"]) => {
-      const styles = {
-        pending: "bg-yellow-500/10 text-yellow-500",
-        approved: "bg-green-500/10 text-green-500",
-        rejected: "bg-red-500/10 text-red-500",
-        interviewed: "bg-blue-500/10 text-blue-500",
-      };
+    const statusPill = (status: ServerApplication["status"]) => {
+      const tone = { pending: "warning", approved: "success", rejected: "danger", interviewed: "info" } as const;
       const labels = {
         pending: gt("Pending"),
         approved: gt("Approved"),
         rejected: gt("Rejected"),
         interviewed: gt("Interviewed"),
       };
-      return (
-        <span className={cn("px-2 py-0.5 rounded text-xs font-medium shrink-0", styles[status])}>
-          {labels[status]}
-        </span>
-      );
+      return <SettingsStatusPill tone={tone[status]} dot>{labels[status]}</SettingsStatusPill>;
     };
 
     const submitReject = async () => {
@@ -3531,77 +2391,76 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     };
 
     return (
-      <div className="space-y-6">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Member Applications</T></h2>
-            <p className="text-sm text-[var(--text-secondary)]"><T>Review and manage server member applications</T></p>
-            <p className="text-xs text-[var(--text-muted)] mt-1">
-              <T>Members waiting in Rules Screening with manual approval show up here too.</T>
-            </p>
-          </div>
-          <select
-            value={applicationFilter}
-            onChange={(e) => setApplicationFilter(e.target.value as typeof applicationFilter)}
-            className="h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm"
-          >
-            <option value="all">{gt("All Types")}</option>
-            <option value="pending">{gt("Pending")}</option>
-            <option value="approved">{gt("Approved")}</option>
-            <option value="rejected">{gt("Rejected")}</option>
-            <option value="interviewed">{gt("Interviewed")}</option>
-          </select>
-        </div>
+      <div className="space-y-4">
+        <SettingsPageHeader
+          title={gt("Member Applications")}
+          description={
+            <>
+              {gt("Review and manage server member applications")}
+              <span className="mt-0.5 block text-xs text-[var(--text-muted)]">
+                {gt("Members waiting in Rules Screening with manual approval show up here too.")}
+              </span>
+            </>
+          }
+          className="mb-2"
+        />
 
-        {isLoading ? (
-          <div className="flex items-center justify-center py-12">
-            <Loader size={32} />
-          </div>
+        <SettingsSubTabs
+          variant="segmented"
+          ariaLabel={gt("Filter applications")}
+          value={applicationFilter}
+          onChange={setApplicationFilter}
+          tabs={[
+            { id: "all", label: gt("All Types") },
+            { id: "pending", label: pendingAppCount > 0 ? `${gt("Pending")} (${pendingAppCount})` : gt("Pending") },
+            { id: "approved", label: gt("Approved") },
+            { id: "rejected", label: gt("Rejected") },
+            { id: "interviewed", label: gt("Interviewed") },
+          ]}
+        />
+
+        {!isTabLoaded("applications") && applications.length === 0 ? (
+          <SettingsSkeleton variant="list" count={3} />
         ) : filtered.length === 0 ? (
-          <div className="text-center py-12">
-            <ClipboardList className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No applications</T></h3>
-            <p className="text-[var(--text-secondary)] text-sm">
-              {applicationFilter === "all"
+          <SettingsEmptyState
+            icon={ClipboardList}
+            title={gt("No applications")}
+            description={
+              applicationFilter === "all"
                 ? gt("There are no member applications to review")
-                : gt("No {filter} applications", { filter: applicationFilter })}
-            </p>
-          </div>
+                : gt("No {filter} applications", { filter: applicationFilter })
+            }
+          />
         ) : (
           <div className="space-y-3">
             {filtered.map((app) => (
-              <div
-                key={app.id}
-                className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-3"
-              >
+              <div key={app.id} className="space-y-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4">
                 <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0">
-                    <Avatar className="w-10 h-10">
+                  <div className="flex min-w-0 items-center gap-3">
+                    <Avatar className="h-10 w-10">
                       <AvatarImage src={cdnImage(app.user.avatar)} />
                       <AvatarFallback className="bg-[var(--app-accent)] text-white">
                         {(app.user.displayName || app.user.username || "?").charAt(0)}
                       </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0">
-                      <p className="text-[var(--text-primary)] font-medium truncate">
-                        {app.user.displayName || app.user.username}
+                      <p className="truncate text-[15px] font-medium text-[var(--text-primary)]">{app.user.displayName || app.user.username}</p>
+                      <p className="truncate text-xs text-[var(--text-secondary)]">
+                        @{app.user.username} · {gt("Submitted")} {new Date(app.createdAt).toLocaleString()}
                       </p>
-                      <p className="text-xs text-[var(--text-secondary)] truncate">@{app.user.username}</p>
                     </div>
                   </div>
-                  {statusBadge(app.status)}
+                  {statusPill(app.status)}
                 </div>
 
                 {app.answers.length > 0 ? (
-                  <dl className="divide-y divide-[var(--border-subtle)] rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)]">
+                  <dl className="divide-y divide-[var(--border-subtle)] rounded-md border border-[var(--border-subtle)] bg-[var(--bg-card)]">
                     {app.answers.map((answer, index) => {
                       const reply = decodeHtmlEntities(answer.answer ?? "").trim();
                       return (
                         <div key={index} className="px-3 py-2.5">
-                          <dt className="text-xs font-semibold text-[var(--text-secondary)]">
-                            {decodeHtmlEntities(answer.question ?? "")}
-                          </dt>
-                          <dd className={cn("mt-1 text-sm whitespace-pre-wrap break-words", reply ? "text-[var(--text-primary)]" : "italic text-[var(--text-muted)]")}>
+                          <dt className="text-xs font-semibold text-[var(--text-secondary)]">{decodeHtmlEntities(answer.question ?? "")}</dt>
+                          <dd className={cn("mt-1 whitespace-pre-wrap break-words text-sm", reply ? "text-[var(--text-primary)]" : "italic text-[var(--text-muted)]")}>
                             {reply || gt("No answer")}
                           </dd>
                         </div>
@@ -3609,40 +2468,39 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                     })}
                   </dl>
                 ) : (
-                  <p className="text-sm text-[var(--text-muted)]"><T>Accepted the rules without answering any questions.</T></p>
+                  <p className="text-sm text-[var(--text-muted)]">{gt("Accepted the rules without answering any questions.")}</p>
                 )}
 
                 {app.status === "pending" && rejecting?.id !== app.id && (
                   <div className="flex flex-wrap gap-2 pt-1">
-                    <button
-                      type="button"
+                    <SettingsButton
                       onClick={() => void handleReviewApplication(app.id, "approved")}
-                      className="h-10 px-4 bg-green-600 hover:bg-green-700 text-white text-sm font-medium rounded-md max-sm:flex-1"
+                      className="h-9 bg-green-600 px-4 text-white hover:bg-green-700 max-sm:flex-1"
                     >
-                      <T>Approve</T>
-                    </button>
-                    <button
-                      type="button"
+                      {gt("Approve")}
+                    </SettingsButton>
+                    <SettingsButton
+                      variant="secondary"
                       onClick={() => void handleReviewApplication(app.id, "interviewed")}
-                      className="h-10 px-4 bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium rounded-md max-sm:flex-1"
+                      className="h-9 px-4 max-sm:flex-1"
                     >
-                      <T>Interview</T>
-                    </button>
-                    <button
-                      type="button"
+                      {gt("Interview")}
+                    </SettingsButton>
+                    <SettingsButton
+                      variant="danger"
                       onClick={() => setRejecting({ id: app.id, reason: "", remove: false })}
-                      className="h-10 px-4 bg-red-600 hover:bg-red-700 text-white text-sm font-medium rounded-md max-sm:flex-1"
+                      className="h-9 px-4 max-sm:flex-1"
                     >
-                      <T>Reject</T>
-                    </button>
+                      {gt("Reject")}
+                    </SettingsButton>
                   </div>
                 )}
 
                 {app.status === "pending" && rejecting?.id === app.id && (
-                  <div className="space-y-3 p-3 rounded-md border border-red-500/40 bg-red-500/5">
+                  <div className="space-y-3 rounded-md border border-red-500/40 bg-red-500/5 p-3">
                     <div>
-                      <label htmlFor={`reject-reason-${app.id}`} className="block text-xs font-bold uppercase text-[var(--text-secondary)] mb-1.5">
-                        <T>Reason (optional)</T>
+                      <label htmlFor={`reject-reason-${app.id}`} className="mb-1.5 block text-xs font-bold uppercase text-[var(--text-secondary)]">
+                        {gt("Reason (optional)")}
                       </label>
                       <Textarea
                         id={`reject-reason-${app.id}`}
@@ -3652,51 +2510,39 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                         autoFocus
                         onChange={(e) => setRejecting({ ...rejecting, reason: e.target.value })}
                         placeholder={gt("Shown to the applicant")}
-                        className="bg-[var(--bg-input)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] resize-none"
+                        className="resize-none bg-[var(--bg-input)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)]"
                       />
                     </div>
-                    <label className="flex items-start gap-3 min-h-10 cursor-pointer">
+                    <label className="flex min-h-10 cursor-pointer items-start gap-3">
                       <input
                         type="checkbox"
                         checked={rejecting.remove}
                         onChange={(e) => setRejecting({ ...rejecting, remove: e.target.checked })}
-                        className="mt-0.5 w-4 h-4 shrink-0 accent-[var(--app-accent)]"
+                        className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--app-accent)]"
                       />
                       <span>
-                        <span className="block text-sm text-[var(--text-primary)]"><T>Also remove them from the server</T></span>
+                        <span className="block text-sm text-[var(--text-primary)]">{gt("Also remove them from the server")}</span>
                         <span className="block text-xs text-[var(--text-muted)]">
-                          <T>Only applies if they joined and are still waiting to be let in. They can join again with an invite.</T>
+                          {gt("Only applies if they joined and are still waiting to be let in. They can join again with an invite.")}
                         </span>
                       </span>
                     </label>
                     <div className="flex flex-wrap justify-end gap-2">
-                      <button
-                        type="button"
-                        onClick={() => setRejecting(null)}
-                        className="h-10 px-4 rounded-md text-sm text-[var(--text-primary)] hover:bg-[var(--bg-hover)] max-sm:flex-1"
-                      >
-                        <T>Cancel</T>
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void submitReject()}
-                        className="h-10 px-4 rounded-md bg-red-600 hover:bg-red-700 text-white text-sm font-medium max-sm:flex-1"
-                      >
-                        <T>Reject application</T>
-                      </button>
+                      <SettingsButton variant="ghost" onClick={() => setRejecting(null)} className="h-9 px-4 max-sm:flex-1">
+                        {gt("Cancel")}
+                      </SettingsButton>
+                      <SettingsButton variant="dangerFilled" onClick={() => void submitReject()} className="h-9 px-4 max-sm:flex-1">
+                        {gt("Reject application")}
+                      </SettingsButton>
                     </div>
                   </div>
                 )}
 
                 {app.rejectionReason && (
-                  <p className="text-xs text-red-400 whitespace-pre-wrap break-words">
+                  <p className="whitespace-pre-wrap break-words text-xs text-red-500">
                     {gt("Reason: {reason}", { reason: decodeHtmlEntities(app.rejectionReason) })}
                   </p>
                 )}
-
-                <p className="text-xs text-[var(--text-muted)]">
-                  {gt("Submitted")} {new Date(app.createdAt).toLocaleString()}
-                </p>
               </div>
             ))}
           </div>
@@ -3705,160 +2551,73 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     );
   };
 
-  const renderAppDiscovery = () => {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>App Discovery</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]"><T>Browse and add public bots to your server</T></p>
-        </div>
-
-        <div className="relative">
-          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
-          <Input
-            value={appSearch}
-            onChange={(e) => setAppSearch(e.target.value)}
-            placeholder={gt("Search bots and apps...")}
-            className="pl-10 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--app-accent)]"
-          />
-        </div>
-
-        {isLoading ? (
-          <div className="text-center py-10 text-sm text-[var(--text-secondary)]"><Loader size={20} className="mx-auto" /></div>
-        ) : discoverableApps.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-card)]">
-            <Bot className="w-10 h-10 text-[var(--text-muted)] mx-auto mb-3 opacity-50" />
-            <p className="text-sm text-[var(--text-secondary)]">
-              {appSearch ? gt("No bots found matching your search") : gt("No public bots available yet")}
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {discoverableApps.map((app) => (
-              <div
-                key={app.id}
-                className="flex items-start gap-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] hover:border-[var(--border-strong)] transition-colors"
-              >
-                <div className="w-12 h-12 rounded-xl bg-[var(--app-accent)]/20 flex items-center justify-center shrink-0 overflow-hidden">
-                  {app.icon ? (
-                    <img src={cdnImage(app.icon)} alt={app.name} className="w-full h-full object-cover" />
-                  ) : (
-                    <Bot className="w-6 h-6 text-[var(--app-accent)]" />
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="font-semibold text-sm text-[var(--text-primary)] truncate">{app.name}</span>
-                    {app.botId && <Sparkles className="w-3 h-3 text-[var(--app-accent)] shrink-0" />}
-                  </div>
-                  <p className="text-xs text-[var(--text-secondary)] line-clamp-2 mt-0.5">
-                    {app.description || gt("No description")}
-                  </p>
-                  {app.tags && Array.isArray(app.tags) && app.tags.length > 0 && (
-                    <div className="flex gap-1 mt-2 flex-wrap">
-                      {app.tags.slice(0, 3).map((tag: string) => (
-                        <span key={tag} className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--app-accent)]/10 text-[var(--app-accent)] font-medium">
-                          {tag}
-                        </span>
-                      ))}
-                    </div>
-                  )}
-                </div>
-                <a
-                  href={`/api/developers/applications/${app.id}/add?server_id=${currentServer?.id}`}
-                  className="shrink-0 px-3 py-1.5 rounded-lg bg-[var(--app-accent)] hover:brightness-110 text-white text-xs font-semibold transition-colors"
-                >
-                  {gt("Add")}
-                </a>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-    );
-  };
-
+  const widgetCode = `<iframe src="https://serika.chat/widget/${currentServer.id}" width="350" height="500" />`;
   const renderWidget = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Server Widget</T></h2>
-        <p className="text-sm text-[var(--text-secondary)]"><T>Embed your server on your website</T></p>
-      </div>
+    <div className="space-y-8">
+      <SettingsPageHeader title={gt("Server Widget")} description={gt("Embed your server on your website")} className="mb-0" />
 
-      <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-        <div className="flex items-center justify-between mb-4">
-          <span className="text-[var(--text-primary)] font-medium"><T>Enable Server Widget</T></span>
-          <button
-            onClick={() => settingsDraft.update("widget.enabled", !draftBool("widget.enabled", false))}
-            role="switch"
-            aria-checked={draftBool("widget.enabled", false)}
-            aria-label="Enable server widget"
-            className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("widget.enabled", false) ? "bg-[var(--app-accent)]" : "bg-[var(--app-surface-alt)]")}
-          >
-            <div className={cn(
-              "w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform",
-              draftBool("widget.enabled", false) ? "translate-x-6 left-0.5" : "left-0.5"
-            )} />
-          </button>
-        </div>
-        <p className="text-sm text-[var(--text-secondary)]">
-          <T>Allow people to embed your server info on their websites</T>
-        </p>
-        <label className="mt-4 flex items-center justify-between gap-4 cursor-pointer">
-          <span>
-            <span className="block text-sm text-[var(--text-primary)]"><T>Show recent messages</T></span>
-            <span className="block text-xs text-[var(--app-muted)] mt-1">
-              <T>Anyone with the widget link can read the latest messages of channels that have no permission overwrites.</T>
+      <SettingsCard>
+        <SettingsToggleRow
+          label={gt("Enable Server Widget")}
+          description={gt("Allow people to embed your server info on their websites")}
+          checked={draftBool("widget.enabled", false)}
+          onCheckedChange={(checked) => settingsDraft.update("widget.enabled", checked)}
+        />
+        <SettingsToggleRow
+          label={gt("Show recent messages")}
+          description={gt("Anyone with the widget link can read the latest messages of channels that have no permission overwrites.")}
+          checked={draftBool("widget.publicMessages", false)}
+          disabled={!draftBool("widget.enabled", false)}
+          onCheckedChange={(checked) => settingsDraft.update("widget.publicMessages", checked)}
+        />
+        <SettingsRow
+          label={gt("Server ID")}
+          control={
+            <span className="flex items-center gap-1">
+              <code className="font-mono text-[13px] text-[var(--text-secondary)]">{currentServer.id}</code>
+              <SettingsButton size="sm" variant="ghost" onClick={() => copyToClipboard(currentServer.id)} aria-label={gt("Copy")}>
+                <Copy />
+              </SettingsButton>
             </span>
-          </span>
-          <ToggleSwitch
-            size="sm"
-            checked={draftBool("widget.publicMessages", false)}
-            disabled={!draftBool("widget.enabled", false)}
-            onCheckedChange={(checked) => settingsDraft.update("widget.publicMessages", checked)}
-          />
-        </label>
-      </div>
+          }
+          stackOnMobile
+        />
+      </SettingsCard>
 
-      <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-          <T>INVITE CHANNEL</T>
-        </label>
-        <select
-          value={draftString("widget.channelId", "") || ""}
-          onChange={(e) => settingsDraft.update("widget.channelId", e.target.value || null)}
-          aria-label="Widget invite channel"
-          className="w-full h-10 px-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-        >
-          <option value="">{gt("Select a channel")}</option>
-          {textChannels.map((channel) => (
-            <option key={channel.id} value={channel.id}>#{channel.name}</option>
-          ))}
-        </select>
-        {fieldErrors["widget.channelId"] && (
-          <p className="text-xs text-red-400 mt-1">{fieldErrors["widget.channelId"]}</p>
-        )}
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-[var(--text-secondary)] mb-2">
-          <T>WIDGET CODE</T>
-        </label>
-        <div className="p-3 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] font-mono text-sm text-[var(--text-secondary)] break-all">
-          {`<iframe src="https://serika.chat/widget/${currentServer.id}" width="350" height="500" />`}
+      <SettingsSection title={gt("Invite channel")} description={gt("The channel new members land in when they join from the widget.")}>
+        <div>
+          <select
+            value={draftString("widget.channelId", "") || ""}
+            onChange={(e) => settingsDraft.update("widget.channelId", e.target.value || null)}
+            aria-label={gt("Widget invite channel")}
+            className={selectClass}
+          >
+            <option value="">{gt("Select a channel")}</option>
+            {textChannels.map((channel) => (
+              <option key={channel.id} value={channel.id}>
+                #{channel.name}
+              </option>
+            ))}
+          </select>
+          {fieldError("widget.channelId")}
         </div>
-        <button
-          onClick={() => copyToClipboard(`<iframe src=\"https://serika.chat/widget/${currentServer.id}\" width=\"350\" height=\"500\" />`)}
-          className="mt-2 text-sm text-[var(--app-accent)] hover:underline flex items-center gap-1"
-        >
-          <Copy className="w-4 h-4" />
-          <T>Copy Code</T>
-        </button>
-      </div>
+      </SettingsSection>
+
+      <SettingsSection
+        title={gt("Widget code")}
+        action={
+          <SettingsButton size="sm" variant="secondary" onClick={() => copyToClipboard(widgetCode)}>
+            <Copy />
+            {gt("Copy Code")}
+          </SettingsButton>
+        }
+      >
+        <pre className="overflow-x-auto whitespace-pre-wrap break-all rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3 font-mono text-[13px] text-[var(--text-secondary)]">
+          {widgetCode}
+        </pre>
+      </SettingsSection>
     </div>
   );
-
-  const renderAuditLog = () => (currentServer ? <ServerAuditLogPanel serverId={currentServer.id} roles={roles} /> : null);
 
   /** "5 minutes", "2 hours", "3 days". */
   const formatWait = (totalMinutes: number) => {
@@ -3910,9 +2669,9 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         });
     const baseline = settingsDraft.baseline;
     return (
-      <div className="mt-4 pt-4 border-t border-[var(--border-subtle)] space-y-4">
+      <SettingsCard>
         {rank >= 2 && (
-          <div className="space-y-2">
+          <div className="space-y-2 px-4 py-3.5" data-settings-row>
             <div className="grid gap-4 sm:grid-cols-2">
               <DurationInput
                 key={`account-${String(baseline["moderation.verification.accountAgeMinutes"])}`}
@@ -3931,141 +2690,88 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 />
               )}
             </div>
-            <p className="text-xs text-[var(--text-muted)]"><T>Each wait can be up to 30 days.</T></p>
+            <p className="text-xs text-[var(--text-muted)]">{gt("Each wait can be up to 30 days.")}</p>
           </div>
         )}
 
-        <div>
-          <p className="text-sm font-medium text-[var(--text-primary)] mb-2"><T>While waiting, members can&apos;t:</T></p>
+        <div className="px-4 py-3.5" data-settings-row>
+          <p className="mb-2 text-sm font-medium text-[var(--text-primary)]">{gt("While waiting, members can't:")}</p>
           <div className="grid gap-1 sm:grid-cols-2">
             {VERIFICATION_ACTIONS.map((a) => {
               const key = `moderation.verification.restrict.${a}`;
               const checked = draftBool(key, true);
               return (
-                <label
-                  key={a}
-                  className="flex items-center gap-3 min-h-10 px-2 rounded-md cursor-pointer hover:bg-[var(--bg-hover)]"
-                >
+                <label key={a} className="-mx-2 flex min-h-10 cursor-pointer items-center gap-3 rounded-md px-2 hover:bg-[var(--bg-hover)]">
                   <input
                     type="checkbox"
                     checked={checked}
                     onChange={(e) => settingsDraft.update(key, e.target.checked)}
-                    className="w-4 h-4 shrink-0 accent-[var(--app-accent)]"
+                    className="h-4 w-4 shrink-0 accent-[var(--app-accent)]"
                   />
                   <span className="text-sm text-[var(--text-primary)]">{actions[a].label}</span>
                 </label>
               );
             })}
           </div>
-          <p className="text-xs text-[var(--text-muted)] mt-2">
-            <T>Tip: let new members react but not chat by unchecking Add reactions and keeping Send messages checked.</T>
+          <p className="mt-2 text-xs text-[var(--text-muted)]">
+            {gt("Tip: let new members react but not chat by unchecking Add reactions and keeping Send messages checked.")}
           </p>
         </div>
 
         <p
           className={cn(
-            "flex items-start gap-2 p-3 rounded-md text-sm",
-            restricted.length === 0
-              ? "bg-yellow-500/10 text-[var(--text-primary)]"
-              : "bg-[var(--app-accent)]/10 text-[var(--text-primary)]",
+            "flex items-start gap-2 px-4 py-3 text-sm text-[var(--text-primary)]",
+            restricted.length === 0 ? "bg-yellow-500/10" : "bg-[color-mix(in_srgb,var(--app-accent)_8%,transparent)]",
           )}
           aria-live="polite"
         >
           {restricted.length === 0
-            ? <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5 text-yellow-500" />
-            : <Shield className="w-4 h-4 shrink-0 mt-0.5 text-[var(--app-accent)]" />}
+            ? <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-yellow-500" />
+            : <Shield className="mt-0.5 h-4 w-4 shrink-0 text-[var(--app-accent)]" />}
           <span>{summary}</span>
         </p>
-      </div>
+      </SettingsCard>
     );
   };
 
   const renderModeration = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Moderation</T></h2>
-        <p className="text-sm text-[var(--text-secondary)]"><T>Configure moderation settings for your server</T></p>
-      </div>
+    <div className="space-y-8">
+      <SettingsPageHeader title={gt("Moderation")} description={gt("Configure moderation settings for your server")} className="mb-0" />
 
-      <div className="space-y-4">
-        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="mb-1">
-            <span className="text-[var(--text-primary)] font-medium"><T>Verification Level</T></span>
-          </div>
-          <p className="text-sm text-[var(--text-secondary)] mb-3">
-            <T>New members must meet these criteria before they can do the things you lock. Members with a role are exempt.</T>
-          </p>
-          <div role="radiogroup" aria-label={gt("Verification level")} className="space-y-2">
-            {([
-              { value: "none", label: gt("None"), desc: gt("Unrestricted") },
-              { value: "low", label: gt("Low"), desc: gt("Must have a verified email on their account.") },
-              { value: "medium", label: gt("Medium"), desc: gt("Must also be registered on SerikaCord for longer than {time}.", { time: formatWait(draftNumber("moderation.verification.accountAgeMinutes", 5)) }) },
-              { value: "high", label: gt("High"), desc: gt("Must also be a member of this server for longer than {time}.", { time: formatWait(draftNumber("moderation.verification.memberAgeMinutes", 10)) }) },
-              { value: "very_high", label: gt("Highest"), desc: gt("Must also have a verified linked account: a connection like GitHub or Discord, or a website domain verified with DNS.") },
-            ] as const).map((opt) => {
-              const selected = draftString("moderation.verificationLevel", "none") === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => settingsDraft.update("moderation.verificationLevel", opt.value)}
-                  className={cn(
-                    "w-full flex items-start gap-3 p-3 rounded-md border text-left transition-colors",
-                    selected ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10" : "border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-hover)]",
-                  )}
-                >
-                  <span className={cn("mt-0.5 w-4 h-4 rounded-full border-2 shrink-0", selected ? "border-[var(--app-accent)] bg-[var(--app-accent)]" : "border-[var(--text-muted)]")} />
-                  <span>
-                    <span className="block text-sm font-medium text-[var(--text-primary)]">{opt.label}</span>
-                    <span className="block text-xs text-[var(--text-secondary)]">{opt.desc}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-          {renderVerificationOptions()}
-        </div>
+      <SettingsSection
+        title={gt("Verification Level")}
+        description={gt("New members must meet these criteria before they can do the things you lock. Members with a role are exempt.")}
+      >
+        <SettingsRadioCards
+          ariaLabel={gt("Verification level")}
+          value={draftString("moderation.verificationLevel", "none")}
+          onChange={(value) => settingsDraft.update("moderation.verificationLevel", value)}
+          options={[
+            { value: "none", label: gt("None"), description: gt("Unrestricted") },
+            { value: "low", label: gt("Low"), description: gt("Must have a verified email on their account.") },
+            { value: "medium", label: gt("Medium"), description: gt("Must also be registered on SerikaCord for longer than {time}.", { time: formatWait(draftNumber("moderation.verification.accountAgeMinutes", 5)) }) },
+            { value: "high", label: gt("High"), description: gt("Must also be a member of this server for longer than {time}.", { time: formatWait(draftNumber("moderation.verification.memberAgeMinutes", 10)) }) },
+            { value: "very_high", label: gt("Highest"), description: gt("Must also have a verified linked account: a connection like GitHub or Discord, or a website domain verified with DNS.") },
+          ]}
+        />
+        {renderVerificationOptions()}
+      </SettingsSection>
 
-        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="mb-1">
-            <span className="text-[var(--text-primary)] font-medium"><T>Explicit Media Content Filter</T></span>
-          </div>
-          <p className="text-sm text-[var(--text-secondary)] mb-3">
-            <T>Images and videos from the members you choose are blurred until clicked. Age-restricted channels are never filtered.</T>
-          </p>
-          <div role="radiogroup" aria-label={gt("Explicit media content filter")} className="space-y-2">
-            {([
-              { value: "disabled", label: gt("Don't scan any media content"), desc: gt("My friends are nice most of the time.") },
-              { value: "members_without_roles", label: gt("Scan media content from members without a role"), desc: gt("Recommended for servers that use roles for trusted members.") },
-              { value: "all_members", label: gt("Scan media content from all members"), desc: gt("Recommended when you want images to be squeaky clean.") },
-            ] as const).map((opt) => {
-              const selected = draftString("moderation.explicitContentFilter", "disabled") === opt.value;
-              return (
-                <button
-                  key={opt.value}
-                  type="button"
-                  role="radio"
-                  aria-checked={selected}
-                  onClick={() => settingsDraft.update("moderation.explicitContentFilter", opt.value)}
-                  className={cn(
-                    "w-full flex items-start gap-3 p-3 rounded-md border text-left transition-colors",
-                    selected ? "border-[var(--app-accent)] bg-[var(--app-accent)]/10" : "border-[var(--border-subtle)] bg-[var(--bg-app)] hover:bg-[var(--bg-hover)]",
-                  )}
-                >
-                  <span className={cn("mt-0.5 w-4 h-4 rounded-full border-2 shrink-0", selected ? "border-[var(--app-accent)] bg-[var(--app-accent)]" : "border-[var(--text-muted)]")} />
-                  <span>
-                    <span className="block text-sm font-medium text-[var(--text-primary)]">{opt.label}</span>
-                    <span className="block text-xs text-[var(--text-secondary)]">{opt.desc}</span>
-                  </span>
-                </button>
-              );
-            })}
-          </div>
-        </div>
-
-      </div>
+      <SettingsSection
+        title={gt("Explicit Media Content Filter")}
+        description={gt("Images and videos from the members you choose are blurred until clicked. Age-restricted channels are never filtered.")}
+      >
+        <SettingsRadioCards
+          ariaLabel={gt("Explicit media content filter")}
+          value={draftString("moderation.explicitContentFilter", "disabled")}
+          onChange={(value) => settingsDraft.update("moderation.explicitContentFilter", value)}
+          options={[
+            { value: "disabled", label: gt("Don't scan any media content"), description: gt("My friends are nice most of the time.") },
+            { value: "members_without_roles", label: gt("Scan media content from members without a role"), description: gt("Recommended for servers that use roles for trusted members.") },
+            { value: "all_members", label: gt("Scan media content from all members"), description: gt("Recommended when you want images to be squeaky clean.") },
+          ]}
+        />
+      </SettingsSection>
     </div>
   );
 
@@ -4074,77 +2780,68 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   // Safety Setup (Discord): spam + raid protection, and shortcuts to every
   // other protection tool. Who may talk lives on the Moderation tab.
   const renderSafetySetup = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Safety Setup</T></h2>
-        <p className="text-sm text-[var(--text-secondary)]"><T>Protect your server from spam, raids and unwanted content</T></p>
-      </div>
+    <div className="space-y-8">
+      <SettingsPageHeader title={gt("Safety Setup")} description={gt("Protect your server from spam, raids and unwanted content")} className="mb-0" />
 
-      <div className="space-y-4">
-        <h3 className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)]"><T>DM and spam protection</T></h3>
-        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between mb-2">
-            <span className="text-[var(--text-primary)] font-medium"><T>Mention Spam Limit</T></span>
-            <span className="text-sm text-[var(--text-secondary)]">{draftNumber("safety.mentionSpamLimit", 5)}</span>
-          </div>
-          <p className="text-sm text-[var(--text-secondary)] mb-3"><T>Messages that mention more people than this are blocked.</T></p>
-          <input
-            type="range"
-            min={2}
-            max={20}
-            value={draftNumber("safety.mentionSpamLimit", 5)}
-            onChange={(e) => settingsDraft.update("safety.mentionSpamLimit", Number(e.target.value))}
-            aria-label={gt("Mention spam limit")}
-            className="w-full accent-[var(--app-accent)]"
+      <SettingsSection title={gt("DM and spam protection")}>
+        <SettingsCard>
+          <SettingsRow
+            label={gt("Mention Spam Limit")}
+            description={gt("Messages that mention more people than this are blocked.")}
+            control={<span className="min-w-[2ch] text-right text-sm font-semibold tabular-nums text-[var(--text-primary)]">{draftNumber("safety.mentionSpamLimit", 5)}</span>}
+          >
+            <input
+              type="range"
+              min={2}
+              max={20}
+              value={draftNumber("safety.mentionSpamLimit", 5)}
+              onChange={(e) => settingsDraft.update("safety.mentionSpamLimit", Number(e.target.value))}
+              aria-label={gt("Mention spam limit")}
+              className="w-full accent-[var(--app-accent)]"
+            />
+          </SettingsRow>
+          <SettingsToggleRow
+            label={gt("Enable anti-spam checks")}
+            description={gt("Block messages that look like spam, such as the same message posted again and again.")}
+            checked={draftBool("safety.antiSpam", true)}
+            onCheckedChange={(checked) => settingsDraft.update("safety.antiSpam", checked)}
           />
-          <label className="mt-3 flex items-center justify-between cursor-pointer">
-            <span className="text-sm text-[var(--text-secondary)]"><T>Enable anti-spam checks</T></span>
-            <ToggleSwitch size="sm" checked={draftBool("safety.antiSpam", true)} onCheckedChange={(checked) => settingsDraft.update("safety.antiSpam", checked)} />
-          </label>
-        </div>
+        </SettingsCard>
+      </SettingsSection>
 
-        <h3 className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)] pt-2"><T>Raid protection</T></h3>
-        {/* Not enforced by the server yet: shown read-only so owners don't
-            rely on protection that doesn't exist. */}
-        <p className="text-sm text-[var(--app-muted)]">
-          <T>The 2FA requirement and raid protection are coming soon and are not enforced yet.</T>
-        </p>
-        <fieldset disabled aria-disabled="true" className="space-y-4 opacity-60 cursor-not-allowed">
-
-        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <span className="text-[var(--text-primary)] font-medium"><T>2FA Requirement</T></span>
-              <p className="text-sm text-[var(--text-secondary)] mt-1">
-                <T>Require moderators to have 2FA enabled</T>
-              </p>
-            </div>
-            <ToggleSwitch
+      {/* Not enforced by the server yet: shown read-only so owners don't
+          rely on protection that doesn't exist. */}
+      <SettingsSection
+        title={
+          <span className="flex items-center gap-2">
+            {gt("Raid protection")}
+            <SettingsStatusPill>{gt("Coming soon")}</SettingsStatusPill>
+          </span>
+        }
+        description={gt("The 2FA requirement and raid protection are coming soon and are not enforced yet.")}
+      >
+        <fieldset disabled aria-disabled="true" className="cursor-not-allowed">
+          <SettingsCard>
+            <SettingsToggleRow
+              label={gt("2FA Requirement")}
+              description={gt("Require moderators to have 2FA enabled")}
               checked={draftBool("moderation.require2FA")}
+              disabled
               onCheckedChange={(checked) => settingsDraft.update("moderation.require2FA", checked)}
-              aria-label={gt("Require 2FA for moderators")}
             />
-          </div>
-        </div>
-
-        <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <span className="text-[var(--text-primary)] font-medium"><T>Raid Protection</T></span>
-              <p className="text-sm text-[var(--text-secondary)] mt-1"><T>Auto-enable stricter checks during suspicious joins</T></p>
-            </div>
-            <ToggleSwitch
+            <SettingsToggleRow
+              label={gt("Raid Protection")}
+              description={gt("Auto-enable stricter checks during suspicious joins")}
               checked={draftBool("safety.raidProtection")}
+              disabled
               onCheckedChange={(checked) => settingsDraft.update("safety.raidProtection", checked)}
-              aria-label={gt("Raid protection")}
             />
-          </div>
-        </div>
+          </SettingsCard>
         </fieldset>
+      </SettingsSection>
 
-
-        <h3 className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)] pt-2"><T>More protection</T></h3>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <SettingsSection title={gt("More protection")}>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           {([
             { tab: "moderation", title: gt("Verification level"), desc: gt("Decide who can talk, react or join voice, and for how long new members wait."), icon: Shield },
             { tab: "automod", title: gt("AutoMod"), desc: gt("Block keywords, spam and harmful links automatically."), icon: AlertTriangle },
@@ -4155,55 +2852,42 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
               key={card.tab}
               type="button"
               onClick={() => goTab(card.tab)}
-              className="flex items-start gap-3 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] hover:border-[var(--app-accent)] text-left transition-colors"
+              className="group flex items-start gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 text-left transition-colors duration-(--motion-fast) hover:bg-[var(--bg-hover)]"
             >
-              <card.icon className="w-5 h-5 text-[var(--app-accent)] shrink-0 mt-0.5" aria-hidden />
-              <span>
-                <span className="block text-sm font-medium text-[var(--text-primary)]">{card.title}</span>
-                <span className="block text-xs text-[var(--text-secondary)] mt-0.5">{card.desc}</span>
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--app-accent)_14%,transparent)] text-[var(--app-accent)]">
+                <card.icon className="h-[18px] w-[18px]" aria-hidden />
               </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-sm font-medium text-[var(--text-primary)]">{card.title}</span>
+                <span className="mt-0.5 block text-[13px] leading-snug text-[var(--text-secondary)]">{card.desc}</span>
+              </span>
+              <ChevronRight className="mt-2 h-4 w-4 shrink-0 text-[var(--text-muted)] transition-transform group-hover:translate-x-0.5" />
             </button>
           ))}
         </div>
-      </div>
+      </SettingsSection>
     </div>
   );
 
-  const renderSoundboard = () => (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Soundboard</T></h2>
-        <p className="text-sm text-[var(--text-secondary)]"><T>Configure soundboard availability</T></p>
-      </div>
+  const renderSoundboard = () => {
+    const uploadButton = (
+      <SettingsButton variant="primary" onClick={() => soundInputRef.current?.click()} disabled={isUploadingSound}>
+        {isUploadingSound ? <Loader size={16} /> : <Plus />}
+        {gt("Upload Sound")}
+      </SettingsButton>
+    );
+    return (
+      <div className="space-y-8">
+        <SettingsPageHeader title={gt("Soundboard")} description={gt("Configure soundboard availability")} className="mb-0" />
 
-      <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-[var(--text-primary)] font-medium"><T>Enable Soundboard</T></span>
-          <ToggleSwitch
+        <SettingsCard>
+          <SettingsToggleRow
+            label={gt("Enable Soundboard")}
+            description={gt("Each sound has its own volume below, which applies for everyone in the server. How loud sounds play for you is a personal preference in User Settings → Voice & Video.")}
             checked={draftBool("soundboard.enabled", true)}
             onCheckedChange={(checked) => settingsDraft.update("soundboard.enabled", checked)}
-            aria-label="Enable soundboard"
           />
-        </div>
-        <p className="text-xs text-[var(--text-muted)] mt-2"><T>Each sound has its own volume below, which applies for everyone in the server. How loud sounds play for you is a personal preference in User Settings → Voice &amp; Video.</T></p>
-      </div>
-
-      {/* Sound list */}
-      <div className="space-y-3">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div>
-            <h3 className="text-lg font-semibold text-[var(--text-primary)]"><T>Sounds</T> ({soundboardSounds.length}/500)</h3>
-            <p className="text-xs text-[var(--text-secondary)]"><T>Upload audio files (max 20MB, 30s, mp3/wav/ogg)</T></p>
-          </div>
-          <button
-            onClick={() => soundInputRef.current?.click()}
-            disabled={isUploadingSound}
-            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2 disabled:opacity-50"
-          >
-            {isUploadingSound ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
-            <T>Upload Sound</T>
-          </button>
-        </div>
+        </SettingsCard>
 
         <input
           type="file"
@@ -4213,234 +2897,222 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           className="hidden"
         />
 
-        {soundboardSounds.length === 0 ? (
-          <div className="text-center py-12 border-2 border-dashed border-[var(--border-subtle)] rounded-lg">
-            <Volume2 className="w-12 h-12 text-[var(--text-muted)] mx-auto mb-4" />
-            <h3 className="text-lg font-semibold text-[var(--text-primary)] mb-2"><T>No sounds yet</T></h3>
-            <p className="text-[var(--text-secondary)] text-sm mb-4"><T>Upload audio files to use in voice channels</T></p>
-            <button
-              onClick={() => soundInputRef.current?.click()}
-              className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md"
-            >
-              <T>Upload First Sound</T>
-            </button>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
-            {soundboardSounds.map((sound) => (
-              <div
-                key={sound.id}
-                className="relative group flex items-center gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg hover:border-[var(--app-accent)]/50 transition-colors"
-              >
-                <button
-                  onClick={() => playSound(sound)}
-                  className="flex-shrink-0 w-10 h-10 rounded-full bg-[var(--app-accent)] hover:brightness-110 flex items-center justify-center transition-colors"
-                >
-                  {playingSoundId === sound.id ? (
-                    <Loader size={20} />
-                  ) : (
-                    <Play className="w-5 h-5 text-[var(--text-primary)] ml-0.5" fill="white" />
-                  )}
-                </button>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm text-[var(--text-primary)] truncate">{sound.name}</p>
-                  <p className="text-xs text-[var(--text-muted)]">{sound.emoji}</p>
-                  <div className="flex items-center gap-1.5 mt-1">
-                    <Volume2 className="w-3 h-3 shrink-0 text-[var(--text-muted)]" />
-                    <input
-                      type="range"
-                      min={0}
-                      max={100}
-                      step={5}
-                      value={Math.round(soundVolume(sound) * 100)}
-                      onChange={(event) => handleSoundVolumeChange(sound.id, Number(event.target.value) / 100)}
-                      aria-label={gt("Volume for {sound}", { sound: sound.name })}
-                      className="w-full min-w-0 h-1 accent-[var(--app-accent)] cursor-pointer"
-                    />
-                    <span className="text-[10px] tabular-nums text-[var(--text-muted)] w-8 text-right">{Math.round(soundVolume(sound) * 100)}%</span>
-                  </div>
-                </div>
-                <button
-                  onClick={() => handleDeleteSound(sound.id)}
-                  className="flex-shrink-0 p-1 max-md:p-2 bg-red-500/80 hover:bg-red-500 rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
-                >
-                  <X className="w-3 h-3 text-white" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+        <UploadRequirements
+          title={gt("Upload requirements")}
+          items={[gt("File type: MP3, WAV, OGG"), gt("Max file size: 20 MB"), gt("Longer than 30 seconds? You can trim it after choosing the file.")]}
+          action={uploadButton}
+        />
 
-    </div>
-  );
+        <SettingsSection
+          title={gt("Sounds")}
+          action={<span className="text-xs text-[var(--text-muted)]">{gt("{count} slots available", { count: Math.max(0, 500 - soundboardSounds.length) })}</span>}
+        >
+          {!isTabLoaded("soundboard") && soundboardSounds.length === 0 ? (
+            <SettingsSkeleton variant="list" count={4} />
+          ) : soundboardSounds.length === 0 ? (
+            <SettingsEmptyState
+              icon={Volume2}
+              title={gt("No sounds yet")}
+              description={gt("Upload audio files to use in voice channels")}
+              action={uploadButton}
+            />
+          ) : (
+            <div className="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
+              {soundboardSounds.map((sound) => {
+                const percent = Math.round(soundVolume(sound) * 100);
+                return (
+                  <div
+                    key={sound.id}
+                    data-settings-row
+                    className="group/sound relative flex items-center gap-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3 transition-colors duration-(--motion-fast) hover:border-[var(--border-strong)]"
+                  >
+                    <button
+                      type="button"
+                      onClick={() => playSound(sound)}
+                      aria-label={gt("Play {sound}", { sound: sound.name })}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-white transition-[filter] hover:brightness-110"
+                    >
+                      {playingSoundId === sound.id ? <Loader size={20} /> : <Play className="ml-0.5 h-4 w-4" fill="currentColor" />}
+                    </button>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-[var(--text-primary)]">
+                        {sound.emoji && <span className="mr-1">{sound.emoji}</span>}
+                        {sound.name}
+                      </p>
+                      <div className="mt-1 flex items-center gap-1.5">
+                        <Volume2 className="h-3 w-3 shrink-0 text-[var(--text-muted)]" />
+                        <input
+                          type="range"
+                          min={0}
+                          max={100}
+                          step={5}
+                          value={percent}
+                          onChange={(event) => handleSoundVolumeChange(sound.id, Number(event.target.value) / 100)}
+                          aria-label={gt("Volume for {sound}", { sound: sound.name })}
+                          className="h-1 w-full min-w-0 cursor-pointer accent-[var(--app-accent)]"
+                        />
+                        <span className="w-8 text-right text-[10px] tabular-nums text-[var(--text-muted)]">{percent}%</span>
+                      </div>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => handleDeleteSound(sound.id)}
+                      aria-label={gt("Delete sound {sound}", { sound: sound.name })}
+                      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] transition-opacity hover:bg-red-500/10 hover:text-red-500 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/sound:opacity-100 focus-visible:opacity-100"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </SettingsSection>
+      </div>
+    );
+  };
 
   const renderIntegrations = () => {
     const isTwitchEnabled = draftBool("integrations.twitch");
     const isYoutubeEnabled = draftBool("integrations.youtube");
     const isWebhooksEnabled = draftBool("integrations.webhooks");
+    const toggleCard = (id: "twitch" | "youtube" | "webhooks") => setOpenIntegration((cur) => (cur === id ? null : id));
+    const enabledLabel = (on: boolean) => (on ? gt("Enabled") : gt("Disabled"));
+    const notificationFields = (
+      kind: "twitch" | "youtube",
+      channelLabel: string,
+      placeholder: string,
+      channelKey: string,
+      notifyKey: string,
+    ) => (
+      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">{channelLabel}</span>
+          <Input
+            type="text"
+            placeholder={placeholder}
+            value={draftString(channelKey, "")}
+            onChange={(e) => settingsDraft.update(channelKey, e.target.value)}
+            className={inputClass}
+          />
+        </label>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">{gt("NOTIFICATION CHANNEL")}</span>
+          <select
+            value={draftString(notifyKey, "")}
+            onChange={(e) => settingsDraft.update(notifyKey, e.target.value)}
+            className={selectClass}
+            aria-label={kind === "twitch" ? gt("Twitch notification channel") : gt("YouTube notification channel")}
+          >
+            <option value="">{gt("Select a channel")}</option>
+            {textChannels.map((channel) => (
+              <option key={channel.id} value={channel.id}>
+                #{channel.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      </div>
+    );
 
     return (
-      <div className="space-y-6">
-        <div>
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Integrations</T></h2>
-          <p className="text-sm text-[var(--text-secondary)]"><T>Enable or disable external integrations for your server</T></p>
-        </div>
+      <div className="space-y-8">
+        <SettingsPageHeader
+          title={gt("Integrations")}
+          description={gt("Connect other services to your server and manage webhooks.")}
+          className="mb-0"
+        />
 
-        <div className="space-y-4">
-          {/* Discord bridge: guided linking, channel mapping, options, health */}
-          {currentServer && <DiscordBridgePanel serverId={currentServer.id} />}
+        <SettingsSection title={gt("Connected services")}>
+          <div className="space-y-3">
+            {/* Discord bridge: guided linking, channel mapping, options, health */}
+            <DiscordBridgePanel serverId={currentServer.id} />
 
-          {/* Twitch Card */}
-          <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium flex items-center gap-2">
-                  <span className="text-[#a970ff] font-semibold"><T>Twitch Integration</T></span>
-                </p>
-                <p className="text-sm text-[var(--text-secondary)]"><T>Post stream notifications automatically</T></p>
+            <IntegrationCard
+              icon={<Twitch className="h-5 w-5" />}
+              iconStyle={{ color: "#9146FF" }}
+              title={gt("Twitch")}
+              description={gt("Post stream notifications automatically")}
+              status={enabledLabel(isTwitchEnabled)}
+              statusTone={isTwitchEnabled ? "success" : "neutral"}
+              open={openIntegration === "twitch"}
+              onToggle={() => toggleCard("twitch")}
+            >
+              <div className="space-y-4">
+                <SettingsCard>
+                  <SettingsToggleRow
+                    label={gt("Twitch Integration")}
+                    description={gt("Post stream notifications automatically")}
+                    checked={isTwitchEnabled}
+                    onCheckedChange={(checked) => settingsDraft.update("integrations.twitch", checked)}
+                  />
+                </SettingsCard>
+                {isTwitchEnabled && (
+                  <>
+                    {notificationFields("twitch", gt("TWITCH CHANNEL NAME"), gt("e.g. shroud"), "integrations.twitchChannel", "integrations.twitchNotificationChannelId")}
+                    <SettingsButton variant="secondary" onClick={() => void handleMockTrigger("twitch")} disabled={isTriggeringTwitch}>
+                      {isTriggeringTwitch ? <><Loader size={14} />{gt("Triggering...")}</> : gt("Trigger Mock Stream Live Alert")}
+                    </SettingsButton>
+                  </>
+                )}
               </div>
-              <ToggleSwitch
-                checked={isTwitchEnabled}
-                onCheckedChange={(checked) => settingsDraft.update("integrations.twitch", checked)}
-                aria-label="Twitch"
-              />
-            </div>
+            </IntegrationCard>
 
-            {isTwitchEnabled && (
-              <div className="pt-4 border-t border-[var(--border-subtle)] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>TWITCH CHANNEL NAME</T></label>
-                    <Input
-                      type="text"
-                      placeholder={gt("e.g. shroud")}
-                      value={draftString("integrations.twitchChannel", "")}
-                      onChange={(e) => settingsDraft.update("integrations.twitchChannel", e.target.value)}
-                      className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>NOTIFICATION CHANNEL</T></label>
-                    <select
-                      value={draftString("integrations.twitchNotificationChannelId", "")}
-                      onChange={(e) => settingsDraft.update("integrations.twitchNotificationChannelId", e.target.value)}
-                      className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-                    >
-                      <option value="">{gt("Select a channel")}</option>
-                      {textChannels.map((channel) => (
-                        <option key={channel.id} value={channel.id}>#{channel.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => handleMockTrigger("twitch")}
-                    disabled={isTriggeringTwitch}
-                    className="px-4 h-9 bg-[#a970ff] hover:bg-[#b88cff] disabled:bg-[#7e55bf] text-white text-xs font-semibold rounded-md flex items-center gap-2 transition-colors"
-                  >
-                    {isTriggeringTwitch ? (
-                      <>
-                        <Loader size={undefined} />
-                        <T>Triggering...</T>
-                      </>
-                    ) : (
-                      gt("Trigger Mock Stream Live Alert")
-                    )}
-                  </button>
-                </div>
+            <IntegrationCard
+              icon={<Youtube className="h-5 w-5" />}
+              iconStyle={{ color: "#FF0000" }}
+              title={gt("YouTube")}
+              description={gt("Post notifications for new uploads and videos")}
+              status={enabledLabel(isYoutubeEnabled)}
+              statusTone={isYoutubeEnabled ? "success" : "neutral"}
+              open={openIntegration === "youtube"}
+              onToggle={() => toggleCard("youtube")}
+            >
+              <div className="space-y-4">
+                <SettingsCard>
+                  <SettingsToggleRow
+                    label={gt("YouTube Integration")}
+                    description={gt("Post notifications for new uploads and videos")}
+                    checked={isYoutubeEnabled}
+                    onCheckedChange={(checked) => settingsDraft.update("integrations.youtube", checked)}
+                  />
+                </SettingsCard>
+                {isYoutubeEnabled && (
+                  <>
+                    {notificationFields("youtube", gt("YOUTUBE CHANNEL ID OR NAME"), gt("e.g. MrBeast"), "integrations.youtubeChannel", "integrations.youtubeNotificationChannelId")}
+                    <SettingsButton variant="secondary" onClick={() => void handleMockTrigger("youtube")} disabled={isTriggeringYoutube}>
+                      {isTriggeringYoutube ? <><Loader size={14} />{gt("Triggering...")}</> : gt("Trigger Mock Video Upload Alert")}
+                    </SettingsButton>
+                  </>
+                )}
               </div>
-            )}
+            </IntegrationCard>
+
+            <IntegrationCard
+              icon={<Webhook className="h-5 w-5" />}
+              iconStyle={{ color: "var(--app-accent)" }}
+              title={gt("Webhooks")}
+              description={gt("Allow inbound/outbound webhook automations")}
+              status={enabledLabel(isWebhooksEnabled)}
+              statusTone={isWebhooksEnabled ? "success" : "neutral"}
+              open={openIntegration === "webhooks"}
+              onToggle={() => toggleCard("webhooks")}
+            >
+              <div className="space-y-5">
+                <SettingsCard>
+                  <SettingsToggleRow
+                    label={gt("Custom Webhooks")}
+                    description={gt("Allow inbound/outbound webhook automations")}
+                    checked={isWebhooksEnabled}
+                    onCheckedChange={(checked) => settingsDraft.update("integrations.webhooks", checked)}
+                  />
+                </SettingsCard>
+                {/* Every channel webhook in the server, grouped by channel */}
+                <ServerWebhooksPanel serverId={currentServer.id} channels={channels} />
+              </div>
+            </IntegrationCard>
           </div>
-
-          {/* YouTube Card */}
-          <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium flex items-center gap-2">
-                  <span className="text-[#FF0000] font-semibold"><T>YouTube Integration</T></span>
-                </p>
-                <p className="text-sm text-[var(--text-secondary)]"><T>Post notifications for new uploads and videos</T></p>
-              </div>
-              <ToggleSwitch
-                checked={isYoutubeEnabled}
-                onCheckedChange={(checked) => settingsDraft.update("integrations.youtube", checked)}
-                aria-label="YouTube"
-              />
-            </div>
-
-            {isYoutubeEnabled && (
-              <div className="pt-4 border-t border-[var(--border-subtle)] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>YOUTUBE CHANNEL ID OR NAME</T></label>
-                    <Input
-                      type="text"
-                      placeholder={gt("e.g. MrBeast")}
-                      value={draftString("integrations.youtubeChannel", "")}
-                      onChange={(e) => settingsDraft.update("integrations.youtubeChannel", e.target.value)}
-                      className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)]"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>NOTIFICATION CHANNEL</T></label>
-                    <select
-                      value={draftString("integrations.youtubeNotificationChannelId", "")}
-                      onChange={(e) => settingsDraft.update("integrations.youtubeNotificationChannelId", e.target.value)}
-                      className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-                    >
-                      <option value="">{gt("Select a channel")}</option>
-                      {textChannels.map((channel) => (
-                        <option key={channel.id} value={channel.id}>#{channel.name}</option>
-                      ))}
-                    </select>
-                  </div>
-                </div>
-
-                <div className="pt-2">
-                  <button
-                    type="button"
-                    onClick={() => handleMockTrigger("youtube")}
-                    disabled={isTriggeringYoutube}
-                    className="px-4 h-9 bg-[#FF0000] hover:bg-[#ff3333] disabled:bg-[#cc0000] text-white text-xs font-semibold rounded-md flex items-center gap-2 transition-colors"
-                  >
-                    {isTriggeringYoutube ? (
-                      <>
-                        <Loader size={undefined} />
-                        <T>Triggering...</T>
-                      </>
-                    ) : (
-                      gt("Trigger Mock Video Upload Alert")
-                    )}
-                  </button>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Webhooks Card */}
-          <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[var(--text-primary)] font-medium"><T>Custom Webhooks</T></p>
-              <p className="text-sm text-[var(--text-secondary)]"><T>Allow inbound/outbound webhook automations</T></p>
-            </div>
-            <ToggleSwitch
-              checked={isWebhooksEnabled}
-              onCheckedChange={(checked) => settingsDraft.update("integrations.webhooks", checked)}
-              aria-label="Custom Webhooks"
-            />
-          </div>
-
-          {/* Every channel webhook in the server, grouped by channel */}
-          {currentServer && (
-            <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-              <ServerWebhooksPanel serverId={currentServer.id} channels={channels} />
-            </div>
-          )}
-        </div>
+        </SettingsSection>
       </div>
     );
   };
@@ -4452,21 +3124,62 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       case "roles":
         return renderRoles();
       case "invites":
-        return renderInvites();
+        return (
+          <InvitesPage
+            serverId={currentServer.id}
+            invites={invites}
+            vanity={vanityInfo}
+            loading={!isTabLoaded("invites")}
+            onCreate={onCreateInvite}
+            onRevoke={onRevokeInvite}
+            onVanityChange={setVanityInfo}
+          />
+        );
       case "bans":
-        return renderBans();
+        return <BansPage bans={bans} loading={!isTabLoaded("bans")} onUnban={onUnban} />;
       case "members":
-        return renderMembers();
+        return (
+          <MembersPage
+            members={members}
+            roles={sortedRoles}
+            ownerId={currentServer.ownerId}
+            currentUserId={user?.id}
+            loading={!isTabLoaded("members")}
+            canKick={can("KICK_MEMBERS")}
+            canBan={can("BAN_MEMBERS")}
+            canTimeout={can("MODERATE_MEMBERS")}
+            onToggleRole={onToggleMemberRole}
+            onAction={onMemberAction}
+          />
+        );
       case "emoji":
-        return renderEmoji();
+        return (
+          <EmojiPage
+            emojis={emojis}
+            loading={!isTabLoaded("emoji")}
+            uploading={isUploadingEmoji}
+            onUpload={onEmojiUpload}
+            onRename={onEmojiRename}
+            onDelete={onEmojiDelete}
+          />
+        );
       case "stickers":
-        return renderStickers();
+        return (
+          <StickersPage
+            stickers={stickers}
+            loading={!isTabLoaded("stickers")}
+            uploading={isUploadingSticker}
+            onUpload={onStickerUpload}
+            onRename={onStickerRename}
+            onDelete={onStickerDelete}
+          />
+        );
       case "widget":
         return renderWidget();
       case "audit-log":
-        return renderAuditLog();
+        return <ServerAuditLogPanel serverId={currentServer.id} roles={roles} />;
       case "automod":
-        return currentServer ? <AutoModPanel serverId={currentServer.id} roles={roles} /> : null;
+        return <AutoModPanel serverId={currentServer.id} roles={roles} />;
       case "soundboard":
         return renderSoundboard();
       case "moderation":
@@ -4491,12 +3204,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       case "welcome":
         return <ServerWelcomeScreenPanel serverId={currentServer.id} />;
       case "screening":
-        return (
-          <ServerScreeningPanel
-            serverId={currentServer.id}
-            onOpenApplications={() => (isMobile ? openMobileTab("applications") : setActiveTab("applications"))}
-          />
-        );
+        return <ServerScreeningPanel serverId={currentServer.id} onOpenApplications={() => goTab("applications")} />;
       case "connections":
         return <ServerConnectionsPanel serverId={currentServer.id} isOwner={isOwner} />;
       case "template":
@@ -4504,7 +3212,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       case "applications":
         return renderApplications();
       case "app_discovery":
-        return renderAppDiscovery();
+        return <AppDiscoveryPage serverId={currentServer.id} />;
       default:
         return renderOverview();
     }
@@ -4544,9 +3252,6 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       />
     </>
   );
-
-  // Sections whose edits go into the settings draft (saved with one bulk PATCH).
-  const DRAFT_TABS = new Set<SettingsTab>(["overview", "widget", "moderation", "safety", "soundboard", "integrations", "access"]);
 
   if (isMobile) {
     const allItems = menuSections.flatMap((section) => section.items);
@@ -4649,14 +3354,9 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     );
   }
 
-  const navSections: SettingsNavSection<SettingsTab>[] = menuSections.map((section) => ({
-    ...section,
-    items: section.items.map((item) => ({
-      ...item,
-      badge: pendingAppCount > 0 && (item.id === "applications" || item.id === "members") ? pendingAppCount : undefined,
-    })),
-  }));
   const activeNavLabel = menuSections.flatMap((section) => section.items).find((item) => item.id === activeTab)?.label ?? gt("Server Settings");
+  const roleEditorVisible = activeTab === "roles" && roleEditing && Boolean(selectedRole && roleDraft);
+  const showRoleSaveBar = roleEditorVisible && hasUnsavedRoleChanges && !selectedRole?.managed;
 
   return (
     <div
@@ -4675,30 +3375,41 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         ariaLabel={gt("Server Settings")}
       />
 
-      {/* Main Content — wide tabs (roles, members, bans) use the full container;
-          form-style tabs stay comfortably readable at a narrower width. */}
+      {/* Main Content — table pages and the role editor use the wide column;
+          form-style pages stay comfortably readable at a narrower width. */}
       <SettingsContent
-        pageKey={activeTab}
-        title={activeNavLabel}
-        width={WIDE_SETTINGS_TABS.has(activeTab) ? "wide" : "narrow"}
+        pageKey={activeTab === "roles" ? `roles:${roleEditorVisible ? "edit" : "list"}` : activeTab}
+        title={roleEditorVisible && selectedRole ? `${activeNavLabel} — ${selectedRole.name}` : activeNavLabel}
+        width={WIDE_SETTINGS_TABS.has(activeTab) || roleEditorVisible ? "wide" : "narrow"}
         onClose={() => void handleRequestClose()}
         closeLabel={gt("Close server settings")}
         highlightQuery={navQuery}
         footer={
-          /* Sticky transactional save bar (covers every settings tab) */
-          <UnsavedChangesBar
-            visible={settingsDraft.isDirty}
-            isSaving={isSaving}
-            onSave={handleSaveAll}
-            onDiscard={handleDiscardChanges}
-            onUndo={settingsDraft.undo}
-            onRedo={settingsDraft.redo}
-            canUndo={settingsDraft.canUndo}
-            canRedo={settingsDraft.canRedo}
-            changeCount={settingsDraft.dirtyFields.size}
-            shakeSignal={unsavedShake}
-            className="mt-0 max-w-none"
-          />
+          showRoleSaveBar ? (
+            /* Role editor: Discord's unsaved-changes bar saves the role. */
+            <UnsavedChangesBar
+              visible
+              isSaving={isSavingRole}
+              onSave={() => void handleSaveRole()}
+              onDiscard={resetRoleDraft}
+              className="mt-0 max-w-none"
+            />
+          ) : (
+            /* Sticky transactional save bar (covers every settings tab) */
+            <UnsavedChangesBar
+              visible={settingsDraft.isDirty}
+              isSaving={isSaving}
+              onSave={handleSaveAll}
+              onDiscard={handleDiscardChanges}
+              onUndo={settingsDraft.undo}
+              onRedo={settingsDraft.redo}
+              canUndo={settingsDraft.canUndo}
+              canRedo={settingsDraft.canRedo}
+              changeCount={settingsDraft.dirtyFields.size}
+              shakeSignal={unsavedShake}
+              className="mt-0 max-w-none"
+            />
+          )
         }
       >
         {renderContent()}
@@ -4708,3 +3419,6 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     </div>
   );
 }
+
+// Sections whose edits go into the settings draft (saved with one bulk PATCH).
+const DRAFT_TABS = new Set<SettingsTab>(["overview", "widget", "moderation", "safety", "soundboard", "integrations", "access"]);

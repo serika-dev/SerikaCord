@@ -7,6 +7,7 @@ import { AlertTriangle, ArrowDown, ArrowUp, Check, ClipboardList, Eye, Folder, H
 import { toast } from "sonner";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Loader } from "@/components/ui/Loader";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useServer } from "@/contexts/ServerContext";
@@ -107,7 +108,7 @@ function move<T>(list: T[], index: number, delta: number): T[] {
 const fieldCls = "w-full px-3 py-2 rounded-md bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]";
 const iconBtn = "w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-30 disabled:hover:bg-transparent";
 const addBtn = "w-full h-10 rounded-lg border border-dashed border-[var(--border-subtle)] text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] flex items-center justify-center gap-2";
-const toggleRow = "flex items-center justify-between gap-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] cursor-pointer";
+const toggleRow = "flex items-center justify-between gap-4 p-4 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)] cursor-pointer";
 const sectionTitle = "text-lg font-bold text-[var(--text-primary)]";
 
 // ─── Channel picker ─────────────────────────────────────────────────────────
@@ -233,7 +234,7 @@ function AppQuestionCard({
   const gt = useGT();
   const filledChoices = question.choices.filter((c) => c.trim()).length;
   return (
-    <div className="rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] p-3 sm:p-4 space-y-3">
+    <div className="rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)] p-3 sm:p-4 space-y-3">
       <div className="flex items-center gap-2">
         <select
           value={question.type}
@@ -440,7 +441,7 @@ function WaitingMembers({
             return (
               <li
                 key={m.user.id}
-                className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]"
+                className="flex flex-wrap items-center gap-3 p-3 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)]"
               >
                 <Avatar className="w-10 h-10">
                   <AvatarImage src={cdnImage(m.user.avatar)} />
@@ -520,7 +521,15 @@ export default function ServerScreeningPanel({
   }, [serverId]);
 
   if (!loaded || loaded.serverId !== serverId) {
-    return <div className="flex items-center justify-center py-12"><Loader size={32} /></div>;
+    return (
+      <div aria-hidden className="space-y-6">
+        <div className="space-y-2 max-md:hidden">
+          <span className="block h-5 w-40 animate-pulse rounded bg-[var(--bg-hover)]" />
+          <span className="block h-3.5 w-72 max-w-full animate-pulse rounded bg-[var(--bg-hover)]" />
+        </div>
+        <SettingsSkeleton variant="rows" count={5} />
+      </div>
+    );
   }
   const draft = loaded.draft;
   const dirty = JSON.stringify(draft) !== loaded.saved;
@@ -566,7 +575,7 @@ export default function ServerScreeningPanel({
       <div className="space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
           <div className="min-w-0">
-            <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden"><T>Rules Screening</T></h2>
+            <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] mb-1 max-md:hidden"><T>Rules Screening</T></h2>
             <p className="text-sm text-[var(--text-secondary)]">
               <T>New members must read and accept your server rules before they can send messages, react or join voice.</T>
             </p>
@@ -693,7 +702,7 @@ export default function ServerScreeningPanel({
           />
         </label>
         {draft.restrictChannels && (
-          <div className="p-3 sm:p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+          <div className="p-3 sm:p-4 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)]">
             <AccessibleChannelsPicker
               value={draft.accessibleChannelIds}
               channels={channels as ChannelLite[]}
@@ -765,7 +774,7 @@ export default function ServerScreeningPanel({
         <WaitingMembers serverId={serverId} manualApproval={draft.manualApproval} onOpenApplications={onOpenApplications} />
       </div>
 
-      <div className="sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-app)]">
+      <div className="sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-card)] max-md:bg-[var(--bg-app)]">
         <button
           type="button"
           disabled={!dirty || saving}

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { Bug, Trash2, ChevronDown, ChevronRight, Loader2, Filter, Image as ImageIcon, ShieldAlert } from "lucide-react";
+import { Bug, Trash2, ChevronDown, ChevronRight, Loader2, Filter, Image as ImageIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
@@ -260,8 +260,7 @@ export function AdminBugReportsPanel() {
 
   return (
     <div>
-      <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 flex items-center gap-2">
-        <ShieldAlert className="w-6 h-6 text-[var(--app-accent)]" />
+      <h2 className="mb-1 text-xl font-bold leading-tight text-[var(--text-primary)] max-md:hidden">
         {gt("Bug Reports Management")}
       </h2>
       <p className="text-sm text-[var(--text-muted)] mb-5">

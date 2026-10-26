@@ -5,6 +5,8 @@ import { useGT } from "gt-next";
 import { toast } from "sonner";
 import { RotateCcw } from "lucide-react";
 import { clampAccentForContrast, normalizeHexColor, type ServerTheme } from "@/lib/appearance/customization";
+import { SettingsCard, SettingsRow, SettingsSection } from "@/components/settings/SettingsSection";
+import { SettingsButton } from "@/components/settings/blocks/SettingsButton";
 
 const DEFAULT_ACCENT = "#8b5cf6";
 const DEFAULT_TINT = "#2eb5cb";
@@ -57,47 +59,50 @@ export function ServerThemeSettings({
 
   const swatch = (value: string, fallback: string, onChange: (v: string) => void, label: string) => (
     <div className="flex items-center gap-2">
-      <label className="relative w-9 h-9 rounded-md overflow-hidden cursor-pointer border border-[var(--border-subtle)]" style={{ backgroundColor: normalizeHexColor(value) ?? "transparent" }}>
+      {value && (
+        <button
+          type="button"
+          onClick={() => onChange("")}
+          className="flex h-8 w-8 items-center justify-center rounded-md text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+          title={gt("Reset")}
+          aria-label={gt("Reset")}
+        >
+          <RotateCcw className="h-4 w-4" />
+        </button>
+      )}
+      <label
+        className="relative h-9 w-12 cursor-pointer overflow-hidden rounded-md border border-[var(--border-subtle)]"
+        style={{ backgroundColor: normalizeHexColor(value) ?? "transparent" }}
+      >
         <input
           type="color"
           aria-label={label}
           value={normalizeHexColor(value) ?? fallback}
           onChange={(e) => onChange(e.target.value)}
-          className="absolute inset-[-10px] w-[200%] h-[200%] cursor-pointer opacity-0"
+          className="absolute inset-[-10px] h-[200%] w-[200%] cursor-pointer opacity-0"
         />
       </label>
-      <span className="text-sm text-[var(--text-primary)]">{label}</span>
-      {value && (
-        <button type="button" onClick={() => onChange("")} className="text-[var(--text-muted)] hover:text-[var(--text-primary)]" title={gt("Reset")}>
-          <RotateCcw className="w-4 h-4" />
-        </button>
-      )}
     </div>
   );
 
   return (
-    <div className="pt-6 border-t border-[var(--border-subtle)] space-y-3">
-      <div>
-        <h3 className="text-lg font-semibold text-[var(--text-primary)]">{gt("Server Theme")}</h3>
-        <p className="text-sm text-[var(--text-secondary)]">
-          {gt("Members see this accent colour and background tint while they're in this server, unless they turned off server themes.")}
-        </p>
-      </div>
-      <div className="flex flex-wrap gap-6">
-        {swatch(accent, DEFAULT_ACCENT, setAccent, gt("Accent colour"))}
-        {swatch(tint, DEFAULT_TINT, setTint, gt("Background tint"))}
-      </div>
-      {shownAccent && adjusted && adjusted !== shownAccent && (
-        <p className="text-xs text-[var(--text-muted)]">{gt("This accent is adjusted slightly so text on it stays readable.")}</p>
-      )}
-      <button
-        type="button"
-        disabled={!dirty || saving}
-        onClick={() => void save()}
-        className="h-9 px-4 rounded-md bg-[var(--app-accent)] text-[var(--text-on-accent)] text-sm font-semibold disabled:opacity-50"
-      >
-        {gt("Save theme")}
-      </button>
-    </div>
+    <SettingsSection
+      title={gt("Server Theme")}
+      description={gt("Members see this accent colour and background tint while they're in this server, unless they turned off server themes.")}
+      action={
+        <SettingsButton size="sm" variant="primary" disabled={!dirty || saving} onClick={() => void save()}>
+          {gt("Save theme")}
+        </SettingsButton>
+      }
+    >
+      <SettingsCard>
+        <SettingsRow
+          label={gt("Accent colour")}
+          description={shownAccent && adjusted && adjusted !== shownAccent ? gt("This accent is adjusted slightly so text on it stays readable.") : undefined}
+          control={swatch(accent, DEFAULT_ACCENT, setAccent, gt("Accent colour"))}
+        />
+        <SettingsRow label={gt("Background tint")} control={swatch(tint, DEFAULT_TINT, setTint, gt("Background tint"))} />
+      </SettingsCard>
+    </SettingsSection>
   );
 }

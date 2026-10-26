@@ -3,7 +3,7 @@
 import { useCallback, useState } from "react";
 import dynamic from "next/dynamic";
 import { useGT } from "gt-next";
-import { Fingerprint, Flag, Gavel, Inbox, LayoutDashboard, Scale, Users } from "lucide-react";
+import { Fingerprint, Flag, Inbox, LayoutDashboard, Scale, Users } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useStaffAccess } from "@/hooks/useStaffAccess";
 import { useJsonQuery } from "@/components/safety/useJsonQuery";
@@ -59,8 +59,7 @@ export default function AdminTrustSafetyPanel() {
   return (
     <div className="text-[var(--text-primary)]">
       <div className="mb-4">
-        <h2 className="flex items-center gap-2 text-xl font-bold text-[var(--text-primary)]">
-          <Gavel className="h-5 w-5 text-[var(--app-accent)]" aria-hidden />
+        <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] max-md:hidden">
           {gt("Trust & Safety")}
         </h2>
         <p className="mt-1 text-sm text-[var(--text-secondary)]">

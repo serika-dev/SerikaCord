@@ -149,11 +149,13 @@ export function DomainConnectionsSection({
   };
 
   return (
-    <div>
-      <p className="text-xs font-semibold uppercase text-[var(--text-muted)] tracking-wide mb-1">{gt("Domains")}</p>
-      <p className="text-xs text-[var(--text-muted)] mb-2">
+    <section className="space-y-3">
+      <div className="px-0.5">
+      <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">{gt("Domains")}</h3>
+      <p className="mt-0.5 text-[13px] leading-snug text-[var(--text-secondary)]">
         {gt("Link websites you own. Each domain shows on your profile once you prove ownership with a DNS TXT record.")}
       </p>
+      </div>
       <div className="rounded-xl overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-app)] divide-y divide-[var(--border-subtle)]">
         {domains.map((conn) => {
           const status = conn.domain;
@@ -277,6 +279,6 @@ export function DomainConnectionsSection({
           <p className="px-4 py-3 text-xs text-[var(--text-muted)]">{gt("Domain connections are currently disabled.")}</p>
         ) : null}
       </div>
-    </div>
+    </section>
   );
 }

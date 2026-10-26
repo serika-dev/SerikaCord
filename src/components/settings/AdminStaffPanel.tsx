@@ -238,7 +238,7 @@ export default function AdminStaffPanel({ access }: { access: StaffAccess }) {
   const member = members.find((item) => item.id === selectedMember);
 
   return <section className="space-y-5 text-[var(--app-text)]">
-    <div><h2 className="flex items-center gap-2 text-xl font-bold"><ShieldCheck className="size-6 text-[var(--app-accent)]" />{gt("Staff roles & permissions")}</h2><p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--app-muted)]">{gt("Give each team the tools they need. Create named roles, choose their permissions, and assign one or more roles to staff members.")}</p></div>
+    <div><h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] max-md:hidden">{gt("Staff roles & permissions")}</h2><p className="mt-2 max-w-2xl text-sm leading-relaxed text-[var(--app-muted)]">{gt("Give each team the tools they need. Create named roles, choose their permissions, and assign one or more roles to staff members.")}</p></div>
     <div className="flex gap-2" role="tablist" aria-label={gt("Staff configuration")}>
       <button role="tab" aria-selected={tab === "roles"} className={tab === "roles" ? primaryClass : buttonClass} onClick={() => setTab("roles")}><ShieldCheck className="size-4" />{gt("Roles")}</button>
       <button role="tab" aria-selected={tab === "members"} className={tab === "members" ? primaryClass : buttonClass} onClick={() => setTab("members")}><Users className="size-4" />{gt("Members")}</button>

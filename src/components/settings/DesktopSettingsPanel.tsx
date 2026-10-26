@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { useGT } from "gt-next";
 import { toast } from "sonner";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
+import { settingsButtonClass } from "@/components/settings/blocks/SettingsButton";
 import {
   checkDesktopUpdates,
   getDesktopInfo,
@@ -25,10 +27,10 @@ import {
 
 function Row({ title, hint, children }: { title: ReactNode; hint?: ReactNode; children: ReactNode }) {
   return (
-    <div className="flex items-center justify-between gap-4 py-2.5">
+    <div data-settings-row className="flex items-center justify-between gap-4 px-4 py-3.5">
       <div className="min-w-0">
-        <p className="text-sm text-[var(--text-primary)]">{title}</p>
-        {hint && <p className="mt-0.5 text-xs text-[var(--text-secondary)]">{hint}</p>}
+        <p className="text-sm font-medium leading-snug text-[var(--text-primary)]" data-settings-label={typeof title === "string" ? title : undefined}>{title}</p>
+        {hint && <p className="mt-0.5 text-[13px] leading-snug text-[var(--text-secondary)]">{hint}</p>}
       </div>
       {children}
     </div>
@@ -37,9 +39,9 @@ function Row({ title, hint, children }: { title: ReactNode; hint?: ReactNode; ch
 
 function Section({ title, children }: { title: ReactNode; children: ReactNode }) {
   return (
-    <section>
-      <h3 className="mb-1 px-1 text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">{title}</h3>
-      <div className="divide-y divide-[var(--border-subtle)] rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4">
+    <section className="space-y-3">
+      <h3 className="px-0.5 text-[15px] font-semibold text-[var(--text-primary)]">{title}</h3>
+      <div className="divide-y divide-[var(--border-subtle)] overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)]">
         {children}
       </div>
     </section>
@@ -82,7 +84,12 @@ export function DesktopSettingsPanel() {
   }, [gt]);
 
   if (!settings) {
-    return <p className="text-sm text-[var(--text-secondary)]">{gt("Connecting to the desktop app…")}</p>;
+    return (
+      <div className="space-y-3">
+        <p className="text-[13px] text-[var(--text-secondary)]">{gt("Connecting to the desktop app…")}</p>
+        <SettingsSkeleton variant="rows" count={4} />
+      </div>
+    );
   }
 
   const updateLabel = (() => {
@@ -97,7 +104,7 @@ export function DesktopSettingsPanel() {
   })();
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <Section title={gt("Windows & Tray")}>
         <Row title={gt("Open SerikaCord when you log in")}>
           <ToggleSwitch size="sm" checked={settings.startOnLogin} onCheckedChange={(v) => change("startOnLogin", v)} aria-label={gt("Open SerikaCord when you log in")} />
@@ -121,7 +128,7 @@ export function DesktopSettingsPanel() {
           <select
             value={settings.idleTimeoutMinutes}
             onChange={(e) => change("idleTimeoutMinutes", Number(e.target.value))}
-            className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] px-2 py-1 text-sm text-[var(--text-primary)] focus:border-[var(--app-accent)] focus:outline-none"
+            className="h-9 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-sm text-[var(--text-primary)] focus:border-[var(--app-accent)] focus:outline-none"
             aria-label={gt("Go idle automatically")}
           >
             {IDLE_TIMEOUT_CHOICES.map((m) => (
@@ -162,7 +169,7 @@ export function DesktopSettingsPanel() {
             <button
               type="button"
               onClick={installDesktopUpdate}
-              className="rounded-md bg-[var(--app-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--text-on-accent)] hover:opacity-90"
+              className={settingsButtonClass("primary", "sm")}
             >
               {gt("Restart to update")}
             </button>
@@ -171,7 +178,7 @@ export function DesktopSettingsPanel() {
               type="button"
               onClick={checkDesktopUpdates}
               disabled={update?.state === "checking" || update?.state === "downloading"}
-              className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-1.5 text-xs text-[var(--text-secondary)] transition-colors hover:border-[var(--app-accent)] hover:text-[var(--text-primary)] disabled:opacity-50"
+              className={settingsButtonClass("secondary", "sm")}
             >
               {gt("Check for updates")}
             </button>

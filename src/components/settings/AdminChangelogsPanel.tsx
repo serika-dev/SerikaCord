@@ -150,7 +150,7 @@ export function AdminChangelogsPanel({ canManage, canPublish }: { canManage: boo
     <div className="space-y-5 text-[var(--app-text)]">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-xl font-bold">{gt("Changelog")}</h2>
+          <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] max-md:hidden">{gt("Changelog")}</h2>
           <p className="mt-1 max-w-xl text-sm text-[var(--app-muted)]">{gt("Keep everyone in the loop. Write a draft, preview the popup, and publish when it's ready.")}</p>
         </div>
         {canManage && <Button variant="outline" disabled={busy || loading || Boolean(loadError)} onClick={() => { void switchEntry(); }}><Plus aria-hidden />{gt("New draft")}</Button>}

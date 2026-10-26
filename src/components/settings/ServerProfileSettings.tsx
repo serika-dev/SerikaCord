@@ -141,14 +141,14 @@ export function ServerProfileSettings({ serverId, serverName, settingsDraft, fie
     setResults([]);
   };
 
-  const sectionCls = "p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4";
-  const inputCls = "w-full bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]";
+  const sectionCls = "p-4 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4";
+  const inputCls = "w-full bg-[var(--bg-input)] border border-[var(--border-subtle)] rounded-lg px-3 py-2 text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]";
   const errorText = (key: string) => fieldErrors[key] ? <p className="text-xs text-[var(--destructive,#EF4444)]">{fieldErrors[key]}</p> : null;
 
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Server Profile")}</h2>
+        <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Server Profile")}</h2>
         <p className="text-sm text-[var(--text-secondary)]">{gt("A tag your members can wear, plus traits and games shown in Server Discovery and invites.")}</p>
       </div>
 
@@ -156,13 +156,13 @@ export function ServerProfileSettings({ serverId, serverName, settingsDraft, fie
       <div className={sectionCls}>
         <div className="flex items-start justify-between gap-3">
           <div>
-            <h3 className="text-[var(--text-primary)] font-medium">{gt("Server Tag")}</h3>
+            <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">{gt("Server Tag")}</h3>
             <p className="text-xs text-[var(--text-secondary)] mt-1">{gt("Members can choose to show this tag next to their name everywhere on Serika.")}</p>
           </div>
           <ToggleSwitch checked={enabled} onCheckedChange={(v) => settingsDraft.update("serverTag.enabled", v)} aria-label={gt("Enable server tag")} />
         </div>
 
-        <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
+        <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-hover)]/50 border border-[var(--border-subtle)]">
           <span className="text-sm font-medium text-[var(--text-primary)]">{gt("Preview")}</span>
           <ServerTagPill tag={previewTag} size="md" interactive={false} />
         </div>
@@ -285,7 +285,7 @@ export function ServerProfileSettings({ serverId, serverName, settingsDraft, fie
       {/* Discovery traits */}
       <div className={sectionCls}>
         <div>
-          <h3 className="text-[var(--text-primary)] font-medium">{gt("Traits")}</h3>
+          <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">{gt("Traits")}</h3>
           <p className="text-xs text-[var(--text-secondary)] mt-1">
             {gt("Up to {max} short tags that describe your server. Shown in Server Discovery, where people can search and filter by them.", { max: DISCOVERY_TAGS_MAX })}
           </p>
@@ -333,7 +333,7 @@ export function ServerProfileSettings({ serverId, serverName, settingsDraft, fie
       {/* Games */}
       <div className={sectionCls}>
         <div>
-          <h3 className="text-[var(--text-primary)] font-medium">{gt("Games")}</h3>
+          <h3 className="text-[15px] font-semibold text-[var(--text-primary)]">{gt("Games")}</h3>
           <p className="text-xs text-[var(--text-secondary)] mt-1">
             {gt("Up to {max} games your community plays. Shown on your discovery card and invites.", { max: SERVER_GAMES_MAX })}
           </p>
@@ -341,7 +341,7 @@ export function ServerProfileSettings({ serverId, serverName, settingsDraft, fie
         {games.length > 0 && (
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {games.map((g) => (
-              <div key={g.igdbId} className="flex items-center gap-2 p-2 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] min-w-0">
+              <div key={g.igdbId} className="flex items-center gap-2 p-2 rounded-lg bg-[var(--bg-hover)]/50 border border-[var(--border-subtle)] min-w-0">
                 {g.coverUrl ? (
                   <img src={g.coverUrl} alt="" className="w-8 h-10 rounded object-cover shrink-0" loading="lazy" />
                 ) : (

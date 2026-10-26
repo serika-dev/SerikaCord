@@ -2,7 +2,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
-  Languages,
   RefreshCw,
   Upload,
   Download,
@@ -193,8 +192,7 @@ export function AdminTranslationsPanel() {
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-4">
         <div>
-          <h2 className="text-xl font-bold text-white flex items-center gap-2">
-            <Languages className="w-6 h-6 text-[#8B5CF6]" />
+          <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] max-md:hidden">
             {gt("Translation Management")}
           </h2>
           <p className="text-sm text-[var(--text-secondary)] mt-1">
@@ -205,7 +203,7 @@ export function AdminTranslationsPanel() {
           href="https://translate.serika.dev"
           target="_blank"
           rel="noopener noreferrer"
-          className="inline-flex items-center gap-1.5 text-sm text-[#8B5CF6] hover:text-[#a78bfa] transition-colors"
+          className="inline-flex items-center gap-1.5 text-sm text-[var(--app-accent)] hover:underline transition-colors"
         >
           {gt("Open Translate Platform")}
           <ExternalLink className="w-3.5 h-3.5" />
@@ -227,7 +225,7 @@ export function AdminTranslationsPanel() {
             className={cn(
               "px-3 py-1.5 rounded-md text-sm font-medium transition-all",
               subTab === tab.id
-                ? "bg-[#8B5CF6] text-white"
+                ? "bg-[var(--app-accent)] text-white"
                 : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
             )}
           >
@@ -244,7 +242,7 @@ export function AdminTranslationsPanel() {
             <button
               onClick={handleSync}
               disabled={actionLoading}
-              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
+              className="inline-flex items-center gap-2 px-4 py-2.5 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-50 text-white rounded-lg font-medium text-sm transition-all hover:scale-[1.02] active:scale-[0.98]"
             >
               {actionLoading ? <Loader size={16} /> : <RefreshCw className="w-4 h-4" />}
               {gt("Full Sync")}
@@ -285,7 +283,7 @@ export function AdminTranslationsPanel() {
               {/* Stats grid */}
               <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center border border-[var(--border-subtle)]">
-                  <p className="text-2xl font-bold text-white">{stats.length}</p>
+                  <p className="text-2xl font-bold text-[var(--text-primary)]">{stats.length}</p>
                   <p className="text-sm text-[var(--text-muted)]">{gt("Total Locales")}</p>
                 </div>
                 <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center border border-[var(--border-subtle)]">
@@ -293,11 +291,11 @@ export function AdminTranslationsPanel() {
                   <p className="text-sm text-[var(--text-muted)]">{gt("Fully Translated")}</p>
                 </div>
                 <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center border border-[var(--border-subtle)]">
-                  <p className="text-2xl font-bold text-[#8B5CF6]">{startedLocales}</p>
+                  <p className="text-2xl font-bold text-[var(--app-accent)]">{startedLocales}</p>
                   <p className="text-sm text-[var(--text-muted)]">{gt("In Progress")}</p>
                 </div>
                 <div className="bg-[var(--bg-app)] rounded-lg p-4 text-center border border-[var(--border-subtle)]">
-                  <p className="text-2xl font-bold text-white">{overallCompletion}%</p>
+                  <p className="text-2xl font-bold text-[var(--text-primary)]">{overallCompletion}%</p>
                   <p className="text-sm text-[var(--text-muted)]">{gt("Overall Completion")}</p>
                 </div>
               </div>
@@ -305,12 +303,12 @@ export function AdminTranslationsPanel() {
               {/* Overall progress bar */}
               <div className="bg-[var(--bg-app)] rounded-lg p-4 border border-[var(--border-subtle)]">
                 <div className="flex items-center justify-between mb-2">
-                  <span className="text-sm font-medium text-white">{gt("Overall Progress")}</span>
+                  <span className="text-sm font-medium text-[var(--text-primary)]">{gt("Overall Progress")}</span>
                   <span className="text-sm text-[var(--text-muted)]">{overallCompletion}%</span>
                 </div>
                 <div className="h-2 bg-[var(--bg-card)] rounded-full overflow-hidden">
                   <div
-                    className="h-full bg-gradient-to-r from-[#8B5CF6] to-[#a78bfa] rounded-full transition-all duration-500"
+                    className="h-full bg-gradient-to-r from-[var(--app-accent)] to-[color-mix(in_srgb,var(--app-accent)_55%,white)] rounded-full transition-all duration-500"
                     style={{ width: `${overallCompletion}%` }}
                   />
                 </div>
@@ -319,7 +317,7 @@ export function AdminTranslationsPanel() {
               {/* Locale list */}
               <div className="bg-[var(--bg-app)] rounded-lg border border-[var(--border-subtle)] overflow-hidden">
                 <div className="px-4 py-3 border-b border-[var(--border-subtle)]">
-                  <h3 className="text-sm font-semibold text-white">{gt("Per-Locale Progress")}</h3>
+                  <h3 className="text-sm font-semibold text-[var(--text-primary)]">{gt("Per-Locale Progress")}</h3>
                 </div>
                 <div className="max-h-[400px] overflow-y-auto">
                   {sortedStats.map((stat) => (
@@ -329,7 +327,7 @@ export function AdminTranslationsPanel() {
                     >
                       <div className="flex items-center justify-between mb-1.5">
                         <div className="flex items-center gap-2">
-                          <span className="text-sm font-medium text-white">{stat.locale}</span>
+                          <span className="text-sm font-medium text-[var(--text-primary)]">{stat.locale}</span>
                           {stat.completion === 100 && (
                             <CheckCircle2 className="w-3.5 h-3.5 text-green-400" />
                           )}
@@ -345,7 +343,7 @@ export function AdminTranslationsPanel() {
                             stat.completion === 100
                               ? "bg-green-500"
                               : stat.completion > 50
-                                ? "bg-[#8B5CF6]"
+                                ? "bg-[var(--app-accent)]"
                                 : stat.completion > 0
                                   ? "bg-yellow-500"
                                   : "bg-[var(--border-subtle)]"
@@ -375,13 +373,13 @@ export function AdminTranslationsPanel() {
                 onChange={(e) => setKeySearch(e.target.value)}
                 onKeyDown={(e) => e.key === "Enter" && handleKeySearch()}
                 placeholder={gt("Search translation keys...")}
-                className="w-full pl-10 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] text-sm focus:border-[#8B5CF6] outline-none"
+                className="w-full pl-10 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-color)] rounded-lg text-[var(--text-primary)] text-sm focus:border-[var(--app-accent)] outline-none"
               />
             </div>
             <button
               onClick={handleKeySearch}
               disabled={keysLoading}
-              className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C4DFF] disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2"
+              className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-50 text-white rounded-lg font-medium text-sm flex items-center gap-2"
             >
               {keysLoading ? <Loader size={16} /> : <Search className="w-4 h-4" />}
               {gt("Search")}
@@ -412,8 +410,8 @@ export function AdminTranslationsPanel() {
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0 flex-1">
-                        <code className="text-xs text-[#8B5CF6] font-mono">{key.key}</code>
-                        <p className="text-sm text-white mt-0.5 truncate">
+                        <code className="text-xs text-[var(--app-accent)] font-mono">{key.key}</code>
+                        <p className="text-sm text-[var(--text-primary)] mt-0.5 truncate">
                           {key.sourceText || gt("(empty)")}
                         </p>
                         {key.description && (
@@ -433,10 +431,10 @@ export function AdminTranslationsPanel() {
       {subTab === "activity" && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-sm font-semibold text-white">{gt("Recent Activity")}</h3>
+            <h3 className="text-sm font-semibold text-[var(--text-primary)]">{gt("Recent Activity")}</h3>
             <button
               onClick={() => fetchActivity()}
-              className="text-xs text-[#8B5CF6] hover:text-[#a78bfa] flex items-center gap-1"
+              className="text-xs text-[var(--app-accent)] hover:underline flex items-center gap-1"
             >
               <RefreshCw className="w-3 h-3" />
               {gt("Refresh")}
@@ -455,10 +453,10 @@ export function AdminTranslationsPanel() {
                     key={entry.id || i}
                     className="px-4 py-3 border-b border-[var(--border-subtle)] last:border-0 flex items-start gap-3"
                   >
-                    <div className="w-2 h-2 rounded-full bg-[#8B5CF6] mt-1.5 shrink-0" />
+                    <div className="w-2 h-2 rounded-full bg-[var(--app-accent)] mt-1.5 shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <span className="text-sm text-white font-medium">
+                        <span className="text-sm text-[var(--text-primary)] font-medium">
                           {entry.user?.displayName || entry.user?.username || gt("Unknown")}
                         </span>
                         <span className="text-sm text-[var(--text-secondary)]">{entry.action}</span>

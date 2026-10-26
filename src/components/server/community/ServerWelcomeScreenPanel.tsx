@@ -6,7 +6,7 @@ import { T, useGT } from "gt-next";
 import { ArrowDown, ArrowUp, Hash, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import { Loader } from "@/components/ui/Loader";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
 import { useServer } from "@/contexts/ServerContext";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { invalidateServerOnboarding } from "@/hooks/useServerOnboarding";
@@ -80,7 +80,15 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
   );
 
   if (!loaded || loaded.serverId !== serverId) {
-    return <div className="flex items-center justify-center py-12"><Loader size={32} /></div>;
+    return (
+      <div aria-hidden className="space-y-6">
+        <div className="space-y-2 max-md:hidden">
+          <span className="block h-5 w-40 animate-pulse rounded bg-[var(--bg-hover)]" />
+          <span className="block h-3.5 w-72 max-w-full animate-pulse rounded bg-[var(--bg-hover)]" />
+        </div>
+        <SettingsSkeleton variant="rows" count={5} />
+      </div>
+    );
   }
   const draft = loaded.draft;
   const dirty = JSON.stringify(draft) !== loaded.saved;
@@ -130,13 +138,13 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
   return (
     <div className="space-y-6">
       <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1"><T>Welcome Screen</T></h2>
+        <h2 className="text-xl font-bold leading-tight text-[var(--text-primary)] mb-1 max-md:hidden"><T>Welcome Screen</T></h2>
         <p className="text-sm text-[var(--text-secondary)]">
           <T>Greet new members with a description of your server and point them to the channels they should check out first.</T>
         </p>
       </div>
 
-      <label className="flex items-center justify-between gap-4 p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] cursor-pointer">
+      <label className="flex items-center justify-between gap-4 p-4 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)] cursor-pointer">
         <span>
           <span className="block text-sm font-medium text-[var(--text-primary)]"><T>Show the welcome screen</T></span>
           <span className="block text-xs text-[var(--text-muted)] mt-1"><T>New members see it when they first open the server.</T></span>
@@ -174,7 +182,7 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
           <p className="text-sm text-[var(--text-muted)]"><T>Add up to five channels new members should visit first.</T></p>
         )}
         {draft.welcomeChannels.map((wc, index) => (
-          <div key={`${wc.channelId}-${index}`} className="p-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-2">
+          <div key={`${wc.channelId}-${index}`} className="p-3 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-2">
             <div className="flex items-center gap-2">
               <input
                 value={wc.emojiName}
@@ -236,7 +244,7 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
         )}
       </div>
 
-      <div className="sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-app)]">
+      <div className="sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-card)] max-md:bg-[var(--bg-app)]">
         <button
           type="button"
           disabled={!dirty || saving}
