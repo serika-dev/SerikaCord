@@ -164,7 +164,7 @@ export function ServerProfileSettings({ serverId, serverName, settingsDraft, fie
 
         <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
           <span className="text-sm font-medium text-[var(--text-primary)]">{gt("Preview")}</span>
-          <ServerTagPill tag={previewTag} size="md" />
+          <ServerTagPill tag={previewTag} size="md" interactive={false} />
         </div>
 
         <div className="space-y-1.5">

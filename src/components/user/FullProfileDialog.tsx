@@ -1,7 +1,8 @@
 "use client";
 
 import { ServerTagPill } from "@/components/user/ServerTagPill";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Avatar, AvatarImage, AvatarFallback } from "@/components/ui/avatar";
 import { BadgeList, type BadgeId as UIBadgeId } from "@/components/ui/badges";
@@ -15,7 +16,7 @@ import { ProfileGameWidgets, type GameCategory } from "@/components/user/Profile
 import { ProfileAppWidgets } from "@/components/user/ProfileAppWidgets";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
-import { BadgeCheck, CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert } from "lucide-react";
+import { BadgeCheck, CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert, Camera, Pencil, Smile, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { cn, cdnImage } from "@/lib/utils";
@@ -26,7 +27,29 @@ import { useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
 import { CustomStatusLine } from "@/components/user/CustomStatus";
 import { UserNoteField } from "@/components/user/UserNoteField";
-import { hasCustomStatus } from "@/lib/social/customStatus";
+import { activeCustomStatus, hasCustomStatus } from "@/lib/social/customStatus";
+import { useServerOptional } from "@/contexts/ServerContext";
+import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { StatusEmoji } from "@/components/user/CustomStatus";
+import { InlineEditable } from "@/components/user/profileEditor/InlineEditable";
+import { ServerTagSelect } from "@/components/user/profileEditor/ServerTagSelect";
+import { useProfileMediaUpload } from "@/components/user/profileEditor/useProfileMediaUpload";
+import { useSelfProfileSave } from "@/components/user/profileEditor/useSelfProfileSave";
+import { overlaySelfProfile, readEditorOpen, resolveSelfTag, writeEditorOpen } from "@/components/user/profileEditor/selfProfile";
+
+// Own-profile editing: the side panel and the full status dialog are their
+// own chunks, loaded only when you open them on your own profile.
+const ProfileEditorPanel = dynamic(() => import("@/components/user/profileEditor/ProfileEditorPanel"), {
+  ssr: false,
+  loading: () => <div className="h-full bg-[var(--app-surface)]" />,
+});
+const CustomStatusDialog = dynamic(() => import("@/components/user/CustomStatusDialog").then((m) => m.CustomStatusDialog), { ssr: false });
+
+/** The editor remembers being open only on wide screens (it covers the sheet on phones). */
+function initialEditorOpen(): boolean {
+  if (typeof window === "undefined" || !window.matchMedia?.("(min-width: 768px)").matches) return false;
+  return readEditorOpen();
+}
 
 interface FullProfileDialogProps {
   user: ProfileCardUser;
@@ -102,7 +125,8 @@ export function FullProfileDialog({
   const router = useRouter();
   const { user: currentUser } = useAuth();
   const gt = useGT();
-  const isSelf = isCurrentUser || (currentUser?.id && user.id && currentUser.id === user.id);
+  const isSelf = Boolean(isCurrentUser || (currentUser?.id && user.id && currentUser.id === user.id));
+  const servers = useServerOptional()?.servers;
 
   const [activeTab, setActiveTab] = useState<TabId>("board");
   const [copied, setCopied] = useState(false);
@@ -118,6 +142,23 @@ export function FullProfileDialog({
   const [fullUser, setFullUser] = useState<ProfileCardUser>(user);
   const [canModerate, setCanModerate] = useState(false);
   const [isAdminOfServer, setIsAdminOfServer] = useState(false);
+  const [editorOpen, setEditorOpen] = useState(() => isSelf && initialEditorOpen());
+  const [statusDialogOpen, setStatusDialogOpen] = useState(false);
+  const { save: saveProfile } = useSelfProfileSave();
+  const media = useProfileMediaUpload();
+
+  const toggleEditor = (next: boolean) => {
+    setEditorOpen(next);
+    writeEditorOpen(next);
+  };
+
+  // Your own profile shows your live AuthContext user over the fetched one,
+  // so edits here (or in settings / the status dialog) appear immediately.
+  const view = useMemo(
+    () => (isSelf && currentUser ? overlaySelfProfile(fullUser, currentUser as Parameters<typeof overlaySelfProfile>[1], servers ?? []) : fullUser),
+    [isSelf, currentUser, fullUser, servers],
+  );
+  const selfTag = isSelf && currentUser ? resolveSelfTag(currentUser.customization, fullUser.customization, servers ?? []) : null;
 
   // Gate the Mod View entry on the viewer actually having moderation perms.
   useEffect(() => {
@@ -139,8 +180,10 @@ export function FullProfileDialog({
     return () => { active = false; };
   }, [open, serverId, onOpenModView, isSelf, user.id]);
 
-  const status = fullUser.status ?? "offline";
-  const displayName = fullUser.nickname || fullUser.displayName || fullUser.username;
+  const status = view.status ?? "offline";
+  const displayName = view.nickname || view.displayName || view.username;
+  // In a server where you have a nickname, the name you see is the nickname.
+  const editsNickname = Boolean(isSelf && serverId && view.nickname);
   // Only poll live activity / tick the clock while the dialog is open — many of
   // these dialogs are mounted at once (one per avatar/username/mention), so
   // ungated polling saturates the network and main thread. See useUserActivity.
@@ -150,7 +193,7 @@ export function FullProfileDialog({
   const localTime = useCurrentTime(open ? fullUser.timezone : null);
   const moeActivity = userActivity?.activity ?? null;
   const { resolve: resolveBadges } = useBadges();
-  const badges = resolveBadges(fullUser.badges);
+  const badges = resolveBadges(view.badges);
 
   // Seed from the passed member/user data, but only when the *identity* changes.
   // The member list re-renders (and passes new object references) on every
@@ -234,6 +277,26 @@ export function FullProfileDialog({
     }
   };
 
+  const saveName = async (next: string) => {
+    if (!editsNickname || !serverId) {
+      void saveProfile({ displayName: next });
+      return;
+    }
+    const before = fullUser.nickname;
+    setFullUser((prev) => ({ ...prev, nickname: next || null }));
+    try {
+      const res = await fetch(`/api/servers/${serverId}/members/@me`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ nickname: next || null }),
+      });
+      if (!res.ok) throw new Error();
+    } catch {
+      setFullUser((prev) => ({ ...prev, nickname: before }));
+      toast.error(gt("Couldn't change your nickname"));
+    }
+  };
+
   const handleSendMessage = () => {
     onOpenChange(false);
     router.push(`/dm/${user.id}`);
@@ -284,9 +347,16 @@ export function FullProfileDialog({
           "h-[92dvh] !max-h-[92dvh] rounded-t-3xl rounded-b-none border-b-0 border-x-0 pb-[var(--safe-area-bottom)] sm:pb-0",
           "data-[state=open]:slide-in-from-bottom-[100%] data-[state=closed]:slide-out-to-bottom-[100%] data-[state=open]:zoom-in-100 data-[state=closed]:zoom-out-100",
           // Desktop: centered card
-          "sm:!top-1/2 sm:!bottom-auto sm:!-translate-y-1/2 sm:!w-[min(1000px,95vw)] sm:!max-w-[1000px] sm:h-[85vh] sm:!max-h-[720px] sm:rounded-2xl sm:border"
+          "sm:!top-1/2 sm:!bottom-auto sm:!-translate-y-1/2 sm:!w-[min(1000px,95vw)] sm:!max-w-[1000px] sm:h-[85vh] sm:!max-h-[720px] sm:rounded-2xl sm:border",
+          // Own profile: the dialog widens to make room for the editor panel.
+          isSelf && "md:transition-[width,max-width] md:duration-200 md:ease-out motion-reduce:transition-none",
+          isSelf && editorOpen && "md:!w-[min(1280px,96vw)] md:!max-w-[1280px]"
         )}
-        style={getProfileBackgroundStyle(fullUser.customization, { opaque: true })}
+        style={getProfileBackgroundStyle(view.customization, { opaque: true })}
+        onEscapeKeyDown={(e) => {
+          // Escape inside an inline edit cancels the edit, not the dialog.
+          if (document.activeElement?.closest("[data-inline-editor]")) e.preventDefault();
+        }}
       >
         <DialogTitle className="sr-only">{gt("{name}'s Profile", { name: displayName })}</DialogTitle>
         {/* Grab handle (mobile sheet affordance) */}
@@ -294,20 +364,69 @@ export function FullProfileDialog({
           <span className="h-1 w-10 rounded-full bg-white/40" />
         </div>
         <div className="flex flex-col md:flex-row h-full min-h-0 overflow-y-auto md:overflow-hidden">
+          {/* Own profile editor: a left column on desktop, a layer over the sheet on phones */}
+          {isSelf && (
+            <aside
+              inert={!editorOpen}
+              aria-label={gt("Profile editor")}
+              className={cn(
+                "z-30 overflow-hidden transition-[width,transform] duration-200 ease-out motion-reduce:transition-none",
+                "max-md:absolute max-md:inset-0",
+                "md:relative md:h-full md:shrink-0 md:border-r md:border-[var(--border-subtle)]",
+                editorOpen ? "max-md:translate-x-0 md:w-[280px]" : "max-md:-translate-x-full md:w-0 md:border-r-0",
+              )}
+            >
+              <div
+                className={cn(
+                  "h-full md:w-[280px] transition-[opacity,transform] duration-200 ease-out motion-reduce:transition-none",
+                  editorOpen ? "opacity-100 translate-x-0" : "opacity-0 md:-translate-x-2",
+                )}
+              >
+                <MountWhenOpened open={editorOpen}>
+                  <ProfileEditorPanel onCollapse={() => toggleEditor(false)} serverId={serverId} media={media} />
+                </MountWhenOpened>
+              </div>
+            </aside>
+          )}
+          {isSelf && !editorOpen && (
+            <button
+              type="button"
+              onClick={() => toggleEditor(true)}
+              aria-label={gt("Edit profile")}
+              title={gt("Edit profile")}
+              className="absolute left-0 top-[72px] z-20 flex h-10 w-7 items-center justify-center rounded-r-lg border border-l-0 border-white/10 bg-black/50 text-white/85 backdrop-blur-md shadow-md transition-[width,background-color,color] duration-150 ease-out hover:w-9 hover:bg-black/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] motion-reduce:transition-none"
+            >
+              <Pencil className="w-3.5 h-3.5" />
+            </button>
+          )}
           {/* Left panel — profile summary (transparent; the sheet root carries the theme) */}
           <div className="w-full md:w-[360px] shrink-0 md:overflow-y-auto">
             {/* Banner */}
             <div className="relative h-[140px]">
-              {fullUser.banner ? (
-                <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${fullUser.banner})` }} />
-              ) : fullUser.customization?.profileGradient && fullUser.customization.profileGradient.length >= 2 ? (
-                <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${fullUser.customization.profileGradient.join(', ')})` }} />
-              ) : fullUser.customization?.profileColor ? (
-                <div className="absolute inset-0" style={{ backgroundColor: fullUser.customization.profileColor }} />
+              {view.banner ? (
+                <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${view.banner})` }} />
+              ) : view.customization?.profileGradient && view.customization.profileGradient.length >= 2 ? (
+                <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${view.customization.profileGradient.join(', ')})` }} />
+              ) : view.customization?.profileColor ? (
+                <div className="absolute inset-0" style={{ backgroundColor: view.customization.profileColor }} />
               ) : (
                 <div className="absolute inset-0 bg-gradient-to-br from-[#8B5CF6] via-[#7C3AED] to-[#4F46E5]" />
               )}
               <div className="absolute inset-0 bg-gradient-to-t from-[#0c0c10]/70 via-transparent to-transparent" />
+
+              {isSelf && (
+                <button
+                  type="button"
+                  onClick={() => media.pick({ kind: "banner" })}
+                  aria-label={gt("Change Banner")}
+                  className="group/banner absolute inset-0 z-10 flex items-center justify-center focus-visible:outline-none"
+                >
+                  <span className="flex items-center gap-1.5 rounded-full bg-black/60 px-3 py-1.5 text-xs font-semibold text-white opacity-0 backdrop-blur-sm transition-opacity duration-150 group-hover/banner:opacity-100 group-focus-visible/banner:opacity-100 pointer-coarse:opacity-90">
+                    {media.uploading.banner ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Camera className="w-3.5 h-3.5" />}
+                    {gt("Change Banner")}
+                  </span>
+                </button>
+              )}
 
               {/* Mod view button in the top right of the banner */}
               {!isSelf && user.id && serverId && isAdminOfServer && onOpenModView && (
@@ -324,19 +443,41 @@ export function FullProfileDialog({
 
             <div className="relative px-4 pb-4">
               {/* Avatar */}
-              <div className="absolute -top-11 left-4">
+              <div className="absolute -top-11 left-4 z-20">
                 <div className="relative">
                   <Avatar className="w-[88px] h-[88px] border-[5px] border-[#0c0c10] shadow-lg">
-                    <AvatarImage src={cdnImage(fullUser.avatar || undefined)} />
+                    <AvatarImage src={cdnImage(view.avatar || undefined)} />
                     <AvatarFallback className="bg-[#8B5CF6] text-white text-3xl">
                       {displayName.charAt(0).toUpperCase()}
                     </AvatarFallback>
                   </Avatar>
+                  {isSelf && (
+                    <button
+                      type="button"
+                      onClick={() => media.pick({ kind: "avatar" })}
+                      aria-label={gt("Change Avatar")}
+                      className="group/avatar absolute inset-[5px] z-10 flex flex-col items-center justify-center gap-0.5 rounded-full bg-black/55 text-[10px] font-semibold uppercase leading-tight text-white opacity-0 transition-opacity duration-150 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] pointer-coarse:opacity-0"
+                    >
+                      {media.uploading.avatar ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
+                      <span className="px-2 text-center">{gt("Change Avatar")}</span>
+                    </button>
+                  )}
                   <div
-                    className="absolute bottom-1 right-1 w-6 h-6 rounded-full border-[4px] border-[#0c0c10]"
+                    className="absolute bottom-1 right-1 z-20 w-6 h-6 rounded-full border-[4px] border-[#0c0c10]"
                     style={{ backgroundColor: STATUS_COLORS[status] }}
                     title={statusLabel(status, gt)}
                   />
+                  {isSelf && (
+                    // Touch screens can't hover: a small camera badge instead.
+                    <button
+                      type="button"
+                      onClick={() => media.pick({ kind: "avatar" })}
+                      aria-label={gt("Change Avatar")}
+                      className="hidden pointer-coarse:flex absolute top-0 right-0 z-20 size-7 items-center justify-center rounded-full border-2 border-[#0c0c10] bg-black/70 text-white"
+                    >
+                      <Camera className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -351,7 +492,7 @@ export function FullProfileDialog({
                       <MessageSquare className="w-4 h-4" />
                       {gt("Message")}
                     </button>
-                    {!isFriendNow && !fullUser.isDiscord && (
+                    {!isFriendNow && !view.isDiscord && (
                       friendRequestSent ? (
                         <button
                           disabled
@@ -377,47 +518,118 @@ export function FullProfileDialog({
 
               {/* Identity */}
               <div className="mt-4">
-                <div className="flex items-center gap-2">
-                  <h3
-                    className={cn("text-xl font-bold text-white leading-tight truncate", getDisplayNameStyleClasses(fullUser.customization?.displayNameStyle))}
-                    style={getDisplayNameStyleInline(fullUser.customization?.displayNameStyle)}
-                  >
-                    {displayName}
-                  </h3>
-                  <ServerTagPill customization={fullUser.customization} size="md" />
+                <div className="flex items-center gap-2 min-w-0">
+                  {isSelf ? (
+                    <InlineEditable
+                      field={editsNickname ? "nickname" : "displayName"}
+                      value={editsNickname ? view.nickname || "" : view.displayName || ""}
+                      onSave={(next) => void saveName(next)}
+                      label={editsNickname ? gt("Edit server nickname") : gt("Edit display name")}
+                      placeholder={view.username}
+                      className="min-w-0"
+                      inputClassName="text-lg font-bold"
+                    >
+                      <h3
+                        className={cn("text-xl font-bold text-white leading-tight truncate pr-7", getDisplayNameStyleClasses(view.customization?.displayNameStyle))}
+                        style={getDisplayNameStyleInline(view.customization?.displayNameStyle)}
+                      >
+                        {displayName}
+                      </h3>
+                    </InlineEditable>
+                  ) : (
+                    <h3
+                      className={cn("text-xl font-bold text-white leading-tight truncate", getDisplayNameStyleClasses(view.customization?.displayNameStyle))}
+                      style={getDisplayNameStyleInline(view.customization?.displayNameStyle)}
+                    >
+                      {displayName}
+                    </h3>
+                  )}
+                  {isSelf ? (
+                    <ServerTagSelect tag={selfTag} />
+                  ) : (
+                    <ServerTagPill customization={view.customization} size="md" />
+                  )}
                 </div>
                 <button
                   onClick={handleCopyUsername}
                   className="group flex items-center gap-1.5 text-sm text-[#9a9aad] hover:text-white transition-colors"
                   title={gt("Copy username")}
                 >
-                  @{fullUser.username}
+                  @{view.username}
                   {copied ? (
                     <Check className="w-3 h-3 text-[#23A559]" />
                   ) : (
                     <Copy className="w-3 h-3 opacity-0 group-hover:opacity-100 transition-opacity" />
                   )}
                 </button>
-                {fullUser.pronouns && (
-                  <div className="text-xs text-[#9a9aad] mt-0.5">{fullUser.pronouns}</div>
+                {isSelf ? (
+                  <InlineEditable
+                    field="pronouns"
+                    value={view.pronouns || ""}
+                    onSave={(next) => void saveProfile({ pronouns: next })}
+                    label={gt("Edit pronouns")}
+                    placeholder={gt("Add your pronouns")}
+                    className="mt-0.5 w-fit max-w-full"
+                    inputClassName="text-xs"
+                  >
+                    <div className={cn("text-xs pr-7 min-h-6 flex items-center", view.pronouns ? "text-[#9a9aad]" : "text-white/35 italic")}>
+                      {view.pronouns || gt("Add pronouns")}
+                    </div>
+                  </InlineEditable>
+                ) : view.pronouns && (
+                  <div className="text-xs text-[#9a9aad] mt-0.5">{view.pronouns}</div>
                 )}
-                {hasCustomStatus(fullUser.customStatus, fullUser.customization) && (
+                {isSelf ? (
+                  <InlineEditable
+                    field="customStatus"
+                    value={activeCustomStatus(view.customStatus, view.customization).text || ""}
+                    onSave={(next) => void saveProfile({ customStatus: next })}
+                    label={gt("Edit custom status")}
+                    placeholder={gt("What's on your mind?")}
+                    className="mt-1.5 w-fit max-w-full"
+                    inputClassName="text-sm"
+                    leading={(
+                      <button
+                        type="button"
+                        // Keep focus in the input so it doesn't save-and-close first.
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setStatusDialogOpen(true)}
+                        aria-label={gt("Choose a status emoji")}
+                        title={gt("Choose a status emoji")}
+                        className="flex size-7 shrink-0 items-center justify-center rounded-md bg-black/40 text-white/80 hover:text-white"
+                      >
+                        {(() => {
+                          const emoji = activeCustomStatus(view.customStatus, view.customization).emoji;
+                          return emoji ? <StatusEmoji emoji={emoji} className="w-4 h-4" /> : <Smile className="w-4 h-4" />;
+                        })()}
+                      </button>
+                    )}
+                  >
+                    {hasCustomStatus(view.customStatus, view.customization) ? (
+                      <div className="text-sm text-[#c8c8d8] italic pr-7 min-h-7 flex items-center">
+                        <CustomStatusLine text={view.customStatus} customization={view.customization} emojiClassName="w-4 h-4 not-italic" renderText={(t) => <MarkdownRenderer content={t} />} />
+                      </div>
+                    ) : (
+                      <div className="text-sm text-white/35 italic pr-7 min-h-7 flex items-center">{gt("Set a custom status")}</div>
+                    )}
+                  </InlineEditable>
+                ) : hasCustomStatus(view.customStatus, view.customization) && (
                   <div className="text-sm text-[#c8c8d8] mt-1.5 italic">
-                    <CustomStatusLine text={fullUser.customStatus} customization={fullUser.customization} emojiClassName="w-4 h-4 not-italic" renderText={(t) => <MarkdownRenderer content={t} />} />
+                    <CustomStatusLine text={view.customStatus} customization={view.customization} emojiClassName="w-4 h-4 not-italic" renderText={(t) => <MarkdownRenderer content={t} />} />
                   </div>
                 )}
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLORS[status] }} />
                   <span className="text-xs text-[#9a9aad]">{statusLabel(status, gt)}</span>
                 </div>
-                {fullUser.showTimezone && fullUser.timezone && localTime && (
+                {view.showTimezone && view.timezone && localTime && (
                   <div className="flex items-center gap-1.5 mt-1.5">
                     <Clock className="w-3.5 h-3.5 text-[#9a9aad] shrink-0" />
                     <span className="text-xs text-[#9a9aad]">
                       {localTime}
                     </span>
                     <span className="text-[#4e5058] text-xs">&bull;</span>
-                    <span className="text-xs text-[#9a9aad]">{fullUser.timezone}</span>
+                    <span className="text-xs text-[#9a9aad]">{view.timezone}</span>
                   </div>
                 )}
               </div>
@@ -430,16 +642,33 @@ export function FullProfileDialog({
               )}
 
               {/* About Me */}
-              {fullUser.bio && (
+              {isSelf ? (
                 <div className="mt-4 rounded-lg bg-white/[0.03] border border-white/[0.05] p-3">
                   <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1">{gt("About Me")}</h4>
-                  <div className="text-sm text-[#e2e2ee] whitespace-pre-wrap break-words"><MarkdownRenderer content={fullUser.bio} /></div>
+                  <InlineEditable
+                    field="bio"
+                    value={view.bio || ""}
+                    onSave={(next) => void saveProfile({ bio: next })}
+                    label={gt("Edit About Me")}
+                    placeholder={gt("Tell everyone a little about yourself")}
+                  >
+                    {view.bio ? (
+                      <div className="text-sm text-[#e2e2ee] whitespace-pre-wrap break-words pr-7"><MarkdownRenderer content={view.bio} /></div>
+                    ) : (
+                      <div className="text-sm text-white/35 italic pr-7 py-0.5">{gt("Double-click to write something about yourself")}</div>
+                    )}
+                  </InlineEditable>
+                </div>
+              ) : view.bio && (
+                <div className="mt-4 rounded-lg bg-white/[0.03] border border-white/[0.05] p-3">
+                  <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-1">{gt("About Me")}</h4>
+                  <div className="text-sm text-[#e2e2ee] whitespace-pre-wrap break-words"><MarkdownRenderer content={view.bio} /></div>
                 </div>
               )}
 
               {/* Private note (only visible to you) */}
-              {!isSelf && fullUser.id && !fullUser.isSystem && !fullUser.isDiscord && (
-                <UserNoteField userId={fullUser.id} className="mt-3" />
+              {!isSelf && view.id && !view.isSystem && !view.isDiscord && (
+                <UserNoteField userId={view.id} className="mt-3" />
               )}
 
               {/* Roles */}
@@ -465,20 +694,20 @@ export function FullProfileDialog({
               )}
 
               {/* Dates */}
-              {(fullUser.joinedAt || fullUser.createdAt) && (
+              {(view.joinedAt || view.createdAt) && (
                 <div className="mt-4 flex items-center gap-4 text-sm text-[#9a9aad]">
                   <CalendarDays className="w-4 h-4 shrink-0" />
                   <div className="flex flex-wrap gap-x-4 gap-y-0.5">
-                    {fullUser.createdAt && (
+                    {view.createdAt && (
                       <span title={gt("Account created")}>
                         {gt("Joined SerikaCord")}{" "}
-                        {new Date(fullUser.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
+                        {new Date(view.createdAt).toLocaleDateString("en-US", { month: "short", year: "numeric" })}
                       </span>
                     )}
-                    {fullUser.joinedAt && (
+                    {view.joinedAt && (
                       <span title={gt("Joined this server")}>
                         {gt("Member since")}{" "}
-                        {new Date(fullUser.joinedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
+                        {new Date(view.joinedAt).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" })}
                       </span>
                     )}
                   </div>
@@ -517,17 +746,17 @@ export function FullProfileDialog({
               {activeTab === "board" && (
                 <div className="space-y-4">
                   {/* Game library widgets (favorite / liked / rotation / wishlist) */}
-                  <ProfileGameWidgets userId={fullUser.id} isSelf={!!isSelf} addCategory={gameAddCategory} setAddCategory={setGameAddCategory} />
+                  <ProfileGameWidgets userId={view.id} isSelf={!!isSelf} addCategory={gameAddCategory} setAddCategory={setGameAddCategory} />
 
                   {/* Application widgets placed on the profile */}
-                  <ProfileAppWidgets userId={fullUser.id} isSelf={!!isSelf} onAddGameCategory={setGameAddCategory} />
+                  <ProfileAppWidgets userId={view.id} isSelf={!!isSelf} onAddGameCategory={setGameAddCategory} />
 
                   {/* Connections */}
-                  {fullUser.connections && fullUser.connections.length > 0 && (
+                  {view.connections && view.connections.length > 0 && (
                     <div>
                       <h4 className="text-[11px] font-bold text-[#9a9aad] uppercase tracking-wide mb-2">{gt("Connections")}</h4>
                       <div className="grid grid-cols-2 gap-2">
-                        {fullUser.connections.map((conn) => {
+                        {view.connections.map((conn) => {
                           const label = conn.displayName || conn.username || conn.accountId;
                           const href = getConnectionHref(conn.provider, conn.username || conn.accountId);
                           return (
@@ -673,6 +902,12 @@ export function FullProfileDialog({
             </div>
           </div>
         </div>
+        {isSelf && media.element}
+        {isSelf && (
+          <MountWhenOpened open={statusDialogOpen}>
+            <CustomStatusDialog open={statusDialogOpen} onOpenChange={setStatusDialogOpen} />
+          </MountWhenOpened>
+        )}
       </DialogContent>
     </Dialog>
   );

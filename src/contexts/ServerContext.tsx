@@ -726,6 +726,12 @@ export function useServer() {
   return context;
 }
 
+/** Like useServer but returns undefined outside a ServerProvider (e.g. a
+ *  server tag hover card rendered on a page without the app shell). */
+export function useServerOptional() {
+  return useContext(ServerContext);
+}
+
 export function useServerMembers() {
   const context = useContext(ServerMembersContext);
   if (context === undefined) {
