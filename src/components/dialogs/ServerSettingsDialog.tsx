@@ -62,7 +62,8 @@ import { effectiveSoundPercent, soundVolume } from "@/lib/servers/soundboardVolu
 import { filterAndSortMembers, type MemberSort } from "@/lib/servers/memberView";
 import { openUserAction, type UserActionKind } from "@/lib/social/userActions";
 import { useSettingsDraft, type SettingsDraft } from "@/hooks/useSettingsDraft";
-import { UnsavedChangesBar } from "@/components/ui/unsaved-changes-bar";
+import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
+import { SettingsContent, SettingsNav, type SettingsNavSection } from "@/components/settings/SettingsShell";
 import { AudioTrimmerDialog } from "@/components/dialogs/AudioTrimmerDialog";
 import { T, useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
@@ -113,6 +114,8 @@ const ServerWelcomeScreenPanel = dynamic(() => import("@/components/server/commu
 const ServerScreeningPanel = dynamic(() => import("@/components/server/community/ServerScreeningPanel"), { ssr: false });
 const ServerTemplatePanel = dynamic(() => import("@/components/server/community/ServerTemplatePanel"), { ssr: false });
 const ServerProfileSettings = dynamic(() => import("@/components/settings/ServerProfileSettings").then((m) => m.ServerProfileSettings), { ssr: false });
+const DiscordBridgePanel = dynamic(() => import("@/components/server/discordBridge/DiscordBridgePanel"), { ssr: false });
+const ServerWebhooksPanel = dynamic(() => import("@/components/dialogs/ServerWebhooksPanel"), { ssr: false });
 
 // Helper to get audio duration from a File
 function getAudioDuration(file: File): Promise<number> {
@@ -379,6 +382,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const { can, isAdmin, loading: permsLoading } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
   const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "overview");
+  const [navQuery, setNavQuery] = useState("");
   // Phone layout: grouped section list → pushed section page → detail page.
   const isMobile = useIsMobile();
   const [mobileNav, setMobileNav] = useState<MobileSettingsNav<SettingsTab>>(
@@ -487,35 +491,9 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const [discoverableApps, setDiscoverableApps] = useState<any[]>([]);
   const [appSearch, setAppSearch] = useState("");
 
-  const [isSyncingDiscord, setIsSyncingDiscord] = useState(false);
   const [isTriggeringTwitch, setIsTriggeringTwitch] = useState(false);
   const [isTriggeringYoutube, setIsTriggeringYoutube] = useState(false);
-  const [isTriggeringDiscord, setIsTriggeringDiscord] = useState(false);
-
-  const handleDiscordSync = async () => {
-    if (!currentServer) return;
-    setIsSyncingDiscord(true);
-    try {
-      const mode = draftString("integrations.discordMode", "add");
-      const res = await fetch(`/api/servers/${currentServer.id}/integrations/discord/sync`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ mode }),
-      });
-      if (res.ok) {
-        const data = await res.json();
-        toast.success(`Synced Discord channels successfully! ${gt("Mode")}: ${data.details.mode}. ${gt("Created")}: ${data.details.created}, ${gt("Linked")}: ${data.details.linked}, ${gt("Deleted")}: ${data.details.deleted}.`);
-        await fetchServers();
-      } else {
-        const err = await res.json().catch(() => null);
-        toast.error(err?.error || gt("Failed to sync Discord channels"));
-      }
-    } catch {
-      toast.error(gt("Failed to sync Discord channels"));
-    } finally {
-      setIsSyncingDiscord(false);
-    }
-  };
+  const [, setIsTriggeringDiscord] = useState(false);
 
   const handleMockTrigger = async (type: "twitch" | "youtube" | "discord") => {
     if (!currentServer) return;
@@ -1096,12 +1074,21 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     setFieldErrors({});
   };
 
-  // Closing with unsaved changes requires an explicit choice
+  // Closing with unsaved changes requires an explicit choice. On desktop the
+  // first attempt shakes the save bar (Discord); trying again right away asks
+  // whether to discard.
   const closePromptOpenRef = useRef(false);
+  const [unsavedShake, shakeUnsaved] = useUnsavedShake();
+  const lastShakeAtRef = useRef(0);
   const handleRequestClose = useCallback(async () => {
     if (settingsDraft.isDirty) {
       // Escape also reaches the window listener below while the prompt is up.
       if (closePromptOpenRef.current) return;
+      if (!isMobile && Date.now() - lastShakeAtRef.current > 2500) {
+        lastShakeAtRef.current = Date.now();
+        shakeUnsaved();
+        return;
+      }
       closePromptOpenRef.current = true;
       const discard = await confirmDialog({
         title: gt("You have unsaved changes. Discard them and close?"),
@@ -1112,7 +1099,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       setFieldErrors({});
     }
     onOpenChange(false);
-  }, [settingsDraft, onOpenChange, confirmDialog, gt]);
+  }, [settingsDraft, onOpenChange, confirmDialog, gt, isMobile, shakeUnsaved]);
 
   // Handle escape key (respects the unsaved-changes guard)
   useEffect(() => {
@@ -1120,12 +1107,18 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       if (e.key === "Escape" && open) {
         // A dialog opened on top (e.g. kick / ban / timeout from Members) closes first.
         if (document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"][data-state="open"]')) return;
+        // Escape in the sidebar search clears it before it closes anything.
+        const target = e.target as HTMLElement | null;
+        if (target?.dataset?.settingsSearch !== undefined && navQuery) {
+          setNavQuery("");
+          return;
+        }
         void handleRequestClose();
       }
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [open, handleRequestClose]);
+  }, [open, handleRequestClose, navQuery]);
 
   const handleCreateRole = async () => {
     if (!currentServer) return;
@@ -2035,7 +2028,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           <div className="relative group">
             <Avatar className="w-24 h-24 rounded-2xl">
               <AvatarImage src={cdnImage(serverIcon || undefined)} />
-              <AvatarFallback className="bg-[#8B5CF6] text-white text-3xl rounded-2xl">
+              <AvatarFallback className="bg-[var(--app-accent)] text-white text-3xl rounded-2xl">
                 {(draftString("name") || currentServer?.name || "?").charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
@@ -2056,7 +2049,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
 
         {/* Banner */}
         <div className="flex-1">
-          <div className="relative group aspect-[2/1] max-h-40 rounded-lg overflow-hidden bg-gradient-to-r from-[#8B5CF6] to-[#6366F1]">
+          <div className="relative group aspect-[2/1] max-h-40 rounded-lg overflow-hidden bg-gradient-to-r from-[var(--app-accent)] to-[var(--accent-hover)]">
             {serverBanner && (
               <img src={cdnImage(serverBanner)} alt="Banner" className="w-full h-full object-cover" />
             )}
@@ -2205,7 +2198,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         </div>
         <button
           onClick={handleCreateRole}
-          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2"
+          className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
           <T>Create Role</T>
@@ -2240,7 +2233,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                   value={roleSearch}
                   onChange={(e) => setRoleSearch(e.target.value)}
                   placeholder={gt("Search roles...")}
-                  className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6]"
+                  className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
                 />
               </div>
             )}
@@ -2514,7 +2507,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                           value={permissionSearch}
                           onChange={(e) => setPermissionSearch(e.target.value)}
                           placeholder={gt("Filter permissions...")}
-                          className="w-full pl-8 pr-3 py-1.5 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-md text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6]"
+                          className="w-full pl-8 pr-3 py-1.5 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-md text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
                         />
                       </div>
                     </div>
@@ -2560,7 +2553,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                     className={cn(
                       "px-4 py-2 rounded-md flex items-center gap-2 transition-all",
                       hasUnsavedRoleChanges
-                        ? "bg-[#8B5CF6] hover:bg-[#7C3AED] text-white"
+                        ? "bg-[var(--app-accent)] hover:brightness-110 text-white"
                         : "bg-[var(--app-surface-alt)] text-[var(--text-muted)]"
                     )}
                   >
@@ -2652,7 +2645,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           )}
         </div>
         <div className="flex gap-2">
-          <div className="flex items-center flex-1 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] focus-within:border-[#8B5CF6] transition-colors overflow-hidden">
+          <div className="flex items-center flex-1 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] focus-within:border-[var(--app-accent)] transition-colors overflow-hidden">
             <span className="pl-3 text-sm text-[var(--text-muted)] font-mono select-none">serika.cc/</span>
             <input
               value={vanityDraft}
@@ -2669,7 +2662,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           <button
             onClick={handleSaveVanity}
             disabled={isSavingVanity || !vanityDirty}
-            className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md flex items-center gap-2 text-sm font-medium transition-colors"
+            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 disabled:opacity-50 disabled:cursor-not-allowed text-white rounded-md flex items-center gap-2 text-sm font-medium transition-colors"
           >
             {isSavingVanity ? <Loader size={16} /> : <Check className="w-4 h-4" />}
             <T>Save</T>
@@ -2718,7 +2711,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         </div>
         <button
           onClick={handleCreateInvite}
-          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2"
+          className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2"
         >
           <Plus className="w-4 h-4" />
           <T>Create Invite</T>
@@ -2767,7 +2760,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
               </div>
               <Avatar className="w-8 h-8">
                 <AvatarImage src={cdnImage(invite.createdBy?.avatar)} />
-                <AvatarFallback className="bg-[#8B5CF6] text-white text-xs">
+                <AvatarFallback className="bg-[var(--app-accent)] text-white text-xs">
                   {invite.createdBy?.username?.charAt(0) || "?"}
                 </AvatarFallback>
               </Avatar>
@@ -2811,7 +2804,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             >
               <Avatar className="w-10 h-10">
                 <AvatarImage src={cdnImage(ban.avatar)} />
-                <AvatarFallback className="bg-[#8B5CF6] text-white">
+                <AvatarFallback className="bg-[var(--app-accent)] text-white">
                   {ban.username.charAt(0)}
                 </AvatarFallback>
               </Avatar>
@@ -2920,7 +2913,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
               >
                 <Avatar className="w-10 h-10">
                   <AvatarImage src={cdnImage(member.avatar || undefined)} />
-                  <AvatarFallback className="bg-[#8B5CF6] text-white">
+                  <AvatarFallback className="bg-[var(--app-accent)] text-white">
                     {(member.displayName || member.username || '?').charAt(0)}
                   </AvatarFallback>
                 </Avatar>
@@ -2994,7 +2987,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                                   onCheckedChange={(checked) =>
                                     handleToggleMemberRole(member, role.id, checked)
                                   }
-                                  className="focus:bg-[#8B5CF6] focus:text-white"
+                                  className="focus:bg-[var(--app-accent)] focus:text-white"
                                 >
                                   <div className="flex items-center gap-2">
                                     <div
@@ -3065,7 +3058,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         <button
           onClick={() => emojiInputRef.current?.click()}
           disabled={isUploadingEmoji}
-          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
+          className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2 disabled:opacity-50"
         >
           {isUploadingEmoji ? (
             <Loader size={16} />
@@ -3094,7 +3087,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             value={emojiSearch}
             onChange={(e) => setEmojiSearch(e.target.value)}
             placeholder={gt("Search emoji by name...")}
-            className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6]"
+            className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
           />
         </div>
       )}
@@ -3111,7 +3104,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           <button
             onClick={() => emojiInputRef.current?.click()}
             disabled={isUploadingEmoji}
-            className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md disabled:opacity-50"
+            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md disabled:opacity-50"
           >
             <T>Upload Emoji</T>
           </button>
@@ -3125,7 +3118,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           {filteredEmojis.map((emoji) => (
             <div
               key={emoji.id}
-              className="relative group aspect-square bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2 flex flex-col items-center justify-center hover:border-[#8B5CF6]/50 transition-colors"
+              className="relative group aspect-square bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg p-2 flex flex-col items-center justify-center hover:border-[var(--app-accent)]/50 transition-colors"
               title={`:${emoji.name}:`}
             >
               <img
@@ -3134,7 +3127,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 className="w-8 h-8 object-contain"
               />
               {emoji.animated && (
-                <span className="absolute top-1 left-1 px-1 py-0.5 text-[8px] font-bold bg-[#8B5CF6] text-white rounded">GIF</span>
+                <span className="absolute top-1 left-1 px-1 py-0.5 text-[8px] font-bold bg-[var(--app-accent)] text-white rounded">GIF</span>
               )}
               <button
                 onClick={() => handleDeleteEmoji(emoji.id)}
@@ -3147,7 +3140,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                   setRenamingEmojiId(emoji.id);
                   setEmojiRenameValue(emoji.name);
                 }}
-                className="absolute top-1 right-7 max-md:right-9 p-1 max-md:p-1.5 bg-[#8B5CF6]/80 hover:bg-[#8B5CF6] rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
+                className="absolute top-1 right-7 max-md:right-9 p-1 max-md:p-1.5 bg-[var(--app-accent)]/80 hover:bg-[var(--app-accent)] rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
               >
                 <Pencil className="w-3 h-3 text-white" />
               </button>
@@ -3163,13 +3156,13 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                     }}
                     autoFocus
                     maxLength={32}
-                    className="w-full text-xs bg-[var(--app-surface-alt)] text-[var(--text-primary)] rounded px-1.5 py-1 text-center border border-[#8B5CF6]/50 focus:outline-none focus:border-[#8B5CF6]"
+                    className="w-full text-xs bg-[var(--app-surface-alt)] text-[var(--text-primary)] rounded px-1.5 py-1 text-center border border-[var(--app-accent)]/50 focus:outline-none focus:border-[var(--app-accent)]"
                     placeholder={gt("Name")}
                   />
                   <div className="flex gap-1">
                     <button
                       onClick={() => handleRenameEmoji(emoji.id)}
-                      className="p-1 bg-[#8B5CF6] hover:bg-[#7C3AED] rounded"
+                      className="p-1 bg-[var(--app-accent)] hover:brightness-110 rounded"
                     >
                       <Check className="w-3 h-3 text-white" />
                     </button>
@@ -3208,7 +3201,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         <button
           onClick={() => stickerInputRef.current?.click()}
           disabled={isUploadingSticker}
-          className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
+          className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2 disabled:opacity-50"
         >
           {isUploadingSticker ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
           {isUploadingSticker ? gt("Uploading...") : gt("Upload Sticker")}
@@ -3232,7 +3225,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             value={stickerSearch ?? ""}
             onChange={(e) => setStickerSearch(e.target.value)}
             placeholder={gt("Search stickers by name...")}
-            className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[#8B5CF6]"
+            className="w-full pl-9 pr-3 py-2 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-md text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
           />
         </div>
       )}
@@ -3248,7 +3241,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           <p className="text-[var(--text-secondary)] text-sm mb-4"><T>Upload stickers to use in messages</T></p>
           <button
             onClick={() => stickerInputRef.current?.click()}
-            className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md"
+            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md"
           >
             <T>Upload First Sticker</T>
           </button>
@@ -3262,7 +3255,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           {filteredStickers.map((sticker) => (
             <div
               key={sticker.id}
-              className="relative group rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] p-2 hover:border-[#8B5CF6]/50 transition-colors"
+              className="relative group rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] p-2 hover:border-[var(--app-accent)]/50 transition-colors"
               title={sticker.name}
             >
               <img
@@ -3281,7 +3274,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                   setRenamingStickerId(sticker.id);
                   setStickerRenameValue(sticker.name);
                 }}
-                className="absolute top-1 right-7 max-md:right-9 p-1 max-md:p-1.5 bg-[#8B5CF6]/80 hover:bg-[#8B5CF6] rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
+                className="absolute top-1 right-7 max-md:right-9 p-1 max-md:p-1.5 bg-[var(--app-accent)]/80 hover:bg-[var(--app-accent)] rounded opacity-0 group-hover:opacity-100 max-md:opacity-100 transition-opacity"
               >
                 <Pencil className="w-3 h-3 text-white" />
               </button>
@@ -3297,13 +3290,13 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                     }}
                     autoFocus
                     maxLength={30}
-                    className="w-full text-xs bg-[var(--app-surface-alt)] text-[var(--text-primary)] rounded px-1.5 py-1 text-center border border-[#8B5CF6]/50 focus:outline-none focus:border-[#8B5CF6]"
+                    className="w-full text-xs bg-[var(--app-surface-alt)] text-[var(--text-primary)] rounded px-1.5 py-1 text-center border border-[var(--app-accent)]/50 focus:outline-none focus:border-[var(--app-accent)]"
                     placeholder={gt("Name")}
                   />
                   <div className="flex gap-1 justify-center">
                     <button
                       onClick={() => handleRenameSticker(sticker.id)}
-                      className="p-1 bg-[#8B5CF6] hover:bg-[#7C3AED] rounded"
+                      className="p-1 bg-[var(--app-accent)] hover:brightness-110 rounded"
                     >
                       <Check className="w-3 h-3 text-white" />
                     </button>
@@ -3364,7 +3357,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
               href="https://support.discord.com/hc/en-us/articles/29729107418519-Server-Member-Applications"
               target="_blank"
               rel="noreferrer"
-              className="text-[#8B5CF6] hover:underline"
+              className="text-[var(--app-accent)] hover:underline"
             >
               <T>Learn More</T>
             </a>
@@ -3381,11 +3374,11 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                   className={cn(
                     "flex flex-col items-center text-center p-4 rounded-xl border transition-colors",
                     selected
-                      ? "bg-[#8B5CF6]/10 border-[#8B5CF6]/50"
+                      ? "bg-[var(--app-accent)]/10 border-[var(--app-accent)]/50"
                       : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
                   )}
                 >
-                  <div className={cn("p-2 rounded-full mb-2", selected ? "text-[#8B5CF6]" : "text-[var(--text-secondary)]")}>
+                  <div className={cn("p-2 rounded-full mb-2", selected ? "text-[var(--app-accent)]" : "text-[var(--text-secondary)]")}>
                     <Icon className="w-5 h-5" />
                   </div>
                   <span className={cn("font-medium", selected ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)]")}>
@@ -3407,7 +3400,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 value={draftString("discoveryDescription")}
                 onChange={(e) => settingsDraft.update("discoveryDescription", e.target.value)}
                 maxLength={1024}
-                className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[#8B5CF6] min-h-[80px]"
+                className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:border-[var(--app-accent)] min-h-[80px]"
               />
               <p className="text-xs text-[var(--text-secondary)] text-right">
                 {draftString("discoveryDescription").length}/1024
@@ -3458,7 +3451,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                       className={cn(
                         "px-3 py-1.5 rounded-full text-xs font-medium border transition-all active:scale-95",
                         isSelected
-                          ? "bg-[#8B5CF6] border-[#8B5CF6] text-white shadow-md shadow-[#8B5CF6]/20"
+                          ? "bg-[var(--app-accent)] border-[var(--app-accent)] text-white shadow-md shadow-[var(--app-accent)]/20"
                           : "bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:border-[var(--border-strong)] hover:text-[var(--text-primary)]"
                       )}
                     >
@@ -3481,7 +3474,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                   href="https://support.discord.com/hc/en-us/articles/115000084051"
                   target="_blank"
                   rel="noreferrer"
-                  className="text-[#8B5CF6] hover:underline"
+                  className="text-[var(--app-accent)] hover:underline"
                 >
                   <T>Learn more</T>
                 </a>
@@ -3723,7 +3716,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             value={appSearch}
             onChange={(e) => setAppSearch(e.target.value)}
             placeholder={gt("Search bots and apps...")}
-            className="pl-10 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[#8B5CF6]"
+            className="pl-10 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus-visible:ring-[var(--app-accent)]"
           />
         </div>
 
@@ -3743,17 +3736,17 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 key={app.id}
                 className="flex items-start gap-3 p-4 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] hover:border-[var(--border-strong)] transition-colors"
               >
-                <div className="w-12 h-12 rounded-xl bg-[#8B5CF6]/20 flex items-center justify-center shrink-0 overflow-hidden">
+                <div className="w-12 h-12 rounded-xl bg-[var(--app-accent)]/20 flex items-center justify-center shrink-0 overflow-hidden">
                   {app.icon ? (
                     <img src={cdnImage(app.icon)} alt={app.name} className="w-full h-full object-cover" />
                   ) : (
-                    <Bot className="w-6 h-6 text-[#8B5CF6]" />
+                    <Bot className="w-6 h-6 text-[var(--app-accent)]" />
                   )}
                 </div>
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-1.5">
                     <span className="font-semibold text-sm text-[var(--text-primary)] truncate">{app.name}</span>
-                    {app.botId && <Sparkles className="w-3 h-3 text-[#8B5CF6] shrink-0" />}
+                    {app.botId && <Sparkles className="w-3 h-3 text-[var(--app-accent)] shrink-0" />}
                   </div>
                   <p className="text-xs text-[var(--text-secondary)] line-clamp-2 mt-0.5">
                     {app.description || gt("No description")}
@@ -3761,7 +3754,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                   {app.tags && Array.isArray(app.tags) && app.tags.length > 0 && (
                     <div className="flex gap-1 mt-2 flex-wrap">
                       {app.tags.slice(0, 3).map((tag: string) => (
-                        <span key={tag} className="px-1.5 py-0.5 text-[10px] rounded bg-[#8B5CF6]/10 text-[#8B5CF6] font-medium">
+                        <span key={tag} className="px-1.5 py-0.5 text-[10px] rounded bg-[var(--app-accent)]/10 text-[var(--app-accent)] font-medium">
                           {tag}
                         </span>
                       ))}
@@ -3770,7 +3763,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 </div>
                 <a
                   href={`/api/developers/applications/${app.id}/add?server_id=${currentServer?.id}`}
-                  className="shrink-0 px-3 py-1.5 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-xs font-semibold transition-colors"
+                  className="shrink-0 px-3 py-1.5 rounded-lg bg-[var(--app-accent)] hover:brightness-110 text-white text-xs font-semibold transition-colors"
                 >
                   {gt("Add")}
                 </a>
@@ -3853,7 +3846,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         </div>
         <button
           onClick={() => copyToClipboard(`<iframe src=\"https://serika.chat/widget/${currentServer.id}\" width=\"350\" height=\"500\" />`)}
-          className="mt-2 text-sm text-[#8B5CF6] hover:underline flex items-center gap-1"
+          className="mt-2 text-sm text-[var(--app-accent)] hover:underline flex items-center gap-1"
         >
           <Copy className="w-4 h-4" />
           <T>Copy Code</T>
@@ -4123,18 +4116,11 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 <T>Require moderators to have 2FA enabled</T>
               </p>
             </div>
-            <button
-              onClick={() => settingsDraft.update("moderation.require2FA", !draftBool("moderation.require2FA"))}
-              role="switch"
-              aria-checked={draftBool("moderation.require2FA")}
-              aria-label="Require 2FA for moderators"
-              className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("moderation.require2FA") ? "bg-[#8B5CF6]" : "bg-[var(--app-surface-alt)]")}
-            >
-              <div className={cn(
-                "w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform",
-                draftBool("moderation.require2FA") ? "translate-x-6 left-0.5" : "left-0.5"
-              )} />
-            </button>
+            <ToggleSwitch
+              checked={draftBool("moderation.require2FA")}
+              onCheckedChange={(checked) => settingsDraft.update("moderation.require2FA", checked)}
+              aria-label={gt("Require 2FA for moderators")}
+            />
           </div>
         </div>
 
@@ -4144,18 +4130,11 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
               <span className="text-[var(--text-primary)] font-medium"><T>Raid Protection</T></span>
               <p className="text-sm text-[var(--text-secondary)] mt-1"><T>Auto-enable stricter checks during suspicious joins</T></p>
             </div>
-            <button
-              onClick={() => settingsDraft.update("safety.raidProtection", !draftBool("safety.raidProtection"))}
-              role="switch"
-              aria-checked={draftBool("safety.raidProtection")}
-              aria-label="Raid protection"
-              className={cn("w-12 h-6 rounded-full relative transition-colors", draftBool("safety.raidProtection") ? "bg-[#8B5CF6]" : "bg-[var(--app-surface-alt)]")}
-            >
-              <div className={cn(
-                "w-5 h-5 rounded-full bg-white absolute top-0.5 transition-transform",
-                draftBool("safety.raidProtection") ? "translate-x-6 left-0.5" : "left-0.5"
-              )} />
-            </button>
+            <ToggleSwitch
+              checked={draftBool("safety.raidProtection")}
+              onCheckedChange={(checked) => settingsDraft.update("safety.raidProtection", checked)}
+              aria-label={gt("Raid protection")}
+            />
           </div>
         </div>
         </fieldset>
@@ -4216,7 +4195,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           <button
             onClick={() => soundInputRef.current?.click()}
             disabled={isUploadingSound}
-            className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md flex items-center gap-2 disabled:opacity-50"
+            className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md flex items-center gap-2 disabled:opacity-50"
           >
             {isUploadingSound ? <Loader size={16} /> : <Plus className="w-4 h-4" />}
             <T>Upload Sound</T>
@@ -4238,7 +4217,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             <p className="text-[var(--text-secondary)] text-sm mb-4"><T>Upload audio files to use in voice channels</T></p>
             <button
               onClick={() => soundInputRef.current?.click()}
-              className="px-4 py-2 bg-[#8B5CF6] hover:bg-[#7C3AED] text-white rounded-md"
+              className="px-4 py-2 bg-[var(--app-accent)] hover:brightness-110 text-white rounded-md"
             >
               <T>Upload First Sound</T>
             </button>
@@ -4248,11 +4227,11 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             {soundboardSounds.map((sound) => (
               <div
                 key={sound.id}
-                className="relative group flex items-center gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg hover:border-[#8B5CF6]/50 transition-colors"
+                className="relative group flex items-center gap-3 p-3 bg-[var(--bg-card)] border border-[var(--border-subtle)] rounded-lg hover:border-[var(--app-accent)]/50 transition-colors"
               >
                 <button
                   onClick={() => playSound(sound)}
-                  className="flex-shrink-0 w-10 h-10 rounded-full bg-[#8B5CF6] hover:bg-[#7C3AED] flex items-center justify-center transition-colors"
+                  className="flex-shrink-0 w-10 h-10 rounded-full bg-[var(--app-accent)] hover:brightness-110 flex items-center justify-center transition-colors"
                 >
                   {playingSoundId === sound.id ? (
                     <Loader size={20} />
@@ -4294,7 +4273,6 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   );
 
   const renderIntegrations = () => {
-    const isDiscordEnabled = draftBool("integrations.discord");
     const isTwitchEnabled = draftBool("integrations.twitch");
     const isYoutubeEnabled = draftBool("integrations.youtube");
     const isWebhooksEnabled = draftBool("integrations.webhooks");
@@ -4307,140 +4285,8 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         </div>
 
         <div className="space-y-4">
-          {/* Discord Card */}
-          <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-lg bg-[#5865F2]/15 flex items-center justify-center shrink-0">
-                  <svg viewBox="0 0 24 24" className="w-5 h-5 fill-[#5865F2]" xmlns="http://www.w3.org/2000/svg">
-                    <path d="M20.317 4.37a19.79 19.79 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.872-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 0 0 .031.057 19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128c.126-.094.252-.192.372-.291a.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.009c.12.099.246.198.373.292a.077.077 0 0 1-.006.127 12.3 12.3 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .032-.054c.5-5.177-.838-9.674-3.549-13.66a.06.06 0 0 0-.031-.03zM8.02 15.33c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.956-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.956 2.418-2.157 2.418zm7.975 0c-1.183 0-2.157-1.085-2.157-2.419 0-1.333.955-2.419 2.157-2.419 1.21 0 2.176 1.096 2.157 2.42 0 1.333-.946 2.418-2.157 2.418z"/>
-                  </svg>
-                </div>
-                <div>
-                  <p className="text-[var(--text-primary)] font-semibold flex items-center gap-2">
-                    <T>Discord Bridge</T>
-                  </p>
-                  <p className="text-sm text-[var(--text-secondary)]"><T>Sync channels, roles, and messages bidirectionally with Discord</T></p>
-                </div>
-              </div>
-              <ToggleSwitch
-                checked={isDiscordEnabled}
-                onCheckedChange={(checked) => settingsDraft.update("integrations.discord", checked)}
-                aria-label="Discord Bridge"
-              />
-            </div>
-
-            {isDiscordEnabled && (
-              <div className="pt-4 border-t border-[var(--border-subtle)] space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
-                {/* Bot Status & Invite */}
-                <div className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-                  <div className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0 shadow-[0_0_8px_rgba(34,197,94,0.6)]" />
-                  <div className="flex-1 min-w-0">
-                    <p className="text-xs font-semibold text-[var(--text-primary)]"><T>SerikaCord Bot</T></p>
-                    <p className="text-[11px] text-[var(--text-secondary)]"><T>Online and listening for messages via Gateway</T></p>
-                  </div>
-                  <a
-                    href="https://discord.com/oauth2/authorize?client_id=1524469730256355421&permissions=8&scope=bot"
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1.5 text-xs text-white font-semibold bg-[#5865F2] hover:bg-[#4752c4] rounded-md h-8 px-3 transition-colors shrink-0"
-                  >
-                    <T>Invite Bot</T> <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-
-                {/* Guild ID Input */}
-                <div>
-                  <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>DISCORD SERVER (GUILD) ID</T></label>
-                  <Input
-                    type="text"
-                    placeholder={gt("e.g. 1161608848428236902")}
-                    value={draftString("integrations.discordGuildId", "")}
-                    onChange={(e) => settingsDraft.update("integrations.discordGuildId", e.target.value)}
-                    className="bg-[var(--bg-app)] border-[var(--border-subtle)] text-[var(--text-primary)] font-mono text-sm"
-                  />
-                  <p className="text-[11px] text-[var(--text-muted)] mt-1.5">
-                    <T>Right-click your Discord server &gt; Copy Server ID (enable Developer Mode in Discord settings)</T>
-                  </p>
-                </div>
-
-                {/* Consent enforcement */}
-                <div className="flex items-start justify-between gap-4 p-3 rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-                  <div className="min-w-0">
-                    <p className="text-xs font-semibold text-[var(--text-primary)]"><T>Restrict members who haven&apos;t agreed</T></p>
-                    <p className="text-[11px] text-[var(--text-secondary)] mt-0.5">
-                      <T>Discord members who decline data processing by Serika are timed out for 1 week (re-applied weekly) until they agree. Their messages are never synced regardless of this setting.</T>
-                    </p>
-                  </div>
-                  <ToggleSwitch
-                    checked={draftBool("integrations.discordRestrictUnconsented")}
-                    onCheckedChange={(checked) => settingsDraft.update("integrations.discordRestrictUnconsented", checked)}
-                    aria-label="Restrict unconsented members"
-                  />
-                </div>
-
-                {/* Advanced Sync Controls */}
-                <div className="bg-[var(--app-surface-alt)] p-4 rounded-md border border-[var(--border-subtle)] space-y-3">
-                  <div className="flex items-center gap-2">
-                    <p className="text-sm font-semibold text-[var(--text-primary)]"><T>Channel &amp; Role Sync</T></p>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-semibold text-[var(--text-secondary)] mb-2"><T>SYNC MODE</T></label>
-                    <select
-                      value={draftString("integrations.discordMode", "add")}
-                      onChange={(e) => settingsDraft.update("integrations.discordMode", e.target.value)}
-                      className="w-full h-10 px-3 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-                    >
-                      <option value="add">{gt("Keep existing channels, add Discord channels alongside")}</option>
-                      <option value="delete">{gt("Replace all channels with Discord channels (destructive)")}</option>
-                    </select>
-                  </div>
-
-                  <div className="flex flex-wrap gap-3 pt-1">
-                    <button
-                      type="button"
-                      onClick={handleDiscordSync}
-                      disabled={isSyncingDiscord}
-                      className="px-4 h-9 bg-[#5865F2] hover:bg-[#4752c4] disabled:bg-[#5865F2]/50 text-white text-xs font-semibold rounded-md flex items-center gap-2 transition-colors"
-                    >
-                      {isSyncingDiscord ? (
-                        <>
-                          <Loader size={undefined} />
-                          <T>Syncing...</T>
-                        </>
-                      ) : (
-                        gt("Sync Channels & Roles")
-                      )}
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={() => handleMockTrigger("discord")}
-                      disabled={isTriggeringDiscord}
-                      className="px-4 h-9 bg-neutral-700 hover:bg-neutral-600 disabled:bg-neutral-800 text-[var(--text-primary)] text-xs font-semibold rounded-md flex items-center gap-2 transition-colors"
-                    >
-                      {isTriggeringDiscord ? (
-                        <>
-                          <Loader size={undefined} />
-                          <T>Testing...</T>
-                        </>
-                      ) : (
-                        gt("Send Test Message")
-                      )}
-                    </button>
-                  </div>
-                </div>
-
-                {/* Info Banner */}
-                <div className="flex items-start gap-2 p-3 rounded-md bg-[#5865F2]/8 border border-[#5865F2]/20">
-                  <Check className="w-3.5 h-3.5 text-[#5865F2] shrink-0 mt-0.5" />
-                  <p className="text-[11px] text-[#a8b1ff] leading-relaxed">
-                    <T>Messages from Discord appear in SerikaCord with the author&apos;s Discord username and tag. Messages sent in SerikaCord are relayed back to Discord via the bot. Webhooks are auto-provisioned during sync.</T>
-                  </p>
-                </div>
-              </div>
-            )}
-          </div>
+          {/* Discord bridge: guided linking, channel mapping, options, health */}
+          {currentServer && <DiscordBridgePanel serverId={currentServer.id} />}
 
           {/* Twitch Card */}
           <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-4">
@@ -4584,6 +4430,13 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
               aria-label="Custom Webhooks"
             />
           </div>
+
+          {/* Every channel webhook in the server, grouped by channel */}
+          {currentServer && (
+            <div className="p-4 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)]">
+              <ServerWebhooksPanel serverId={currentServer.id} channels={channels} />
+            </div>
+          )}
         </div>
       </div>
     );
@@ -4793,6 +4646,15 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     );
   }
 
+  const navSections: SettingsNavSection<SettingsTab>[] = menuSections.map((section) => ({
+    ...section,
+    items: section.items.map((item) => ({
+      ...item,
+      badge: pendingAppCount > 0 && (item.id === "applications" || item.id === "members") ? pendingAppCount : undefined,
+    })),
+  }));
+  const activeNavLabel = menuSections.flatMap((section) => section.items).find((item) => item.id === activeTab)?.label ?? gt("Server Settings");
+
   return (
     <div
       role="dialog"
@@ -4801,73 +4663,26 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       className="fixed inset-0 z-50 bg-[var(--bg-app)] flex"
     >
       {/* Sidebar */}
-      <div className="w-56 md:w-64 bg-[var(--bg-app)] border-r border-[var(--border-subtle)] flex flex-col">
-        <ScrollArea className="flex-1 py-4">
-          <div className="space-y-6 px-2">
-            {menuSections.map((section) => (
-              <div key={section.title}>
-                <h3 className="px-3 mb-1 text-xs font-semibold uppercase text-[var(--text-muted)] truncate">
-                  {section.title}
-                </h3>
-                <div className="space-y-0.5">
-                  {section.items.map((item) => {
-                    const showBadge = pendingAppCount > 0 && (item.id === "applications" || item.id === "members");
-                    return (
-                      <button
-                        key={item.id}
-                        onClick={() => setActiveTab(item.id)}
-                        className={cn(
-                          "w-full flex items-center gap-2 px-3 py-2 rounded-md text-sm transition-colors",
-                          activeTab === item.id
-                            ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
-                            : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                        )}
-                      >
-                        <item.icon className="w-4 h-4 flex-shrink-0" />
-                        <span className="truncate flex-1 text-left">{item.label}</span>
-                        {showBadge && (
-                          <span className="ml-auto px-1.5 py-0.5 bg-red-500 text-white text-[10px] font-bold rounded-full min-w-[18px] text-center">
-                            {pendingAppCount > 99 ? "99+" : pendingAppCount}
-                          </span>
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            ))}
-          </div>
-        </ScrollArea>
-      </div>
+      <SettingsNav
+        sections={navSections}
+        activeId={activeTab}
+        onSelect={setActiveTab}
+        query={navQuery}
+        onQueryChange={setNavQuery}
+        ariaLabel={gt("Server Settings")}
+      />
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col min-w-0">
-        {/* Header */}
-        <div className="h-14 flex items-center justify-end px-4 border-b border-[var(--border-subtle)]">
-          <button
-            onClick={handleRequestClose}
-            aria-label={gt("Close server settings")}
-            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors focus-visible:outline-2 focus-visible:outline-[#8B5CF6]"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Content — wide tabs (roles, members, bans) use the full container;
-            form-style tabs stay comfortably readable at a narrower width. */}
-        <ScrollArea className="flex-1">
-          <div
-            className={cn(
-              "mx-auto p-6 md:p-8 pb-24",
-              WIDE_SETTINGS_TABS.has(activeTab) ? "max-w-6xl" : "max-w-2xl"
-            )}
-          >
-            {renderContent()}
-          </div>
-        </ScrollArea>
-
-        {/* Sticky transactional save bar (covers every settings tab) */}
-        <div className="px-4">
+      {/* Main Content — wide tabs (roles, members, bans) use the full container;
+          form-style tabs stay comfortably readable at a narrower width. */}
+      <SettingsContent
+        pageKey={activeTab}
+        title={activeNavLabel}
+        width={WIDE_SETTINGS_TABS.has(activeTab) ? "wide" : "narrow"}
+        onClose={() => void handleRequestClose()}
+        closeLabel={gt("Close server settings")}
+        highlightQuery={navQuery}
+        footer={
+          /* Sticky transactional save bar (covers every settings tab) */
           <UnsavedChangesBar
             visible={settingsDraft.isDirty}
             isSaving={isSaving}
@@ -4878,10 +4693,13 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
             canUndo={settingsDraft.canUndo}
             canRedo={settingsDraft.canRedo}
             changeCount={settingsDraft.dirtyFields.size}
-            className="mb-4"
+            shakeSignal={unsavedShake}
+            className="mt-0 max-w-none"
           />
-        </div>
-      </div>
+        }
+      >
+        {renderContent()}
+      </SettingsContent>
 
       {overlays}
     </div>

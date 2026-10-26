@@ -1,7 +1,7 @@
 "use client";
 
 import { useGT } from "gt-next";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { SettingsToggleRow } from "@/components/settings/SettingsSection";
 import { friendRequestSources, messageRequestsEnabled } from "@/lib/settings/privacy";
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -17,13 +17,7 @@ function Row({ label, description, checked, disabled, onChange }: {
   onChange: (checked: boolean) => void;
 }) {
   return (
-    <label className="flex items-center justify-between gap-4 py-2">
-      <div className="min-w-0">
-        <span className="text-[var(--text-primary)]">{label}</span>
-        {description && <p className="text-xs text-[var(--text-muted)]">{description}</p>}
-      </div>
-      <ToggleSwitch size="sm" checked={checked} disabled={disabled} onCheckedChange={onChange} />
-    </label>
+    <SettingsToggleRow label={label} description={description} checked={checked} disabled={disabled} onCheckedChange={onChange} />
   );
 }
 
@@ -45,8 +39,8 @@ export function FriendRequestSettings({ settings, save }: { settings: Settings; 
     });
   };
   return (
-    <div>
-      <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)] mb-1">{gt("Who can send you a friend request")}</p>
+    <div className="divide-y divide-[var(--border-subtle)]">
+      <p className="px-4 pt-3.5 pb-2.5 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">{gt("Who can send you a friend request")}</p>
       <Row
         label={gt("Everyone")}
         checked={!nobody && src.everyone}
@@ -89,7 +83,7 @@ export function MessageRequestSettings({ settings, save }: { settings: Settings;
 export function ActivityPrivacySettings({ settings, save }: { settings: Settings; save: (patch: Patch) => void }) {
   const gt = useGT();
   return (
-    <div>
+    <div className="divide-y divide-[var(--border-subtle)]">
       <Row
         label={gt("Share your detected activities with others")}
         description={gt("Show what you're playing, listening to or watching on your profile, in the member list and to friends.")}

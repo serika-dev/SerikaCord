@@ -17,6 +17,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { SettingsContent, SettingsNav } from "@/components/settings/SettingsShell";
+import { filterSettingsSections } from "@/components/settings/settingsSearch";
+import { SettingsCard, SettingsRow, SettingsSection, SettingsToggleRow } from "@/components/settings/SettingsSection";
+import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
 import { ImageCropper } from "@/components/ui/image-cropper";
 import { ProfileCard } from "@/components/user/ProfileCard";
 import { motion, AnimatePresence } from "framer-motion";
@@ -36,7 +40,6 @@ import {
   Check, 
   ExternalLink,
   Pencil,
-  Search,
   Link2,
   Smartphone,
   MessageSquare,
@@ -99,7 +102,7 @@ import { AdminTtsSoundsPanel, AdminTtsVoicesPanel } from "@/components/settings/
 import { AdminTranslationsPanel } from "@/components/settings/AdminTranslationsPanel";
 import { BugReportPanel } from "@/components/settings/BugReportPanel";
 import { MobileSettingsHeader, MobileSettingsHome } from "@/components/settings/MobileSettingsHome";
-import { readSettingsBackAction } from "@/components/settings/mobileSettingsNav";
+import { readSettingsBackAction, SETTINGS_PHONE_QUERY } from "@/components/settings/mobileSettingsNav";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { AdminBugReportsPanel } from "@/components/settings/AdminBugReportsPanel";
 import { AdminBadgesPanel } from "@/components/settings/AdminBadgesPanel";
@@ -124,6 +127,10 @@ const AdminStaffPanel = dynamic(() => import("@/components/settings/AdminStaffPa
 const AdminChangelogsPanel = dynamic(() => import("@/components/settings/AdminChangelogsPanel").then((module) => module.AdminChangelogsPanel));
 const AccountStanding = dynamic(() => import("@/components/safety/AccountStanding").then((module) => module.AccountStanding));
 const AdminTrustSafetyPanel = dynamic(() => import("@/components/settings/AdminTrustSafetyPanel"));
+
+/** Pages drawn as one card of hairline-separated setting rows. */
+const ROW_STYLE_TABS = new Set<string>(["content-social", "friend-requests", "activity-privacy", "data-privacy", "accessibility", "text-images", "advanced"]);
+const BARE_PANEL_TABS = new Set<string>(["keybinds", "desktop", "streamer-mode", "language"]);
 
 const ADMIN_TAB_PERMISSIONS: Record<string, StaffPermission[]> = {
   "admin-users": ["users.view"],
@@ -500,20 +507,17 @@ function VoiceVideoTab({
   const ttsEnabled = Boolean(userSettings?.accessibility?.tts);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Voice & Video")}</h2>
 
       {/* Voice Settings */}
-      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-        <div className="flex items-center gap-3 mb-1">
-          <Mic className="w-5 h-5 text-[var(--app-accent)]" />
-          <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Input Device")}</h3>
-        </div>
-
+      <SettingsSection title={gt("Input Device")} icon={Mic}>
+      <SettingsCard>
         {isLoadingSettings || !userSettings ? (
-          <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
+          <div className="px-4 py-3.5 text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
         ) : (
           <>
+            <div className="px-4 py-4 space-y-4">
             {/* Input Volume */}
             <div className="space-y-2">
               <div className="flex items-center justify-between">
@@ -543,44 +547,35 @@ function VoiceVideoTab({
               onAutoChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), autoSensitivity: checked } }, "voice-video")}
               onThresholdChange={(db) => saveSettingsPatchDebounced({ voiceVideo: { inputSensitivity: db } }, "voice-video")}
             />
-
-            <div className="h-px bg-[var(--border-subtle)]" />
+            </div>
 
             {/* Audio Processing Toggles */}
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium">{gt("Noise Suppression")}</p>
-                <p className="text-sm text-[var(--text-secondary)]">{gt("Reduce background noise from your microphone")}</p>
-              </div>
-              <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.noiseSuppression)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), noiseSuppression: checked } }, "voice-video")} />
-            </label>
-
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium">{gt("Echo Cancellation")}</p>
-                <p className="text-sm text-[var(--text-secondary)]">{gt("Prevent echo from speakers into your microphone")}</p>
-              </div>
-              <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.echoCancellation)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), echoCancellation: checked } }, "voice-video")} />
-            </label>
-
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium">{gt("Automatic Gain Control")}</p>
-                <p className="text-sm text-[var(--text-secondary)]">{gt("Automatically adjust microphone volume")}</p>
-              </div>
-              <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.autoGainControl)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), autoGainControl: checked } }, "voice-video")} />
-            </label>
-
-            <div className="h-px bg-[var(--border-subtle)]" />
+            <SettingsToggleRow
+              label={gt("Noise Suppression")}
+              description={gt("Reduce background noise from your microphone")}
+              checked={Boolean(userSettings.voiceVideo?.noiseSuppression)}
+              onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), noiseSuppression: checked } }, "voice-video")}
+            />
+            <SettingsToggleRow
+              label={gt("Echo Cancellation")}
+              description={gt("Prevent echo from speakers into your microphone")}
+              checked={Boolean(userSettings.voiceVideo?.echoCancellation)}
+              onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), echoCancellation: checked } }, "voice-video")}
+            />
+            <SettingsToggleRow
+              label={gt("Automatic Gain Control")}
+              description={gt("Automatically adjust microphone volume")}
+              checked={Boolean(userSettings.voiceVideo?.autoGainControl)}
+              onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), autoGainControl: checked } }, "voice-video")}
+            />
 
             {/* Push to Talk */}
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium">{gt("Push to Talk")}</p>
-                <p className="text-sm text-[var(--text-secondary)]">{gt("Hold a key to transmit voice")}</p>
-              </div>
-              <ToggleSwitch size="sm" checked={Boolean(userSettings.voiceVideo?.pushToTalk)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalk: checked } }, "voice-video")} />
-            </label>
+            <SettingsToggleRow
+              label={gt("Push to Talk")}
+              description={gt("Hold a key to transmit voice")}
+              checked={Boolean(userSettings.voiceVideo?.pushToTalk)}
+              onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings.voiceVideo || {}), pushToTalk: checked } }, "voice-video")}
+            >
             {userSettings.voiceVideo?.pushToTalk && (
               <div className="ml-0 p-3 rounded-lg bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)]">
                 <label className="text-xs text-[var(--text-muted)] block mb-2">{gt("Push to Talk Key")}</label>
@@ -593,20 +588,19 @@ function VoiceVideoTab({
                 />
               </div>
             )}
+            </SettingsToggleRow>
           </>
         )}
-      </div>
+      </SettingsCard>
+      </SettingsSection>
 
       {/* Output Settings */}
-      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-        <div className="flex items-center gap-3 mb-1">
-          <Volume2 className="w-5 h-5 text-[var(--app-accent)]" />
-          <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Output Device")}</h3>
-        </div>
+      <SettingsSection title={gt("Output Device")} icon={Volume2}>
+      <SettingsCard>
         {isLoadingSettings || !userSettings ? (
-          <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
+          <div className="px-4 py-3.5 text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
         ) : (
-          <div className="space-y-2">
+          <div className="px-4 py-4 space-y-2">
             <div className="pb-2">
               <DeviceSelect role="output" label={gt("Output Device")} />
             </div>
@@ -638,14 +632,13 @@ function VoiceVideoTab({
             />
           </div>
         )}
-      </div>
+      </SettingsCard>
+      </SettingsSection>
 
       {/* Video Preview */}
-      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-        <div className="flex items-center gap-3 mb-1">
-          <Camera className="w-5 h-5 text-[var(--app-accent)]" />
-          <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Camera Preview")}</h3>
-        </div>
+      <SettingsSection title={gt("Camera Preview")} icon={Camera}>
+      <SettingsCard>
+        <div className="px-4 py-4 space-y-4">
         <DeviceSelect role="video" label={gt("Camera")} />
         <div className="flex items-center gap-3">
           <button
@@ -659,52 +652,48 @@ function VoiceVideoTab({
           >
             {videoStream ? gt("Stop Preview") : gt("Start Preview")}
           </button>
-          <label className="flex items-center justify-between cursor-pointer flex-1">
-            <span className="text-sm text-[var(--text-primary)]">{gt("Stream Preview")}</span>
-            <ToggleSwitch size="sm" checked={Boolean(userSettings?.voiceVideo?.streamPreview)} onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings?.voiceVideo || {}), streamPreview: checked } }, "voice-video")} />
-          </label>
         </div>
         {videoStream && (
           <div className="relative rounded-lg overflow-hidden bg-black aspect-video">
             <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover video-mirror" />
           </div>
         )}
-      </div>
+        </div>
+        <SettingsToggleRow
+          label={gt("Stream Preview")}
+          checked={Boolean(userSettings?.voiceVideo?.streamPreview)}
+          onCheckedChange={(checked) => saveSettingsPatch({ voiceVideo: { ...(userSettings?.voiceVideo || {}), streamPreview: checked } }, "voice-video")}
+        />
+      </SettingsCard>
+      </SettingsSection>
 
       {/* Text-to-Speech */}
-      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-        <div className="flex items-center gap-3 mb-1">
-          <Megaphone className="w-5 h-5 text-[var(--app-accent)]" />
-          <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Text-to-Speech")}</h3>
-        </div>
+      <SettingsSection title={gt("Text-to-Speech")} icon={Megaphone}>
+      <SettingsCard>
         {isLoadingSettings || !userSettings ? (
-          <div className="text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
+          <div className="px-4 py-3.5 text-[var(--text-muted)] text-sm">{gt("Loading settings...")}</div>
         ) : (
           <>
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium">{gt("Text-to-Speech")}</p>
-                <p className="text-sm text-[var(--text-secondary)]">{gt("Read incoming messages aloud")}</p>
-              </div>
-              <ToggleSwitch size="sm" checked={ttsEnabled} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), tts: checked } }, "voice-video")} />
-            </label>
+            <SettingsToggleRow
+              label={gt("Text-to-Speech")}
+              description={gt("Read incoming messages aloud")}
+              checked={ttsEnabled}
+              onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), tts: checked } }, "voice-video")}
+            />
+            <SettingsToggleRow
+              label={gt("Play text-to-speech from others")}
+              description={gt("Read /tts messages other people send aloud")}
+              checked={userSettings.accessibility?.ttsFromOthers !== false}
+              onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsFromOthers: checked } }, "voice-video")}
+            />
+            <SettingsToggleRow
+              label={gt("TTS sound effects")}
+              description={gt("Play sound triggers and loud effects like [vol:EAR] and [vol:BASS]. When off, trigger words are spoken and volume is capped at 100%.")}
+              checked={userSettings.accessibility?.ttsSoundEffects !== false}
+              onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsSoundEffects: checked } }, "voice-video")}
+            />
 
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium">{gt("Play text-to-speech from others")}</p>
-                <p className="text-sm text-[var(--text-secondary)]">{gt("Read /tts messages other people send aloud")}</p>
-              </div>
-              <ToggleSwitch size="sm" checked={userSettings.accessibility?.ttsFromOthers !== false} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsFromOthers: checked } }, "voice-video")} />
-            </label>
-
-            <label className="flex items-center justify-between cursor-pointer">
-              <div>
-                <p className="text-[var(--text-primary)] font-medium">{gt("TTS sound effects")}</p>
-                <p className="text-sm text-[var(--text-secondary)]">{gt("Play sound triggers and loud effects like [vol:EAR] and [vol:BASS]. When off, trigger words are spoken and volume is capped at 100%.")}</p>
-              </div>
-              <ToggleSwitch size="sm" checked={userSettings.accessibility?.ttsSoundEffects !== false} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsSoundEffects: checked } }, "voice-video")} />
-            </label>
-
+            <div className="px-4 py-4 space-y-4">
             {/* TTS Usage Guide */}
             <div className="rounded-lg border border-[var(--border-color)] bg-[var(--bg-input)]/50 p-3 space-y-1.5">
               <p className="text-xs font-semibold text-[var(--app-accent)]">{gt("TTS Usage Guide")}</p>
@@ -744,10 +733,14 @@ function VoiceVideoTab({
               />
             </div>
 
+            </div>
+
             {/* Voice gender */}
-            <label className="flex items-center justify-between">
-              <span className="text-sm text-[var(--text-primary)] font-medium">{gt("Voice")}</span>
+            <SettingsRow
+              label={gt("Voice")}
+              control={
               <select
+                aria-label={gt("Voice")}
                 value={userSettings.accessibility?.ttsVoice ?? "auto"}
                 onChange={(e) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), ttsVoice: e.target.value } }, "voice-video")}
                 className="px-3 py-1.5 rounded-lg bg-[var(--bg-input)] text-[var(--text-primary)] text-sm border border-[var(--border-color)] focus:border-[var(--app-accent)] outline-none"
@@ -756,10 +749,12 @@ function VoiceVideoTab({
                 <option value="female">{gt("Female")}</option>
                 <option value="male">{gt("Male")}</option>
               </select>
-            </label>
+              }
+            />
           </>
         )}
-      </div>
+      </SettingsCard>
+      </SettingsSection>
     </div>
   );
 }
@@ -1285,28 +1280,92 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   // that first (e.g. an open picker inside settings) before closing settings.
   // On phones a pushed page pops back to the settings list first (Discord
   // mobile), both for Escape and the Android back button.
+  // Unsaved profile edits: leaving (close, Escape, another page) first shakes
+  // the save bar like Discord; doing it again right away goes ahead anyway
+  // (the edits stay in the form until reset), so nobody gets stuck.
+  const [unsavedShake, shakeUnsaved] = useUnsavedShake();
+  const lastShakeAtRef = useRef(0);
+  const blockLeaveForUnsaved = useCallback(() => {
+    if (!hasChanges) return false;
+    // Phone settings list: the bar isn't on screen there, so don't block.
+    if (mobileOnRoot && typeof window !== "undefined" && window.matchMedia?.(SETTINGS_PHONE_QUERY).matches) return false;
+    const now = Date.now();
+    if (now - lastShakeAtRef.current < 2500) return false;
+    lastShakeAtRef.current = now;
+    shakeUnsaved();
+    return true;
+  }, [hasChanges, shakeUnsaved, mobileOnRoot]);
+  const requestClose = useCallback(() => {
+    if (blockLeaveForUnsaved()) return;
+    onOpenChange(false);
+  }, [blockLeaveForUnsaved, onOpenChange]);
+  const selectTab = useCallback((tab: SettingsTab) => {
+    if (tab !== activeTab && blockLeaveForUnsaved()) return;
+    setActiveTab(tab);
+  }, [activeTab, blockLeaveForUnsaved]);
+
   useEffect(() => {
     if (!open) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key !== "Escape") return;
+      // Escape in the sidebar search clears it before it closes anything.
+      const target = e.target as HTMLElement | null;
+      if (target?.dataset?.settingsSearch !== undefined && searchQuery) {
+        e.preventDefault();
+        setSearchQuery("");
+        return;
+      }
       const action = readSettingsBackAction(mobileOnRoot);
       if (action === "pass") return; // let the nested overlay handle Escape first
       e.preventDefault();
+      if (blockLeaveForUnsaved()) return;
       if (action === "root") setMobileOnRoot(true);
       else onOpenChange(false);
     };
     window.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
-  }, [open, onOpenChange, mobileOnRoot]);
+  }, [open, onOpenChange, mobileOnRoot, searchQuery, blockLeaveForUnsaved]);
 
   // Android back: without this the press fell through to route navigation and
   // changed the page under the still-open settings overlay.
   useBackHandler(open, () => {
     const action = readSettingsBackAction(mobileOnRoot);
     if (action === "pass") return false;
+    if (blockLeaveForUnsaved()) return;
     if (action === "root") setMobileOnRoot(true);
     else onOpenChange(false);
   });
+
+  // Unsaved-changes bar "Reset": back to the saved profile.
+  const resetProfileDraft = () => {
+    if (profileTab === "main") {
+      if (user) {
+        setDisplayName(user.displayName || "");
+        setBio(user.bio || "");
+        setPronouns(user.pronouns || "");
+        setTimezone(user.timezone || "");
+        setShowTimezone(user.showTimezone ?? false);
+        setCustomStatus(user.customStatus || "");
+        setStatus(user.status || "online");
+        setDisplayNameStyle(user.customization?.displayNameStyle || { font: 'default', effect: 'solid', color: '', gradient: [] });
+        setProfileColor(user.customization?.profileColor || "");
+        setProfileGradient(user.customization?.profileGradient || []);
+        setProfileGradientAngle(user.customization?.profileGradientAngle ?? 135);
+        setProfileGradientType(user.customization?.profileGradientType || 'linear');
+        setProfileGradientRadialPosition(user.customization?.profileGradientRadialPosition || 'center');
+        setProfileCardEffect(user.customization?.profileCardEffect || 'normal');
+        setProfileCardBlur(user.customization?.profileCardBlur ?? 8);
+        setProfileCardOpacity(user.customization?.profileCardOpacity ?? 0.85);
+        setProfileCardBorderColor(user.customization?.profileCardBorderColor || "");
+        setProfileCardBorderGlow(user.customization?.profileCardBorderGlow ?? false);
+        setProfileCardBorderWidth(user.customization?.profileCardBorderWidth ?? 1);
+      }
+    } else {
+      setServerNickname(initialServerNickname);
+      setServerAvatar(initialServerAvatar);
+      setServerBanner(initialServerBanner);
+    }
+  };
 
   const handleSave = async () => {
     setIsSaving(true);
@@ -2054,16 +2113,16 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
       {
         title: gt("User Settings"),
         items: [
-          { id: "profiles" as SettingsTab, label: gt("Profiles"), icon: User },
-          { id: "content-social" as SettingsTab, label: gt("Content & Social"), icon: MessageSquare },
+          { id: "profiles" as SettingsTab, label: gt("Profiles"), icon: User, keywords: gt("avatar, banner, display name, bio, pronouns, status, nameplate, server profile") },
+          { id: "content-social" as SettingsTab, label: gt("Content & Social"), icon: MessageSquare, keywords: gt("direct messages, DMs, message requests, privacy") },
           { id: "friend-requests" as SettingsTab, label: gt("Friend Requests"), icon: UserPlus },
           { id: "activity-privacy" as SettingsTab, label: gt("Activity Privacy"), icon: Activity },
-          { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock },
+          { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock, keywords: gt("analytics, crash reports, activity history, personalization") },
           { id: "account-standing" as SettingsTab, label: gt("Account Standing"), icon: ShieldCheck },
           { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
-          { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone },
+          { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone, keywords: gt("sessions, log out, passkeys, security") },
           ...(e2eeVisible ? [{ id: "encryption" as SettingsTab, label: gt("Encryption"), icon: E2eeKeyIcon }] : []),
-          { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2 },
+          { id: "connections" as SettingsTab, label: gt("Connections"), icon: Link2, keywords: gt("accounts, link, domain, Spotify, Steam, GitHub, Twitch") },
           { id: "bug-reports" as SettingsTab, label: gt("Feedback & Bugs"), icon: MessageSquareHeart },
         ],
       },
@@ -2076,17 +2135,17 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
       {
         title: gt("App Settings"),
         items: [
-          { id: "appearance" as SettingsTab, label: gt("Appearance"), icon: Palette },
-          { id: "accessibility" as SettingsTab, label: gt("Accessibility"), icon: Accessibility },
-          { id: "voice-video" as SettingsTab, label: gt("Voice & Video"), icon: Mic },
-          { id: "text-images" as SettingsTab, label: gt("Text & Images"), icon: Image },
-          { id: "notifications" as SettingsTab, label: gt("Notifications"), icon: Bell },
-          { id: "keybinds" as SettingsTab, label: gt("Keybinds"), icon: Keyboard },
-          { id: "language" as SettingsTab, label: gt("Language"), icon: Languages },
+          { id: "appearance" as SettingsTab, label: gt("Appearance"), icon: Palette, keywords: gt("theme, dark mode, light mode, colors, font, compact, zoom, background") },
+          { id: "accessibility" as SettingsTab, label: gt("Accessibility"), icon: Accessibility, keywords: gt("reduced motion, animations, contrast, dyslexic, spacing, saturation") },
+          { id: "voice-video" as SettingsTab, label: gt("Voice & Video"), icon: Mic, keywords: gt("microphone, speaker, camera, push to talk, noise suppression, echo, TTS") },
+          { id: "text-images" as SettingsTab, label: gt("Text & Images"), icon: Image, keywords: gt("embeds, GIFs, autoplay, emoji, stickers, media") },
+          { id: "notifications" as SettingsTab, label: gt("Notifications"), icon: Bell, keywords: gt("sounds, do not disturb, DND, focus, ringtone, desktop notifications, mentions") },
+          { id: "keybinds" as SettingsTab, label: gt("Keybinds"), icon: Keyboard, keywords: gt("shortcuts, hotkeys, keyboard") },
+          { id: "language" as SettingsTab, label: gt("Language"), icon: Languages, keywords: gt("locale, translation") },
           // Only inside the desktop app (tray, start on login, global keys...).
           ...(isDesktopShell() ? [{ id: "desktop" as SettingsTab, label: gt("Desktop"), icon: Monitor }] : []),
           { id: "streamer-mode" as SettingsTab, label: gt("Streamer Mode"), icon: MonitorSmartphone },
-          { id: "advanced" as SettingsTab, label: gt("Advanced"), icon: Settings },
+          { id: "advanced" as SettingsTab, label: gt("Advanced"), icon: Settings, keywords: gt("developer mode, copy ID") },
         ],
       },
     ];
@@ -2128,18 +2187,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     })).filter((section) => section.items.length > 0);
   }, [gt, isStaff, canOpenAdminTab, e2eeVisible]);
 
-  // Filter menu items based on search — only recompute when the query or the
-  // (memoized) menu actually changes.
-  const filteredSections = useMemo(() => (
-    searchQuery
-      ? menuSections.map(section => ({
-        ...section,
-        items: section.items.filter(item =>
-          item.label.toLowerCase().includes(searchQuery.toLowerCase())
-        ),
-      })).filter(section => section.items.length > 0)
-      : menuSections
-  ), [menuSections, searchQuery]);
+  // Filter menu items based on search (labels, keywords, section titles) —
+  // only recompute when the query or the (memoized) menu actually changes.
+  const filteredSections = useMemo(() => filterSettingsSections(menuSections, searchQuery), [menuSections, searchQuery]);
 
   if (!open) return null;
 
@@ -2167,7 +2217,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
             onSelect={openMobileTab}
             onEditProfile={() => openMobileTab("profiles")}
             onLogout={handleLogout}
-            onClose={() => onOpenChange(false)}
+            onClose={requestClose}
             footer={
               <div className="space-y-1 select-text text-xs text-[var(--text-muted)]">
                 <p className="font-medium text-[var(--text-secondary)]">SerikaCord {VERSION_LABEL}</p>
@@ -2196,10 +2246,15 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         )}
 
         {/* Sidebar */}
-        <div className="hidden md:flex w-56 lg:w-64 bg-[var(--bg-sidebar)] flex-col border-r border-[var(--border-subtle)] h-full overflow-hidden">
-          {/* User Header */}
-          <div className="p-4 border-b border-[var(--border-subtle)] flex-shrink-0">
-            <div className="flex items-center gap-3">
+        <SettingsNav
+          sections={menuSections}
+          activeId={activeTab}
+          onSelect={selectTab}
+          query={searchQuery}
+          onQueryChange={setSearchQuery}
+          ariaLabel={gt("User Settings")}
+          header={
+            <div className="flex items-center gap-3 rounded-xl px-1.5 py-1">
               <Avatar className="w-10 h-10">
                 <AvatarImage src={cdnImage(user?.avatar)} />
                 <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
@@ -2211,7 +2266,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                   {user?.displayName || user?.username}
                 </h3>
                 <button
-                  onClick={() => setActiveTab("profiles")}
+                  type="button"
+                  onClick={() => selectTab("profiles")}
                   className="text-xs text-[var(--text-secondary)] hover:text-[var(--app-accent)] flex items-center gap-1 transition-colors"
                 >
                   <Pencil className="w-3 h-3" />
@@ -2219,55 +2275,18 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                 </button>
               </div>
             </div>
-          </div>
-
-          {/* Search */}
-          <div className="p-2 flex-shrink-0">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#555555]" />
-              <Input
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder={gt("Search")}
-                className="pl-9 h-8 bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] text-sm placeholder:text-[#555555]"
-              />
-            </div>
-          </div>
-
-          {/* Menu */}
-          <ScrollArea className="flex-1 min-h-0">
-            <div className="px-2 pb-4">
-              {filteredSections.map((section, i) => (
-                <div key={i} className="mb-2">
-                  <h3 className="text-[10px] font-semibold text-[var(--text-muted)] uppercase px-2.5 py-2 tracking-wide">
-                    {section.title}
-                  </h3>
-                  {section.items.map((item) => (
-                    <button
-                      key={item.id}
-                      onClick={() => setActiveTab(item.id)}
-                      className={cn(
-                        "w-full flex items-center gap-3 px-2.5 py-1.5 rounded text-sm transition-colors mb-0.5",
-                        activeTab === item.id
-                          ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
-                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                      )}
-                    >
-                      <item.icon className="w-5 h-5" />
-                      {item.label}
-                    </button>
-                  ))}
-                </div>
-              ))}
-
-              <div className="h-px bg-[var(--border-subtle)] my-2 mx-2" />
+          }
+          footer={
+            <>
+              <div className="h-px bg-[var(--border-subtle)] mx-2.5 mb-2" />
 
               {/* Logout */}
               <button
+                type="button"
                 onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-2.5 py-1.5 rounded text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                className="w-full flex items-center gap-2.5 h-8 px-2.5 rounded-md text-sm text-red-400 hover:bg-red-500/10 transition-colors"
               >
-                <LogOut className="w-5 h-5" />
+                <LogOut className="w-4 h-4" />
                 {gt("Log Out")}
               </button>
 
@@ -2309,7 +2328,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                     rel="noopener noreferrer"
                     className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline underline-offset-2"
                   >
-                    Terms of Service
+                    {gt("Terms of Service")}
                   </a>
                   <a
                     href="/privacy"
@@ -2317,38 +2336,40 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                     rel="noopener noreferrer"
                     className="text-[11px] text-[var(--text-muted)] hover:text-[var(--text-secondary)] underline underline-offset-2"
                   >
-                    Privacy Policy
+                    {gt("Privacy Policy")}
                   </a>
                 </div>
               </div>
-            </div>
-          </ScrollArea>
-        </div>
+            </>
+          }
+        />
 
         {/* Content (on phones: the pushed page, hidden while the list shows) */}
-        <div
+        <SettingsContent
+          pageKey={activeTab}
+          title={activeTabLabel}
+          width={(activeTab.startsWith("admin-") || activeTab === "profiles") ? "wide" : "narrow"}
+          onClose={requestClose}
+          closeLabel={gt("Close settings")}
+          highlightQuery={searchQuery}
           className={cn(
-            "flex-1 min-h-0 bg-[var(--bg-card)] relative flex flex-col overflow-hidden",
             "max-md:animate-in max-md:fade-in-0 max-md:slide-in-from-right-8 max-md:duration-200",
             mobileOnRoot && "max-md:hidden",
           )}
+          // Phone: the back header already names the page, so the tab's own
+          // big title is hidden; keep wide rows from scrolling the page sideways.
+          innerClassName="max-md:pt-4 max-md:pb-[calc(7rem+var(--safe-area-bottom))] max-md:overflow-x-hidden max-md:[&>div>div>h2.text-xl:first-child]:hidden"
+          footer={
+            <UnsavedChangesBar
+              visible={hasChanges}
+              isSaving={isSaving}
+              onSave={handleSave}
+              onDiscard={resetProfileDraft}
+              shakeSignal={unsavedShake}
+              className="mt-0 max-w-none"
+            />
+          }
         >
-          {/* Desktop Close Button */}
-          <button
-            onClick={() => onOpenChange(false)}
-            className="hidden md:flex absolute top-4 right-4 z-10 p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex">
-            <div className={cn(
-              "py-6 px-4 md:py-10 md:px-10 mx-auto pb-24",
-              // Phone: the back header already names the page, so the tab's own
-              // big title is hidden; keep wide rows from scrolling the page sideways.
-              "max-md:pt-4 max-md:pb-[calc(7rem+var(--safe-area-bottom))] max-md:overflow-x-hidden max-md:[&>div>h2.text-xl:first-child]:hidden",
-              (activeTab.startsWith("admin-") || activeTab === "profiles") ? "max-w-[1100px]" : "max-w-[740px]",
-            )}>
               {/* Admin Logs Tab — rendered in the admin section below */}
 
 
@@ -3194,21 +3215,11 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
               {/* Appearance Tab */}
               {activeTab === "appearance" && (
-                <div className="space-y-6">
+                <div className="space-y-8">
                   <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Appearance")}</h2>
 
-                  {userSettings && (
-                    <div className="rounded-lg p-5 space-y-4 border border-[var(--border-subtle)] bg-[var(--bg-card)]">
-                      <div className="flex items-center justify-between">
-                        <span className="text-[var(--text-primary)]">{gt("Compact mode")}</span>
-                        <ToggleSwitch size="sm" checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)} onCheckedChange={(checked) => saveAppearancePatch({ compactMode: checked })} />
-                      </div>
-                    </div>
-                  )}
-
                   {/* Theme Selection */}
-                  <div className="rounded-lg p-5 bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">{gt("Theme")}</h3>
+                  <SettingsSection title={gt("Theme")}>
                     <div className="grid grid-cols-3 gap-3">
                       {[
                         { id: "dark", label: gt("Dark"), stripA: "#111111", stripB: "#0f0f0f", body: "#0a0a0a" },
@@ -3219,13 +3230,17 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                         return (
                           <button
                             key={themeOption.id}
+                            type="button"
+                            aria-pressed={selected}
                             onClick={() => saveAppearancePatch({ theme: themeOption.id })}
                             className={cn(
-                              "group p-3 rounded-xl text-left transition-all hover:scale-[1.02] bg-[var(--bg-sidebar-elevated)]",
-                              selected ? "border-2 border-[var(--accent-color)]" : "border border-[var(--border-subtle)]"
+                              "group p-3 rounded-xl text-left bg-[var(--bg-app)] border transition-[border-color,box-shadow,transform] duration-(--motion-fast) active:scale-[0.98]",
+                              selected
+                                ? "border-[var(--app-accent)] shadow-[0_0_0_1px_var(--app-accent)]"
+                                : "border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
                             )}
                           >
-                            <div className="aspect-video rounded-lg mb-3 overflow-hidden relative" style={{ backgroundColor: themeOption.body }}>
+                            <div className="aspect-video rounded-lg mb-3 overflow-hidden relative ring-1 ring-black/10" style={{ backgroundColor: themeOption.body }}>
                               <div className="absolute inset-0 flex">
                                 <div className="w-3" style={{ backgroundColor: themeOption.stripA }} />
                                 <div className="w-6" style={{ backgroundColor: themeOption.stripB }} />
@@ -3234,19 +3249,17 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                             </div>
                             <div className="flex items-center justify-between">
                               <span className="text-[var(--text-primary)] font-medium text-sm">{themeOption.label}</span>
-                              {selected && <Check className="w-4 h-4 text-[var(--accent-color)]" />}
+                              {selected && <Check className="w-4 h-4 text-[var(--app-accent)]" />}
                             </div>
                           </button>
                         );
                       })}
                     </div>
-                  </div>
+                  </SettingsSection>
 
                   {/* Accent Colour */}
-                  <div className="rounded-lg p-5 bg-[var(--bg-card)] border border-[var(--border-subtle)]">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">{gt("Accent Colour")}</h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-4">{gt("Choose your primary accent colour")}</p>
-                    <div className="flex gap-2 flex-wrap">
+                  <SettingsSection title={gt("Accent Colour")} description={gt("Choose your primary accent colour")}>
+                    <div className="flex gap-2.5 flex-wrap">
                       {[
                         { color: '#8B5CF6', name: gt("Purple") },
                         { color: '#6366F1', name: gt("Indigo") },
@@ -3256,68 +3269,78 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                         { color: '#F59E0B', name: gt("Amber") },
                         { color: '#EF4444', name: gt("Red") },
                         { color: '#EC4899', name: gt("Pink") },
-                      ].map((c) => (
-                        <button
-                          key={c.color}
-                          onClick={() => saveAppearancePatch({ accentColor: c.color })}
-                          className={cn(
-                            "w-10 h-10 rounded-full transition-all hover:scale-110 relative",
-                            c.color.toLowerCase() === (userSettings?.appearance?.accentColor || themeSettings.accentColor || '#8B5CF6').toLowerCase() &&
-                            "ring-2 ring-white ring-offset-2 ring-offset-[var(--bg-card)]",
-                            c.color.toLowerCase() === "#ffffff" && "border border-[var(--border-subtle)]"
-                          )}
-                          style={{ backgroundColor: c.color }}
-                          title={c.name}
+                      ].map((c) => {
+                        const selected = c.color.toLowerCase() === (userSettings?.appearance?.accentColor || themeSettings.accentColor || '#8B5CF6').toLowerCase();
+                        return (
+                          <button
+                            key={c.color}
+                            type="button"
+                            aria-pressed={selected}
+                            aria-label={c.name}
+                            onClick={() => saveAppearancePatch({ accentColor: c.color })}
+                            className={cn(
+                              "w-10 h-10 rounded-full relative transition-transform duration-(--motion-fast) hover:scale-110 active:scale-95",
+                              selected && "ring-2 ring-[var(--text-primary)] ring-offset-2 ring-offset-[var(--bg-card)]",
+                            )}
+                            style={{ backgroundColor: c.color }}
+                            title={c.name}
+                          >
+                            {selected && (
+                              <Check className="w-5 h-5 text-white absolute inset-0 m-auto" />
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </SettingsSection>
+
+                  {/* Font size + saturation */}
+                  <SettingsSection title={gt("Chat Font Size")} description={gt("Adjust the size of text in chat")}>
+                    <SettingsCard>
+                      <div className="px-4 py-4">
+                        <div className="flex items-center gap-4">
+                          <span className="text-xs text-[var(--text-secondary)]">12px</span>
+                          <input
+                            type="range"
+                            min="12"
+                            max="20"
+                            value={userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}
+                            onChange={(e) => saveAppearancePatch({ fontSize: Number(e.target.value) }, { debounce: true })}
+                            aria-label={gt("Chat Font Size")}
+                            className="flex-1 accent-[var(--app-accent)] cursor-pointer"
+                          />
+                          <span className="text-xs text-[var(--text-secondary)]">20px</span>
+                        </div>
+                        <p
+                          className="mt-3 rounded-lg bg-[var(--bg-card)] border border-[var(--border-subtle)] px-3 py-2 text-[var(--text-primary)]"
+                          style={{ fontSize: `${userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}px` }}
                         >
-                          {c.color.toLowerCase() === (userSettings?.appearance?.accentColor || themeSettings.accentColor || '#8B5CF6').toLowerCase() && (
-                            <Check className="w-5 h-5 text-white absolute inset-0 m-auto" />
-                          )}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
+                          {gt("Preview ({size}px): This is how your chat will look.", { size: userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14 })}
+                        </p>
+                      </div>
+                    </SettingsCard>
+                  </SettingsSection>
 
-                  {/* Font Size */}
-                  <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">{gt("Chat Font Size")}</h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-4">{gt("Adjust the size of text in chat")}</p>
-                    <div className="flex items-center gap-4">
-                      <span className="text-xs text-[var(--text-secondary)]">12px</span>
-                      <input
-                        type="range"
-                        min="12"
-                        max="20"
-                        value={userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14}
-                        onChange={(e) => saveAppearancePatch({ fontSize: Number(e.target.value) }, { debounce: true })}
-                        className="flex-1 accent-[var(--accent-color)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
-                      />
-                      <span className="text-xs text-[var(--text-secondary)]">20px</span>
-                    </div>
-                    <p className="text-sm text-[#dcddde] mt-3">
-                      {gt("Preview ({size}px): This is how your chat will look.", { size: userSettings?.appearance?.fontSize ?? themeSettings.fontSize ?? 14 })}
-                    </p>
-                  </div>
-
-                  {/* Saturation */}
-                  <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-2">{gt("Saturation")}</h3>
-                    <p className="text-sm text-[var(--text-secondary)] mb-4">{gt("Adjust the colour saturation of the entire app")}</p>
-                    <div className="flex items-center gap-4">
-                      <span className="text-xs text-[var(--text-secondary)]">0%</span>
-                      <input
-                        type="range"
-                        min="0"
-                        max="200"
-                        value={userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}
-                        onChange={(e) => saveAppearancePatch({ saturation: Number(e.target.value) }, { debounce: true })}
-                        className="flex-1 accent-[var(--accent-color)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
-                      />
-                      <span className="text-xs text-[var(--text-secondary)]">200%</span>
-                    </div>
-                    <p className="text-sm text-[var(--text-secondary)] mt-3 tabular-nums">
-                      {userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}%
-                    </p>
-                  </div>
+                  <SettingsSection title={gt("Saturation")} description={gt("Adjust the colour saturation of the entire app")}>
+                    <SettingsCard>
+                      <div className="px-4 py-4 flex items-center gap-4">
+                        <span className="text-xs text-[var(--text-secondary)]">0%</span>
+                        <input
+                          type="range"
+                          min="0"
+                          max="200"
+                          value={userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}
+                          onChange={(e) => saveAppearancePatch({ saturation: Number(e.target.value) }, { debounce: true })}
+                          aria-label={gt("Saturation")}
+                          className="flex-1 accent-[var(--app-accent)] cursor-pointer"
+                        />
+                        <span className="text-xs text-[var(--text-secondary)]">200%</span>
+                        <span className="w-12 text-right text-sm font-medium text-[var(--text-primary)] tabular-nums">
+                          {userSettings?.appearance?.saturation ?? themeSettings.saturation ?? 100}%
+                        </span>
+                      </div>
+                    </SettingsCard>
+                  </SettingsSection>
 
                   {/* Font, background image, server themes (CORD-45/46/50) */}
                   <AppearanceCustomizationPanel
@@ -3333,39 +3356,41 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                   />
 
                   {/* Message Display */}
-                  <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">{gt("Message Display")}</h3>
-                    <div className="space-y-4">
-                      <label className="flex items-center justify-between cursor-pointer group">
-                        <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">{gt("Show Timestamps")}</p>
-                          <p className="text-sm text-[var(--text-secondary)]">{gt("Display message timestamps")}</p>
-                        </div>
-                        <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.showTimestamps ?? themeSettings.showTimestamps)} onCheckedChange={(checked) => saveAppearancePatch({ showTimestamps: checked })} />
-                      </label>
-                      <label className="flex items-center justify-between cursor-pointer group">
-                        <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">{gt("Show Role Colours")}</p>
-                          <p className="text-sm text-[var(--text-secondary)]">{gt("Colour usernames by their highest role")}</p>
-                        </div>
-                        <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)} onCheckedChange={(checked) => saveAppearancePatch({ showRoleColors: checked })} />
-                      </label>
-                    </div>
-                  </div>
+                  <SettingsSection title={gt("Message Display")}>
+                    <SettingsCard>
+                      {userSettings && (
+                        <SettingsToggleRow
+                          label={gt("Compact mode")}
+                          checked={Boolean(userSettings.appearance?.compactMode ?? themeSettings.compactMode)}
+                          onCheckedChange={(checked) => saveAppearancePatch({ compactMode: checked })}
+                        />
+                      )}
+                      <SettingsToggleRow
+                        label={gt("Show Timestamps")}
+                        description={gt("Display message timestamps")}
+                        checked={Boolean(userSettings?.appearance?.showTimestamps ?? themeSettings.showTimestamps)}
+                        onCheckedChange={(checked) => saveAppearancePatch({ showTimestamps: checked })}
+                      />
+                      <SettingsToggleRow
+                        label={gt("Show Role Colours")}
+                        description={gt("Colour usernames by their highest role")}
+                        checked={Boolean(userSettings?.appearance?.showRoleColors ?? themeSettings.showRoleColors)}
+                        onCheckedChange={(checked) => saveAppearancePatch({ showRoleColors: checked })}
+                      />
+                    </SettingsCard>
+                  </SettingsSection>
 
                   {/* Animations */}
-                  <div className="bg-[var(--bg-app)] rounded-lg p-5">
-                    <h3 className="text-base font-bold text-[var(--text-primary)] mb-4">{gt("Animations")}</h3>
-                    <div className="space-y-4">
-                      <label className="flex items-center justify-between cursor-pointer group">
-                        <div>
-                          <p className="text-white font-medium group-hover:text-[var(--accent-color)] transition-colors">{gt("Enable Animations")}</p>
-                          <p className="text-sm text-[var(--text-secondary)]">{gt("Show smooth transitions and animations")}</p>
-                        </div>
-                        <ToggleSwitch size="sm" checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)} onCheckedChange={(checked) => saveAppearancePatch({ enableAnimations: checked })} />
-                      </label>
-                    </div>
-                  </div>
+                  <SettingsSection title={gt("Animations")}>
+                    <SettingsCard>
+                      <SettingsToggleRow
+                        label={gt("Enable Animations")}
+                        description={gt("Show smooth transitions and animations")}
+                        checked={Boolean(userSettings?.appearance?.enableAnimations ?? themeSettings.enableAnimations)}
+                        onCheckedChange={(checked) => saveAppearancePatch({ enableAnimations: checked })}
+                      />
+                    </SettingsCard>
+                  </SettingsSection>
                 </div>
               )}
 
@@ -3382,100 +3407,70 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
               {/* Notifications Tab */}
               {activeTab === "notifications" && (
-                <div className="space-y-6">
+                <div className="space-y-8">
                   <h2 className="text-xl font-bold text-[var(--text-primary)]">{gt("Notifications")}</h2>
 
                   {/* DND / Do Not Disturb */}
-                  <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <MinusCircle className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Do Not Disturb")}</h3>
-                    </div>
-
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Enable Do Not Disturb")}</p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Suppresses all sounds, desktop notifications, and toasts")}</p>
-                      </div>
-                      <ToggleSwitch
-                        size="sm"
+                  <SettingsSection title={gt("Do Not Disturb")} icon={MinusCircle}>
+                    <SettingsCard>
+                      <SettingsToggleRow
+                        label={gt("Enable Do Not Disturb")}
+                        description={gt("Suppresses all sounds, desktop notifications, and toasts")}
                         checked={Boolean(userSettings?.notifications?.dnd)}
                         onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dnd: checked } }, "notifications")}
                       />
-                    </label>
-
-                    {userSettings?.notifications?.dnd && (
-                      <div className="ml-0 p-4 rounded-lg bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Clock className="w-3.5 h-3.5 text-[var(--text-muted)]" />
-                          <p className="text-xs font-semibold text-[var(--text-secondary)]">{gt("Scheduled Quiet Hours")}</p>
-                        </div>
-                        <label className="flex items-center justify-between cursor-pointer">
-                          <span className="text-sm text-[var(--text-primary)]">{gt("Enable schedule")}</span>
-                          <ToggleSwitch
-                            size="sm"
-                            checked={Boolean(userSettings?.notifications?.dndSchedule?.enabled)}
-                            onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { start: "22:00", end: "08:00" }), enabled: checked } } }, "notifications")}
-                          />
-                        </label>
-                        {userSettings?.notifications?.dndSchedule?.enabled && (
-                          <div className="flex items-center gap-3">
-                            <div className="flex-1">
-                              <label className="text-xs text-[var(--text-muted)]">{gt("Start")}</label>
-                              <Input
-                                type="time"
-                                value={userSettings?.notifications?.dndSchedule?.start || "22:00"}
-                                onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { enabled: true, end: "08:00" }), start: e.target.value } } }, "notifications")}
-                                className="h-9 bg-[var(--bg-app)] border-[var(--border-subtle)]"
-                              />
+                      {userSettings?.notifications?.dnd && (
+                        <SettingsToggleRow
+                          icon={Clock}
+                          label={gt("Scheduled Quiet Hours")}
+                          checked={Boolean(userSettings?.notifications?.dndSchedule?.enabled)}
+                          onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { start: "22:00", end: "08:00" }), enabled: checked } } }, "notifications")}
+                        >
+                          {userSettings?.notifications?.dndSchedule?.enabled && (
+                            <div className="flex items-center gap-3 pl-11 max-sm:pl-0">
+                              <div className="flex-1">
+                                <label className="text-xs text-[var(--text-muted)]">{gt("Start")}</label>
+                                <Input
+                                  type="time"
+                                  value={userSettings?.notifications?.dndSchedule?.start || "22:00"}
+                                  onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { enabled: true, end: "08:00" }), start: e.target.value } } }, "notifications")}
+                                  className="h-9 bg-[var(--bg-card)] border-[var(--border-subtle)]"
+                                />
+                              </div>
+                              <div className="flex-1">
+                                <label className="text-xs text-[var(--text-muted)]">{gt("End")}</label>
+                                <Input
+                                  type="time"
+                                  value={userSettings?.notifications?.dndSchedule?.end || "08:00"}
+                                  onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { enabled: true, start: "22:00" }), end: e.target.value } } }, "notifications")}
+                                  className="h-9 bg-[var(--bg-card)] border-[var(--border-subtle)]"
+                                />
+                              </div>
                             </div>
-                            <div className="flex-1">
-                              <label className="text-xs text-[var(--text-muted)]">{gt("End")}</label>
-                              <Input
-                                type="time"
-                                value={userSettings?.notifications?.dndSchedule?.end || "08:00"}
-                                onChange={(e) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), dndSchedule: { ...(userSettings?.notifications?.dndSchedule || { enabled: true, start: "22:00" }), end: e.target.value } } }, "notifications")}
-                                className="h-9 bg-[var(--bg-app)] border-[var(--border-subtle)]"
-                              />
-                            </div>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
+                          )}
+                        </SettingsToggleRow>
+                      )}
+                    </SettingsCard>
+                  </SettingsSection>
 
                   {/* Focus Mode */}
-                  <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Target className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Focus Mode")}</h3>
-                    </div>
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Enable Focus Mode")}</p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Suppress everything except direct @mentions and DMs")}</p>
-                      </div>
-                      <ToggleSwitch
-                        size="sm"
+                  <SettingsSection title={gt("Focus Mode")} icon={Target}>
+                    <SettingsCard>
+                      <SettingsToggleRow
+                        label={gt("Enable Focus Mode")}
+                        description={gt("Suppress everything except direct @mentions and DMs")}
                         checked={Boolean(userSettings?.notifications?.focusMode)}
                         onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), focusMode: checked } }, "notifications")}
                       />
-                    </label>
-                  </div>
+                    </SettingsCard>
+                  </SettingsSection>
 
                   {/* Push / Desktop permission */}
-                  <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <MonitorSmartphone className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Desktop Notifications")}</h3>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Enable Desktop & Push Notifications")}</p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Receive native notifications on desktop, mobile and browser")}</p>
-                      </div>
-                      <ToggleSwitch
-                        size="sm"
+                  <SettingsSection title={gt("Desktop Notifications")} icon={MonitorSmartphone}>
+                    <SettingsCard>
+                      <SettingsToggleRow
+                        label={gt("Enable Desktop & Push Notifications")}
+                        description={gt("Receive native notifications on desktop, mobile and browser")}
                         checked={Boolean(userSettings?.notifications?.desktop)}
                         onCheckedChange={async (checked) => {
                           if (checked) {
@@ -3487,170 +3482,136 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                           }
                           saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), desktop: checked } }, "notifications");
                         }}
-                      />
-                    </div>
-                    {userSettings?.notifications?.desktop && typeof Notification !== "undefined" && Notification.permission !== "granted" && (
-                      <div className="flex items-center justify-between p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
-                        <p className="text-xs text-amber-400">{gt("Browser permission not granted yet.")}</p>
-                        <button
-                          onClick={async () => {
-                            const granted = await requestNotificationPermission();
-                            if (granted) toast.success(gt("Notifications enabled!"));
-                            else toast.error(gt("Permission denied. Check browser settings."));
-                          }}
-                          className="text-xs font-semibold text-amber-300 hover:text-amber-200 underline"
-                        >
-                          {gt("Grant Permission")}
-                        </button>
-                      </div>
-                    )}
-
-                    <div className="h-px bg-[var(--border-subtle)]" />
-
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Mentions only")} <span className="ml-1.5 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-[var(--app-accent)]/20 text-[var(--app-accent)]">{gt("Default")}</span></p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Only send desktop notifications when you are mentioned. Turn off to notify on all messages.")}</p>
-                        <p className="text-xs text-[var(--text-muted)] mt-0.5">{gt("Each server, category, channel and DM can override this: right-click it and pick Notification Settings.")}</p>
-                      </div>
-                      <ToggleSwitch
-                        size="sm"
+                      >
+                        {userSettings?.notifications?.desktop && typeof Notification !== "undefined" && Notification.permission !== "granted" && (
+                          <div className="flex items-center justify-between p-3 rounded-lg bg-amber-500/10 border border-amber-500/20">
+                            <p className="text-xs text-amber-400">{gt("Browser permission not granted yet.")}</p>
+                            <button
+                              onClick={async () => {
+                                const granted = await requestNotificationPermission();
+                                if (granted) toast.success(gt("Notifications enabled!"));
+                                else toast.error(gt("Permission denied. Check browser settings."));
+                              }}
+                              className="text-xs font-semibold text-amber-300 hover:text-amber-200 underline"
+                            >
+                              {gt("Grant Permission")}
+                            </button>
+                          </div>
+                        )}
+                      </SettingsToggleRow>
+                      <SettingsToggleRow
+                        label={
+                          <>
+                            {gt("Mentions only")} <span className="ml-1.5 text-[10px] font-bold uppercase px-1.5 py-0.5 rounded bg-[var(--app-accent)]/20 text-[var(--app-accent)]">{gt("Default")}</span>
+                          </>
+                        }
+                        description={
+                          <>
+                            {gt("Only send desktop notifications when you are mentioned. Turn off to notify on all messages.")}
+                            <span className="block text-xs text-[var(--text-muted)] mt-0.5">{gt("Each server, category, channel and DM can override this: right-click it and pick Notification Settings.")}</span>
+                          </>
+                        }
                         checked={userSettings?.notifications?.notifyAllMessages !== true}
                         onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), notifyAllMessages: !checked } }, "notifications")}
                       />
-                    </label>
-
-                    <div className="h-px bg-[var(--border-subtle)]" />
-
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Mute @everyone and @here")}</p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Suppress popup notifications for @everyone and @here pings")}</p>
-                      </div>
-                      <ToggleSwitch size="sm" checked={Boolean(userSettings?.notifications?.muteEveryone)} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), muteEveryone: checked } }, "notifications")} />
-                    </label>
-
-                    <div className="h-px bg-[var(--border-subtle)]" />
-
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Show message preview")}</p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Display message content in desktop notifications")}</p>
-                      </div>
-                      <ToggleSwitch size="sm" checked={userSettings?.notifications?.showPreview !== false} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), showPreview: checked } }, "notifications")} />
-                    </label>
-                  </div>
+                      <SettingsToggleRow
+                        label={gt("Mute @everyone and @here")}
+                        description={gt("Suppress popup notifications for @everyone and @here pings")}
+                        checked={Boolean(userSettings?.notifications?.muteEveryone)}
+                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), muteEveryone: checked } }, "notifications")}
+                      />
+                      <SettingsToggleRow
+                        label={gt("Show message preview")}
+                        description={gt("Display message content in desktop notifications")}
+                        checked={userSettings?.notifications?.showPreview !== false}
+                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), showPreview: checked } }, "notifications")}
+                      />
+                    </SettingsCard>
+                  </SettingsSection>
 
                   {/* Sound Settings */}
-                  <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-5">
-                    <div className="flex items-center gap-2 mb-1">
-                      <Volume2 className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Sound")}</h3>
-                    </div>
+                  <SettingsSection title={gt("Sound")} icon={Volume2}>
+                    <SettingsCard>
+                      <SettingsToggleRow
+                        label={gt("Message Sounds")}
+                        description={gt("Play a sound when a new message arrives")}
+                        checked={Boolean(userSettings?.notifications?.sounds)}
+                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), sounds: checked } }, "notifications")}
+                      />
+                      <SettingsToggleRow
+                        label={gt("Incoming call ringtone")}
+                        description={gt("Ring when someone calls you, even with message sounds off. Do Not Disturb still silences it.")}
+                        checked={userSettings?.notifications?.callRingtone !== false}
+                        onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), callRingtone: checked } }, "notifications")}
+                      />
 
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Message Sounds")}</p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Play a sound when a new message arrives")}</p>
-                      </div>
-                      <ToggleSwitch size="sm" checked={Boolean(userSettings?.notifications?.sounds)} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), sounds: checked } }, "notifications")} />
-                    </label>
+                      {userSettings?.notifications?.sounds && (
+                        <>
+                          <SettingsRow label={gt("Sound type")}>
+                            <div className="grid grid-cols-5 max-sm:grid-cols-3 gap-2">
+                              {([
+                                { value: 'chime', label: gt("Chime") },
+                                { value: 'ding', label: gt("Ding") },
+                                { value: 'pop', label: gt("Pop") },
+                                { value: 'coin', label: gt("Coin") },
+                                { value: 'none', label: gt("Silent") },
+                              ] as const).map((opt) => (
+                                <button
+                                  key={opt.value}
+                                  onClick={() => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), soundType: opt.value } }, "notifications")}
+                                  className={cn(
+                                    "px-3 py-2 rounded-lg text-xs font-medium border transition-colors",
+                                    (userSettings?.notifications?.soundType || 'chime') === opt.value
+                                      ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
+                                      : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                                  )}
+                                >
+                                  {opt.label}
+                                </button>
+                              ))}
+                            </div>
+                          </SettingsRow>
 
-                    <div className="h-px bg-[var(--border-subtle)]" />
+                          <SettingsRow
+                            label={gt("Volume")}
+                            control={<span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings?.notifications?.soundVolume ?? 50}%</span>}
+                          >
+                            <input
+                              type="range"
+                              min={0}
+                              max={100}
+                              value={userSettings?.notifications?.soundVolume ?? 50}
+                              onChange={(e) => {
+                                const vol = Number(e.target.value);
+                                saveSettingsPatchDebounced({ notifications: { soundVolume: vol } }, "notifications");
+                              }}
+                              aria-label={gt("Volume")}
+                              className="w-full accent-[var(--app-accent)]"
+                            />
+                          </SettingsRow>
 
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Incoming call ringtone")}</p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Ring when someone calls you, even with message sounds off. Do Not Disturb still silences it.")}</p>
-                      </div>
-                      <ToggleSwitch size="sm" checked={userSettings?.notifications?.callRingtone !== false} onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), callRingtone: checked } }, "notifications")} />
-                    </label>
-
-                    {userSettings?.notifications?.sounds && (
-                      <>
-                        <div className="h-px bg-[var(--border-subtle)]" />
-
-                        <div className="space-y-2">
-                          <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Sound type")}</label>
-                          <div className="grid grid-cols-5 max-sm:grid-cols-3 gap-2">
-                            {([
-                              { value: 'chime', label: gt("Chime") },
-                              { value: 'ding', label: gt("Ding") },
-                              { value: 'pop', label: gt("Pop") },
-                              { value: 'coin', label: gt("Coin") },
-                              { value: 'none', label: gt("Silent") },
-                            ] as const).map((opt) => (
-                              <button
-                                key={opt.value}
-                                onClick={() => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), soundType: opt.value } }, "notifications")}
-                                className={cn(
-                                  "px-3 py-2 rounded-lg text-xs font-medium border transition-colors",
-                                  (userSettings?.notifications?.soundType || 'chime') === opt.value
-                                    ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
-                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                                )}
-                              >
-                                {opt.label}
-                              </button>
-                            ))}
-                          </div>
-                        </div>
-
-                        <div className="h-px bg-[var(--border-subtle)]" />
-
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <label className="text-sm text-[var(--text-primary)] font-medium">{gt("Volume")}</label>
-                            <span className="text-xs text-[var(--text-muted)] tabular-nums">{userSettings?.notifications?.soundVolume ?? 50}%</span>
-                          </div>
-                          <input
-                            type="range"
-                            min={0}
-                            max={100}
-                            value={userSettings?.notifications?.soundVolume ?? 50}
-                            onChange={(e) => {
-                              const vol = Number(e.target.value);
-                              saveSettingsPatchDebounced({ notifications: { soundVolume: vol } }, "notifications");
-                            }}
-                            className="w-full accent-[var(--app-accent)]"
-                          />
-                        </div>
-
-                        <div className="h-px bg-[var(--border-subtle)]" />
-
-                        <label className="flex items-center justify-between cursor-pointer">
-                          <div>
-                            <p className="text-[var(--text-primary)] font-medium">{gt("Suppress sound when tab is focused")}</p>
-                            <p className="text-sm text-[var(--text-secondary)]">{gt("Don't play notification sound when you're already viewing the app")}</p>
-                          </div>
-                          <ToggleSwitch
-                            size="sm"
+                          <SettingsToggleRow
+                            label={gt("Suppress sound when tab is focused")}
+                            description={gt("Don't play notification sound when you're already viewing the app")}
                             checked={userSettings?.notifications?.suppressSoundWhenFocused !== false}
                             onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), suppressSoundWhenFocused: checked } }, "notifications")}
                           />
-                        </label>
-                      </>
-                    )}
-                  </div>
+                        </>
+                      )}
+                    </SettingsCard>
+                  </SettingsSection>
 
                   {/* In-App Toasts */}
-                  <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-5 space-y-4">
-                    <div className="flex items-center gap-2 mb-1">
-                      <BellRing className="w-4 h-4 text-[var(--text-secondary)]" />
-                      <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("In-App Toasts")}</h3>
-                    </div>
-                    <label className="flex items-center justify-between cursor-pointer">
-                      <div>
-                        <p className="text-[var(--text-primary)] font-medium">{gt("Suppress in-app toast notifications")}</p>
-                        <p className="text-sm text-[var(--text-secondary)]">{gt("Hide the toast popups that appear in-app for new messages")}</p>
-                      </div>
-                      <ToggleSwitch
-                        size="sm"
+                  <SettingsSection title={gt("In-App Toasts")} icon={BellRing}>
+                    <SettingsCard>
+                      <SettingsToggleRow
+                        label={gt("Suppress in-app toast notifications")}
+                        description={gt("Hide the toast popups that appear in-app for new messages")}
                         checked={Boolean(userSettings?.notifications?.suppressToasts)}
                         onCheckedChange={(checked) => saveSettingsPatch({ notifications: { ...(userSettings?.notifications || {}), suppressToasts: checked } }, "notifications")}
                       />
-                    </label>
-                  </div>
+                    </SettingsCard>
+                  </SettingsSection>
                 </div>
               )}
 
@@ -3765,30 +3726,35 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                       ))}
                     </div>
                   ) : (
-                    <div className="space-y-4 bg-[var(--bg-app)] rounded-lg p-5">
+                    <div className={cn(
+                      ROW_STYLE_TABS.has(activeTab)
+                        // Row pages: one card of hairline-separated setting rows.
+                        ? "rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] divide-y divide-[var(--border-subtle)] overflow-hidden"
+                        // Panels that draw their own cards.
+                        : BARE_PANEL_TABS.has(activeTab)
+                          ? "space-y-4"
+                          : "space-y-4 bg-[var(--bg-app)] rounded-lg p-5",
+                    )}>
                       {activeTab === "content-social" && (
                         <>
-                          <label className="flex items-center justify-between py-2">
-                            <div className="pr-4">
-                              <span className="text-[var(--text-primary)]">{gt("Allow DMs from non-friends")}</span>
-                              <p className="text-xs text-[var(--text-muted)]">{gt("When off, only friends can start a new direct message with you.")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={userSettings.privacy?.directMessages === "everyone" && userSettings.friendRequests?.allowServerMembers !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { directMessages: checked ? "everyone" : "friends" }, friendRequests: { allowServerMembers: checked } }, "content-social")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <div className="pr-4">
-                              <span className="text-[var(--text-primary)]">{gt("Allow friend requests")}</span>
-                              <p className="text-xs text-[var(--text-muted)]">{gt("When off, nobody can send you a friend request.")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={userSettings.privacy?.friendRequests !== "none" && userSettings.friendRequests?.allowEveryone !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { friendRequests: checked ? "everyone" : "none", friendRequestSources: { everyone: checked, friendsOfFriends: checked, serverMembers: checked } }, friendRequests: { allowEveryone: checked } }, "content-social")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <div className="pr-4">
-                              <span className="text-[var(--text-primary)]">{gt("Share activity status")}</span>
-                              <p className="text-xs text-[var(--text-muted)]">{gt("Show what you're playing or watching to others.")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={userSettings.privacy?.showActivity !== false} onCheckedChange={(checked) => saveSettingsPatch({ privacy: { showActivity: checked } }, "content-social")} />
-                          </label>
+                          <SettingsToggleRow
+                            label={gt("Allow DMs from non-friends")}
+                            description={gt("When off, only friends can start a new direct message with you.")}
+                            checked={userSettings.privacy?.directMessages === "everyone" && userSettings.friendRequests?.allowServerMembers !== false}
+                            onCheckedChange={(checked) => saveSettingsPatch({ privacy: { directMessages: checked ? "everyone" : "friends" }, friendRequests: { allowServerMembers: checked } }, "content-social")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Allow friend requests")}
+                            description={gt("When off, nobody can send you a friend request.")}
+                            checked={userSettings.privacy?.friendRequests !== "none" && userSettings.friendRequests?.allowEveryone !== false}
+                            onCheckedChange={(checked) => saveSettingsPatch({ privacy: { friendRequests: checked ? "everyone" : "none", friendRequestSources: { everyone: checked, friendsOfFriends: checked, serverMembers: checked } }, friendRequests: { allowEveryone: checked } }, "content-social")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Share activity status")}
+                            description={gt("Show what you're playing or watching to others.")}
+                            checked={userSettings.privacy?.showActivity !== false}
+                            onCheckedChange={(checked) => saveSettingsPatch({ privacy: { showActivity: checked } }, "content-social")}
+                          />
                           <MessageRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "content-social")} />
                         </>
                       )}
@@ -3803,150 +3769,134 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
                       {activeTab === "data-privacy" && (
                         <>
-                          <div className="pb-2 mb-2 border-b border-[var(--border-subtle)]">
-                            <label className="flex items-center justify-between py-2">
-                              <div className="pr-4">
-                                <span className="text-[var(--text-primary)]">{gt("Allow data processing by Discord")}</span>
-                                <p className="text-xs text-[var(--text-secondary)]">{gt("Required for your messages to sync to bridged Discord servers. When off, your messages are never sent to Discord and your data is not shared with it.")}</p>
-                              </div>
-                              <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.discordBridgeOutbound)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), discordBridgeOutbound: checked, discordBridgePrompted: true } }, "data-privacy")} />
-                            </label>
-                          </div>
-                          <label className="flex items-center justify-between py-2">
-                            <span className="text-[var(--text-primary)]">{gt("Allow data personalization")}</span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowPersonalization: checked } }, "data-privacy")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <span className="text-[var(--text-primary)]">{gt("Allow crash reports")}</span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowCrashReports)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowCrashReports: checked } }, "data-privacy")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <span className="text-[var(--text-primary)]">{gt("Allow analytics")}</span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.dataPrivacy?.allowAnalytics)} onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowAnalytics: checked } }, "data-privacy")} />
-                          </label>
-                          <div className="pt-2 mt-2 border-t border-[var(--border-subtle)]">
-                            <label className="flex items-center justify-between py-2">
-                              <div>
-                                <span className="text-[var(--text-primary)]">{gt("Store recent activity")}</span>
-                                <p className="text-xs text-[var(--text-secondary)]">{gt("Keep a private history of games and apps the desktop app detects. Turn off to stop recording.")}</p>
-                              </div>
-                              <ToggleSwitch
-                                size="sm"
-                                checked={userSettings.privacy?.storeActivityHistory ?? true}
-                                onCheckedChange={(checked) => saveSettingsPatch({ privacy: { ...(userSettings.privacy || {}), storeActivityHistory: checked } }, "data-privacy")}
-                              />
-                            </label>
+                          <SettingsToggleRow
+                            label={gt("Allow data processing by Discord")}
+                            description={gt("Required for your messages to sync to bridged Discord servers. When off, your messages are never sent to Discord and your data is not shared with it.")}
+                            checked={Boolean(userSettings.dataPrivacy?.discordBridgeOutbound)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), discordBridgeOutbound: checked, discordBridgePrompted: true } }, "data-privacy")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Allow data personalization")}
+                            checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowPersonalization: checked } }, "data-privacy")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Allow crash reports")}
+                            checked={Boolean(userSettings.dataPrivacy?.allowCrashReports)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowCrashReports: checked } }, "data-privacy")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Allow analytics")}
+                            checked={Boolean(userSettings.dataPrivacy?.allowAnalytics)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowAnalytics: checked } }, "data-privacy")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Store recent activity")}
+                            description={gt("Keep a private history of games and apps the desktop app detects. Turn off to stop recording.")}
+                            checked={userSettings.privacy?.storeActivityHistory ?? true}
+                            onCheckedChange={(checked) => saveSettingsPatch({ privacy: { ...(userSettings.privacy || {}), storeActivityHistory: checked } }, "data-privacy")}
+                          >
                             <button
                               onClick={async () => {
                                 try {
                                   await fetch("/api/users/me/activity-history", { method: "DELETE", credentials: "include" });
                                 } catch { /* ignore */ }
                               }}
-                              className="mt-1 px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
+                              className="px-3 py-1.5 text-xs font-medium rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors"
                             >
                               {gt("Clear activity history")}
                             </button>
-                          </div>
+                          </SettingsToggleRow>
                         </>
                       )}
 
                       {activeTab === "accessibility" && (
                         <>
-                          <label className="flex items-center justify-between py-2">
-                            <div>
-                              <span className="text-[var(--text-primary)]">{gt("Reduced motion")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Minimise animations and transitions")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.reducedMotion)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), reducedMotion: checked } }, "accessibility")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <div>
-                              <span className="text-[var(--text-primary)]">{gt("High contrast")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Increase text and border contrast for readability")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.highContrast)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), highContrast: checked } }, "accessibility")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <div>
-                              <span className="text-[var(--text-primary)]">{gt("Dyslexic font")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Use a dyslexia-friendly font in chat")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.accessibility?.dyslexicFont)} onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), dyslexicFont: checked } }, "accessibility")} />
-                          </label>
-                          <div className="py-2">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-[var(--text-primary)]">{gt("Message spacing")}</span>
-                              <span className="text-xs text-[var(--text-secondary)]">{userSettings.accessibility?.messageSpacing === "compact" ? gt("Compact") : gt("Cozy")}</span>
-                            </div>
-                            <div className="flex gap-2">
-                              <button
-                                onClick={() => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), messageSpacing: "cozy" } }, "accessibility")}
-                                className={cn(
-                                  "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
-                                  userSettings.accessibility?.messageSpacing !== "compact"
-                                    ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
-                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                                )}
-                              >
-                                {gt("Cozy")}
-                              </button>
-                              <button
-                                onClick={() => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), messageSpacing: "compact" } }, "accessibility")}
-                                className={cn(
-                                  "px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors",
-                                  userSettings.accessibility?.messageSpacing === "compact"
-                                    ? "bg-[var(--app-accent)]/20 border-[var(--app-accent)] text-[var(--app-accent)]"
-                                    : "bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                                )}
-                              >
-                                {gt("Compact")}
-                              </button>
-                            </div>
-                          </div>
+                          <SettingsToggleRow
+                            label={gt("Reduced motion")}
+                            description={gt("Minimise animations and transitions")}
+                            checked={Boolean(userSettings.accessibility?.reducedMotion)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), reducedMotion: checked } }, "accessibility")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("High contrast")}
+                            description={gt("Increase text and border contrast for readability")}
+                            checked={Boolean(userSettings.accessibility?.highContrast)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), highContrast: checked } }, "accessibility")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Dyslexic font")}
+                            description={gt("Use a dyslexia-friendly font in chat")}
+                            checked={Boolean(userSettings.accessibility?.dyslexicFont)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), dyslexicFont: checked } }, "accessibility")}
+                          />
+                          <SettingsRow
+                            label={gt("Message spacing")}
+                            control={
+                              <div role="group" aria-label={gt("Message spacing")} className="flex gap-1 rounded-lg bg-[var(--bg-card)] p-1 border border-[var(--border-subtle)]">
+                                {(["cozy", "compact"] as const).map((spacing) => {
+                                  const selected = spacing === "compact"
+                                    ? userSettings.accessibility?.messageSpacing === "compact"
+                                    : userSettings.accessibility?.messageSpacing !== "compact";
+                                  return (
+                                    <button
+                                      key={spacing}
+                                      type="button"
+                                      aria-pressed={selected}
+                                      onClick={() => saveSettingsPatch({ accessibility: { ...(userSettings.accessibility || {}), messageSpacing: spacing } }, "accessibility")}
+                                      className={cn(
+                                        "px-3 py-1 text-xs font-medium rounded-md transition-colors",
+                                        selected
+                                          ? "bg-[var(--app-accent)] text-[var(--text-on-accent)] shadow-sm"
+                                          : "text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                                      )}
+                                    >
+                                      {spacing === "compact" ? gt("Compact") : gt("Cozy")}
+                                    </button>
+                                  );
+                                })}
+                              </div>
+                            }
+                          />
                         </>
                       )}
 
                       {activeTab === "text-images" && (
                         <>
-                          <label className="flex items-center justify-between py-2">
-                            <div>
-                              <span className="text-[var(--text-primary)]">{gt("Inline media")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Display images and videos inline in chat")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineMedia)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineMedia: checked } }, "text-images")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <div>
-                              <span className="text-[var(--text-primary)]">{gt("Inline embeds")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Show rich link previews and embeds")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.inlineEmbeds)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineEmbeds: checked } }, "text-images")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <div>
-                              <span className="text-[var(--text-primary)]">{gt("Autoplay GIFs and animated emoji")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Play animated GIFs and emoji automatically")}</p>
-                            </div>
-                            {/* The only switch for this: Appearance used to have a second "Animated Emojis" toggle for the same setting (CORD-39). */}
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.gifAutoplay)} onCheckedChange={(checked) => {
+                          <SettingsToggleRow
+                            label={gt("Inline media")}
+                            description={gt("Display images and videos inline in chat")}
+                            checked={Boolean(userSettings.textImages?.inlineMedia)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineMedia: checked } }, "text-images")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Inline embeds")}
+                            description={gt("Show rich link previews and embeds")}
+                            checked={Boolean(userSettings.textImages?.inlineEmbeds)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), inlineEmbeds: checked } }, "text-images")}
+                          />
+                          {/* The only switch for this: Appearance used to have a second "Animated Emojis" toggle for the same setting (CORD-39). */}
+                          <SettingsToggleRow
+                            label={gt("Autoplay GIFs and animated emoji")}
+                            description={gt("Play animated GIFs and emoji automatically")}
+                            checked={Boolean(userSettings.textImages?.gifAutoplay)}
+                            onCheckedChange={(checked) => {
                               updateSettings({ animatedEmojis: checked });
                               void saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), gifAutoplay: checked } }, "text-images");
-                            }} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <div>
-                              <span className="text-[var(--text-primary)]">{gt("Emoji picker")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Show the emoji picker button in the message bar")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.emojiPicker)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), emojiPicker: checked } }, "text-images")} />
-                          </label>
-                          <label className="flex items-center justify-between py-2">
-                            <div>
-                              <span className="text-[var(--text-primary)]">{gt("Sticker suggestions")}</span>
-                              <p className="text-xs text-[var(--text-secondary)]">{gt("Show sticker suggestions while typing")}</p>
-                            </div>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.textImages?.stickerSuggestions)} onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), stickerSuggestions: checked } }, "text-images")} />
-                          </label>
+                            }}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Emoji picker")}
+                            description={gt("Show the emoji picker button in the message bar")}
+                            checked={Boolean(userSettings.textImages?.emojiPicker)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), emojiPicker: checked } }, "text-images")}
+                          />
+                          <SettingsToggleRow
+                            label={gt("Sticker suggestions")}
+                            description={gt("Show sticker suggestions while typing")}
+                            checked={Boolean(userSettings.textImages?.stickerSuggestions)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ textImages: { ...(userSettings.textImages || {}), stickerSuggestions: checked } }, "text-images")}
+                          />
                         </>
                       )}
 
@@ -3971,18 +3921,14 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
                       {activeTab === "advanced" && (
                         <>
-                          <label className="flex items-center justify-between py-2">
-                            <span className="text-[var(--text-primary)]"><T>Developer Mode</T></span>
-                            <ToggleSwitch size="sm" checked={Boolean(userSettings.advanced?.developerMode)} onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), developerMode: checked } }, "advanced")} />
-                          </label>
-                          <p className="text-xs text-[var(--text-secondary)] mb-4">
-                            <T>Enables extra technical information, such as copying IDs from context menus.</T>
-                          </p>
+                          <SettingsToggleRow
+                            label={<T>Developer Mode</T>}
+                            description={<T>Enables extra technical information, such as copying IDs from context menus.</T>}
+                            checked={Boolean(userSettings.advanced?.developerMode)}
+                            onCheckedChange={(checked) => saveSettingsPatch({ advanced: { ...(userSettings.advanced || {}), developerMode: checked } }, "advanced")}
+                          />
 
-                          <div className="h-px bg-[var(--border-subtle)] my-3" />
-
-                          <div className="py-2">
-                            <p className="text-[var(--text-primary)] text-sm mb-2"><T>Developer Tools</T></p>
+                          <SettingsRow label={<T>Developer Tools</T>}>
                             <div className="flex flex-wrap gap-2">
                               <button
                                 onClick={() => {
@@ -4045,12 +3991,12 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                 <T>Open DevTools</T>
                               </button>
                             </div>
-                          </div>
+                          </SettingsRow>
                         </>
                       )}
 
                       {isSavingSettings && (
-                        <div className="text-xs text-[var(--app-accent)]">
+                        <div className={cn("text-xs text-[var(--app-accent)]", ROW_STYLE_TABS.has(activeTab) && "px-4 py-2")}>
                           {gt("Saving")} {isSavingSettings}...
                         </div>
                       )}
@@ -5214,73 +5160,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               <MountWhenOpened open={activeTab === "admin-trust-safety" && canOpenAdminTab(activeTab)}>
                 {activeTab === "admin-trust-safety" && canOpenAdminTab(activeTab) && <AdminTrustSafetyPanel key={user?.id} />}
               </MountWhenOpened>
-            </div>
-          </ScrollArea>
-
-          {/* Close Button */}
-          <button
-            onClick={() => onOpenChange(false)}
-            className="max-md:hidden absolute top-4 right-4 w-9 h-9 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[#3f4147] rounded-full transition-colors"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          {/* ESC hint */}
-          <div className="max-md:hidden absolute top-5 right-16 text-xs text-[var(--text-muted)]">
-            ESC
-          </div>
-
-          {/* Save bar */}
-          {hasChanges && (
-            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 flex items-center justify-between animate-in slide-in-from-bottom max-md:flex-col max-md:items-stretch max-md:gap-2 max-md:px-4 max-md:pb-[calc(0.75rem+var(--safe-area-bottom))] max-md:shadow-[0_-8px_24px_rgba(0,0,0,0.25)] max-md:[&_button]:min-h-11 max-md:[&_button]:flex-1 max-md:[&_button]:justify-center">
-              <span className="text-[var(--text-primary)] text-sm font-medium max-md:text-center">{gt("Careful — you have unsaved changes!")}</span>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => {
-                    if (profileTab === "main") {
-                      if (user) {
-                        setDisplayName(user.displayName || "");
-                        setBio(user.bio || "");
-                        setPronouns(user.pronouns || "");
-                        setTimezone(user.timezone || "");
-                        setShowTimezone(user.showTimezone ?? false);
-                        setCustomStatus(user.customStatus || "");
-                        setStatus(user.status || "online");
-                        setDisplayNameStyle(user.customization?.displayNameStyle || { font: 'default', effect: 'solid', color: '', gradient: [] });
-                        setProfileColor(user.customization?.profileColor || "");
-                        setProfileGradient(user.customization?.profileGradient || []);
-                        setProfileGradientAngle(user.customization?.profileGradientAngle ?? 135);
-                        setProfileGradientType(user.customization?.profileGradientType || 'linear');
-                        setProfileGradientRadialPosition(user.customization?.profileGradientRadialPosition || 'center');
-                        setProfileCardEffect(user.customization?.profileCardEffect || 'normal');
-                        setProfileCardBlur(user.customization?.profileCardBlur ?? 8);
-                        setProfileCardOpacity(user.customization?.profileCardOpacity ?? 0.85);
-                        setProfileCardBorderColor(user.customization?.profileCardBorderColor || "");
-                        setProfileCardBorderGlow(user.customization?.profileCardBorderGlow ?? false);
-                        setProfileCardBorderWidth(user.customization?.profileCardBorderWidth ?? 1);
-                      }
-                    } else {
-                      setServerNickname(initialServerNickname);
-                      setServerAvatar(initialServerAvatar);
-                      setServerBanner(initialServerBanner);
-                    }
-                  }}
-                  className="px-4 py-1.5 text-sm text-[var(--text-primary)] hover:underline"
-                >
-                  {gt("Reset")}
-                </button>
-                <button
-                  onClick={handleSave}
-                  disabled={isSaving}
-                  className="px-4 py-1.5 bg-[#23A559] hover:bg-[#1f9150] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
-                >
-                  {isSaving && <Loader size={16} />}
-                  {gt("Save Changes")}
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
+        </SettingsContent>
       </div>
 
       {/* Image Cropper */}

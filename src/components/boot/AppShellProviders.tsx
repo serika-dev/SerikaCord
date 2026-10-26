@@ -5,6 +5,7 @@ import { ServerProvider } from "@/contexts/ServerContext";
 import { ServerThemeSync } from "@/components/boot/ServerThemeSync";
 import { UnreadProvider } from "@/contexts/UnreadContext";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { NotificationHosts } from "@/components/notifications/NotificationHosts";
 import { NativeAppBridge } from "@/components/native/NativeAppBridge";
 import { ForwardDialogHost } from "@/components/chat/ForwardDialogHost";
@@ -65,7 +66,11 @@ export default function AppShellProviders({ children }: { children: ReactNode })
     <ServerProvider>
       <UnreadProvider>
         <ConfirmProvider>
-          {children}
+          {/* One tooltip delay group for the app: the first tooltip waits a
+              beat, moving along a row of icons then shows each instantly. */}
+          <TooltipProvider delayDuration={200} skipDelayDuration={400}>
+            {children}
+          </TooltipProvider>
           <ServerThemeSync />
           <NotificationHosts />
           <ForwardDialogHost />

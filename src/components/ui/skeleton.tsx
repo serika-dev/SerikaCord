@@ -16,7 +16,7 @@ export function Skeleton({
   return (
     <div
       className={cn(
-        "bg-[#1a1a1a]",
+        "bg-[color-mix(in_srgb,var(--text-primary)_9%,transparent)]",
         animate && "animate-pulse",
         variant === "circular" && "rounded-full",
         variant === "rounded" && "rounded-lg",
@@ -31,11 +31,11 @@ export function Skeleton({
 // Server sidebar skeleton
 export function ServerSidebarSkeleton() {
   return (
-    <div className="flex flex-col items-center w-[72px] h-full bg-[#0a0a0a] py-3 gap-2 border-r border-[#1a1a1a] animate-in fade-in duration-300">
+    <div className="flex flex-col items-center w-[72px] h-full bg-[var(--bg-sidebar)] py-3 gap-2 border-r border-[var(--border-subtle)] animate-in fade-in duration-300">
       {/* Home button skeleton */}
       <Skeleton className="w-12 h-12 rounded-[16px]" />
       
-      <div className="w-8 h-0.5 bg-[#222222] rounded-full" />
+      <div className="w-8 h-0.5 bg-[var(--border-subtle)] rounded-full" />
       
       {/* Server list skeleton */}
       <div className="flex-1 w-full flex flex-col items-center gap-2">
@@ -48,7 +48,7 @@ export function ServerSidebarSkeleton() {
         ))}
       </div>
       
-      <div className="w-8 h-0.5 bg-[#222222] rounded-full" />
+      <div className="w-8 h-0.5 bg-[var(--border-subtle)] rounded-full" />
       
       {/* Bottom buttons skeleton */}
       <Skeleton className="w-12 h-12 rounded-[24px]" />
@@ -60,9 +60,9 @@ export function ServerSidebarSkeleton() {
 // Channel sidebar skeleton
 export function ChannelSidebarSkeleton() {
   return (
-    <div className="flex flex-col w-60 h-full bg-[#0a0a0a] border-r border-[#1a1a1a] animate-in fade-in duration-300">
+    <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] animate-in fade-in duration-300">
       {/* Header skeleton */}
-      <div className="h-12 px-4 flex items-center border-b border-[#1a1a1a]">
+      <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)]">
         <Skeleton className="h-5 w-32" />
       </div>
       
@@ -87,7 +87,7 @@ export function ChannelSidebarSkeleton() {
       </div>
       
       {/* User panel skeleton */}
-      <div className="h-[52px] px-2 flex items-center bg-[#0a0a0a] border-t border-[#1a1a1a]">
+      <div className="h-[52px] px-2 flex items-center bg-[var(--bg-sidebar)] border-t border-[var(--border-subtle)]">
         <div className="flex items-center gap-2 flex-1">
           <Skeleton className="w-8 h-8 rounded-full" variant="circular" />
           <div className="flex-1 space-y-1">
@@ -108,9 +108,9 @@ export function ChannelSidebarSkeleton() {
 // DM sidebar skeleton
 export function DMSidebarSkeleton() {
   return (
-    <div className="flex flex-col w-60 h-full bg-[#0a0a0a] border-r border-[#1a1a1a] animate-in fade-in duration-300">
+    <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] animate-in fade-in duration-300">
       {/* Search skeleton */}
-      <div className="h-12 px-4 flex items-center border-b border-[#1a1a1a]">
+      <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)]">
         <Skeleton className="h-7 w-full rounded" />
       </div>
       
@@ -135,7 +135,7 @@ export function DMSidebarSkeleton() {
       </div>
       
       {/* User panel skeleton */}
-      <div className="h-[52px] px-2 flex items-center bg-[#0a0a0a] border-t border-[#1a1a1a]">
+      <div className="h-[52px] px-2 flex items-center bg-[var(--bg-sidebar)] border-t border-[var(--border-subtle)]">
         <div className="flex items-center gap-2 flex-1">
           <Skeleton className="w-8 h-8 rounded-full" variant="circular" />
           <div className="flex-1 space-y-1">
@@ -156,9 +156,9 @@ export function DMSidebarSkeleton() {
 // Chat area skeleton
 export function ChatAreaSkeleton() {
   return (
-    <div className="flex-1 flex flex-col bg-[#0a0a0a] animate-in fade-in duration-300">
+    <div className="flex-1 flex flex-col bg-[var(--bg-app)] animate-in fade-in duration-300">
       {/* Header skeleton */}
-      <div className="h-12 px-4 flex items-center border-b border-[#1a1a1a]">
+      <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)]">
         <div className="w-6 h-6 rounded mr-2 skeleton-shimmer" />
         <div className="h-5 w-32 rounded skeleton-shimmer" />
         <div className="ml-auto flex items-center gap-2">
@@ -250,14 +250,14 @@ export function MessageSkeleton({ count = 5 }: { count?: number }) {
 // User profile skeleton
 export function UserProfileSkeleton() {
   return (
-    <div className="flex flex-col h-full bg-[#0c0c10] animate-in fade-in slide-in-from-right-2 duration-300 overflow-hidden">
+    <div className="flex flex-col h-full bg-[var(--bg-app)] animate-in fade-in slide-in-from-right-2 duration-300 overflow-hidden">
       {/* Banner */}
       <Skeleton className="h-[120px] rounded-none shrink-0" />
 
       {/* Profile section */}
       <div className="relative flex-1 flex flex-col min-h-0 px-4 pb-4">
         <div className="absolute -top-11 left-4">
-          <Skeleton className="w-[88px] h-[88px] rounded-full border-[5px] border-[#0c0c10]" variant="circular" />
+          <Skeleton className="w-[88px] h-[88px] rounded-full border-[5px] border-[var(--bg-app)]" variant="circular" />
         </div>
 
         <div className="flex justify-end gap-2 pt-3 min-h-[44px]">
@@ -286,7 +286,7 @@ export function UserProfileSkeleton() {
 // Member sidebar skeleton
 export function MemberSidebarSkeleton() {
   return (
-    <div className="w-60 bg-[#0a0a0a] border-l border-[#1a1a1a] animate-in fade-in slide-in-from-right-2 duration-300">
+    <div className="w-60 bg-[var(--bg-sidebar)] border-l border-[var(--border-subtle)] animate-in fade-in slide-in-from-right-2 duration-300">
       <div className="p-4 space-y-4">
         {[...Array(3)].map((_, groupIndex) => (
           <div key={groupIndex} className="space-y-2">

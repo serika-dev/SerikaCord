@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { useGT } from "gt-next";
 import { toast } from "sonner";
 import { ImagePlus, Loader2, Trash2, Type, UserSquare } from "lucide-react";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
+import { SettingsCard, SettingsSection, SettingsToggleRow } from "@/components/settings/SettingsSection";
 import { cdnImage } from "@/lib/utils";
 import {
   BACKGROUND_BLUR_MAX,
@@ -96,11 +96,9 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
   return (
     <>
       {/* Font */}
-      <div className="bg-[var(--bg-app)] rounded-lg p-5 space-y-3">
-        <div>
-          <h3 className="text-base font-bold text-[var(--text-primary)]">{gt("Font")}</h3>
-          <p className="text-sm text-[var(--text-secondary)]">{gt("Use any font installed on this device. Leave empty for the default font.")}</p>
-        </div>
+      <SettingsSection title={gt("Font")} description={gt("Use any font installed on this device. Leave empty for the default font.")}>
+      <SettingsCard>
+      <div className="px-4 py-4 space-y-3">
         <div className="flex flex-wrap gap-1.5">
           {FONT_PRESETS.map((preset) => {
             const on = (values.fontFamily || "") === preset;
@@ -171,13 +169,13 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
           {gt("The quick brown fox jumps over the lazy dog.")}
         </p>
       </div>
+      </SettingsCard>
+      </SettingsSection>
 
       {/* Background image */}
-      <div className="bg-[var(--bg-app)] rounded-lg p-5 space-y-4">
-        <div>
-          <h3 className="text-base font-bold text-[var(--text-primary)]">{gt("Background Image")}</h3>
-          <p className="text-sm text-[var(--text-secondary)]">{gt("Show an image behind the app. Panels turn see-through so it shows.")}</p>
-        </div>
+      <SettingsSection title={gt("Background Image")} description={gt("Show an image behind the app. Panels turn see-through so it shows.")}>
+      <SettingsCard>
+      <div className="px-4 py-4 space-y-4">
         <div
           className="relative h-28 rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-card)]"
           aria-hidden
@@ -247,7 +245,7 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
                   max={BACKGROUND_DIM_MAX}
                   value={clampBackgroundDim(values.backgroundDim)}
                   onChange={(e) => save({ backgroundDim: Number(e.target.value) }, { debounce: true })}
-                  className="flex-1 accent-[var(--app-accent)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
+                  className="flex-1 accent-[var(--app-accent)] cursor-pointer"
                 />
                 <span className="text-xs text-[var(--text-secondary)] tabular-nums w-10 text-right">{clampBackgroundDim(values.backgroundDim)}%</span>
               </div>
@@ -261,7 +259,7 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
                   max={BACKGROUND_BLUR_MAX}
                   value={clampBackgroundBlur(values.backgroundBlur)}
                   onChange={(e) => save({ backgroundBlur: Number(e.target.value) }, { debounce: true })}
-                  className="flex-1 accent-[var(--app-accent)] h-1 bg-[var(--border-subtle)] rounded-full appearance-none cursor-pointer"
+                  className="flex-1 accent-[var(--app-accent)] cursor-pointer"
                 />
                 <span className="text-xs text-[var(--text-secondary)] tabular-nums w-10 text-right">{clampBackgroundBlur(values.backgroundBlur)}px</span>
               </div>
@@ -269,17 +267,18 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
           </>
         )}
       </div>
+      </SettingsCard>
+      </SettingsSection>
 
       {/* Server themes */}
-      <div className="bg-[var(--bg-app)] rounded-lg p-5">
-        <label className="flex items-center justify-between gap-4 cursor-pointer">
-          <div>
-            <p className="text-[var(--text-primary)] font-medium">{gt("Use server themes")}</p>
-            <p className="text-sm text-[var(--text-secondary)]">{gt("Let servers change the accent colour and tint while you're in them.")}</p>
-          </div>
-          <ToggleSwitch size="sm" checked={values.useServerThemes} onCheckedChange={(checked) => save({ useServerThemes: checked })} />
-        </label>
-      </div>
+      <SettingsCard>
+        <SettingsToggleRow
+          label={gt("Use server themes")}
+          description={gt("Let servers change the accent colour and tint while you're in them.")}
+          checked={values.useServerThemes}
+          onCheckedChange={(checked) => save({ useServerThemes: checked })}
+        />
+      </SettingsCard>
     </>
   );
 }

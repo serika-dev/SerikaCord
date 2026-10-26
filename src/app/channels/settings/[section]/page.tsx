@@ -445,14 +445,14 @@ export default function MobileSettingsSectionPage() {
               checked={settings.privacy?.showActivity !== false}
               onChange={(checked) => saveSettings({ privacy: { ...(settings.privacy || {}), showActivity: checked } })}
             />
-            <div className="rounded-xl bg-[var(--bg-card)] px-4 py-2">
+            <div className="rounded-xl bg-[var(--bg-card)] overflow-hidden">
               <MessageRequestSettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
             </div>
-            <div className="rounded-xl bg-[var(--bg-card)] px-4 py-2">
+            <div className="rounded-xl bg-[var(--bg-card)] overflow-hidden">
               <FriendRequestSettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
             </div>
-            <div className="rounded-xl bg-[var(--bg-card)] px-4 py-2">
-              <p className="text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)] mt-1">{gt("Activity Privacy")}</p>
+            <div className="rounded-xl bg-[var(--bg-card)] overflow-hidden">
+              <p className="px-4 pt-3.5 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">{gt("Activity Privacy")}</p>
               <ActivityPrivacySettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
             </div>
             <ToggleRow

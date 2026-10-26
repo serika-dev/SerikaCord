@@ -129,11 +129,11 @@ export function MessageHoverActions<M extends ChatMessage>({
   return (
     <div
       className={cn(
-        "absolute -top-3 right-4 transition-opacity z-[100]",
-        reactionPickerOpen ? "opacity-100" : "opacity-0 group-hover/message:opacity-100"
+        "absolute -top-3 right-4 transition-opacity duration-(--motion-fast) z-[100]",
+        reactionPickerOpen ? "opacity-100" : "opacity-0 group-hover/message:opacity-100 group-has-[:focus-visible]/message:opacity-100"
       )}
     >
-      <div className="flex items-center bg-[var(--app-surface-alt)] border border-[var(--app-border)] rounded-md shadow-lg">
+      <div className="flex items-center bg-[var(--app-surface-alt)] border border-[var(--app-border)] rounded-lg shadow-[var(--app-elev-1)] overflow-hidden">
         {quick.map((emoji, i) => (
           <button
             key={emoji.kind === "custom" ? emoji.id : emoji.emoji}
@@ -142,7 +142,7 @@ export function MessageHoverActions<M extends ChatMessage>({
               recordEmoji(emoji);
               onAddReaction(message.id, emojiToken(emoji));
             }}
-            className={cn("hidden sm:flex h-7 w-7 items-center justify-center hover:bg-black/20 transition-colors", i === 0 && "rounded-l-md")}
+            className={cn("hidden sm:flex h-7 w-7 items-center justify-center hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]", i === 0 && "rounded-l-md")}
             title={emoji.kind === "custom" ? `:${emoji.name}:` : emoji.emoji}
           >
             {emoji.kind === "custom" ? (
@@ -155,7 +155,7 @@ export function MessageHoverActions<M extends ChatMessage>({
         {quick.length > 0 && <span className="hidden sm:block mx-0.5 h-4 w-px bg-[var(--app-border)]" aria-hidden="true" />}
         <Popover open={reactionPickerOpen} onOpenChange={onReactionPickerChange}>
           <PopoverTrigger asChild>
-            <button className={cn("p-1.5 hover:bg-black/20 transition-colors", quick.length === 0 && "rounded-l-md")} title={gt("Add Reaction")}>
+            <button className={cn("p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]", quick.length === 0 && "rounded-l-md")} title={gt("Add Reaction")}>
               <Smile className="w-4 h-4 text-[var(--app-muted)]" />
             </button>
           </PopoverTrigger>
@@ -171,7 +171,7 @@ export function MessageHoverActions<M extends ChatMessage>({
         </Popover>
         <button
           onClick={(e) => onReply(message, e.shiftKey ? { mention: false } : undefined)}
-          className="p-1.5 hover:bg-black/20 transition-colors"
+          className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]"
           title={gt("Reply")}
         >
           <Reply className="w-4 h-4 text-[var(--app-muted)]" />
@@ -179,7 +179,7 @@ export function MessageHoverActions<M extends ChatMessage>({
         {onCreateThread && (
           <button
             onClick={() => onCreateThread(message)}
-            className="p-1.5 hover:bg-black/20 transition-colors"
+            className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]"
             title={gt("Create Thread")}
             aria-label={gt("Create Thread")}
           >
@@ -189,7 +189,7 @@ export function MessageHoverActions<M extends ChatMessage>({
         {editable && (
           <button
             onClick={() => onEdit(message)}
-            className="p-1.5 hover:bg-black/20 transition-colors"
+            className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]"
             title={gt("Edit")}
           >
             <Pencil className="w-4 h-4 text-[var(--app-muted)]" />
@@ -198,7 +198,7 @@ export function MessageHoverActions<M extends ChatMessage>({
         {forwardable && (
           <button
             onClick={() => requestForward(message)}
-            className="p-1.5 hover:bg-black/20 transition-colors"
+            className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]"
             title={gt("Forward")}
           >
             <CornerUpRight className="w-4 h-4 text-[var(--app-muted)]" />
@@ -208,7 +208,7 @@ export function MessageHoverActions<M extends ChatMessage>({
           <>
             <button
               onClick={() => onCopy(copyText)}
-              className="p-1.5 hover:bg-black/20 transition-colors"
+              className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]"
               title={gt("Copy Text")}
             >
               <Copy className="w-4 h-4 text-[var(--app-muted)]" />
@@ -216,7 +216,7 @@ export function MessageHoverActions<M extends ChatMessage>({
             {canPin && (
               <button
                 onClick={() => onPinToggle(message)}
-                className="p-1.5 hover:bg-black/20 transition-colors"
+                className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]"
                 title={message.pinned ? gt("Unpin Message") : gt("Pin Message")}
               >
                 <Pin className="w-4 h-4 text-[var(--app-muted)]" />
@@ -235,7 +235,7 @@ export function MessageHoverActions<M extends ChatMessage>({
         ) : (
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <button className="p-1.5 hover:bg-black/20 rounded-r-md transition-colors" title={gt("More")}>
+              <button className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] rounded-r-md transition-colors [&:hover>svg]:text-[var(--text-primary)]" title={gt("More")}>
                 <MoreHorizontal className="w-4 h-4 text-[var(--app-muted)]" />
               </button>
             </DropdownMenuTrigger>

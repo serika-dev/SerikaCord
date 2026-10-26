@@ -135,10 +135,10 @@ export function Badge({ id, size = 'md', showTooltip = true, className }: BadgeP
       </TooltipTrigger>
       <TooltipContent
         side="top"
-        className="bg-[#0a0a0a] text-white border border-[#222222] px-3 py-2"
+        className="px-3 py-2"
       >
         <div className="text-sm font-semibold">{labels.name}</div>
-        {labels.description && <div className="text-xs text-[#888888]">{labels.description}</div>}
+        {labels.description && <div className="text-xs text-[var(--text-secondary)]">{labels.description}</div>}
       </TooltipContent>
     </Tooltip>
   );
@@ -175,7 +175,7 @@ export function BadgeList({ badges: badgeIds, size = 'md', maxDisplay, className
               <button
                 onClick={() => setShowAllBadges(true)}
                 className={cn(
-                  "flex items-center justify-center gap-0.5 rounded-md bg-[#111111] text-[#888888] text-xs font-medium cursor-pointer border border-[#222222] hover:bg-[#1a1a1a] hover:text-white transition-colors",
+                  "flex items-center justify-center gap-0.5 rounded-md bg-[var(--bg-card)] text-[var(--text-secondary)] text-xs font-medium cursor-pointer border border-[var(--border-subtle)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] transition-colors",
                   size === 'sm' && "h-5 px-1.5",
                   size === 'md' && "h-6 px-2 text-[10px]",
                   size === 'lg' && "h-8 px-2.5 text-xs",
@@ -186,9 +186,9 @@ export function BadgeList({ badges: badgeIds, size = 'md', maxDisplay, className
               </button>
 
               <Dialog open={showAllBadges} onOpenChange={setShowAllBadges}>
-                <DialogContent className="bg-[#111111] border-[#222222] max-w-md">
+                <DialogContent className="max-w-md">
                   <DialogHeader>
-                    <DialogTitle className="text-white">{gt("All Badges")} ({badges.length})</DialogTitle>
+                    <DialogTitle className="text-[var(--text-primary)]">{gt("All Badges")} ({badges.length})</DialogTitle>
                   </DialogHeader>
                   <ScrollArea className="max-h-[400px]">
                     <div className="grid grid-cols-1 gap-2 pr-4">
@@ -197,7 +197,7 @@ export function BadgeList({ badges: badgeIds, size = 'md', maxDisplay, className
                         return (
                           <div
                             key={badge.id}
-                            className="flex items-center gap-3 p-3 rounded-lg bg-[#0a0a0a] hover:bg-[#1a1a1a] transition-colors"
+                            className="flex items-center gap-3 p-3 rounded-lg bg-[var(--bg-app)] hover:bg-[var(--bg-hover)] transition-colors"
                           >
                             <div
                               className="w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0"
@@ -206,8 +206,8 @@ export function BadgeList({ badges: badgeIds, size = 'md', maxDisplay, className
                               <BadgeArt badge={badge} size="lg" />
                             </div>
                             <div className="min-w-0">
-                              <p className="font-semibold text-white text-sm">{labels.name}</p>
-                              <p className="text-xs text-[#888888] truncate">{labels.description}</p>
+                              <p className="font-semibold text-[var(--text-primary)] text-sm">{labels.name}</p>
+                              <p className="text-xs text-[var(--text-secondary)] truncate">{labels.description}</p>
                             </div>
                           </div>
                         );
@@ -222,7 +222,7 @@ export function BadgeList({ badges: badgeIds, size = 'md', maxDisplay, className
               <TooltipTrigger asChild>
                 <div
                   className={cn(
-                    "flex items-center justify-center rounded-md bg-[#111111] text-[#888888] text-xs font-medium cursor-default border border-[#222222]",
+                    "flex items-center justify-center rounded-md bg-[var(--bg-card)] text-[var(--text-secondary)] text-xs font-medium cursor-default border border-[var(--border-subtle)]",
                     size === 'sm' && "w-5 h-5",
                     size === 'md' && "w-6 h-6 text-[10px]",
                     size === 'lg' && "w-8 h-8 text-xs",
@@ -233,7 +233,7 @@ export function BadgeList({ badges: badgeIds, size = 'md', maxDisplay, className
               </TooltipTrigger>
               <TooltipContent
                 side="top"
-                className="bg-[#0a0a0a] text-white border border-[#222222] px-3 py-2"
+                className="px-3 py-2"
               >
                 <div className="text-sm">
                   {gt("{count} more badges", { count: remaining })}
@@ -307,10 +307,7 @@ export function ServerBadge({ type, size = 'md', iconOnly = false }: ServerBadge
             {!iconOnly && serverBadgeLabel(type, gt)}
           </div>
         </TooltipTrigger>
-        <TooltipContent 
-          side="top" 
-          className="bg-[#0a0a0a] text-white border border-[#222222]"
-        >
+        <TooltipContent side="top">
           {gt("{name} Server", { name: serverBadgeLabel(type, gt) })}
         </TooltipContent>
       </Tooltip>

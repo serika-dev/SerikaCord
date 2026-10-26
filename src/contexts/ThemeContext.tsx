@@ -88,6 +88,17 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+// Hover tint for the accent: 12% toward white (not color-mix(), which the
+// Qt desktop shell's Chromium 102 lacks). Non-hex values pass through.
+function hoverShade(color: string): string {
+  const m = /^#([0-9a-f]{6})$/i.exec(color.trim());
+  if (!m) return color;
+  const n = parseInt(m[1], 16);
+  const mix = (c: number) => Math.round(c + (255 - c) * 0.12);
+  const rgb = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(mix);
+  return `#${rgb.map((c) => c.toString(16).padStart(2, "0")).join("")}`;
+}
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<ThemeSettings>(defaultSettings);
   const [isLoaded, setIsLoaded] = useState(false);
@@ -187,7 +198,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     root.style.setProperty("--accent-color", accentColor);
     root.style.setProperty("--app-accent", accentColor);
     root.style.setProperty("--accent", accentColor);
-    root.style.setProperty("--accent-hover", accentColor);
+    root.style.setProperty("--accent-hover", hoverShade(accentColor));
 
     // Custom text color (overrides theme default when set)
     if (settings.textColor && settings.textColor.trim()) {

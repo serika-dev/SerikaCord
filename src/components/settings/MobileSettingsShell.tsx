@@ -53,7 +53,7 @@ export function MobileSettingsList<S extends string>({
                   type="button"
                   onClick={() => onSelect(item.id)}
                   className={cn(
-                    "w-full min-h-[52px] flex items-center gap-3 px-3 text-left touch-manipulation transition-colors active:bg-[var(--bg-active)]",
+                    "w-full min-h-[52px] flex items-center gap-3 px-3 text-left touch-manipulation transition-colors duration-(--motion-fast) active:bg-[var(--bg-active)] [@media(hover:hover)]:hover:bg-[var(--bg-hover)]",
                     item.destructive ? "text-red-500" : "text-[var(--text-primary)]",
                   )}
                 >

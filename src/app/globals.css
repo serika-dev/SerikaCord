@@ -681,11 +681,12 @@ html.native-app body {
   }
 }
 .skeleton-shimmer {
+  /* Tinted from the text colour so it reads in light and dark themes. */
   background: linear-gradient(
     90deg,
-    rgba(255, 255, 255, 0.04) 25%,
-    rgba(255, 255, 255, 0.08) 37%,
-    rgba(255, 255, 255, 0.04) 63%
+    color-mix(in srgb, var(--text-primary, #ffffff) 5%, transparent) 25%,
+    color-mix(in srgb, var(--text-primary, #ffffff) 10%, transparent) 37%,
+    color-mix(in srgb, var(--text-primary, #ffffff) 5%, transparent) 63%
   );
   background-size: 200% 100%;
   animation: skeleton-shimmer 1.4s ease-in-out infinite;
@@ -916,16 +917,160 @@ html.native-app body {
   }
 }
 
+/* ─── Motion tokens ───
+   One vocabulary for every transition in the app: fast and subtle, ease-out
+   for things entering, never bouncy. Use them as
+   `transition: background-color var(--motion-fast) var(--motion-ease-out)` or in
+   Tailwind as `duration-(--motion-fast) ease-(--motion-ease-out)`. Reduced motion
+   (OS setting or the in-app toggle) zeroes the durations. */
+:root {
+  --motion-instant: 80ms;
+  --motion-fast: 150ms;
+  --motion-base: 200ms;
+  --motion-slow: 280ms;
+  --motion-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --motion-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* Tooltip surface: a dark chip in every dark theme, a white card in light. */
+  --tooltip-bg: color-mix(in srgb, var(--app-bg) 70%, #000000 30%);
+  --tooltip-fg: var(--app-text);
+  --tooltip-border: color-mix(in srgb, var(--app-border) 70%, transparent);
+  --tooltip-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+.theme-light {
+  --tooltip-bg: #ffffff;
+  --tooltip-fg: var(--app-text);
+  --tooltip-border: var(--app-border);
+  --tooltip-shadow: 0 8px 24px rgba(23, 35, 58, 0.14), 0 1px 3px rgba(23, 35, 58, 0.1);
+}
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --motion-instant: 0ms;
+    --motion-fast: 0ms;
+    --motion-base: 0ms;
+    --motion-slow: 0ms;
+  }
+}
+html.reduce-motion {
+  --motion-instant: 0ms;
+  --motion-fast: 0ms;
+  --motion-base: 0ms;
+  --motion-slow: 0ms;
+}
+
 /* Premium easing for Radix dropdowns/popovers/dialogs: the tw-animate default
    is a flat ease that reads as cheap. Ease-out-expo with a touch more duration
    makes every menu/popover open feel intentional. */
 [data-slot="dropdown-menu-content"],
 [data-slot="dropdown-menu-sub-content"],
 [data-slot="popover-content"],
+[data-slot="select-content"],
 [data-slot="dialog-content"],
+[data-slot="dialog-overlay"],
 [data-slot="tooltip-content"] {
-  animation-duration: 180ms;
-  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-duration: var(--motion-base, 180ms);
+  animation-timing-function: var(--motion-ease-out, cubic-bezier(0.16, 1, 0.3, 1));
+}
+/* Closing is quicker than opening so dismissing never feels sluggish. */
+[data-slot="dropdown-menu-content"][data-state="closed"],
+[data-slot="popover-content"][data-state="closed"],
+[data-slot="select-content"][data-state="closed"],
+[data-slot="dialog-content"][data-state="closed"],
+[data-slot="dialog-overlay"][data-state="closed"],
+[data-slot="tooltip-content"][data-state="closed"] {
+  animation-duration: var(--motion-fast, 150ms);
+}
+[data-slot="tooltip-content"] {
+  animation-duration: var(--motion-fast, 150ms);
+}
+
+/* ─── Settings (user + server settings dialogs) ─── */
+
+/* Page switch: the new page fades up 8px. Enter-only, so a click never waits
+   on the old page animating out. */
+@keyframes settings-page-enter {
+  from { opacity: 0; transform: translate3d(0, 8px, 0); }
+  to { opacity: 1; transform: none; }
+}
+.settings-page-enter {
+  animation: settings-page-enter var(--motion-base) var(--motion-ease-out) both;
+}
+
+/* Discord's "you have unsaved changes" nudge: the bar shakes and flashes red
+   when you try to leave without saving. */
+@keyframes settings-unsaved-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  15%, 55% { transform: translate3d(-6px, 0, 0); }
+  35%, 75% { transform: translate3d(6px, 0, 0); }
+  90% { transform: translate3d(-2px, 0, 0); }
+}
+.settings-unsaved-shake {
+  animation: settings-unsaved-shake 420ms var(--motion-ease-in-out) both;
+  background: color-mix(in srgb, var(--app-danger, #da373c) 88%, #000000 12%) !important;
+  border-color: var(--app-danger, #da373c) !important;
+  color: #ffffff;
+}
+.settings-unsaved-shake p {
+  color: #ffffff !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .settings-unsaved-shake {
+    animation: none;
+  }
+}
+
+/* Highlight the setting a search jumped to. */
+@keyframes settings-row-flash {
+  0%, 30% { background-color: color-mix(in srgb, var(--app-accent) 18%, transparent); }
+  100% { background-color: transparent; }
+}
+.settings-row-flash {
+  animation: settings-row-flash 1.6s var(--motion-ease-out) both;
+}
+
+/* Settings nav item: accent bar slides in on the active row. */
+.settings-nav-item {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out);
+}
+.settings-nav-item::before {
+  content: "";
+  position: absolute;
+  left: -8px;
+  top: 50%;
+  width: 4px;
+  height: 0;
+  border-radius: 0 4px 4px 0;
+  background: var(--app-accent);
+  transform: translateY(-50%);
+  transition: height var(--motion-fast) var(--motion-ease-out);
+}
+.settings-nav-item[aria-current="page"]::before {
+  height: 60%;
+}
+
+/* Compact sticky page header that fades in once the page title scrolls away. */
+.settings-sticky-header {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    border-color var(--motion-fast) var(--motion-ease-out),
+    box-shadow var(--motion-fast) var(--motion-ease-out);
+}
+.settings-sticky-title {
+  transition:
+    opacity var(--motion-fast) var(--motion-ease-out),
+    transform var(--motion-fast) var(--motion-ease-out);
+}
+
+/* Hover/press feel for rows in lists (channel sidebar, member list, settings
+   rows). Colors only: no layout or transform work on long lists. */
+.list-row-interactive {
+  transition:
+    background-color var(--motion-fast) var(--motion-ease-out),
+    color var(--motion-fast) var(--motion-ease-out),
+    opacity var(--motion-fast) var(--motion-ease-out);
 }
 
 /* Instant tactile press feedback: a tiny scale-down on :active makes clicks

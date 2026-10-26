@@ -104,11 +104,13 @@ export function MobileSettingsHome<Id extends string>({
                   type="button"
                   onClick={() => onSelect(item.id)}
                   className={cn(
-                    "w-full min-h-[52px] flex items-center gap-3 px-4 text-left text-[15px] text-[var(--text-primary)] active:bg-[var(--bg-active)] transition-colors",
+                    "w-full min-h-[52px] flex items-center gap-3 px-3 text-left text-[15px] text-[var(--text-primary)] active:bg-[var(--bg-active)] [@media(hover:hover)]:hover:bg-[var(--bg-hover)] transition-colors duration-(--motion-fast)",
                     i > 0 && "border-t border-[var(--border-subtle)]",
                   )}
                 >
-                  <item.icon className="w-5 h-5 shrink-0 text-[var(--text-secondary)]" />
+                  <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-[var(--bg-hover)] text-[var(--text-secondary)]">
+                    <item.icon className="w-[18px] h-[18px]" />
+                  </span>
                   <span className="flex-1 min-w-0 truncate">{item.label}</span>
                   <ChevronRight className="w-4 h-4 shrink-0 text-[var(--text-muted)]" />
                 </button>
@@ -121,9 +123,11 @@ export function MobileSettingsHome<Id extends string>({
           <button
             type="button"
             onClick={onLogout}
-            className="w-full min-h-[52px] flex items-center gap-3 px-4 text-left text-[15px] font-medium text-red-500 active:bg-red-500/10 transition-colors"
+            className="w-full min-h-[52px] flex items-center gap-3 px-3 text-left text-[15px] font-medium text-red-500 active:bg-red-500/10 transition-colors"
           >
-            <LogOut className="w-5 h-5 shrink-0" />
+            <span className="w-8 h-8 rounded-lg flex items-center justify-center shrink-0 bg-red-500/10">
+              <LogOut className="w-[18px] h-[18px]" />
+            </span>
             {gt("Log Out")}
           </button>
         </div>
