@@ -5,6 +5,7 @@ import { useGT } from "gt-next";
 import { toast } from "sonner";
 import { ImagePlus, Loader2, Trash2, Type, UserSquare } from "lucide-react";
 import { SettingsCard, SettingsSection, SettingsToggleRow } from "@/components/settings/SettingsSection";
+import { GradientThemePicker } from "@/components/settings/GradientThemePicker";
 import { cdnImage } from "@/lib/utils";
 import {
   BACKGROUND_BLUR_MAX,
@@ -17,6 +18,10 @@ import {
   parseAppearanceMediaUrl,
   sanitizeFontFamily,
   uniqueFontFamilies,
+  userThemeGradient,
+  type AppThemeName,
+  type ThemeGradient,
+  type UserThemeGradient,
 } from "@/lib/appearance/customization";
 import { uploadAppearanceImage } from "@/lib/appearance/uploadAppearanceImage";
 
@@ -36,6 +41,44 @@ interface Props {
   /** The signed-in user's profile banner (offered as a background). */
   profileBanner?: string | null;
   save: (patch: Partial<AppearanceCustomizationValues>, opts?: { debounce?: boolean }) => void;
+}
+
+/**
+ * Appearance → App Theme: the gradient behind the whole app. Unset shows the
+ * theme's default ("Serika" on dark/midnight, none on light); picking "None"
+ * saves "none". Used by the desktop Appearance page and the phone settings
+ * page.
+ */
+export function AppThemeSection({
+  theme,
+  value,
+  hasBackgroundImage,
+  save,
+}: {
+  theme: string;
+  value: UserThemeGradient;
+  hasBackgroundImage?: boolean;
+  save: (patch: { themeGradient: ThemeGradient | "none" }, opts?: { debounce?: boolean }) => void;
+}) {
+  const gt = useGT();
+  const appTheme: AppThemeName = theme === "light" || theme === "midnight" ? theme : "dark";
+  return (
+    <SettingsSection
+      title={gt("App Theme")}
+      description={
+        hasBackgroundImage
+          ? gt("Your background image is shown instead of a gradient. Remove it to use an app theme.")
+          : gt("A gradient behind the whole app. Servers can show their own while you're in them.")
+      }
+    >
+      <GradientThemePicker
+        value={userThemeGradient(value, appTheme)}
+        previewTheme={appTheme}
+        noneLabel={gt("None (solid)")}
+        onChange={(next, opts) => save({ themeGradient: next ?? "none" }, opts)}
+      />
+    </SettingsSection>
+  );
 }
 
 /**
@@ -274,7 +317,7 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
       <SettingsCard>
         <SettingsToggleRow
           label={gt("Use server themes")}
-          description={gt("Let servers change the accent colour and tint while you're in them.")}
+          description={gt("Let servers change the accent colour and app gradient while you're in them.")}
           checked={values.useServerThemes}
           onCheckedChange={(checked) => save({ useServerThemes: checked })}
         />

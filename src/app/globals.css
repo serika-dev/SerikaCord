@@ -1180,6 +1180,73 @@ html.has-custom-bg.theme-light body::after {
   background: rgba(255, 255, 255, var(--custom-bg-dim, 0.5));
 }
 
+/* Gradient app theme (Appearance → App Theme, server themes). Same fixed
+   layers as the custom background (the two never apply together: the image
+   wins). ThemeContext puts the current gradient in one layer and, on a
+   change, the new one in the other and flips `theme-gradient-b`; only the top
+   layer (::after) fades, so the switch crossfades without a dark dip. The
+   surface tokens turn see-through so the gradient shows behind the shell. */
+html.has-theme-gradient body::before,
+html.has-theme-gradient body::after {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+}
+html.has-theme-gradient body::before {
+  background: var(--theme-gradient-a, none);
+}
+html.has-theme-gradient body::after {
+  background: var(--theme-gradient-b, none);
+  opacity: 0;
+  transition: opacity 200ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+html.has-theme-gradient.theme-gradient-b body::after {
+  opacity: 1;
+}
+html.reduce-motion.has-theme-gradient body::after {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  html.has-theme-gradient body::after {
+    transition: none;
+  }
+}
+
+/* Floating layers (menus, popovers, hover cards, selects) sit over
+   see-through panels here; blur what's behind so the few that use the
+   lighter --app-surface stay readable. Cards/menus on --bg-card are already
+   nearly opaque. */
+html.has-theme-gradient [data-radix-popper-content-wrapper] > *,
+html.has-custom-bg [data-radix-popper-content-wrapper] > *,
+html.has-theme-gradient .ctx-menu,
+html.has-custom-bg .ctx-menu {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+
+/* Full-screen layers that cover the shell (settings, mobile thread/search
+   panels) use the see-through --bg-app too; `.theme-backdrop` repaints the
+   gradient / background image underneath so the app behind never shows. */
+html.has-theme-gradient .theme-backdrop {
+  background-image: linear-gradient(var(--bg-app), var(--bg-app)), var(--theme-gradient);
+}
+html.has-custom-bg .theme-backdrop {
+  background-image:
+    linear-gradient(var(--bg-app), var(--bg-app)),
+    linear-gradient(rgba(0, 0, 0, var(--custom-bg-dim, 0.5)), rgba(0, 0, 0, var(--custom-bg-dim, 0.5))),
+    var(--custom-bg-image);
+  background-size: auto, auto, cover;
+  background-position: center;
+}
+html.has-custom-bg.theme-light .theme-backdrop {
+  background-image:
+    linear-gradient(var(--bg-app), var(--bg-app)),
+    linear-gradient(rgba(255, 255, 255, var(--custom-bg-dim, 0.5)), rgba(255, 255, 255, var(--custom-bg-dim, 0.5))),
+    var(--custom-bg-image);
+}
+
 /* Dyslexic font: use a dyslexia-friendly font stack */
 html.dyslexic-font {
   --font-sans: "OpenDyslexic", "Comic Sans MS", "Verdana", system-ui, -apple-system, sans-serif;

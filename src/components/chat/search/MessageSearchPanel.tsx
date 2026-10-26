@@ -135,7 +135,7 @@ export function MessageSearchPanel({
       className={cn(
         "flex flex-col min-h-0 bg-[var(--app-surface)] text-[var(--text-primary)]",
         mobile
-          ? "fixed inset-0 z-[60] safe-area-top"
+          ? "theme-backdrop fixed inset-0 z-[60] safe-area-top"
           : "w-[420px] xl:w-[460px] shrink-0 border-l border-[var(--app-border)] h-full",
       )}
       aria-label={gt("Search results")}

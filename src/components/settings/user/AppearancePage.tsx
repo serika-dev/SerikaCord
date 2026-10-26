@@ -3,7 +3,8 @@
 import { memo } from "react";
 import { useGT } from "gt-next";
 import { Check } from "lucide-react";
-import { AppearanceCustomizationPanel } from "@/components/settings/AppearanceCustomizationPanel";
+import { AppearanceCustomizationPanel, AppThemeSection } from "@/components/settings/AppearanceCustomizationPanel";
+import { readUserThemeGradient, type UserThemeGradient } from "@/lib/appearance/customization";
 import { SettingsCard, SettingsPageHeader, SettingsSection, SettingsToggleRow } from "@/components/settings/SettingsSection";
 import type { SettingsPatch } from "@/lib/settings/mergeSettings";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ export interface AppearanceThemeDefaults {
   backgroundDim: number;
   backgroundBlur: number;
   useServerThemes: boolean;
+  themeGradient?: UserThemeGradient;
   compactMode?: boolean;
   showTimestamps?: boolean;
   showRoleColors?: boolean;
@@ -119,6 +121,14 @@ export const AppearancePage = memo(function AppearancePage({
           })}
         </div>
       </SettingsSection>
+
+      {/* Gradient behind the app (presets, none, custom) */}
+      <AppThemeSection
+        theme={currentTheme}
+        value={"themeGradient" in ap ? readUserThemeGradient(ap.themeGradient) : (themeSettings.themeGradient ?? null)}
+        hasBackgroundImage={Boolean(typeof ap.backgroundImage === "string" ? ap.backgroundImage : themeSettings.backgroundImage)}
+        save={saveAppearancePatch}
+      />
 
       <SettingsSection title={gt("Accent Colour")} description={gt("Choose your primary accent colour")}>
         <div className="flex flex-wrap gap-2.5 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4">

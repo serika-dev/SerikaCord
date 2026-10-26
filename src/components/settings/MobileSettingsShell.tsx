@@ -122,7 +122,7 @@ export function MobileSettingsScreen({
       aria-label={ariaLabel}
       className={cn(
         "flex flex-col bg-[var(--bg-app)] text-[var(--text-primary)]",
-        embedded ? "h-full w-full min-h-0" : "fixed inset-0 z-50",
+        embedded ? "h-full w-full min-h-0" : "theme-backdrop fixed inset-0 z-50",
         animate && "animate-in slide-in-from-right-8 fade-in duration-200",
       )}
     >

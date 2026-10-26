@@ -1,10 +1,29 @@
 import { describe, expect, test } from "bun:test";
 import {
+  DEFAULT_THEME_GRADIENT,
+  GRADIENT_SURFACE_ALPHA,
+  THEME_SURFACES,
+  THEME_TEXT,
   clampAccentForContrast,
   clampBackgroundBlur,
   clampBackgroundDim,
+  compositeOver,
   computeSurfaceOverrides,
   contrastRatio,
+  gradientFromTint,
+  mixHex,
+  parseThemeGradientKey,
+  readUserThemeGradient,
+  relativeLuminance,
+  renderThemeGradient,
+  resolveThemeGradient,
+  sanitizeThemeGradient,
+  serverThemeGradient,
+  themeGradientCss,
+  themeGradientKey,
+  themeGradientMean,
+  userThemeGradient,
+  type AppThemeName,
   cssImageUrl,
   fontFamilyCss,
   isOwnAppearanceMediaUrl,
@@ -16,6 +35,7 @@ import {
   sanitizeServerTheme,
   uniqueFontFamilies,
 } from "../src/lib/appearance/customization";
+import { THEME_GRADIENT_PRESETS, findThemeGradientPreset } from "../src/lib/appearance/themeGradients";
 import { getNameplateBackground, sanitizeNameplate } from "../src/lib/constants/nameplates";
 
 const CDN = "https://cdn.serika.chat";
@@ -138,7 +158,13 @@ describe("surface overrides", () => {
 
 describe("server themes", () => {
   test("sanitizeServerTheme", () => {
-    expect(sanitizeServerTheme({ accentColor: "#ABC", backgroundTint: "" })).toEqual({ theme: { accentColor: "#aabbcc", backgroundTint: null } });
+    expect(sanitizeServerTheme({ accentColor: "#ABC", backgroundTint: "" })).toEqual({ theme: { accentColor: "#aabbcc", backgroundTint: null, gradient: null } });
+    expect(sanitizeServerTheme({ gradient: { stops: ["#112233", "#ABC"], angle: 90 } })).toEqual({
+      theme: { accentColor: null, backgroundTint: null, gradient: { stops: ["#112233", "#aabbcc"], angle: 90 } },
+    });
+    expect(sanitizeServerTheme({ accentColor: "#123456", gradient: "" })).toEqual({ theme: { accentColor: "#123456", backgroundTint: null, gradient: null } });
+    expect("error" in sanitizeServerTheme({ gradient: { stops: ["#000000"], angle: 0 } })).toBe(true);
+    expect("error" in sanitizeServerTheme({ gradient: "linear-gradient(red, blue)" })).toBe(true);
     expect(sanitizeServerTheme(null)).toEqual({ theme: null });
     expect(sanitizeServerTheme({})).toEqual({ theme: null });
     expect("error" in sanitizeServerTheme({ accentColor: "red" })).toBe(true);
@@ -146,7 +172,8 @@ describe("server themes", () => {
     expect("error" in sanitizeServerTheme("x")).toBe(true);
   });
   test("readServerTheme ignores junk", () => {
-    expect(readServerTheme({ theme: { accentColor: "#123456" } })).toEqual({ accentColor: "#123456", backgroundTint: null });
+    expect(readServerTheme({ theme: { accentColor: "#123456" } })).toEqual({ accentColor: "#123456", backgroundTint: null, gradient: null });
+    expect(readServerTheme({ theme: { gradient: { stops: ["#123456", "url(x)"], angle: 1 } } })).toBeNull();
     expect(readServerTheme({ theme: { accentColor: "expression()" } })).toBeNull();
     expect(readServerTheme(null)).toBeNull();
   });
@@ -170,5 +197,135 @@ describe("nameplates", () => {
     expect(getNameplateBackground({ nameplate: { type: "image", imageUrl: "https://evil.example/a.png" } })).toBeNull();
     expect(getNameplateBackground({ nameplate: { type: "color", color: "url(https://evil.example/t)" } })).toBeNull();
     expect(getNameplateBackground({ nameplate: { type: "gradient", gradient: ["#000000", "#ffffff"] } })).toBe("linear-gradient(90deg, #000000, #ffffff)");
+  });
+});
+
+describe("gradient app themes", () => {
+  test("sanitizeThemeGradient", () => {
+    expect(sanitizeThemeGradient({ stops: ["#ABC", "#123456"], angle: 400.4 })).toEqual({ stops: ["#aabbcc", "#123456"], angle: 40 });
+    expect(sanitizeThemeGradient({ stops: ["#000000", "#111111", "#222222"], angle: -30 })).toEqual({ stops: ["#000000", "#111111", "#222222"], angle: 330 });
+    expect(sanitizeThemeGradient({ stops: ["#000000", "#ffffff"] })?.angle).toBe(160);
+    expect(sanitizeThemeGradient({ stops: ["#000000"], angle: 0 })).toBeNull();
+    expect(sanitizeThemeGradient({ stops: ["#000000", "#111111", "#222222", "#333333"], angle: 0 })).toBeNull();
+    expect(sanitizeThemeGradient({ stops: ["#000000", "red"], angle: 0 })).toBeNull();
+    expect(sanitizeThemeGradient({ stops: ["#000000", "#ffffff"], angle: "90" })).toBeNull();
+    expect(sanitizeThemeGradient({ stops: ["#000000", "#ffffff"], angle: Number.NaN })).toBeNull();
+    expect(sanitizeThemeGradient(["#000000", "#ffffff"])).toBeNull();
+    expect(sanitizeThemeGradient("none")).toBeNull();
+  });
+
+  test("keys round-trip and CSS is built only from validated parts", () => {
+    const g = { stops: ["#112233", "#445566", "#778899"], angle: 165 };
+    expect(themeGradientKey(g)).toBe("165:#112233,#445566,#778899");
+    expect(parseThemeGradientKey(themeGradientKey(g))).toEqual(g);
+    expect(themeGradientKey(null)).toBe("");
+    expect(parseThemeGradientKey("")).toBeNull();
+    expect(parseThemeGradientKey("90:#000000,url(x)")).toBeNull();
+    expect(themeGradientCss(g)).toBe("linear-gradient(165deg, #112233 0%, #445566 50%, #778899 100%)");
+    expect(themeGradientMean({ stops: ["#000000", "#ffffff"], angle: 0 })).toBe("#808080");
+  });
+
+  test("user setting in the appearance PATCH", () => {
+    const opts = { userId: USER, cdnUrl: CDN };
+    expect(sanitizeAppearanceSettingsPatch({ themeGradient: "none" }, opts)).toEqual({ patch: { themeGradient: "none" } });
+    expect(sanitizeAppearanceSettingsPatch({ themeGradient: { stops: ["#ABC", "#000"], angle: 10 } }, opts)).toEqual({
+      patch: { themeGradient: { stops: ["#aabbcc", "#000000"], angle: 10 } },
+    });
+    expect(sanitizeAppearanceSettingsPatch({ themeGradient: null, theme: "dark" }, opts)).toEqual({ patch: { theme: "dark" } });
+    const bad = sanitizeAppearanceSettingsPatch({ themeGradient: { stops: ["url(x)", "#000000"], angle: 0 } }, opts);
+    expect("error" in bad && bad.error).toContain("themeGradient");
+    expect("error" in sanitizeAppearanceSettingsPatch({ themeGradient: "rainbow" }, opts)).toBe(true);
+    expect("error" in sanitizeAppearanceSettingsPatch({ themeGradient: 5 }, opts)).toBe(true);
+  });
+
+  test("defaults: Serika on dark/midnight, none on light, none means none", () => {
+    expect(readUserThemeGradient(undefined)).toBeNull();
+    expect(readUserThemeGradient("none")).toBe("none");
+    expect(readUserThemeGradient({ stops: ["bad"] })).toBeNull();
+    expect(userThemeGradient(null, "dark")).toEqual(DEFAULT_THEME_GRADIENT);
+    expect(userThemeGradient(null, "midnight")).toEqual(DEFAULT_THEME_GRADIENT);
+    expect(userThemeGradient(null, "light")).toBeNull();
+    expect(userThemeGradient("none", "dark")).toBeNull();
+    const mine = { stops: ["#ff0000", "#0000ff"], angle: 90 };
+    expect(userThemeGradient(mine, "light")).toEqual(mine);
+  });
+
+  test("resolve: image > server theme > user", () => {
+    const mine = { stops: ["#ff0000", "#0000ff"], angle: 90 };
+    const serverG = { stops: ["#00ff00", "#000000"], angle: 45 };
+    const server = { accentColor: null, backgroundTint: null, gradient: serverG };
+    expect(resolveThemeGradient({ theme: "dark", user: mine, server })).toEqual(serverG);
+    expect(resolveThemeGradient({ theme: "dark", user: "none", server })).toEqual(serverG);
+    expect(resolveThemeGradient({ theme: "dark", user: mine, server, hasBackgroundImage: true })).toBeNull();
+    expect(resolveThemeGradient({ theme: "dark", user: mine, server: null })).toEqual(mine);
+    expect(resolveThemeGradient({ theme: "dark", user: null })).toEqual(DEFAULT_THEME_GRADIENT);
+    // An accent-only server theme keeps the user's gradient.
+    expect(resolveThemeGradient({ theme: "dark", user: mine, server: { accentColor: "#123456", backgroundTint: null, gradient: null } })).toEqual(mine);
+    // A legacy tint-only server renders [tint → dark].
+    const legacy = { accentColor: null, backgroundTint: "#2eb5cb", gradient: null };
+    expect(serverThemeGradient(legacy)).toEqual(gradientFromTint("#2eb5cb"));
+    expect(resolveThemeGradient({ theme: "dark", user: "none", server: legacy })?.stops[0]).toBe("#2eb5cb");
+    expect(gradientFromTint("url(x)")).toBeNull();
+  });
+
+  test("presets are valid, unique and Serika is the default", () => {
+    const ids = new Set<string>();
+    const keys = new Set<string>();
+    for (const p of THEME_GRADIENT_PRESETS) {
+      expect(sanitizeThemeGradient(p.gradient)).toEqual(p.gradient);
+      ids.add(p.id);
+      keys.add(themeGradientKey(p.gradient));
+    }
+    expect(ids.size).toBe(THEME_GRADIENT_PRESETS.length);
+    expect(keys.size).toBe(THEME_GRADIENT_PRESETS.length);
+    expect(THEME_GRADIENT_PRESETS.length).toBeGreaterThanOrEqual(12);
+    expect(findThemeGradientPreset(DEFAULT_THEME_GRADIENT)?.id).toBe("serika");
+    expect(findThemeGradientPreset({ stops: ["#010203", "#040506"], angle: 1 })).toBeNull();
+  });
+
+  test("rendering darkens on dark themes and lightens on light", () => {
+    const vivid = { stops: ["#ffffff", "#ff00ff", "#000000"], angle: 160 };
+    for (const theme of ["dark", "midnight"] as AppThemeName[]) {
+      const r = renderThemeGradient(vivid, theme);
+      expect(r.angle).toBe(160);
+      for (const s of r.stops) expect(relativeLuminance(s)).toBeLessThanOrEqual(0.0265);
+      expect(r.stops[2]).toBe("#000000"); // already dark: untouched
+    }
+    const light = renderThemeGradient(vivid, "light");
+    for (const s of light.stops) expect(relativeLuminance(s)).toBeGreaterThanOrEqual(0.775);
+    expect(light.stops[0]).toBe("#ffffff");
+    // Keeps some hue: the Serika purple still reads as purple on dark.
+    const [r0, , b0] = [1, 3, 5].map((i) => parseInt(renderThemeGradient(DEFAULT_THEME_GRADIENT, "dark").stops[0].slice(i, i + 2), 16));
+    expect(b0).toBeGreaterThan(r0);
+  });
+
+  test("text stays WCAG AA on every preset (darkest and brightest stops)", () => {
+    for (const theme of ["dark", "midnight", "light"] as AppThemeName[]) {
+      const alphas = GRADIENT_SURFACE_ALPHA[theme === "light" ? "light" : "dark"];
+      for (const p of [...THEME_GRADIENT_PRESETS, { id: "white", gradient: { stops: ["#ffffff", "#000000"], angle: 0 } }]) {
+        const rendered = renderThemeGradient(p.gradient, theme);
+        const byLum = [...rendered.stops].sort((a, b) => relativeLuminance(a) - relativeLuminance(b));
+        const tint = mixHex(THEME_SURFACES[theme].bg, themeGradientMean(rendered), theme === "light" ? 0.08 : 0.14);
+        for (const stop of [byLum[0], byLum[byLum.length - 1]]) {
+          // The most see-through layer (chat / rail), one layer deep.
+          const composite = compositeOver(tint, alphas.bg, stop);
+          expect(contrastRatio(composite, THEME_TEXT[theme].primary)).toBeGreaterThanOrEqual(4.5);
+          expect(contrastRatio(composite, THEME_TEXT[theme].secondary)).toBeGreaterThanOrEqual(4.5);
+        }
+      }
+    }
+  });
+
+  test("gradient surfaces: see-through layers, near-opaque cards, solid tooltips", () => {
+    const rendered = renderThemeGradient(DEFAULT_THEME_GRADIENT, "dark");
+    const o = computeSurfaceOverrides({ theme: "dark", gradient: rendered })!;
+    const alpha = (v: string) => Number(/rgba\([^)]*,\s*([\d.]+)\)$/.exec(v)?.[1]);
+    expect(alpha(o["--app-bg"])).toBe(GRADIENT_SURFACE_ALPHA.dark.bg);
+    expect(alpha(o["--bg-sidebar"])).toBeGreaterThan(alpha(o["--app-bg"]));
+    expect(alpha(o["--bg-card"])).toBeGreaterThanOrEqual(0.9);
+    expect(o["--tooltip-bg"]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(computeSurfaceOverrides({ theme: "light", gradient: renderThemeGradient(DEFAULT_THEME_GRADIENT, "light") })!["--tooltip-bg"]).toBe("#ffffff");
+    // A background image wins over the gradient (old translucent alphas).
+    expect(computeSurfaceOverrides({ theme: "light", translucent: true, gradient: rendered })!["--app-bg"]).toBe("rgba(244, 247, 252, 0.55)");
   });
 });

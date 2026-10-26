@@ -1,6 +1,7 @@
 "use client";
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, ReactNode } from "react";
+import { usePathname } from "next/navigation";
 import { withVoiceService } from "@/lib/services/voiceServiceLazy";
 import {
   BACKGROUND_DIM_DEFAULT,
@@ -13,8 +14,14 @@ import {
   cssImageUrl,
   fontFamilyCss,
   normalizeHexColor,
+  readUserThemeGradient,
+  renderThemeGradient,
+  resolveThemeGradient,
   sanitizeFontFamily,
+  themeGradientCss,
+  themeGradientKey,
   type ServerTheme,
+  type UserThemeGradient,
 } from "@/lib/appearance/customization";
 
 export interface ThemeSettings {
@@ -43,6 +50,11 @@ export interface ThemeSettings {
   backgroundBlur: number;
   /** Apply a server's theme while inside it (CORD-50). */
   useServerThemes: boolean;
+  /**
+   * Gradient behind the app: null = default ("Serika" on dark/midnight, none
+   * on light), "none" = solid, or a gradient.
+   */
+  themeGradient: UserThemeGradient;
 }
 
 const defaultSettings: ThemeSettings = {
@@ -66,6 +78,7 @@ const defaultSettings: ThemeSettings = {
   backgroundDim: BACKGROUND_DIM_DEFAULT,
   backgroundBlur: 0,
   useServerThemes: true,
+  themeGradient: null,
 };
 
 function coerceTheme(theme: unknown): ThemeSettings["theme"] {
@@ -103,9 +116,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [settings, setSettings] = useState<ThemeSettings>(defaultSettings);
   const [isLoaded, setIsLoaded] = useState(false);
   const [serverTheme, setServerThemeState] = useState<ServerTheme | null>(null);
+  const pathname = usePathname() || "";
+  const inApp = /^\/(channels|dm)(\/|$)/.test(pathname);
   const setServerTheme = useCallback((theme: ServerTheme | null) => {
     setServerThemeState((prev) =>
-      prev?.accentColor === theme?.accentColor && prev?.backgroundTint === theme?.backgroundTint ? prev : theme,
+      prev?.accentColor === theme?.accentColor &&
+      prev?.backgroundTint === theme?.backgroundTint &&
+      themeGradientKey(prev?.gradient) === themeGradientKey(theme?.gradient)
+        ? prev
+        : theme,
     );
   }, []);
 
@@ -149,6 +168,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       backgroundDim: typeof appearance.backgroundDim === "number" ? clampBackgroundDim(appearance.backgroundDim) : prev.backgroundDim,
       backgroundBlur: typeof appearance.backgroundBlur === "number" ? clampBackgroundBlur(appearance.backgroundBlur) : prev.backgroundBlur,
       useServerThemes: typeof appearance.useServerThemes === "boolean" ? appearance.useServerThemes : prev.useServerThemes,
+      themeGradient: "themeGradient" in appearance ? readUserThemeGradient(appearance.themeGradient) : prev.themeGradient,
     }));
   }, []);
 
@@ -163,6 +183,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           ...defaultSettings,
           ...parsed,
           theme: coerceTheme(parsed?.theme ?? fallbackTheme),
+          themeGradient: readUserThemeGradient(parsed?.themeGradient),
         });
       } catch (e) {
         console.error("Failed to parse theme settings:", e);
@@ -173,6 +194,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
     setIsLoaded(true);
   }, []);
+
+  // Gradient layer state for the crossfade: two stacked body layers (a/b);
+  // a new gradient goes into the hidden one, which then fades in.
+  const gradientLayerRef = useRef<{ active: "a" | "b"; css: string | null }>({ active: "a", css: null });
 
   // Server-side settings are hydrated per signed-in user by
   // <SettingsHydrator/> (inside AuthProvider), so login/account switches apply.
@@ -281,17 +306,54 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     }
     root.classList.toggle("has-custom-bg", Boolean(bgImage));
 
-    // Surfaces: tinted by a server theme and/or translucent over the background.
+    // Gradient app theme: the open server's (when allowed), else the user's;
+    // a custom background image wins over both. Rendered dark/light enough
+    // for text on the current theme.
+    // Only the app (/channels, /dm) wears it: the landing, login and invite
+    // pages keep their own design.
+    const rawGradient = !inApp ? null : resolveThemeGradient({
+      theme: settings.theme,
+      user: settings.themeGradient,
+      server: activeServerTheme,
+      hasBackgroundImage: Boolean(bgImage),
+    });
+    const gradient = rawGradient ? renderThemeGradient(rawGradient, settings.theme) : null;
+    const gradientCss = gradient ? themeGradientCss(gradient) : null;
+    const layer = gradientLayerRef.current;
+    if (gradientCss !== layer.css) {
+      if (!gradientCss) {
+        for (const v of ["--theme-gradient", "--theme-gradient-a", "--theme-gradient-b"]) root.style.removeProperty(v);
+        root.classList.remove("has-theme-gradient", "theme-gradient-b");
+        layer.active = "a";
+      } else if (!layer.css) {
+        root.style.setProperty("--theme-gradient-a", gradientCss);
+        root.style.removeProperty("--theme-gradient-b");
+        root.classList.remove("theme-gradient-b");
+        root.classList.add("has-theme-gradient");
+        layer.active = "a";
+      } else {
+        const next = layer.active === "a" ? "b" : "a";
+        root.style.setProperty(`--theme-gradient-${next}`, gradientCss);
+        root.classList.toggle("theme-gradient-b", next === "b");
+        layer.active = next;
+      }
+      if (gradientCss) root.style.setProperty("--theme-gradient", gradientCss);
+      layer.css = gradientCss;
+    }
+
+    // Surfaces: see-through over a background image or gradient, or tinted
+    // by a server's legacy tint.
     const surfaces = computeSurfaceOverrides({
       theme: settings.theme,
       tint: activeServerTheme?.backgroundTint,
       translucent: Boolean(bgImage),
+      gradient,
     });
     for (const v of SURFACE_OVERRIDE_VARS) {
       if (surfaces?.[v]) root.style.setProperty(v, surfaces[v]);
       else root.style.removeProperty(v);
     }
-  }, [settings, isLoaded, serverTheme]);
+  }, [settings, isLoaded, serverTheme, inApp]);
 
   const updateSetting = useCallback(<K extends keyof ThemeSettings>(key: K, value: ThemeSettings[K]) => {
     setSettings(prev => ({ ...prev, [key]: value }));

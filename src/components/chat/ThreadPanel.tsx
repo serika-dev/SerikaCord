@@ -86,7 +86,7 @@ export function ThreadPanel({ parentChannel, state, serverId }: ThreadPanelProps
     <aside
       className={cn(
         "thread-panel relative flex min-h-0 flex-col border-l border-[var(--app-border)] bg-[var(--app-bg)]",
-        isMobile ? "fixed inset-0 z-50" : "shrink-0",
+        isMobile ? "theme-backdrop fixed inset-0 z-50" : "shrink-0",
       )}
       style={isMobile ? undefined : { width: shownWidth }}
       aria-label={gt("Thread")}

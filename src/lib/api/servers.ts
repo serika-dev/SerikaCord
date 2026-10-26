@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { readServerTheme, sanitizeServerTheme, type ServerTheme } from '@/lib/appearance/customization';
+import { normalizeHexColor, readServerTheme, sanitizeServerTheme, sanitizeThemeGradient, type ServerTheme } from '@/lib/appearance/customization';
 import { Server, Channel, Role, ServerMember, Invite, ServerEmoji, ServerSticker, ServerBan, Message, ServerMemberApplication, type IServerSettings, type IRole, type IMessage, type IServer } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, sanitizeInput, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
@@ -1518,6 +1518,25 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           });
           break;
         }
+        // Server theme (CORD-50): accent + gradient, validated; ""/null clears.
+        case 'theme.accentColor': {
+          const value = changes[key];
+          const accent = value === null || value === '' ? null : normalizeHexColor(value);
+          if (accent === null && value !== null && value !== '') { fieldErrors[key] = 'Must be a #RRGGBB color'; break; }
+          staged.push(() => { section('theme').accentColor = accent; });
+          break;
+        }
+        case 'theme.gradient': {
+          const value = changes[key];
+          const gradient = value === null || value === '' ? null : sanitizeThemeGradient(value);
+          if (gradient === null && value !== null && value !== '') {
+            fieldErrors[key] = 'Must be 2 or 3 #RRGGBB colors and an angle from 0 to 360';
+            break;
+          }
+          // The gradient replaces the old background tint.
+          staged.push(() => { const theme = section('theme'); theme.gradient = gradient; theme.backgroundTint = null; });
+          break;
+        }
         default:
           fieldErrors[key] = 'Unknown setting';
       }
@@ -1530,6 +1549,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // All valid: apply everything, then persist
     for (const apply of staged) apply();
+
+    // Re-validate the staged server theme as a whole; an empty one is removed.
+    if (Object.keys(changes).some((k) => k.startsWith('theme.'))) {
+      const s = settings() as Record<string, unknown>;
+      const result = sanitizeServerTheme(s.theme);
+      if ('theme' in result && result.theme) s.theme = result.theme;
+      else delete s.theme;
+    }
 
     // An enabled server tag needs valid text (decided on the final state).
     const stagedTag = (server.settings as IServerSettings | undefined)?.serverTag as Record<string, unknown> | undefined;

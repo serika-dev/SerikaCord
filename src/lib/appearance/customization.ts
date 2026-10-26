@@ -104,7 +104,7 @@ export function normalizeHexColor(value: unknown): string | null {
   return null;
 }
 
-function hexToRgb(hex: string): [number, number, number] {
+export function hexToRgb(hex: string): [number, number, number] {
   const n = parseInt(hex.slice(1), 16);
   return [(n >> 16) & 255, (n >> 8) & 255, n & 255];
 }
@@ -254,10 +254,187 @@ export function sanitizeAppearanceSettingsPatch(
   if ("useServerThemes" in next && typeof next.useServerThemes !== "boolean") {
     return { error: "appearance.useServerThemes must be true or false" };
   }
+  if ("themeGradient" in next) {
+    const v = next.themeGradient;
+    if (v === null || v === undefined) {
+      // Unset → back to the theme's default gradient.
+      delete next.themeGradient;
+    } else if (v === "none") {
+      next.themeGradient = "none";
+    } else {
+      const gradient = sanitizeThemeGradient(v);
+      if (!gradient) {
+        return { error: 'appearance.themeGradient must be "none" or { stops: 2-3 "#rrggbb" colours, angle: 0-360 }' };
+      }
+      next.themeGradient = gradient;
+    }
+  }
   return { patch: next };
 }
 
-// ── Theme surfaces (custom background translucency + server tint) ────────
+// ── Gradient app themes ──────────────────────────────────────────────────
+
+/**
+ * A linear gradient behind the whole app (Discord-style colour themes).
+ * Stored as the raw colours the user/server picked; it is always rendered
+ * through `renderThemeGradient`, which keeps it dark (or light) enough for
+ * text to stay readable.
+ */
+export interface ThemeGradient {
+  /** 2–3 `#rrggbb` colours, first to last along `angle`. */
+  stops: string[];
+  /** CSS `linear-gradient` angle in degrees, 0–359. */
+  angle: number;
+}
+
+export const THEME_GRADIENT_MIN_STOPS = 2;
+export const THEME_GRADIENT_MAX_STOPS = 3;
+export const THEME_GRADIENT_DEFAULT_ANGLE = 160;
+
+/** "Serika": purple → near-black, the default on the dark themes. */
+export const DEFAULT_THEME_GRADIENT: ThemeGradient = {
+  stops: ["#6b3fd4", "#24154a", "#08070f"],
+  angle: 165,
+};
+
+/**
+ * Validate a gradient: 2–3 hex colours (normalized to `#rrggbb`) and a finite
+ * angle (rounded, wrapped into 0–359). Anything else → null.
+ */
+export function sanitizeThemeGradient(raw: unknown): ThemeGradient | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  if (!Array.isArray(r.stops)) return null;
+  if (r.stops.length < THEME_GRADIENT_MIN_STOPS || r.stops.length > THEME_GRADIENT_MAX_STOPS) return null;
+  const stops: string[] = [];
+  for (const s of r.stops) {
+    const hex = normalizeHexColor(s);
+    if (!hex) return null;
+    stops.push(hex);
+  }
+  const angleRaw = r.angle === undefined ? THEME_GRADIENT_DEFAULT_ANGLE : r.angle;
+  if (typeof angleRaw !== "number" || !Number.isFinite(angleRaw)) return null;
+  const angle = ((Math.round(angleRaw) % 360) + 360) % 360;
+  return { stops, angle };
+}
+
+/** Stable string form ("" = none), for equality checks and settings drafts. */
+export function themeGradientKey(gradient: ThemeGradient | null | undefined): string {
+  return gradient ? `${gradient.angle}:${gradient.stops.join(",")}` : "";
+}
+
+/** Inverse of `themeGradientKey`; invalid or "" → null. */
+export function parseThemeGradientKey(key: unknown): ThemeGradient | null {
+  if (typeof key !== "string" || !key) return null;
+  const [angle, stops] = key.split(":");
+  return sanitizeThemeGradient({ angle: Number(angle), stops: (stops ?? "").split(",") });
+}
+
+export function sameThemeGradient(a: ThemeGradient | null | undefined, b: ThemeGradient | null | undefined): boolean {
+  return themeGradientKey(a) === themeGradientKey(b);
+}
+
+/** CSS for a (validated) gradient: `linear-gradient(165deg, #a 0%, #b 50%, #c 100%)`. */
+export function themeGradientCss(gradient: ThemeGradient): string {
+  const last = gradient.stops.length - 1;
+  const stops = gradient.stops.map((c, i) => `${c} ${Math.round((i / last) * 100)}%`);
+  return `linear-gradient(${gradient.angle}deg, ${stops.join(", ")})`;
+}
+
+/** Brightest a stop may render on each theme (dark) / darkest (light). */
+const GRADIENT_LUMINANCE_LIMIT: Record<AppThemeName, number> = {
+  dark: 0.026,
+  midnight: 0.022,
+  light: 0.78,
+};
+
+/**
+ * Binary-search the smallest mix of `color` toward `target` that satisfies
+ * `ok` (a luminance bound). Keeps hue and saturation as far as possible.
+ */
+function mixUntil(color: string, target: string, ok: (c: string) => boolean): string {
+  if (ok(color)) return color;
+  let lo = 0;
+  let hi = 1;
+  for (let i = 0; i < 18; i++) {
+    const mid = (lo + hi) / 2;
+    if (ok(mixHex(color, target, mid))) hi = mid;
+    else lo = mid;
+  }
+  return mixHex(color, target, hi);
+}
+
+/**
+ * The gradient as it is actually painted on `theme`: on dark/midnight every
+ * stop is pulled toward the theme's base background until it is dark enough
+ * (saturated but deep, like Discord's colour themes); on light every stop is
+ * lifted toward the light base until it is pale enough for dark text.
+ */
+export function renderThemeGradient(gradient: ThemeGradient, theme: AppThemeName): ThemeGradient {
+  const base = (THEME_SURFACES[theme] ?? THEME_SURFACES.dark).bg;
+  const limit = GRADIENT_LUMINANCE_LIMIT[theme] ?? GRADIENT_LUMINANCE_LIMIT.dark;
+  const stops = gradient.stops.map((stop) => {
+    const hex = normalizeHexColor(stop) ?? base;
+    return theme === "light"
+      ? mixUntil(hex, "#ffffff", (c) => relativeLuminance(c) >= limit)
+      : mixUntil(hex, base, (c) => relativeLuminance(c) <= limit);
+  });
+  return { stops, angle: gradient.angle };
+}
+
+/** Average colour of a gradient's stops (used to tint the surfaces). */
+export function themeGradientMean(gradient: ThemeGradient): string {
+  const rgb = gradient.stops.map(hexToRgb);
+  const n = rgb.length || 1;
+  return rgbToHex([0, 1, 2].map((i) => rgb.reduce((sum, c) => sum + c[i], 0) / n) as [number, number, number]);
+}
+
+/** A legacy server "background tint" read as a gradient: tint → dark. */
+export function gradientFromTint(tint: unknown): ThemeGradient | null {
+  const hex = normalizeHexColor(tint);
+  return hex ? { stops: [hex, "#05060a"], angle: THEME_GRADIENT_DEFAULT_ANGLE } : null;
+}
+
+/** The user's own gradient setting: unset (null), "none", or a gradient. */
+export type UserThemeGradient = ThemeGradient | "none" | null;
+
+/** Read `appearance.themeGradient` defensively (junk → unset). */
+export function readUserThemeGradient(value: unknown): UserThemeGradient {
+  if (value === "none") return "none";
+  return sanitizeThemeGradient(value);
+}
+
+/** The gradient a user gets from their own setting (before any server theme). */
+export function userThemeGradient(setting: UserThemeGradient, theme: AppThemeName): ThemeGradient | null {
+  if (setting === "none") return null;
+  if (setting) return setting;
+  // Unset: "Serika" on the dark themes, solid on light.
+  return theme === "light" ? null : DEFAULT_THEME_GRADIENT;
+}
+
+/** The gradient a server theme asks for (its gradient, else its legacy tint). */
+export function serverThemeGradient(theme: ServerTheme | null | undefined): ThemeGradient | null {
+  if (!theme) return null;
+  return theme.gradient ?? gradientFromTint(theme.backgroundTint);
+}
+
+/**
+ * Which gradient is painted behind the app (raw, before rendering), or null
+ * for none. A custom background image always wins; then the open server's
+ * theme (pass null when the user turned server themes off); then the user's
+ * own setting.
+ */
+export function resolveThemeGradient(opts: {
+  theme: AppThemeName;
+  user: UserThemeGradient;
+  server?: ServerTheme | null;
+  hasBackgroundImage?: boolean;
+}): ThemeGradient | null {
+  if (opts.hasBackgroundImage) return null;
+  return serverThemeGradient(opts.server) ?? userThemeGradient(opts.user, opts.theme);
+}
+
+// ── Theme surfaces (custom background / gradient translucency, server tint) ─
 
 export type AppThemeName = "dark" | "midnight" | "light";
 
@@ -268,16 +445,24 @@ interface SurfacePalette {
   surfaceAlt: string;
   card: string;
 }
+export type SurfaceKey = keyof SurfacePalette;
 
 /** Mirrors the base tokens in globals.css (:root/.dark, .theme-midnight, .theme-light). */
-const THEME_SURFACES: Record<AppThemeName, SurfacePalette> = {
+export const THEME_SURFACES: Record<AppThemeName, SurfacePalette> = {
   dark: { bg: "#05060a", sidebar: "#05060a", surface: "#0c0f17", surfaceAlt: "#131a28", card: "#0c0f17" },
   midnight: { bg: "#01040b", sidebar: "#040a14", surface: "#060b16", surfaceAlt: "#0b1423", card: "#060b16" },
   light: { bg: "#f4f7fc", sidebar: "#edf2fb", surface: "#ffffff", surfaceAlt: "#edf2fb", card: "#ffffff" },
 };
 
-/** How opaque each surface stays over a custom background. */
-const TRANSLUCENT_ALPHA: Record<keyof SurfacePalette, number> = {
+/** Mirrors --app-text / --app-muted per theme in globals.css. */
+export const THEME_TEXT: Record<AppThemeName, { primary: string; secondary: string }> = {
+  dark: { primary: "#d5d9e8", secondary: "#8d97ad" },
+  midnight: { primary: "#d6e1f5", secondary: "#90a0bf" },
+  light: { primary: "#1a2638", secondary: "#596986" },
+};
+
+/** How opaque each surface stays over a custom background image. */
+const TRANSLUCENT_ALPHA: Record<SurfaceKey, number> = {
   bg: 0.55,
   sidebar: 0.6,
   surface: 0.74,
@@ -285,7 +470,20 @@ const TRANSLUCENT_ALPHA: Record<keyof SurfacePalette, number> = {
   card: 0.78,
 };
 
-const SURFACE_VARS: Record<keyof SurfacePalette, string[]> = {
+/**
+ * How opaque each surface stays over a gradient. The big layers (app shell,
+ * chat, server rail, member list → bg; channel list → sidebar) are mostly
+ * see-through so the gradient reads strongly; headers/composer (surface) and
+ * inputs (surfaceAlt) less; cards, menus, popovers and dialogs (card) stay
+ * nearly opaque. The gradient is already rendered dark/light enough that text
+ * passes WCAG AA on it with no surface at all (tests/appearance-customization).
+ */
+export const GRADIENT_SURFACE_ALPHA: Record<"dark" | "light", Record<SurfaceKey, number>> = {
+  dark: { bg: 0.14, sidebar: 0.34, surface: 0.66, surfaceAlt: 0.8, card: 0.95 },
+  light: { bg: 0.3, sidebar: 0.5, surface: 0.74, surfaceAlt: 0.85, card: 0.97 },
+};
+
+const SURFACE_VARS: Record<SurfaceKey, string[]> = {
   bg: ["--app-bg", "--bg-app"],
   sidebar: ["--bg-sidebar"],
   surface: ["--app-surface", "--bg-sidebar-elevated"],
@@ -294,33 +492,49 @@ const SURFACE_VARS: Record<keyof SurfacePalette, string[]> = {
 };
 
 /** CSS custom properties ThemeContext may set inline for surfaces. */
-export const SURFACE_OVERRIDE_VARS: readonly string[] = Object.values(SURFACE_VARS).flat();
+export const SURFACE_OVERRIDE_VARS: readonly string[] = [...Object.values(SURFACE_VARS).flat(), "--tooltip-bg"];
 
 function withAlpha(hex: string, alpha: number): string {
   const [r, g, b] = hexToRgb(hex);
   return `rgba(${r}, ${g}, ${b}, ${alpha})`;
 }
 
+/** `fg` at `alpha` painted over the opaque `bg` (both `#rrggbb`). */
+export function compositeOver(fg: string, alpha: number, bg: string): string {
+  return mixHex(bg, fg, alpha);
+}
+
 /**
- * Inline surface tokens for the current theme: tinted toward a server's
- * background tint and/or made translucent so a custom background shows
- * through. Null when neither applies (the stylesheet defaults stay).
+ * Inline surface tokens for the current theme. Three modes:
+ * - `translucent` (custom background image): see-through surfaces,
+ * - `gradient` (the RENDERED gradient, see renderThemeGradient): surfaces
+ *   tinted toward the gradient and see-through with GRADIENT_SURFACE_ALPHA,
+ * - `tint` alone (legacy server tint): opaque surfaces tinted toward it.
+ * Null when none applies (the stylesheet defaults stay).
  */
 export function computeSurfaceOverrides(opts: {
   theme: AppThemeName;
   tint?: string | null;
   translucent?: boolean;
+  gradient?: ThemeGradient | null;
 }): Record<string, string> | null {
-  const tint = normalizeHexColor(opts.tint);
+  const gradient = opts.translucent ? null : opts.gradient ?? null;
+  const tint = gradient ? themeGradientMean(gradient) : normalizeHexColor(opts.tint);
   if (!tint && !opts.translucent) return null;
   const base = THEME_SURFACES[opts.theme] ?? THEME_SURFACES.dark;
+  const light = opts.theme === "light";
   // Light themes need a lighter touch or the tint reads as a colour wash.
-  const amount = opts.theme === "light" ? 0.06 : 0.1;
+  const amount = gradient ? (light ? 0.08 : 0.14) : light ? 0.06 : 0.1;
+  const alphas = opts.translucent ? TRANSLUCENT_ALPHA : gradient ? GRADIENT_SURFACE_ALPHA[light ? "light" : "dark"] : null;
   const out: Record<string, string> = {};
-  for (const key of Object.keys(base) as (keyof SurfacePalette)[]) {
+  for (const key of Object.keys(base) as SurfaceKey[]) {
     const color = tint ? mixHex(base[key], tint, amount) : base[key];
-    const value = opts.translucent ? withAlpha(color, TRANSLUCENT_ALPHA[key]) : color;
+    const value = alphas ? withAlpha(color, alphas[key]) : color;
     for (const cssVar of SURFACE_VARS[key]) out[cssVar] = value;
+  }
+  // Tooltips mix --app-bg with black; keep them solid when it goes see-through.
+  if (alphas) {
+    out["--tooltip-bg"] = light ? "#ffffff" : mixHex(tint ? mixHex(base.bg, tint, amount) : base.bg, "#000000", 0.3);
   }
   return out;
 }
@@ -329,12 +543,16 @@ export function computeSurfaceOverrides(opts: {
 
 export interface ServerTheme {
   accentColor: string | null;
+  /** Legacy (pre-gradient) tint; still read, rendered as [tint → dark]. */
   backgroundTint: string | null;
+  /** Gradient members see behind the app while in the server. */
+  gradient: ThemeGradient | null;
 }
 
 /**
  * Validate a server theme from a settings PATCH. `null` clears it. Each
- * colour is `#rrggbb` or null/"" (unset); anything else is rejected.
+ * colour is `#rrggbb` or null/"" (unset), the gradient a ThemeGradient or
+ * null/"" (unset); anything else is rejected.
  */
 export function sanitizeServerTheme(raw: unknown): { theme: ServerTheme | null } | { error: string } {
   if (raw === null) return { theme: null };
@@ -349,8 +567,13 @@ export function sanitizeServerTheme(raw: unknown): { theme: ServerTheme | null }
   if (accentColor === undefined) return { error: "theme.accentColor must be a hex colour like #8b5cf6" };
   const backgroundTint = pick("backgroundTint");
   if (backgroundTint === undefined) return { error: "theme.backgroundTint must be a hex colour like #8b5cf6" };
-  if (!accentColor && !backgroundTint) return { theme: null };
-  return { theme: { accentColor, backgroundTint } };
+  let gradient: ThemeGradient | null = null;
+  if (r.gradient !== undefined && r.gradient !== null && r.gradient !== "") {
+    gradient = sanitizeThemeGradient(r.gradient);
+    if (!gradient) return { error: 'theme.gradient must be { stops: 2-3 "#rrggbb" colours, angle: 0-360 }' };
+  }
+  if (!accentColor && !backgroundTint && !gradient) return { theme: null };
+  return { theme: { accentColor, backgroundTint, gradient } };
 }
 
 /** Read the stored theme back out of servers.settings (re-validated). */

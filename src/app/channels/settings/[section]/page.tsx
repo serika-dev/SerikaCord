@@ -16,7 +16,8 @@ import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { NAMEPLATE_PRESETS, getNameplateBackground, type NameplateCustomization } from "@/lib/constants/nameplates";
 import { NameplateImagePicker } from "@/components/settings/NameplateImagePicker";
-import { AppearanceCustomizationPanel } from "@/components/settings/AppearanceCustomizationPanel";
+import { AppearanceCustomizationPanel, AppThemeSection } from "@/components/settings/AppearanceCustomizationPanel";
+import { readUserThemeGradient } from "@/lib/appearance/customization";
 import { T, useGT } from "gt-next";
 import { LocaleSelector } from "@/components/ui/LocaleSelector";
 import { Loader } from "@/components/ui/Loader";
@@ -377,6 +378,23 @@ export default function MobileSettingsSectionPage() {
     }
   };
 
+  /** Appearance saves; sliders/colour drags preview live and save once they settle. */
+  const saveAppearancePatch = (patch: Record<string, unknown>, opts?: { debounce?: boolean }) => {
+    if (!opts?.debounce) {
+      void saveSettings({ appearance: patch });
+      return;
+    }
+    setSettings((prev) => ({ ...(prev || {}), appearance: { ...(prev?.appearance || {}), ...patch } }));
+    applyUserSettingsPatch({ appearance: patch });
+    appearancePending.current = { ...appearancePending.current, ...patch };
+    if (appearanceSaveTimer.current) clearTimeout(appearanceSaveTimer.current);
+    appearanceSaveTimer.current = setTimeout(() => {
+      const pending = appearancePending.current;
+      appearancePending.current = {};
+      void saveSettings({ appearance: pending });
+    }, 300);
+  };
+
   const statusSection = useMemo(() => {
     if (section !== "status") return null;
     return (
@@ -491,6 +509,15 @@ export default function MobileSettingsSectionPage() {
                 <option value="light">{gt("Light")}</option>
               </select>
             </div>
+            {/* Gradient app theme (presets, none, custom) */}
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
+              <AppThemeSection
+                theme={settings.appearance?.theme || settings.appearance?.themeStyle || "dark"}
+                value={readUserThemeGradient(settings.appearance?.themeGradient)}
+                hasBackgroundImage={Boolean(settings.appearance?.backgroundImage)}
+                save={saveAppearancePatch}
+              />
+            </div>
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
               <label className="text-sm text-[var(--text-secondary)]">{gt("Accent Colour")}</label>
               <input
@@ -531,22 +558,7 @@ export default function MobileSettingsSectionPage() {
                 useServerThemes: settings.appearance?.useServerThemes !== false,
               }}
               profileBanner={user?.banner}
-              save={(patch, opts) => {
-                if (!opts?.debounce) {
-                  void saveSettings({ appearance: patch });
-                  return;
-                }
-                // Sliders: preview live, save once they settle.
-                setSettings((prev) => ({ ...(prev || {}), appearance: { ...(prev?.appearance || {}), ...patch } }));
-                applyUserSettingsPatch({ appearance: patch });
-                appearancePending.current = { ...appearancePending.current, ...patch };
-                if (appearanceSaveTimer.current) clearTimeout(appearanceSaveTimer.current);
-                appearanceSaveTimer.current = setTimeout(() => {
-                  const pending = appearancePending.current;
-                  appearancePending.current = {};
-                  void saveSettings({ appearance: pending });
-                }, 300);
-              }}
+              save={saveAppearancePatch}
             />
           </div>
         )}

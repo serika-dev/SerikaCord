@@ -1764,7 +1764,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   );
 
   return (
-    <div className="fixed inset-0 z-50 bg-[var(--bg-app)] text-[var(--text-primary)]">
+    <div className="theme-backdrop fixed inset-0 z-50 bg-[var(--bg-app)] text-[var(--text-primary)]">
       <div className="h-full flex flex-col md:flex-row">
         {/* Phone: grouped settings list (root page) */}
         {mobileOnRoot && (

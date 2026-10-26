@@ -18,6 +18,8 @@
 - **Webhook badge** — webhook messages show a "Webhook" badge, and clicking them no longer opens an empty profile.
 - **New My Account page** — see your username and email (with Reveal), change your password, manage passkeys and devices, or delete your account, all in one place.
 - **Inactive channel settings** — set the inactive (AFK) channel and timeout in Server Settings → Overview.
+- **Gradient app themes** — Dark and Midnight now have a purple-to-black gradient behind the whole app, like Discord. Pick from 14 colour themes, make your own (2–3 colours and an angle), or choose None for the old solid look, under Settings → Appearance → App Theme.
+- **Server themes are gradients** — server admins can give their server its own gradient and accent colour; members see it while they are in the server unless they turned off "Use server themes". Servers that only set the old background tint now show a matching gradient.
 
 ### Changes
 - **Nicer settings** — both settings windows have a grouped sidebar with search (it also finds settings like "dark mode" and jumps to them), tidier rows, sticky page titles, an ESC close button and smooth page transitions.
@@ -39,6 +41,7 @@
 - **Admin tools in light theme** — white text and fixed purple colours in staff tools now follow your theme.
 - **Active Now on every Friends tab** — the Active Now panel also shows on Pending, Blocked and Add Friend.
 - **DM unread dots clear when read** — a DM or group DM in the server list no longer keeps its unread dot after you read it in the DM list, from a notification or on another device, and new DMs show up there right away.
+- **Settings over a custom background** — the full-screen settings pages no longer let the app show through behind them.
 
 ### Changes
 - **Reorder everything on your Board** — every widget (game sections, Serika Wishlist lists, app widgets, Connections and Recent activity) has up/down arrows, and the order you pick is the one everyone sees. Works with the keyboard and on phones. Visitors no longer see an empty Recent activity box.

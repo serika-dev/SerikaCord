@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useCallback, useDeferredValue, useMemo, useRef } from "react";
 import { useServer } from "@/contexts/ServerContext";
-import { ServerThemeSettings } from "@/components/settings/ServerThemeSettings";
+import { SERVER_THEME_DRAFT_KEYS, ServerThemeSettings } from "@/components/settings/ServerThemeSettings";
+import { parseThemeGradientKey, serverThemeGradient, themeGradientKey } from "@/lib/appearance/customization";
 import { useAuth } from "@/contexts/AuthContext";
 import { usePermissions } from "@/hooks/usePermissions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -515,6 +516,8 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         "serverTag.emojiId": "",
         discoveryTags: [],
         games: [],
+        [SERVER_THEME_DRAFT_KEYS.accent]: "",
+        [SERVER_THEME_DRAFT_KEYS.gradient]: "",
       };
       try {
         const res = await fetch(`/api/servers/${currentServer.id}/settings`);
@@ -559,6 +562,9 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           base["serverTag.emojiId"] = s.serverTag?.emojiId || "";
           base.discoveryTags = Array.isArray(s.discoveryTags) ? s.discoveryTags : [];
           base.games = Array.isArray(s.games) ? s.games : [];
+          // Server theme: a legacy tint-only theme shows as its derived gradient.
+          base[SERVER_THEME_DRAFT_KEYS.accent] = typeof s.theme?.accentColor === "string" ? s.theme.accentColor : "";
+          base[SERVER_THEME_DRAFT_KEYS.gradient] = themeGradientKey(serverThemeGradient(s.theme));
         }
       } catch {
         // Defaults stay in place; a failed load must not block the dialog
@@ -946,6 +952,17 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     discoveryTags: gt("Traits"),
     games: gt("Games"),
     isAgeGated: gt("Age-restricted server"),
+    "theme.accentColor": gt("Server theme accent colour"),
+    "theme.gradient": gt("Server theme gradient"),
+  };
+
+  // The draft keeps the server gradient as its string key; the API takes the object.
+  const bulkChanges = (patch: SettingsDraft): Record<string, unknown> => {
+    const changes: Record<string, unknown> = { ...patch };
+    if (SERVER_THEME_DRAFT_KEYS.gradient in changes) {
+      changes[SERVER_THEME_DRAFT_KEYS.gradient] = parseThemeGradientKey(changes[SERVER_THEME_DRAFT_KEYS.gradient]);
+    }
+    return changes;
   };
 
   // One atomic bulk save for every dirty field across all settings tabs.
@@ -957,7 +974,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       const response = await fetch(`/api/servers/${currentServer.id}/settings/bulk`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ changes: settingsDraft.dirtyPatch }),
+        body: JSON.stringify({ changes: bulkChanges(settingsDraft.dirtyPatch) }),
       });
       const data = await response.json().catch(() => null);
 
@@ -1943,7 +1960,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         role="dialog"
         aria-modal="true"
         aria-label={gt("Access Denied")}
-        className="fixed inset-0 z-50 bg-[var(--bg-app)] flex items-center justify-center p-6"
+        className="theme-backdrop fixed inset-0 z-50 bg-[var(--bg-app)] flex items-center justify-center p-6"
       >
         <SettingsEmptyState
           icon={Lock}
@@ -2166,7 +2183,10 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
 
         {/* Server theme (CORD-50) */}
         {canManageServer && (
-          <ServerThemeSettings key={currentServer.id} serverId={currentServer.id} theme={currentServer.theme} onSaved={fetchServers} />
+          <ServerThemeSettings
+            draft={settingsDraft}
+            errors={{ accent: fieldErrors[SERVER_THEME_DRAFT_KEYS.accent], gradient: fieldErrors[SERVER_THEME_DRAFT_KEYS.gradient] }}
+          />
         )}
 
         {isOwner && (
@@ -3363,7 +3383,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       role="dialog"
       aria-modal="true"
       aria-label={gt("Server settings for {name}", { name: currentServer.name })}
-      className="fixed inset-0 z-50 bg-[var(--bg-app)] flex"
+      className="theme-backdrop fixed inset-0 z-50 bg-[var(--bg-app)] flex"
     >
       {/* Sidebar */}
       <SettingsNav
