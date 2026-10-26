@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import {
   Leaf, Star, Heart, Flame, Zap, Crown, Shield, Sword, Gamepad2, Music, Moon, Sun,
@@ -57,6 +57,8 @@ interface ServerTagPillProps {
    * card itself, where the pill is just a preview.
    */
   interactive?: boolean;
+  /** Rendered inside the pill after the tag text (e.g. a dropdown chevron). */
+  trailing?: ReactNode;
 }
 
 // The card's chunk loads on the first hover of any pill, never per message.
@@ -71,7 +73,7 @@ const CLOSE_DELAY_MS = 150;
  * payload already loaded, never from a per-message fetch; hovering it opens
  * a server card that is mounted only from then on.
  */
-export const ServerTagPill = memo(function ServerTagPill({ customization, tag: tagProp, className, size = "sm", interactive = true }: ServerTagPillProps) {
+export const ServerTagPill = memo(function ServerTagPill({ customization, tag: tagProp, className, size = "sm", interactive = true, trailing }: ServerTagPillProps) {
   const gt = useGT();
   const pillRef = useRef<HTMLSpanElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,6 +127,7 @@ export const ServerTagPill = memo(function ServerTagPill({ customization, tag: t
       >
         <ServerTagBadge tag={tag} size={size === "sm" ? 11 : 14} />
         <span>{tag.tag}</span>
+        {trailing}
       </span>
       {interactive && armed && (
         <ServerTagHoverCard

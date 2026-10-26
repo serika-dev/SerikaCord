@@ -88,14 +88,20 @@ export function ServerTagSelect({ tag }: { tag: ResolvedServerTag | null }) {
           )}
         >
           {tag ? (
-            <ServerTagPill tag={tag} size="md" interactive={false} className="group-hover:border-white/30" />
+            <ServerTagPill
+              tag={tag}
+              size="md"
+              interactive={false}
+              className="group-hover:border-white/30"
+              trailing={<ChevronDown className={cn("-mr-0.5 w-3.5 h-3.5 text-white/60 transition-transform duration-150 group-hover:text-white", open && "rotate-180")} />}
+            />
           ) : (
             <>
               <Tag className="w-3.5 h-3.5" />
               {gt("Server Tag")}
+              <ChevronDown className={cn("w-3.5 h-3.5 text-white/60 transition-transform duration-150", open && "rotate-180")} />
             </>
           )}
-          <ChevronDown className={cn("w-3.5 h-3.5 text-white/60 transition-transform duration-150", open && "rotate-180")} />
         </button>
       </PopoverTrigger>
       <PopoverContent

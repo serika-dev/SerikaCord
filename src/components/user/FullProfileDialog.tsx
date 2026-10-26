@@ -15,7 +15,7 @@ import { NowWatchingCard } from "@/components/user/NowWatchingCard";
 import { ProfileBoard } from "@/components/user/ProfileBoard";
 import { useUserActivity } from "@/hooks/useMoeActivity";
 import { useCurrentTime } from "@/hooks/useCurrentTime";
-import { BadgeCheck, CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert, Camera, Pencil, Smile, Loader2 } from "lucide-react";
+import { BadgeCheck, CalendarDays, MessageSquare, UserPlus, Clock, Check, Copy, ExternalLink, ShieldAlert, Camera, Pencil, Plus, Smile, Loader2 } from "lucide-react";
 import { toast } from "sonner";
 import { useRouter } from "next/navigation";
 import { cn, cdnImage } from "@/lib/utils";
@@ -340,6 +340,9 @@ export function FullProfileDialog({
       <DialogContent
         className={cn(
           "p-0 gap-0 bg-[#0c0c10] border-white/[0.06] overflow-hidden sw-scrollbars",
+          // Own profile on desktop: the edit tab sits outside the card's left
+          // edge, so the card itself can't clip; the inner layout clips instead.
+          isSelf && "md:overflow-visible",
           // Mobile: bottom sheet that slides up ("pops in from under")
           "!w-screen !max-w-none !left-1/2 !-translate-x-1/2 !top-auto !bottom-0 !translate-y-0",
           "h-[92dvh] !max-h-[92dvh] rounded-t-3xl rounded-b-none border-b-0 border-x-0 pb-[var(--safe-area-bottom)] sm:pb-0",
@@ -361,7 +364,25 @@ export function FullProfileDialog({
         <div className="sm:hidden absolute top-0 inset-x-0 z-20 flex justify-center pt-2 pointer-events-none">
           <span className="h-1 w-10 rounded-full bg-white/40" />
         </div>
-        <div className="flex flex-col md:flex-row h-full min-h-0 overflow-y-auto md:overflow-hidden scrollbar-thin">
+        {/* Edit tab (own profile, editor folded) */}
+        {isSelf && !editorOpen && (
+          <button
+            type="button"
+            onClick={() => toggleEditor(true)}
+            aria-label={gt("Edit profile")}
+            title={gt("Edit profile")}
+            className={cn(
+              "absolute z-20 flex items-center justify-center text-white/85 shadow-md transition-[width,background-color,color] duration-150 ease-out hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] motion-reduce:transition-none",
+              // Phones: a tab on the sheet's left edge.
+              "left-0 top-[72px] h-10 w-7 rounded-r-lg border border-l-0 border-white/10 bg-black/50 backdrop-blur-md hover:w-9 hover:bg-black/70",
+              // Desktop: a tab sticking out of the card's left edge, like Discord's.
+              "md:left-auto md:right-full md:top-14 md:h-11 md:w-9 md:rounded-l-xl md:rounded-r-none md:border md:border-r-0 md:border-white/[0.08] md:bg-[#16161d] md:backdrop-blur-none md:hover:w-11 md:hover:bg-[#1f1f28]",
+            )}
+          >
+            <Pencil className="w-4 h-4" />
+          </button>
+        )}
+        <div className="flex flex-col md:flex-row h-full min-h-0 overflow-y-auto md:overflow-hidden md:rounded-[inherit] scrollbar-thin">
           {/* Own profile editor: a left column on desktop, a layer over the sheet on phones */}
           {isSelf && (
             <aside
@@ -385,17 +406,6 @@ export function FullProfileDialog({
                 </MountWhenOpened>
               </div>
             </aside>
-          )}
-          {isSelf && !editorOpen && (
-            <button
-              type="button"
-              onClick={() => toggleEditor(true)}
-              aria-label={gt("Edit profile")}
-              title={gt("Edit profile")}
-              className="absolute left-0 top-[72px] z-20 flex h-10 w-7 items-center justify-center rounded-r-lg border border-l-0 border-white/10 bg-black/50 text-white/85 backdrop-blur-md shadow-md transition-[width,background-color,color] duration-150 ease-out hover:w-9 hover:bg-black/70 hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] motion-reduce:transition-none"
-            >
-              <Pencil className="w-3.5 h-3.5" />
-            </button>
           )}
           {/* Left panel — profile summary (transparent; the sheet root carries the theme) */}
           <div className="w-full md:w-[360px] shrink-0 md:overflow-y-auto scrollbar-thin">
@@ -465,6 +475,57 @@ export function FullProfileDialog({
                     style={{ backgroundColor: STATUS_COLORS[status] }}
                     title={statusLabel(status, gt)}
                   />
+                  {/* Custom status: a thought bubble rising from the avatar */}
+                  {(isSelf || hasCustomStatus(view.customStatus, view.customization)) && (
+                    <div className="absolute left-[86px] top-0 z-30 w-max max-w-[244px] max-md:max-w-[min(320px,calc(100vw-130px))]">
+                      <span aria-hidden className="absolute left-0 top-[40px] size-[7px] rounded-full border border-white/10 bg-[#1a1a22] shadow" />
+                      <span aria-hidden className="absolute left-[7px] top-[26px] size-[11px] rounded-full border border-white/10 bg-[#1a1a22] shadow" />
+                      <div className="ml-4 rounded-[18px] border border-white/10 bg-[#1a1a22]/95 px-3 py-1.5 shadow-lg backdrop-blur-md">
+                        {isSelf ? (
+                          <InlineEditable
+                            field="customStatus"
+                            value={activeCustomStatus(view.customStatus, view.customization).text || ""}
+                            onSave={(next) => void saveProfile({ customStatus: next })}
+                            label={gt("Edit custom status")}
+                            placeholder={gt("What's on your mind?")}
+                            className="-mx-1.5 px-1.5 rounded-xl"
+                            inputClassName="text-sm w-[180px]"
+                            leading={(
+                              <button
+                                type="button"
+                                // Keep focus in the input so it doesn't save-and-close first.
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => setStatusDialogOpen(true)}
+                                aria-label={gt("Choose a status emoji")}
+                                title={gt("Choose a status emoji")}
+                                className="flex size-7 shrink-0 items-center justify-center rounded-md bg-black/40 text-white/80 hover:text-white"
+                              >
+                                {(() => {
+                                  const emoji = activeCustomStatus(view.customStatus, view.customization).emoji;
+                                  return emoji ? <StatusEmoji emoji={emoji} className="w-4 h-4" /> : <Smile className="w-4 h-4" />;
+                                })()}
+                              </button>
+                            )}
+                          >
+                            {hasCustomStatus(view.customStatus, view.customization) ? (
+                              <div className="text-sm text-[#e2e2ee] pr-7 min-h-6 flex items-center min-w-0">
+                                <CustomStatusLine text={view.customStatus} customization={view.customization} className="max-w-full" emojiClassName="w-4 h-4" renderText={(t) => <MarkdownRenderer content={t} />} />
+                              </div>
+                            ) : (
+                              <div className="text-sm text-white/45 pr-7 min-h-6 flex items-center gap-1">
+                                <Plus className="w-3.5 h-3.5 shrink-0" />
+                                {gt("Set a custom status")}
+                              </div>
+                            )}
+                          </InlineEditable>
+                        ) : (
+                          <div className="text-sm text-[#e2e2ee] min-h-6 flex items-center min-w-0">
+                            <CustomStatusLine text={view.customStatus} customization={view.customization} className="max-w-full" emojiClassName="w-4 h-4" renderText={(t) => <MarkdownRenderer content={t} />} />
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   {isSelf && (
                     // Touch screens can't hover: a small camera badge instead.
                     <button
@@ -576,45 +637,6 @@ export function FullProfileDialog({
                   </InlineEditable>
                 ) : view.pronouns && (
                   <div className="text-xs text-[#9a9aad] mt-0.5">{view.pronouns}</div>
-                )}
-                {isSelf ? (
-                  <InlineEditable
-                    field="customStatus"
-                    value={activeCustomStatus(view.customStatus, view.customization).text || ""}
-                    onSave={(next) => void saveProfile({ customStatus: next })}
-                    label={gt("Edit custom status")}
-                    placeholder={gt("What's on your mind?")}
-                    className="mt-1.5 w-fit max-w-full"
-                    inputClassName="text-sm"
-                    leading={(
-                      <button
-                        type="button"
-                        // Keep focus in the input so it doesn't save-and-close first.
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => setStatusDialogOpen(true)}
-                        aria-label={gt("Choose a status emoji")}
-                        title={gt("Choose a status emoji")}
-                        className="flex size-7 shrink-0 items-center justify-center rounded-md bg-black/40 text-white/80 hover:text-white"
-                      >
-                        {(() => {
-                          const emoji = activeCustomStatus(view.customStatus, view.customization).emoji;
-                          return emoji ? <StatusEmoji emoji={emoji} className="w-4 h-4" /> : <Smile className="w-4 h-4" />;
-                        })()}
-                      </button>
-                    )}
-                  >
-                    {hasCustomStatus(view.customStatus, view.customization) ? (
-                      <div className="text-sm text-[#c8c8d8] italic pr-7 min-h-7 flex items-center">
-                        <CustomStatusLine text={view.customStatus} customization={view.customization} emojiClassName="w-4 h-4 not-italic" renderText={(t) => <MarkdownRenderer content={t} />} />
-                      </div>
-                    ) : (
-                      <div className="text-sm text-white/35 italic pr-7 min-h-7 flex items-center">{gt("Set a custom status")}</div>
-                    )}
-                  </InlineEditable>
-                ) : hasCustomStatus(view.customStatus, view.customization) && (
-                  <div className="text-sm text-[#c8c8d8] mt-1.5 italic">
-                    <CustomStatusLine text={view.customStatus} customization={view.customization} emojiClassName="w-4 h-4 not-italic" renderText={(t) => <MarkdownRenderer content={t} />} />
-                  </div>
                 )}
                 <div className="flex items-center gap-1.5 mt-1.5">
                   <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLORS[status] }} />
