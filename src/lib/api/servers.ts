@@ -5288,7 +5288,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
     // Re-check on every sync: a link stored before verification existed (or
     // whose owner has since lost access) must not drive the bot.
     if (guildId) {
-      const check = await verifyDiscordGuildControl(user.id, guildId, server.id);
+      const check = await verifyDiscordGuildControl(user.id, guildId, server.id, { alreadyLinked: true });
       if (!check.ok) {
         set.status = check.status;
         return { error: check.error };

@@ -32,6 +32,7 @@ export async function verifyDiscordGuildControl(
   userId: string,
   guildId: string,
   serverId: string,
+  opts: { alreadyLinked?: boolean } = {},
 ): Promise<GuildLinkCheck> {
   if (!isDiscordSnowflake(guildId)) {
     return { ok: false, status: 400, error: 'That is not a valid Discord server ID' };
@@ -39,17 +40,31 @@ export async function verifyDiscordGuildControl(
   const botToken = process.env.SERIKA_DISCORD_TOKEN;
   if (!botToken) return { ok: false, status: 503, error: 'The Discord bridge is not configured' };
 
-  // One SerikaCord server per Discord guild.
-  const claimed = await db
-    .select({ id: schema.servers.id })
-    .from(schema.servers)
-    .where(and(
-      sql`${schema.servers.settings}->'integrations'->>'discordGuildId' = ${guildId}`,
-      ne(schema.servers.id, serverId),
-    ))
-    .limit(1);
-  if (claimed.length > 0) {
-    return { ok: false, status: 409, error: 'That Discord server is already linked to another server' };
+  // One SerikaCord server per Discord guild. Only servers with the bridge
+  // switched on hold a claim: a stale guild id left behind on a server that
+  // turned the bridge off must not lock the guild forever. A server that
+  // already stores this guild (links made before this check existed) keeps
+  // syncing; it still has to pass the control check below.
+  if (!opts.alreadyLinked) {
+    const claimed = await db
+      .select({ id: schema.servers.id, name: schema.servers.name, ownerId: schema.servers.ownerId })
+      .from(schema.servers)
+      .where(and(
+        sql`${schema.servers.settings}->'integrations'->>'discordGuildId' = ${guildId}`,
+        sql`coalesce(${schema.servers.settings}->'integrations'->>'discord', 'false') = 'true'`,
+        ne(schema.servers.id, serverId),
+      ))
+      .limit(1);
+    if (claimed.length > 0) {
+      const other = claimed[0];
+      return {
+        ok: false,
+        status: 409,
+        error: other.ownerId === userId
+          ? `That Discord server is already bridged to your server "${other.name}". Turn the Discord bridge off there first.`
+          : 'That Discord server is already bridged to another SerikaCord server',
+      };
+    }
   }
 
   const connection = await UserConnection.findOne({ userId, provider: 'discord' });
