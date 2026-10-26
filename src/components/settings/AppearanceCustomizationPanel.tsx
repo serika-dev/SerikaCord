@@ -72,7 +72,7 @@ export function AppThemeSection({
       }
     >
       <GradientThemePicker
-        value={userThemeGradient(value, appTheme)}
+        value={userThemeGradient(value)}
         previewTheme={appTheme}
         noneLabel={gt("None (solid)")}
         onChange={(next, opts) => save({ themeGradient: next ?? "none" }, opts)}

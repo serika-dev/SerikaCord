@@ -18,7 +18,7 @@
 - **Webhook badge** — webhook messages show a "Webhook" badge, and clicking them no longer opens an empty profile.
 - **New My Account page** — see your username and email (with Reveal), change your password, manage passkeys and devices, or delete your account, all in one place.
 - **Inactive channel settings** — set the inactive (AFK) channel and timeout in Server Settings → Overview.
-- **Gradient app themes** — Dark and Midnight now have a purple-to-black gradient behind the whole app, like Discord. Pick from 14 colour themes, make your own (2–3 colours and an angle), or choose None for the old solid look, under Settings → Appearance → App Theme.
+- **Gradient app themes** — give the whole app a Discord-style gradient: pick one of 32 colour themes (deep and soft), make your own (2–3 colours and an angle), or keep the solid look, under Settings → Appearance → App Theme. Off until you choose one.
 - **Server themes are gradients** — server admins can give their server its own gradient and accent colour; members see it while they are in the server unless they turned off "Use server themes". Servers that only set the old background tint now show a matching gradient.
 
 ### Changes

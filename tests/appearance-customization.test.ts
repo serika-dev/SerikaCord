@@ -238,16 +238,14 @@ describe("gradient app themes", () => {
     expect("error" in sanitizeAppearanceSettingsPatch({ themeGradient: 5 }, opts)).toBe(true);
   });
 
-  test("defaults: Serika on dark/midnight, none on light, none means none", () => {
+  test("defaults: off until picked, none means none", () => {
     expect(readUserThemeGradient(undefined)).toBeNull();
     expect(readUserThemeGradient("none")).toBe("none");
     expect(readUserThemeGradient({ stops: ["bad"] })).toBeNull();
-    expect(userThemeGradient(null, "dark")).toEqual(DEFAULT_THEME_GRADIENT);
-    expect(userThemeGradient(null, "midnight")).toEqual(DEFAULT_THEME_GRADIENT);
-    expect(userThemeGradient(null, "light")).toBeNull();
-    expect(userThemeGradient("none", "dark")).toBeNull();
+    expect(userThemeGradient(null)).toBeNull();
+    expect(userThemeGradient("none")).toBeNull();
     const mine = { stops: ["#ff0000", "#0000ff"], angle: 90 };
-    expect(userThemeGradient(mine, "light")).toEqual(mine);
+    expect(userThemeGradient(mine)).toEqual(mine);
   });
 
   test("resolve: image > server theme > user", () => {
@@ -258,7 +256,7 @@ describe("gradient app themes", () => {
     expect(resolveThemeGradient({ theme: "dark", user: "none", server })).toEqual(serverG);
     expect(resolveThemeGradient({ theme: "dark", user: mine, server, hasBackgroundImage: true })).toBeNull();
     expect(resolveThemeGradient({ theme: "dark", user: mine, server: null })).toEqual(mine);
-    expect(resolveThemeGradient({ theme: "dark", user: null })).toEqual(DEFAULT_THEME_GRADIENT);
+    expect(resolveThemeGradient({ theme: "dark", user: null })).toBeNull();
     // An accent-only server theme keeps the user's gradient.
     expect(resolveThemeGradient({ theme: "dark", user: mine, server: { accentColor: "#123456", backgroundTint: null, gradient: null } })).toEqual(mine);
     // A legacy tint-only server renders [tint → dark].
@@ -278,7 +276,9 @@ describe("gradient app themes", () => {
     }
     expect(ids.size).toBe(THEME_GRADIENT_PRESETS.length);
     expect(keys.size).toBe(THEME_GRADIENT_PRESETS.length);
-    expect(THEME_GRADIENT_PRESETS.length).toBeGreaterThanOrEqual(12);
+    expect(THEME_GRADIENT_PRESETS.length).toBeGreaterThanOrEqual(28);
+    expect(THEME_GRADIENT_PRESETS.some((p) => p.tone === "soft")).toBe(true);
+    expect(THEME_GRADIENT_PRESETS.some((p) => p.tone === "deep")).toBe(true);
     expect(findThemeGradientPreset(DEFAULT_THEME_GRADIENT)?.id).toBe("serika");
     expect(findThemeGradientPreset({ stops: ["#010203", "#040506"], angle: 1 })).toBeNull();
   });

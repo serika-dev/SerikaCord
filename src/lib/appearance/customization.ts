@@ -405,11 +405,10 @@ export function readUserThemeGradient(value: unknown): UserThemeGradient {
 }
 
 /** The gradient a user gets from their own setting (before any server theme). */
-export function userThemeGradient(setting: UserThemeGradient, theme: AppThemeName): ThemeGradient | null {
+export function userThemeGradient(setting: UserThemeGradient): ThemeGradient | null {
   if (setting === "none") return null;
-  if (setting) return setting;
-  // Unset: "Serika" on the dark themes, solid on light.
-  return theme === "light" ? null : DEFAULT_THEME_GRADIENT;
+  // Off unless the user picked one (unset and "none" both mean solid).
+  return setting ?? null;
 }
 
 /** The gradient a server theme asks for (its gradient, else its legacy tint). */
@@ -431,7 +430,7 @@ export function resolveThemeGradient(opts: {
   hasBackgroundImage?: boolean;
 }): ThemeGradient | null {
   if (opts.hasBackgroundImage) return null;
-  return serverThemeGradient(opts.server) ?? userThemeGradient(opts.user, opts.theme);
+  return serverThemeGradient(opts.server) ?? userThemeGradient(opts.user);
 }
 
 // ── Theme surfaces (custom background / gradient translucency, server tint) ─

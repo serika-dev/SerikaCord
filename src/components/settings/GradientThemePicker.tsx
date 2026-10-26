@@ -17,7 +17,8 @@ import {
   type AppThemeName,
   type ThemeGradient,
 } from "@/lib/appearance/customization";
-import { THEME_GRADIENT_PRESETS, findThemeGradientPreset, type ThemeGradientPresetId } from "@/lib/appearance/themeGradients";
+import { THEME_GRADIENT_PRESETS, findThemeGradientPreset, type ThemeGradientPreset, type ThemeGradientPresetId } from "@/lib/appearance/themeGradients";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 export interface GradientThemePickerProps {
@@ -64,20 +65,42 @@ export function GradientThemePicker({
     switch (id) {
       case "serika": return gt("Serika");
       case "midnight-blue": return gt("Midnight Blue");
+      case "midnight-violet": return gt("Midnight Violet");
+      case "twilight": return gt("Twilight");
       case "crimson-moon": return gt("Crimson Moon");
+      case "mars": return gt("Mars");
+      case "ember": return gt("Ember");
       case "forest": return gt("Forest");
+      case "matcha": return gt("Matcha");
+      case "under-the-sea": return gt("Under the Sea");
+      case "ocean": return gt("Ocean");
+      case "retro-storm": return gt("Retro Storm");
+      case "sepia": return gt("Sepia");
+      case "dusk": return gt("Dusk");
       case "sunset": return gt("Sunset");
       case "aurora": return gt("Aurora");
-      case "sepia": return gt("Sepia");
-      case "hanami": return gt("Hanami");
       case "chroma-glow": return gt("Chroma Glow");
+      case "neon-nights": return gt("Neon Nights");
+      case "cyberpunk": return gt("Cyberpunk");
+      case "sakura-night": return gt("Sakura Night");
+      case "glacier": return gt("Glacier");
+      case "hanami": return gt("Hanami");
       case "mint-apple": return gt("Mint Apple");
       case "citrus-sherbert": return gt("Citrus Sherbert");
       case "retro-raincloud": return gt("Retro Raincloud");
-      case "dusk": return gt("Dusk");
-      default: return gt("Neon Nights");
+      case "sunrise": return gt("Sunrise");
+      case "cotton-candy": return gt("Cotton Candy");
+      case "lofi-vibes": return gt("Lofi Vibes");
+      case "desert-khaki": return gt("Desert Khaki");
+      case "strawberry-lemonade": return gt("Strawberry Lemonade");
+      case "lavender-haze": return gt("Lavender Haze");
+      default: return gt("Easter Egg");
     }
   };
+
+  // Hovering a swatch shows it in the preview before it's picked.
+  const [hovered, setHovered] = useState<ThemeGradient | null | undefined>(undefined);
+  const previewGradient = hovered !== undefined ? hovered : value;
 
   const pickPreset = (gradient: ThemeGradient) => {
     setCustomOpen(false);
@@ -116,78 +139,51 @@ export function GradientThemePicker({
     onChange({ ...value, angle }, { debounce: true });
   };
 
-  const swatchClass = (selected: boolean) =>
-    cn(
-      "relative h-11 w-11 shrink-0 rounded-full transition-transform duration-(--motion-fast) hover:scale-110 active:scale-95 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]",
-      selected
-        ? "ring-2 ring-[var(--app-accent)] ring-offset-2 ring-offset-[var(--bg-card)]"
-        : "ring-1 ring-inset ring-[var(--border-subtle)]",
-    );
-
-  const selectedBadge = (
-    <span
-      aria-hidden
-      className="absolute -right-1 -top-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[var(--app-accent)] text-[var(--text-on-accent)] ring-2 ring-[var(--bg-card)]"
-    >
-      <Check className="h-3 w-3" strokeWidth={3} />
-    </span>
+  const renderPreset = (p: ThemeGradientPreset) => (
+    <Swatch
+      key={p.id}
+      label={presetName(p.id)}
+      selected={!showEditor && themeGradientKey(p.gradient) === selectedKey}
+      onPick={() => pickPreset(p.gradient)}
+      onHover={() => setHovered(p.gradient)}
+      style={{ backgroundImage: themeGradientCss(p.gradient) }}
+    />
   );
 
   return (
     <div className="space-y-4">
-      <GradientThemePreview gradient={value} theme={previewTheme} accent={previewAccent} caption={previewCaption} />
+      <GradientThemePreview gradient={previewGradient} theme={previewTheme} accent={previewAccent} caption={previewCaption} />
 
-      <div role="radiogroup" aria-label={gt("App theme")} className="flex flex-wrap gap-3">
-        {allowNone && (
-          <button
-            type="button"
-            role="radio"
-            aria-checked={!value}
-            aria-label={noneLabel || gt("None")}
-            title={noneLabel || gt("None")}
-            onClick={() => {
-              setCustomOpen(false);
-              onChange(null);
-            }}
-            className={swatchClass(!value)}
-            style={{ backgroundColor: THEME_SURFACES[previewTheme].surface }}
-          >
-            <Ban className="absolute inset-0 m-auto h-5 w-5 text-[var(--text-muted)]" />
-            {!value && selectedBadge}
-          </button>
-        )}
-        {THEME_GRADIENT_PRESETS.map((p) => {
-          const selected = !showEditor && themeGradientKey(p.gradient) === selectedKey;
-          const name = presetName(p.id);
-          return (
-            <button
-              key={p.id}
-              type="button"
-              role="radio"
-              aria-checked={selected}
-              aria-label={name}
-              title={name}
-              onClick={() => pickPreset(p.gradient)}
-              className={swatchClass(selected)}
-              style={{ backgroundImage: themeGradientCss(p.gradient) }}
+      <div role="radiogroup" aria-label={gt("App theme")} className="space-y-5" onMouseLeave={() => setHovered(undefined)}>
+        <SwatchGroup title={gt("Default")}>
+          {allowNone && (
+            <Swatch
+              label={noneLabel || gt("None")}
+              selected={!value}
+              onPick={() => { setCustomOpen(false); onChange(null); }}
+              onHover={() => setHovered(null)}
+              style={{ backgroundColor: THEME_SURFACES[previewTheme].surface }}
             >
-              {selected && selectedBadge}
-            </button>
-          );
-        })}
-        <button
-          type="button"
-          role="radio"
-          aria-checked={showEditor}
-          aria-label={gt("Custom")}
-          title={gt("Custom")}
-          onClick={openCustom}
-          className={cn(swatchClass(showEditor), !showEditor && "border-2 border-dashed border-[var(--border-strong)] ring-0")}
-          style={showEditor && value ? { backgroundImage: themeGradientCss(value) } : undefined}
-        >
-          <Palette className={cn("absolute inset-0 m-auto h-5 w-5", showEditor ? "text-white drop-shadow" : "text-[var(--text-secondary)]")} />
-          {showEditor && selectedBadge}
-        </button>
+              <Ban className="absolute inset-0 m-auto h-5 w-5 text-[var(--text-muted)]" />
+            </Swatch>
+          )}
+          <Swatch
+            label={gt("Custom")}
+            selected={showEditor}
+            onPick={openCustom}
+            onHover={() => setHovered(undefined)}
+            dashed={!showEditor}
+            style={showEditor && value ? { backgroundImage: themeGradientCss(value) } : undefined}
+          >
+            <Palette className={cn("absolute inset-0 m-auto h-5 w-5", showEditor ? "text-white drop-shadow" : "text-[var(--text-secondary)]")} />
+          </Swatch>
+        </SwatchGroup>
+        <SwatchGroup title={gt("Deep colours")}>
+          {THEME_GRADIENT_PRESETS.filter((p) => p.tone === "deep").map((p) => renderPreset(p))}
+        </SwatchGroup>
+        <SwatchGroup title={gt("Soft colours")}>
+          {THEME_GRADIENT_PRESETS.filter((p) => p.tone === "soft").map((p) => renderPreset(p))}
+        </SwatchGroup>
       </div>
 
       {showEditor && value && (
@@ -251,6 +247,69 @@ export function GradientThemePicker({
         </div>
       )}
     </div>
+  );
+}
+
+function SwatchGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <p className="mb-2.5 text-xs font-bold uppercase tracking-[0.06em] text-[var(--text-muted)]">{title}</p>
+      <div className="flex flex-wrap gap-3">{children}</div>
+    </div>
+  );
+}
+
+/** One round theme swatch (Discord's colour themes): name tooltip, check badge when picked. */
+function Swatch({
+  label,
+  selected,
+  onPick,
+  onHover,
+  style,
+  dashed,
+  children,
+}: {
+  label: string;
+  selected: boolean;
+  onPick: () => void;
+  onHover: () => void;
+  style?: React.CSSProperties;
+  dashed?: boolean;
+  children?: React.ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={selected}
+          aria-label={label}
+          onClick={onPick}
+          onMouseEnter={onHover}
+          onFocus={onHover}
+          className={cn(
+            "relative h-12 w-12 shrink-0 rounded-full transition-[transform,box-shadow] duration-(--motion-fast) hover:scale-[1.08] active:scale-95",
+            "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]",
+            "shadow-[inset_0_0_0_1px_rgba(255,255,255,0.12),0_2px_8px_-2px_rgba(0,0,0,0.45)]",
+            selected && "ring-2 ring-[var(--app-accent)] ring-offset-[3px] ring-offset-[var(--bg-card)]",
+            dashed && "border-2 border-dashed border-[var(--border-strong)] shadow-none",
+          )}
+          style={style}
+        >
+          {children}
+          {selected && (
+            <span
+              aria-hidden
+              className="absolute -right-1 -top-1 flex h-[18px] w-[18px] items-center justify-center rounded-full bg-[var(--app-accent)] text-[var(--text-on-accent)] ring-2 ring-[var(--bg-card)]"
+            >
+              <Check className="h-3 w-3" strokeWidth={3} />
+            </span>
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{label}</TooltipContent>
+    </Tooltip>
   );
 }
 
