@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo, useCallback, type Dispatch, type SetStateAction } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, useDeferredValue, type Dispatch, type SetStateAction } from "react";
 import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { useStaffAccess } from "@/hooks/useStaffAccess";
@@ -768,7 +768,11 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const { list: badgeDefinitions, resolve: resolveBadges } = useBadges();
   const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
   const { servers } = useServer();
-  const [activeTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab | null | undefined) || "profiles");
+  // The sidebar follows `navTab` at once; the page itself renders from the
+  // deferred `activeTab`, so a heavy page renders in the background instead
+  // of freezing clicks while it mounts.
+  const [navTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab | null | undefined) || "profiles");
+  const activeTab = useDeferredValue(navTab);
   // Jump to the requested tab each time the dialog opens (state adjusted
   // during render rather than in an effect).
   const [prevOpen, setPrevOpen] = useState(open);
@@ -1301,9 +1305,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     onOpenChange(false);
   }, [blockLeaveForUnsaved, onOpenChange]);
   const selectTab = useCallback((tab: SettingsTab) => {
-    if (tab !== activeTab && blockLeaveForUnsaved()) return;
+    if (tab !== navTab && blockLeaveForUnsaved()) return;
     setActiveTab(tab);
-  }, [activeTab, blockLeaveForUnsaved]);
+  }, [navTab, blockLeaveForUnsaved]);
 
   useEffect(() => {
     if (!open) return;
@@ -2249,7 +2253,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         {/* Sidebar */}
         <SettingsNav
           sections={menuSections}
-          activeId={activeTab}
+          activeId={navTab}
           onSelect={selectTab}
           query={searchQuery}
           onQueryChange={setSearchQuery}

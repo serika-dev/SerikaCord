@@ -283,7 +283,7 @@ export function SettingsContent({
       >
         {/* Sticky compact header (desktop): blank at the top of the page, the
             page title fades in once the big title has scrolled away. */}
-        <div className="sticky top-0 z-20 max-md:hidden">
+        <div className="pointer-events-none sticky top-0 z-20 max-md:hidden">
           <div
             aria-hidden
             className={cn(

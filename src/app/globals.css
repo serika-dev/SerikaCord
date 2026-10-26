@@ -999,12 +999,16 @@ html.reduce-motion {
 
 /* Page switch: the new page fades up 8px. Enter-only, so a click never waits
    on the old page animating out. */
+/* Page switch: a short opacity settle only. No transform (it would turn the
+   page into the containing block of anything fixed/sticky inside it for the
+   length of the animation) and it never starts invisible, so a page is
+   readable and clickable the moment it appears. */
 @keyframes settings-page-enter {
-  from { opacity: 0; transform: translate3d(0, 8px, 0); }
-  to { opacity: 1; transform: none; }
+  from { opacity: 0.55; }
+  to { opacity: 1; }
 }
 .settings-page-enter {
-  animation: settings-page-enter var(--motion-base) var(--motion-ease-out) both;
+  animation: settings-page-enter var(--motion-fast) var(--motion-ease-out);
 }
 
 /* Discord's "you have unsaved changes" nudge: the bar shakes and flashes red

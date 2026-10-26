@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef, memo } from "react";
+import { useState, useEffect, useCallback, useDeferredValue, useRef, memo } from "react";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useServer } from "@/contexts/ServerContext";
 import { ServerThemeSettings } from "@/components/settings/ServerThemeSettings";
@@ -381,7 +381,10 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const { user } = useAuth();
   const { can, isAdmin, loading: permsLoading } = usePermissions(currentServer?.id);
   const canManageServer = can("MANAGE_SERVER") || isAdmin;
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "overview");
+  // The sidebar follows `navTab` at once; the page renders from the deferred
+  // `activeTab` so switching to a heavy page never freezes the UI.
+  const [navTab, setActiveTab] = useState<SettingsTab>(initialTab ?? "overview");
+  const activeTab = useDeferredValue(navTab);
   const [navQuery, setNavQuery] = useState("");
   // Phone layout: grouped section list → pushed section page → detail page.
   const isMobile = useIsMobile();
@@ -4665,7 +4668,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       {/* Sidebar */}
       <SettingsNav
         sections={navSections}
-        activeId={activeTab}
+        activeId={navTab}
         onSelect={setActiveTab}
         query={navQuery}
         onQueryChange={setNavQuery}
