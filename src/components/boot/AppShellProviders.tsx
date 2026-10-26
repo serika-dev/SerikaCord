@@ -13,6 +13,7 @@ import { InteractionModalHost } from "@/components/chat/InteractionModalHost";
 import { UserActionsHost } from "@/components/user/UserActionsHost";
 import { ChangelogHost } from "@/components/changelog/ChangelogHost";
 import dynamic from "next/dynamic";
+import ChannelsLayoutClient from "@/app/channels/ChannelsLayoutClient";
 
 // End-to-end encryption setup + dialogs: its own chunk, started when idle.
 const E2eeHost = dynamic(() => import("@/components/e2ee/E2eeHost"), { ssr: false });
@@ -69,7 +70,10 @@ export default function AppShellProviders({ children }: { children: ReactNode })
           {/* One tooltip delay group for the app: the first tooltip waits a
               beat, moving along a row of icons then shows each instantly. */}
           <TooltipProvider delayDuration={200} skipDelayDuration={400}>
-            {children}
+            {/* One app shell for /channels/* and /dm/*: switching between a
+                DM and a server keeps the sidebars, voice audio and dialogs
+                mounted and only swaps the page. */}
+            <ChannelsLayoutClient>{children}</ChannelsLayoutClient>
           </TooltipProvider>
           <ServerThemeSync />
           <NotificationHosts />

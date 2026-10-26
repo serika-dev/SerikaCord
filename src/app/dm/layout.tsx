@@ -1,6 +1,4 @@
 import { buildMetadata } from "@/lib/seo";
-import { BootPrefetch, NativeSplashHide } from "@/components/boot/BootPrefetch";
-import DMLayoutClient from "./DMLayoutClient";
 
 export const metadata = buildMetadata({
   title: "Direct Messages",
@@ -18,11 +16,8 @@ export const metadata = buildMetadata({
 });
 
 export default function DMLayout({ children }: { children: React.ReactNode }) {
-  return (
-    <>
-      <BootPrefetch />
-      <DMLayoutClient>{children}</DMLayoutClient>
-      <NativeSplashHide />
-    </>
-  );
+  // The app shell is mounted once above /channels and /dm (AppShellProviders)
+  // so switching between them keeps it; the startup prefetch is in the root
+  // layout's <head>. This layout only carries the metadata.
+  return children;
 }

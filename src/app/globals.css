@@ -1011,6 +1011,12 @@ html.reduce-motion {
   animation: settings-page-enter var(--motion-fast) var(--motion-ease-out);
 }
 
+/* App shell: switching to another server / Home / explore. Opacity only and
+   never from invisible, so the new page is there the moment it mounts. */
+.app-page-enter {
+  animation: settings-page-enter var(--motion-fast) var(--motion-ease-out);
+}
+
 /* Discord's "you have unsaved changes" nudge: the bar shakes and flashes red
    when you try to leave without saving. */
 @keyframes settings-unsaved-shake {

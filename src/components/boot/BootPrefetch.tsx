@@ -1,5 +1,3 @@
-import { preload } from "react-dom";
-
 /**
  * Starts the app's startup API requests from inline HTML, so they run in
  * parallel with downloading/parsing the JS bundle instead of after hydration.
@@ -24,18 +22,20 @@ if(p[1]==="channels"&&U.test(p[2]||"")){add("/api/servers/"+p[2]+"/channels");ad
 else if(p[1]==="dm"&&p[2]==="group"&&U.test(p[3]||"")){add("/api/group-dms/"+p[3]);if(!cached("/api/group-dms/"+p[3]))add("/api/group-dms/"+p[3]+"/messages?limit=50");}
 else if(p[1]==="dm"&&U.test(p[2]||"")&&!cached("/api/dms/"+p[2]))add("/api/dms/"+p[2]+"/messages?limit=50");`;
 
-const script = `(function(){try{var b=window.__serikaBoot||(window.__serikaBoot={});var t=performance.now();${JSON.stringify(
+// Only the app shell (/channels/*, /dm/*) has startup data; on other pages
+// (landing, login, docs) the script returns at once.
+const script = `(function(){try{if(!/^\\/(channels|dm)(\\/|$)/.test(location.pathname))return;var b=window.__serikaBoot||(window.__serikaBoot={});var t=performance.now();${JSON.stringify(
   BOOT_URLS,
 )}.forEach(function(u){if(!b[u])b[u]={p:fetch(u,{credentials:"include"}),t:t};});${routeScript}}catch(e){}})();`;
 
+/**
+ * Rendered in the root layout's <head>: it runs while the head is parsed, as
+ * early as a preload link would start these, and outside the app shell's auth
+ * gate (which renders nothing until the session is known). The shell is
+ * mounted once above /channels and /dm, so this can't live in their layouts.
+ */
 export function BootPrefetch() {
-  // <link rel=preload as=fetch> in <head> starts these as soon as the head
-  // arrives; the inline script below can't run until the stylesheets have
-  // loaded. Its fetch() calls then pick up the preloaded responses.
-  for (const url of BOOT_URLS) {
-    preload(url, { as: "fetch", crossOrigin: "use-credentials" });
-  }
-  return <script dangerouslySetInnerHTML={{ __html: script }} />;
+  return <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: script }} />;
 }
 
 // Android app (Capacitor): hide the native launch screen as soon as the page

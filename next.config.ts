@@ -71,6 +71,13 @@ const nextConfig: NextConfig = {
   experimental: {
     // Parallel webpack compilation across worker threads — major build speedup.
     webpackBuildWorker: true,
+    // Client router cache: a channel, DM or server visited in the last 30s
+    // (pages are client components; their data lives in client caches) opens
+    // from memory instead of a server round trip.
+    staleTimes: {
+      dynamic: 30,
+      static: 180,
+    },
     optimizePackageImports: [
       'lucide-react',
       '@radix-ui/react-icons',

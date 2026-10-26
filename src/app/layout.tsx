@@ -8,6 +8,7 @@ import { NetworkStatus } from "@/components/ui/network-status";
 import { ToasterWrapper } from "@/components/ui/ToasterWrapper";
 import { ChunkReloadGuard } from "@/components/boot/ChunkReloadGuard";
 import { AppProviders } from "@/components/boot/AppProviders";
+import { BootPrefetch, NativeSplashHide } from "@/components/boot/BootPrefetch";
 import { SettingsHydrator } from "@/components/boot/SettingsHydrator";
 import { MotionPreferences } from "@/components/boot/MotionPreferences";
 import { TauriUpdater } from "@/components/TauriUpdater";
@@ -112,6 +113,7 @@ export default function RootLayout({
         <meta name="mobile-web-app-capable" content="yes" />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeBootstrapScript }} />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: rtlBootstrapScript }} />
+        <BootPrefetch />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "document.addEventListener('contextmenu',function(e){if(e.defaultPrevented)return;var t=e.target;if(t&&t.closest&&t.closest('input,textarea,select,[contenteditable]:not([contenteditable=\"false\"]),.chat-message-body a[href],.chat-message-body img'))return;e.preventDefault();},false);" }} />
         <script suppressHydrationWarning dangerouslySetInnerHTML={{ __html: "if(window.__TAURI__){var _f=window.fetch;window.fetch=function(u,o){o=o||{};o.headers=o.headers||{};if(o.headers instanceof Headers){o.headers.set('x-serika-client','tauri');}else{o.headers['x-serika-client']='tauri';}return _f.call(window,u,o);};}" }} />
       </head>
@@ -125,6 +127,7 @@ export default function RootLayout({
               <AuthProvider>
                 <SettingsHydrator />
                 <AppProviders>{children}</AppProviders>
+                <NativeSplashHide />
                 <NetworkStatus />
                 <ToasterWrapper />
                 <ChunkReloadGuard />

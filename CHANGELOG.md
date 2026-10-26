@@ -37,6 +37,7 @@
 - **Settings clicks** — clicks near the top of a settings page no longer do nothing.
 - **App Discovery search** — now filters as you type.
 - **Admin tools in light theme** — white text and fixed purple colours in staff tools now follow your theme.
+- **Active Now on every Friends tab** — the Active Now panel also shows on Pending, Blocked and Add Friend.
 
 ### Changes
 - **Reorder everything on your Board** — every widget (game sections, Serika Wishlist lists, app widgets, Connections and Recent activity) has up/down arrows, and the order you pick is the one everyone sees. Works with the keyboard and on phones. Visitors no longer see an empty Recent activity box.
@@ -55,6 +56,7 @@
 
 ### Performance
 - **Smoother settings** — switching tabs no longer freezes for a moment or flashes spinners, pages you already opened show their data right away, and typing in searches or your profile no longer lags.
+- **Faster switching** — moving between DMs, channels and servers no longer rebuilds the whole app: the sidebars and voice stay put and only the conversation changes, a click shows the new chat straight away, and conversations you opened in the last 30 seconds come back instantly.
 
 ### Security
 - **Smaller bot invite** — the Discord bridge invite asks only for the permissions it needs instead of Administrator, and Discord webhook URLs are never sent to the browser.

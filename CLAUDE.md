@@ -148,12 +148,13 @@ version from `src/lib/version.ts` — never hard-code it. See `AI-READ-THIS.md`.
   surface.
 - **`MessageGroup` is memoized with a custom `arePropsEqual`**: if you add a
   prop, add it to the comparator or it silently stops updating.
-- **Startup data**: `BootPrefetch` (in `src/app/channels/layout.tsx` and
-  `src/app/dm/layout.tsx`) starts core GETs from inline HTML; consumers read
+- **Startup data**: `BootPrefetch` (in the root layout's `<head>`, guarded to
+  `/channels` and `/dm`) starts core GETs from inline HTML; consumers read
   them with `sharedGet(url)` from `src/lib/bootFetch.ts` (4s TTL, dedupes
   in-flight GETs). If you change a startup URL, change it in both places.
-- **Server and unread state** are mounted once in `AppShellProviders` (via
-  `AppProviders` in the root layout) for `/channels/*` and `/dm/*`. Don't mount
+- **Server and unread state, and the app shell itself** (`ChannelsLayoutClient`)
+  are mounted once in `AppShellProviders` (via `AppProviders` in the root
+  layout) for `/channels/*` and `/dm/*`, so DM ↔ server switches keep them. Don't mount
   another `ServerProvider`/`UnreadProvider` in a layout.
 - **Realtime registries**: any module-level map of live connections or
   realtime state must be created with `processShared(key, init)` from

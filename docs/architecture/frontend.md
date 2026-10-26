@@ -19,9 +19,13 @@ only (`next build --webpack`, `next({ webpack: true })` in `server.ts`).
 | `/invite/[inviteCode]`, `/[inviteCode]` | invite landing (short links from `serika.cc` redirect to `/invite/<code>` in `server.ts`) |
 | `/oauth2/*`, `/qr/[token]`, `/qr/scan`, `/forgetme`, `/widget/*`, `/widget-editor`, `/download` | misc |
 
-The app shell is `/channels/*` (`ChannelsLayoutClient`) and `/dm/*`
-(`DMLayoutClient`). Both layouts render `<BootPrefetch />` and both mount
-`useAppHotkeys()`.
+The app shell (`ChannelsLayoutClient`: auth gate, server rail, channel/DM
+sidebar, voice audio, dialogs, `useAppHotkeys()`) serves both `/channels/*`
+and `/dm/*`. It is mounted once in `AppShellProviders`, above both route
+segments, so switching between a DM and a server only swaps the page; the
+`channels` and `dm` layouts carry metadata only. Conversations have
+`loading.tsx` skeletons, and `experimental.staleTimes` in `next.config.ts`
+keeps recently visited routes in the client router cache.
 
 ## Provider tree
 
@@ -53,8 +57,9 @@ doesn't re-render every `useServer()` consumer), `useUnread()`.
 
 ## Startup data
 
-`src/components/boot/BootPrefetch.tsx` emits `<link rel=preload as=fetch>` and
-an inline script that starts these GETs while the HTML is still parsing:
+`src/components/boot/BootPrefetch.tsx` is an inline script in the root
+layout's `<head>` (it returns at once outside `/channels` and `/dm`) that
+starts these GETs while the HTML is still parsing:
 `/api/users/@me`, `/api/users/@me/servers`, `/api/dms`,
 `/api/users/me/settings`, `/api/users/@me/mentions`,
 `/api/users/@me/read-states`, `/api/users/@me/channel-activity`, plus the

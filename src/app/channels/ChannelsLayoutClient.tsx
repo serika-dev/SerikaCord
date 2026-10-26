@@ -17,7 +17,6 @@ import { voiceService } from "@/lib/services/voiceService";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
-import { AnimatePresence, motion } from "framer-motion";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { AppSplash } from "@/components/boot/AppSplash";
@@ -320,17 +319,21 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         ? "profile"
         : "servers";
 
-  // Check if we're in a specific channel
-  const isInChannel = pathname?.match(/\/channels\/[^/]+\/[^/]+$/);
+  // In a conversation: a server channel, a DM or a group DM (the shell is
+  // shared by /channels/* and /dm/*).
+  const isDmRoute = /^\/dm\/.+/.test(pathname || "");
+  const isInChannel = isDmRoute || /\/channels\/[^/]+\/[^/]+$/.test(pathname || "");
   const isSettingsRoute = pathname?.startsWith("/channels/settings");
   // The full-page server join flow (/channels/:serverId/onboarding).
   const isOnboardingRoute = /^\/channels\/[^/]+\/onboarding$/.test(pathname || "");
   // Voice channel pages show full controls in the main area.
   const showInFlowVoiceBar = !!isInChannel && !isOnboardingRoute && !!voiceRoomId && currentChannel?.type !== "voice";
 
-  // Transition key: only animate server switches/explore/settings, bypass channel switching within the same server to prevent snapping.
+  // Transition key: changes only between sections (a server, Home with its
+  // DMs, explore, settings), never for a channel or DM switch inside one.
   const contentKey = useMemo(() => {
     if (!pathname) return "channels";
+    if (pathname.startsWith("/dm/") || pathname === "/channels/me" || pathname.startsWith("/channels/me/")) return "home";
     if (pathname.startsWith("/channels/settings")) return "/channels/settings";
     if (pathname.startsWith("/channels/explore")) return "/channels/explore";
 
@@ -379,7 +382,9 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
             <main
               key={contentKey}
               className={cn(
-                "mobile-screen-push flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden pt-safe",
+                "mobile-screen-push flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden",
+                // DM headers pad the status bar themselves.
+                !isDmRoute && "pt-safe",
                 !showInFlowVoiceBar && "pb-safe"
               )}
             >
@@ -507,18 +512,12 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
 
       {/* Main Content */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
-        <AnimatePresence mode="wait" initial={false}>
-          <motion.main
-            key={contentKey}
-            initial={{ opacity: 0, x: 6 }}
-            animate={{ opacity: 1, x: 0 }}
-            exit={{ opacity: 0, x: -6 }}
-            transition={{ duration: 0.12, ease: "easeOut" }}
-            className="flex-1 flex min-w-0 min-h-0 overflow-hidden"
-          >
-            {children}
-          </motion.main>
-        </AnimatePresence>
+        {/* No exit animation: the next page mounts at once (AnimatePresence
+            mode="wait" held every server/DM switch until the old page had
+            animated out). A section change gets a short opacity settle. */}
+        <main key={contentKey} className="app-page-enter flex-1 flex min-w-0 min-h-0 overflow-hidden">
+          {children}
+        </main>
       </div>
 
       {/* Dialogs */}

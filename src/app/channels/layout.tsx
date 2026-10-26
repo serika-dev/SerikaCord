@@ -1,6 +1,4 @@
 import { buildMetadata } from "@/lib/seo";
-import { BootPrefetch, NativeSplashHide } from "@/components/boot/BootPrefetch";
-import ChannelsLayoutClient from "./ChannelsLayoutClient";
 
 export const metadata = buildMetadata({
   title: "App — SerikaCord",
@@ -25,11 +23,8 @@ export default function ChannelsLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return (
-    <>
-      <BootPrefetch />
-      <ChannelsLayoutClient>{children}</ChannelsLayoutClient>
-      <NativeSplashHide />
-    </>
-  );
+  // The app shell is mounted once above /channels and /dm (AppShellProviders)
+  // so switching between them keeps it; the startup prefetch is in the root
+  // layout's <head>. This layout only carries the metadata.
+  return children;
 }
