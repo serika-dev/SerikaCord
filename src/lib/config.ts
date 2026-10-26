@@ -21,6 +21,9 @@ export const config = {
   SERIKA_MOE_URL: process.env.SERIKA_MOE_URL || 'https://serika.moe',
   SERIKA_MOE_SERVICE_KEY: process.env.SERIKA_MOE_SERVICE_KEY || process.env.SERIKA_SERVICE_KEY || '',
 
+  // Serika Wishlist — public wishlists shown in the profile Wishlist widget.
+  SERIKA_WISHLIST_URL: (process.env.NEXT_PUBLIC_SERIKA_WISHLIST_URL || 'https://wish.serika.dev').replace(/\/+$/, ''),
+
   // Last.fm — API key + shared secret for OAuth token exchange
   LASTFM_API_KEY: process.env.LASTFM_API_KEY || '',
   LASTFM_API_SECRET: process.env.LASTFM_API_SECRET || '',

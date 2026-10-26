@@ -304,9 +304,11 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     const result = normalizeGameWidgets((body as Record<string, unknown>).widgets);
     if (!result.ok) { set.status = 400; return { error: result.error }; }
-    // Preserve existing application placements; replace game-widget entries.
-    const existing = Array.isArray(user.profileWidgets) ? user.profileWidgets as Array<Record<string, unknown>> : [];
-    const appPlacements = existing.filter((p) => p.type === 'application');
+    // Preserve existing application and built-in (e.g. Serika Wishlist)
+    // placements; replace game-widget entries. Read fresh, not the cached user.
+    const fresh = await User.findById(user.id);
+    const existing = Array.isArray(fresh?.profileWidgets) ? fresh.profileWidgets as Array<Record<string, unknown>> : [];
+    const appPlacements = existing.filter((p) => p.type === 'application' || p.type === 'builtin');
     await User.updateById(user.id, { profileWidgets: [...result.widgets, ...appPlacements] });
     return { widgets: result.widgets };
   }, {

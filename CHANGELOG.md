@@ -29,6 +29,22 @@
 - **Discord link kept** — saving some server settings no longer silently removes the Discord link.
 - **Webhook posts split correctly** — posts from one webhook with a different picture no longer merge under one header.
 - **Light theme and accent colours** — several Appearance labels, loading skeletons and badge popups are readable in light theme, Server Settings use your accent colour instead of a fixed purple, and accent buttons visibly change on hover.
+- **Serika Wishlist on your profile** — add a Wishlist widget (Add a widget on your profile, or Settings → Profiles) to show the lists you made public on Serika Wishlist: emoji, title, item count, total, product photos and "most wanted" picks, each linking to the list. Feature one list or show up to three. Friends-only and private lists never appear, and nothing shows until you turn it on.
+
+### Changes
+- **Reorder everything on your Board** — every widget (game sections, Serika Wishlist lists, app widgets, Connections and Recent activity) has up/down arrows, and the order you pick is the one everyone sees. Works with the keyboard and on phones. Visitors no longer see an empty Recent activity box.
+- **Connections and Recent activity are widgets now** — remove either one from your Board with its X (there's an Undo), and add it back from Add a widget → Profile; it returns to where it was. Both stay on for everyone who hasn't removed them, and removed sections are hidden from visitors.
+- **Slim scrollbars on full profiles** — the profile's scrolling panes use the thin app scrollbar, violet while dragging.
+- **One wishlist per widget** — each public Serika Wishlist list is its own widget, so you can add several and place them separately. Add to Profile lists the public lists that aren't on your profile yet. Widgets show the list's icon instead of an emoji. An existing wishlist widget becomes the widget for your first public list.
+- **Smaller Favorite Game card** — the cover now sits on the left as a poster with the title, note and tags beside it (stacked on narrow screens), instead of a huge banner.
+- **Profile widgets redesigned** — game shelves, app widgets, the wishlist and activity cards now share one look: dark glass cards with hairline borders, violet accents, Outfit headings, readable tags, loading placeholders instead of spinners, and graceful fallbacks for broken images. Edit buttons are labelled and reachable by keyboard, and stay visible on phones.
+- **Cleaner profile board** — empty game sections no longer sit on your own profile; one "Add a widget" button offers games, app widgets and your wishlist. Removing a whole game section asks first.
+- **Server widget refresh** — the public server widget shows who is online, uses a loading placeholder, explains why it can't load (with a retry), dates older messages, and has labelled controls for screen readers.
+- **Widget editor polish** — clearer layout picker, validation count, a profile-sized preview stage, and a layout that works on narrow screens.
+
+### Bug Fixes
+- **Adding an app widget works** — picking an app widget in Add to Profile closed the dialog without adding it.
+- **Profile widget changes show up right away** — your own board could keep showing the old widgets for a few minutes after a change.
 
 ### Performance
 

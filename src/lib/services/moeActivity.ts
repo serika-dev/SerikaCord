@@ -45,7 +45,7 @@ const CONNECTION_CACHE_TTL_MS = 60_000;
  * Resolve the accounts service user ID (Mongo ObjectId) for a SerikaCord user.
  * serika.moe's API expects this ID as `accountId`.
  */
-async function getAccountsUserId(userId: string): Promise<string | null> {
+export async function getAccountsUserId(userId: string): Promise<string | null> {
   const cached = connectionCache.get(userId);
   if (cached && cached.expiresAt > Date.now()) {
     return cached.accountsUserId || null;

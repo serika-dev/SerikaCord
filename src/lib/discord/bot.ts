@@ -545,17 +545,39 @@ async function startupRestrictionSweep(): Promise<void> {
   }
 }
 
+const GATEWAY_URL = 'wss://gateway.discord.gg';
+const GATEWAY_QUERY = '/?v=10&encoding=json';
+
+// Close codes for problems a reconnect can't fix: a bad token, bad shard
+// settings, or intents the bot isn't allowed. Retrying them only burns the
+// daily identify budget, and Discord resets the token of a bot that
+// reconnects too often.
+const FATAL_CLOSE_CODES = new Set([4004, 4010, 4011, 4012, 4013, 4014]);
+
+// Gateway sessions to keep in hand. Discord allows 1000 identifies a day;
+// below this many left the bot waits for the budget to reset.
+const IDENTIFY_RESERVE = 25;
+
+let botStarted = false;
+
 export async function startDiscordBot() {
   const botToken = process.env.SERIKA_DISCORD_TOKEN;
   if (!botToken) {
     console.log('[Discord Bot] No SERIKA_DISCORD_TOKEN found in environment. Bot listener disabled.');
     return;
   }
+  if (botStarted) return;
+  botStarted = true;
 
   console.log('[Discord Bot] Initializing Discord Gateway listener...');
 
+  // Only one socket is ever live. Every handler checks that its own socket
+  // is still the current one, so a stale socket can't send on the new one
+  // or schedule a second reconnect.
   let ws: WebSocket | null = null;
-  let heartbeatInterval: any = null;
+  let heartbeatTimer: ReturnType<typeof setTimeout> | null = null;
+  let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  let awaitingAck = false;
   // Bridge presence for the settings Status tab: a Redis key with a 150s TTL,
   // refreshed every minute while the gateway socket is open (it lapses on its
   // own when the bot is down; short reconnects don't flicker it).
@@ -563,47 +585,135 @@ export async function startDiscordBot() {
   let lastSequence: number | null = null;
   let sessionID: string | null = null;
   let resumeURL: string | null = null;
+  let failures = 0;
+  let readyAt = 0;
+  let stopped = false;
   setInterval(() => {
     if (ws && ws.readyState === WebSocket.OPEN && sessionID) recordBotHeartbeat(botUsername);
   }, 60_000);
 
-  function connect(url?: string) {
-    const gatewayUrl = url || resumeURL || 'wss://gateway.discord.gg/?v=10&encoding=json';
-    console.log(`[Discord Bot] Connecting to Discord Gateway: ${gatewayUrl}`);
-    ws = new WebSocket(gatewayUrl);
+  function stopHeartbeat() {
+    if (heartbeatTimer) clearTimeout(heartbeatTimer);
+    heartbeatTimer = null;
+  }
 
-    ws.on('open', () => {
-      console.log('[Discord Bot] WebSocket connection opened.');
+  function discard(socket: WebSocket) {
+    socket.removeAllListeners();
+    socket.on('error', () => {});
+    try { socket.terminate(); } catch {}
+  }
+
+  function forgetSession() {
+    sessionID = null;
+    lastSequence = null;
+    resumeURL = null;
+  }
+
+  function stop(reason: string) {
+    stopped = true;
+    stopHeartbeat();
+    if (reconnectTimer) clearTimeout(reconnectTimer);
+    reconnectTimer = null;
+    if (ws) discard(ws);
+    ws = null;
+    console.error(`[Discord Bot] ${reason}. Bridge stopped; set a working SERIKA_DISCORD_TOKEN and restart to reconnect.`);
+  }
+
+  function scheduleReconnect(reason: string, opts: { resume?: boolean; delay?: number } = {}) {
+    if (stopped || reconnectTimer) return;
+    stopHeartbeat();
+    if (ws) discard(ws);
+    ws = null;
+    if (opts.resume === false) forgetSession();
+    // A connection that stayed up for a minute counts as healthy again.
+    if (readyAt && Date.now() - readyAt > 60_000) failures = 0;
+    readyAt = 0;
+    const backoff = Math.min(60_000, 1000 * 2 ** Math.min(failures, 6)) + Math.random() * 1000;
+    const wait = Math.max(opts.delay ?? 0, backoff);
+    failures++;
+    console.log(`[Discord Bot] ${reason}. Reconnecting in ${Math.round(wait / 1000)}s...`);
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      void connect();
+    }, wait);
+  }
+
+  // Checks the day's identify budget before starting a new session, and
+  // catches a revoked token without opening a socket.
+  async function canIdentify(): Promise<boolean> {
+    try {
+      const res = await fetch('https://discord.com/api/v10/gateway/bot', {
+        headers: { Authorization: `Bot ${botToken}` },
+      });
+      if (res.status === 401) {
+        stop('Discord rejected the bot token (401)');
+        return false;
+      }
+      if (!res.ok) return true;
+      const limit = (await res.json())?.session_start_limit;
+      if (limit && limit.remaining <= IDENTIFY_RESERVE) {
+        scheduleReconnect(`Only ${limit.remaining}/${limit.total} gateway sessions left today`, {
+          resume: false,
+          delay: limit.reset_after + 5000,
+        });
+        return false;
+      }
+      return true;
+    } catch {
+      return true;
+    }
+  }
+
+  async function connect() {
+    if (stopped || ws) return;
+    const resuming = Boolean(sessionID && lastSequence !== null && resumeURL);
+    if (!resuming && !(await canIdentify())) return;
+    if (stopped || ws || reconnectTimer) return;
+
+    const gatewayUrl = `${resuming ? resumeURL!.replace(/\/+$/, '') : GATEWAY_URL}${GATEWAY_QUERY}`;
+    console.log(`[Discord Bot] Connecting to Discord Gateway: ${gatewayUrl}`);
+    const socket = new WebSocket(gatewayUrl);
+    ws = socket;
+    const current = () => ws === socket;
+
+    const send = (payload: unknown) => {
+      if (current() && socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify(payload));
+    };
+
+    socket.on('open', () => {
+      if (current()) console.log('[Discord Bot] WebSocket connection opened.');
     });
 
-    ws.on('message', async (data: any) => {
+    socket.on('message', async (data: any) => {
+      if (!current()) return;
       try {
         const payload = JSON.parse(data.toString());
         const { op, d, t, s } = payload;
 
-        if (s !== undefined) lastSequence = s;
+        if (s !== undefined && s !== null) lastSequence = s;
 
-        // Hello Opcode
+        // Hello
         if (op === 10) {
           const interval = d.heartbeat_interval;
           console.log(`[Discord Bot] Hello received. Heartbeat interval: ${interval}ms`);
 
-          if (heartbeatInterval) clearInterval(heartbeatInterval);
-          heartbeatInterval = setInterval(() => {
-            if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(JSON.stringify({ op: 1, d: lastSequence }));
-            }
-          }, interval);
+          stopHeartbeat();
+          awaitingAck = false;
+          const beat = () => {
+            if (!current()) return;
+            // No ACK since the last beat: the connection is a zombie.
+            if (awaitingAck) return scheduleReconnect('No heartbeat ACK from Discord');
+            awaitingAck = true;
+            send({ op: 1, d: lastSequence });
+            heartbeatTimer = setTimeout(beat, interval);
+          };
+          heartbeatTimer = setTimeout(beat, interval * Math.random());
 
-          // Resume if we have a session, otherwise Identify
-          if (sessionID && lastSequence !== null) {
+          if (resuming) {
             console.log('[Discord Bot] Resuming session...');
-            ws?.send(JSON.stringify({
-              op: 6,
-              d: { token: botToken, session_id: sessionID, seq: lastSequence },
-            }));
+            send({ op: 6, d: { token: botToken, session_id: sessionID, seq: lastSequence } });
           } else {
-            const identifyPayload = {
+            send({
               op: 2,
               d: {
                 token: botToken,
@@ -614,25 +724,35 @@ export async function startDiscordBot() {
                   device: 'serikacord',
                 },
               },
-            };
-            ws?.send(JSON.stringify(identifyPayload));
+            });
           }
+          return;
         }
 
-        // Resumed
+        // Heartbeat ACK
+        if (op === 11) {
+          awaitingAck = false;
+          return;
+        }
+
+        // Discord wants a heartbeat right now
+        if (op === 1) {
+          send({ op: 1, d: lastSequence });
+          return;
+        }
+
+        // Reconnect: Discord is moving us, resume on a new socket
         if (op === 7) {
-          console.log('[Discord Bot] Session resumed successfully.');
+          scheduleReconnect('Discord asked the bot to reconnect');
+          return;
         }
 
         // Invalid Session
         if (op === 9) {
-          console.log(`[Discord Bot] Invalid session. Resumable: ${d}. Reconnecting...`);
-          if (!d) {
-            sessionID = null;
-            lastSequence = null;
-          }
-          if (heartbeatInterval) clearInterval(heartbeatInterval);
-          setTimeout(() => connect(), 2000);
+          scheduleReconnect(`Invalid session (resumable: ${d})`, {
+            resume: Boolean(d),
+            delay: 1000 + Math.random() * 4000,
+          });
           return;
         }
 
@@ -641,6 +761,7 @@ export async function startDiscordBot() {
           if (t === 'READY') {
             sessionID = d.session_id;
             resumeURL = d.resume_gateway_url || null;
+            readyAt = Date.now();
             console.log(`[Discord Bot] Bot ready! Logged in as ${d.user.username}#${d.user.discriminator}`);
             botUsername = d.user.username || null;
             recordBotHeartbeat(botUsername);
@@ -652,6 +773,7 @@ export async function startDiscordBot() {
           }
 
           if (t === 'RESUMED') {
+            readyAt = Date.now();
             console.log('[Discord Bot] Session resumed — replaying missed events.');
             recordBotHeartbeat(botUsername);
           }
@@ -1016,16 +1138,19 @@ export async function startDiscordBot() {
       }
     });
 
-    ws.on('close', (code, reason) => {
-      console.log(`[Discord Bot] Connection closed (${code}): ${reason || 'no reason'}. Reconnecting in 5s...`);
-      if (heartbeatInterval) clearInterval(heartbeatInterval);
-      setTimeout(() => connect(), 5000);
+    socket.on('close', (code, reason) => {
+      if (!current()) return;
+      ws = null;
+      const why = String(reason) || 'no reason';
+      if (FATAL_CLOSE_CODES.has(code)) return stop(`Gateway closed with ${code} (${why})`);
+      // 4007 (bad sequence) and 4009 (session timed out) can't be resumed.
+      scheduleReconnect(`Connection closed (${code}): ${why}`, { resume: code !== 4007 && code !== 4009 });
     });
 
-    ws.on('error', (err) => {
-      console.error('[Discord Bot] Connection error:', err);
+    socket.on('error', (err) => {
+      if (current()) console.error('[Discord Bot] Connection error:', err.message);
     });
   }
 
-  connect();
+  void connect();
 }

@@ -11,11 +11,11 @@ export function MusicActivityCard({ music }: { music: MusicActivity }) {
       href={music.url}
       target="_blank"
       rel="noopener noreferrer"
-      className="group block overflow-hidden rounded-xl border border-white/[0.06] bg-gradient-to-b from-white/[0.05] to-white/[0.02] hover:border-[#e4335a]/30 transition-colors"
+      className="sw-card sw-focus group block overflow-hidden hover:!border-[#e4335a]/35"
     >
       {/* Header */}
       <div className="flex items-center justify-between px-3 pt-2.5 pb-2">
-        <h4 className="text-[11px] font-bold uppercase tracking-wide text-[#9a9aad] flex items-center gap-1.5">
+        <h4 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--sw-faint)] flex items-center gap-1.5">
           <Music2 className="w-3 h-3" />
           {gt("Listening on Last.fm")}
         </h4>
@@ -39,7 +39,7 @@ export function MusicActivityCard({ music }: { music: MusicActivity }) {
           </div>
         )}
         <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-white truncate" title={music.name}>
+          <p className="font-display text-[15px] font-semibold tracking-[-0.01em] text-white truncate" title={music.name}>
             {music.name}
           </p>
           <p className="text-xs text-[#9a9aad] truncate" title={music.artist}>
@@ -52,7 +52,7 @@ export function MusicActivityCard({ music }: { music: MusicActivity }) {
           )}
         </div>
         {/* Animated equalizer bars */}
-        <div className="flex items-end gap-[2px] h-4 shrink-0">
+        <div aria-hidden className="flex items-end gap-[2px] h-4 shrink-0 motion-reduce:hidden">
           {[1, 2, 3].map((i) => (
             <div
               key={i}

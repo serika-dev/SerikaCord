@@ -74,10 +74,35 @@ Stored as a jsonb column on `users` (mirrors Discord `/users/@me/widgets`) to av
 ```
 users.profileWidgets jsonb default []
   [{ id, type: 'application'|'builtin',
-     applicationId?, builtin?: 'favorite_game'|'games_i_like'|'games_rotation'|'want_to_play',
-     position }]
+     applicationId?, builtin?: 'favorite_game'|'games_i_like'|'games_rotation'|'want_to_play'|'serika_wishlist',
+     options?, position }]
 ```
 Built-in widgets (the four game-library ones) need no application and render from `user_games`.
+
+The array order is the Board order for every widget type (game sections, app
+widgets, wishlists, and the fixed Connections / Recent activity sections);
+`src/lib/profileBoard.ts` holds the helpers. Fixed built-ins without a placement
+are implicit: game sections are shown first, Connections and Recent activity last.
+The first reorder turns them into placements (`id: 'game:<category>'`,
+`'section:connections'` / `'section:activity'`, builtin `connections` /
+`recent_activity`). Connections and Recent activity are on by default; the owner
+can remove one with `PUT /api/users/@me/board-sections` (`{ section, enabled }`),
+which stores its placement with `hidden: true` so it keeps its slot and comes back
+in the same place. Only that endpoint changes `hidden`; the order endpoint and the
+widget PUT copy stored placements as-is, so older clients can't resurrect or drop
+them. Renderers skip hidden placements. `PUT /api/users/@me/widgets/order`
+(`{ ids }`) only reorders; `PUT /api/users/@me/widgets` controls app widgets and
+keeps built-ins it doesn't name.
+
+`serika_wishlist` is one widget per public Serika Wishlist list:
+`{ id: 'serika_wishlist:<slug>', options: { listSlug } }`. Added/removed with
+`PUT /api/users/@me/serika-wishlist` (`{ enabled, listSlug }`). A placement saved
+before one-list-per-widget (`listSlug: null`) is migrated on read to the owner's
+first public list, or dropped when they have none. `GET /api/users/:id/serika-wishlist`
+proxies `GET {NEXT_PUBLIC_SERIKA_WISHLIST_URL}/api/public/users/{accountsId}/wishlists`
+(5 min cache, owner may `?refresh=1`): the owner gets every public list, visitors
+only the placed ones. List `emoji` is never shown; `iconUrl` is, through wsrv.nl.
+See `src/lib/serikaWishlist.ts`.
 
 ### 1.5 RPC extensions
 Add to `rich_presence`: `applicationId uuid null`, `assets jsonb null`

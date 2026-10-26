@@ -1,6 +1,7 @@
 "use client";
 
-import { cdnImage } from "@/lib/utils";
+import { cn } from "@/lib/utils";
+import { WidgetImage } from "@/components/widgets/WidgetShell";
 import { WIDGET_LAYOUT_BY_KEY } from "@/lib/constants/widgets";
 
 // ── Widget config types (1:1 with the nested Discord surface shape) ──────────
@@ -49,6 +50,7 @@ export interface WidgetConfigShape {
 
 // ── Field resolution ─────────────────────────────────────────────────────────
 function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "0s";
   const s = Math.floor(ms / 1000);
   const h = Math.floor(s / 3600);
   const m = Math.floor((s % 3600) / 60);
@@ -56,8 +58,15 @@ function formatDuration(ms: number): string {
   const parts: string[] = [];
   if (h) parts.push(`${h}h`);
   if (m) parts.push(`${m}m`);
-  parts.push(`${sec}s`);
+  // Seconds are noise once a duration runs into hours.
+  if (!h) parts.push(`${sec}s`);
   return parts.join(" ");
+}
+
+function formatNumber(raw: string | number): string {
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return String(raw);
+  return n.toLocaleString(undefined, { maximumFractionDigits: 2 });
 }
 
 export function resolveField(field: WidgetField | undefined, data: WidgetUserData | null): string | null {
@@ -77,7 +86,7 @@ export function resolveField(field: WidgetField | undefined, data: WidgetUserDat
   if (!entry) return fallback();
   const raw = typeof entry.value === "object" ? entry.value?.url ?? null : entry.value;
   if (raw == null || raw === "") return fallback();
-  if (field.presentation_type === "number") return String(Number(raw));
+  if (field.presentation_type === "number") return formatNumber(raw);
   if (field.presentation_type === "duration") return formatDuration(Number(raw));
   return String(raw);
 }
@@ -112,9 +121,39 @@ export function widgetHasContent(config: WidgetConfigShape | undefined, data: Wi
 }
 
 // ── Sub-renderers ─────────────────────────────────────────────────────────────
-function Img({ src, className }: { src: string; className: string }) {
-  // eslint-disable-next-line @next/next/no-img-element
-  return <img src={cdnImage(src)} alt="" className={className} />;
+/** Numeric value of a field, ignoring its display presentation (for maths). */
+function resolveNumber(surface: WidgetSurface | undefined, comp: string, key: string, data: WidgetUserData | null): number | null {
+  const f = field(surface, comp, key);
+  if (!f) return null;
+  const raw = resolveField({ ...f, presentation_type: "text" }, data);
+  if (raw == null) return null;
+  const n = Number(raw);
+  return Number.isFinite(n) ? n : null;
+}
+
+function ImageFallback({ className }: { className?: string }) {
+  return (
+    <div
+      aria-hidden
+      className={cn("bg-gradient-to-br from-[var(--sw-accent-deep)]/50 to-[var(--sw-accent-night)] ring-1 ring-inset ring-white/10", className)}
+    />
+  );
+}
+
+function Img({ src, alt = "", className }: { src: string; alt?: string; className: string }) {
+  return <WidgetImage src={src} alt={alt} className={className} fallback={<ImageFallback className={className} />} />;
+}
+
+function Title({ children }: { children: string }) {
+  return (
+    <p className="font-display text-[17px] leading-tight font-semibold tracking-[-0.015em] text-[var(--sw-text)] line-clamp-2">
+      {children}
+    </p>
+  );
+}
+
+function Description({ children }: { children: string }) {
+  return <p className="text-[12.5px] text-[var(--sw-muted)] mt-1 line-clamp-3 leading-relaxed">{children}</p>;
 }
 
 function TopHero({ surface, data, contained }: { surface?: WidgetSurface; data: WidgetUserData | null; contained: boolean }) {
@@ -123,30 +162,37 @@ function TopHero({ surface, data, contained }: { surface?: WidgetSurface; data: 
   const desc = resolve(surface, "primary", "description", data);
   if (!image && !title && !desc) return null;
 
-  if (contained) {
+  if (contained || !image) {
     return (
-      <div className="flex items-start gap-3 p-3.5">
-        <div className="flex-1 min-w-0">
-          {title && <p className="text-base font-bold text-white tracking-tight">{title}</p>}
-          {desc && <p className="text-xs text-white/55 mt-1 line-clamp-3 leading-relaxed">{desc}</p>}
+      <div className="flex items-start gap-3.5 p-3.5">
+        <div className="flex-1 min-w-0 pt-0.5">
+          {title && <Title>{title}</Title>}
+          {desc && <Description>{desc}</Description>}
         </div>
-        {image && <Img src={image} className="w-16 h-16 rounded-xl object-cover shrink-0" />}
+        {image && <Img src={image} alt={title ?? ""} className="size-16 rounded-[8px] object-cover shrink-0 ring-1 ring-white/10 shadow-lg shadow-black/40" />}
       </div>
     );
   }
-  // Hero: full-height image right, fade to the text on the left.
+  // Hero: the image fills the right side and dissolves into the card (a mask,
+  // not a painted gradient, so it works on any profile background).
   return (
-    <div className="relative min-h-[112px] overflow-hidden">
-      {image && (
-        <div className="absolute inset-y-0 right-0 w-1/2">
-          <Img src={image} className="w-full h-full object-cover" />
-          <div className="absolute inset-0 bg-gradient-to-r from-[#0e0e12] via-[#0e0e12]/80 to-transparent" />
-        </div>
-      )}
-      <div className="relative p-3.5 pr-28 max-w-[72%]">
-        {title && <p className="text-base font-bold text-white tracking-tight">{title}</p>}
-        {desc && <p className="text-xs text-white/55 mt-1 line-clamp-3 leading-relaxed">{desc}</p>}
+    <div className="relative min-h-[124px] overflow-hidden">
+      <div className="absolute inset-y-0 right-0 w-1/2 [mask-image:linear-gradient(to_left,black_40%,transparent)]">
+        <Img src={image} alt={title ?? ""} className="w-full h-full object-cover" />
       </div>
+      <div className="relative p-3.5 pr-4 max-w-[60%]">
+        {title && <Title>{title}</Title>}
+        {desc && <Description>{desc}</Description>}
+      </div>
+    </div>
+  );
+}
+
+function StatTile({ value, label }: { value: string | null; label: string | null }) {
+  return (
+    <div className="min-w-0 rounded-[var(--sw-radius-inner)] bg-[var(--sw-surface-raised)] ring-1 ring-inset ring-white/[0.05] px-2.5 py-2">
+      {value && <p className="font-display text-[15px] font-semibold tabular-nums text-[var(--sw-text)] truncate" title={value}>{value}</p>}
+      {label && <p className="text-[10px] font-medium uppercase tracking-[0.06em] text-[var(--sw-faint)] truncate mt-0.5" title={label}>{label}</p>}
     </div>
   );
 }
@@ -159,14 +205,10 @@ function StatsGrid({ surface, data, count }: { surface?: WidgetSurface; data: Wi
     }))
     .filter((s) => s.label || s.value);
   if (items.length === 0) return null;
+  const cols = items.length === 1 ? "grid-cols-1" : items.length === 2 || items.length === 4 ? "grid-cols-2" : "grid-cols-3";
   return (
-    <div className="grid grid-cols-3 gap-2 p-3.5">
-      {items.map((s, i) => (
-        <div key={i} className="min-w-0">
-          {s.value && <p className="text-sm font-bold text-white truncate">{s.value}</p>}
-          {s.label && <p className="text-[10px] uppercase tracking-wide text-white/40 truncate">{s.label}</p>}
-        </div>
-      ))}
+    <div className={cn("grid gap-1.5 p-3.5", cols)}>
+      {items.map((s, i) => <StatTile key={i} value={s.value} label={s.label} />)}
     </div>
   );
 }
@@ -174,29 +216,42 @@ function StatsGrid({ surface, data, count }: { surface?: WidgetSurface; data: Wi
 function Progress({ surface, data }: { surface?: WidgetSurface; data: WidgetUserData | null }) {
   const image = resolve(surface, "progress", "image", data);
   const label = resolve(surface, "progress", "label", data);
-  const current = Number(resolve(surface, "progress", "current", data) ?? 0);
-  const maxRaw = resolve(surface, "progress", "max", data);
-  const max = maxRaw != null ? Number(maxRaw) : null;
-  const pct = max ? Math.min(100, (current / max) * 100) : Math.min(100, current * 100);
+  const current = resolveNumber(surface, "progress", "current", data) ?? 0;
+  const max = resolveNumber(surface, "progress", "max", data);
+  const ratio = max && max > 0 ? current / max : current;
+  const pct = Math.max(0, Math.min(100, ratio * 100));
   const stats = [1, 2, 3]
     .map((i) => ({ label: resolve(surface, `stat${i}`, "label", data), value: resolve(surface, `stat${i}`, "value", data) }))
     .filter((s) => s.label || s.value);
   if (!image && !label && !stats.length && !current) return null;
+  const caption = max && max > 0 ? `${formatNumber(current)} / ${formatNumber(max)}` : `${Math.round(pct)}%`;
   return (
-    <div className="flex items-center gap-3 p-3.5">
-      {image && <Img src={image} className="w-16 h-16 rounded-xl object-cover shrink-0" />}
+    <div className="flex items-center gap-3.5 p-3.5">
+      {image && <Img src={image} alt={label ?? ""} className="size-16 rounded-[8px] object-cover shrink-0 ring-1 ring-white/10" />}
       <div className="flex-1 min-w-0 space-y-2">
-        {label && <p className="text-sm font-semibold text-white truncate">{label}</p>}
-        <div className="h-2 rounded-full bg-white/10 overflow-hidden">
-          <div className="h-full bg-gradient-to-r from-[#8B5CF6] to-[#a78bfa] rounded-full transition-all duration-300" style={{ width: `${pct}%` }} />
+        <div className="flex items-baseline justify-between gap-2">
+          {label && <p className="text-[13px] font-semibold text-[var(--sw-text)] truncate">{label}</p>}
+          <span className="ml-auto text-[11px] font-medium tabular-nums text-[var(--sw-muted)] shrink-0">{caption}</span>
         </div>
-        <p className="text-[10px] text-white/40">{max ? `${current} / ${max}` : `${Math.round(pct)}%`}</p>
+        <div
+          className="h-1.5 rounded-full bg-white/[0.08] overflow-hidden"
+          role="progressbar"
+          aria-valuemin={0}
+          aria-valuemax={100}
+          aria-valuenow={Math.round(pct)}
+          aria-label={label ?? undefined}
+        >
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-[var(--sw-accent-deep)] to-[var(--sw-accent)] shadow-[0_0_12px_rgba(139,92,246,0.6)] transition-[width] duration-500"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
         {stats.length > 0 && (
-          <div className="flex gap-4">
+          <div className="flex gap-4 pt-0.5">
             {stats.map((s, i) => (
-              <div key={i}>
-                {s.value && <p className="text-xs font-bold text-white">{s.value}</p>}
-                {s.label && <p className="text-[9px] uppercase text-white/40">{s.label}</p>}
+              <div key={i} className="min-w-0">
+                {s.value && <p className="text-[12px] font-semibold tabular-nums text-[var(--sw-text)] truncate">{s.value}</p>}
+                {s.label && <p className="text-[9.5px] uppercase tracking-[0.06em] text-[var(--sw-faint)] truncate">{s.label}</p>}
               </div>
             ))}
           </div>
@@ -216,13 +271,17 @@ function Collection({ surface, data }: { surface?: WidgetSurface; data: WidgetUs
     .filter((it) => it.image || it.title || it.subtitle);
   if (items.length === 0) return null;
   return (
-    <div className="grid grid-cols-2 gap-2 p-3.5">
+    <div className="grid grid-cols-1 min-[360px]:grid-cols-2 gap-1.5 p-3.5">
       {items.map((it, i) => (
-        <div key={i} className="flex items-center gap-2 min-w-0">
-          {it.image ? <Img src={it.image} className="w-9 h-9 rounded-lg object-cover shrink-0" /> : <div className="w-9 h-9 rounded-lg bg-white/[0.05] shrink-0" />}
+        <div key={i} className="flex items-center gap-2.5 min-w-0 rounded-[var(--sw-radius-inner)] bg-[var(--sw-surface-raised)] ring-1 ring-inset ring-white/[0.05] p-1.5 pr-2.5">
+          {it.image ? (
+            <Img src={it.image} alt={it.title ?? ""} className="size-10 rounded-[5px] object-cover shrink-0" />
+          ) : (
+            <ImageFallback className="size-10 rounded-[5px] shrink-0" />
+          )}
           <div className="min-w-0">
-            {it.title && <p className="text-[11px] font-medium text-white truncate">{it.title}</p>}
-            {it.subtitle && <p className="text-[10px] text-white/50 truncate">{it.subtitle}</p>}
+            {it.title && <p className="text-[12px] font-medium text-[var(--sw-text)] truncate" title={it.title}>{it.title}</p>}
+            {it.subtitle && <p className="text-[11px] text-[var(--sw-muted)] truncate" title={it.subtitle}>{it.subtitle}</p>}
           </div>
         </div>
       ))}
@@ -243,11 +302,15 @@ export function WidgetRenderer({
   config,
   data,
   icon,
+  appName,
   mode = "widget",
 }: {
   config: WidgetConfigShape;
   data: WidgetUserData | null;
+  /** Application icon, shown in the widget's source strip. */
   icon?: string | null;
+  /** Application name, shown in the widget's source strip. */
+  appName?: string | null;
   /** Which surface family to render. Defaults to the full profile widget. */
   mode?: "widget" | "add_preview" | "mini_profile" | "activity_accessory";
 }) {
@@ -261,11 +324,17 @@ export function WidgetRenderer({
     const contained = surface?.layout === "mini_profile_contained_stat";
     if (!image && !value) return null;
     return (
-      <div className="flex items-center gap-2 rounded-lg bg-white/[0.04] p-2">
-        {image && <Img src={image} className={contained ? "w-10 h-10 rounded-lg object-cover" : "w-12 h-12 rounded-full object-cover"} />}
+      <div className="sw-card flex items-center gap-2.5 p-2 pr-3">
+        {image && (
+          <Img
+            src={image}
+            alt={label ?? ""}
+            className={contained ? "size-10 rounded-[6px] object-cover shrink-0" : "size-11 rounded-full object-cover shrink-0 ring-2 ring-[var(--sw-accent)]/40"}
+          />
+        )}
         <div className="min-w-0">
-          {value && <p className="text-sm font-bold text-white truncate">{value}</p>}
-          {label && <p className="text-[10px] uppercase text-white/40 truncate">{label}</p>}
+          {value && <p className="font-display text-[15px] font-semibold tabular-nums text-[var(--sw-text)] truncate">{value}</p>}
+          {label && <p className="text-[10px] uppercase tracking-[0.06em] text-[var(--sw-faint)] truncate">{label}</p>}
         </div>
       </div>
     );
@@ -277,9 +346,10 @@ export function WidgetRenderer({
     const label = resolve(surface, "primary", "label", data);
     if (!value && !label) return null;
     return (
-      <p className="text-[11px] text-white/50">
+      <p className="inline-flex items-center gap-1.5 text-[11px] text-[var(--sw-muted)]">
+        <span aria-hidden className="size-1.5 rounded-full bg-[var(--sw-accent)]" />
         {label ? `${label} ` : ""}
-        <span className="text-white/80 font-medium">{value}</span>
+        <span className="text-[var(--sw-text)] font-medium tabular-nums">{value}</span>
       </p>
     );
   }
@@ -287,11 +357,27 @@ export function WidgetRenderer({
   const topSurface = mode === "add_preview" ? s.add_widget_preview ?? s.widget_top : s.widget_top;
   const contained = (topSurface?.layout || "").includes("contained");
   const bottomSurface = mode === "add_preview" ? s.add_widget_preview ?? s.widget_bottom : s.widget_bottom;
+  const hasTop = surfaceHasAnything(topSurface, data, ["primary"]);
+  const sourceLabel = appName || config.name;
 
   return (
-    <div className="rounded-2xl bg-gradient-to-b from-[#131318] to-[#0e0e12] border border-white/[0.06] overflow-hidden transition-all duration-200 hover:border-white/[0.1]">
+    <div className="sw-card overflow-hidden">
+      {(icon || sourceLabel) && (
+        <div className="flex items-center gap-2 px-3.5 pt-3 -mb-1.5 min-w-0">
+          {icon && <Img src={icon} alt="" className="size-4 rounded-[4px] object-cover shrink-0" />}
+          <span className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--sw-faint)] truncate">{sourceLabel}</span>
+        </div>
+      )}
       <TopHero surface={topSurface} data={data} contained={contained} />
-      <BottomSurface surface={bottomSurface} data={data} />
+      <div className={cn("empty:hidden", hasTop && "border-t border-[var(--sw-hairline)]")}>
+        <BottomSurface surface={bottomSurface} data={data} />
+      </div>
     </div>
   );
+}
+
+/** Whether any of the given components on a surface resolve to a value. */
+function surfaceHasAnything(surface: WidgetSurface | undefined, data: WidgetUserData | null, comps: string[]): boolean {
+  if (!surface?.components) return false;
+  return comps.some((c) => Object.keys(surface.components[c]?.fields ?? {}).some((k) => resolve(surface, c, k, data)));
 }
