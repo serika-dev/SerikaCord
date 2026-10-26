@@ -7,14 +7,34 @@
 ## Unreleased
 
 ### Features
+- **Edit your profile from your profile** — open your own full profile and click the pen tab on its left edge to change your nameplate, avatar, name style, theme colours, banner and per-server profiles in a side panel. Double-click your name, pronouns, status or About Me to edit them in place, and hover your avatar or banner to change them.
+- **Pick your server tag from your profile** — click the tag next to your name to search your servers and switch or remove your tag instantly.
+- **Better server tag tooltips** — hovering a server tag shows the server icon, name, member and online counts, and a button to go to the server or join it when it is open to join.
+- **Guided Discord linking** — connect Discord, add the bot, then pick your Discord server from a list instead of pasting an ID.
+- **Link Discord channels to existing channels** — a searchable channel map links any Discord channel to an existing SerikaCord channel or creates a new one, with auto-match by name, create all missing and unlink all.
+- **Customise every bridged channel** — one-way or two-way, pause, edits, deletes, attachments, bot messages, names and avatars, and a prefix or suffix per channel, with server-wide defaults for new links.
+- **Bridge status** — see when messages last crossed each Discord link, repair broken webhooks in one click and send a test message.
+- **Discord-style webhooks** — New Webhook creates one instantly with a fun default name and opens a card with its picture, name, channel, Copy Webhook URL and Delete. Bots can set a webhook name and picture too, and Server Settings → Integrations lists every webhook in the server.
+- **Webhook badge** — webhook messages show a "Webhook" badge, and clicking them no longer opens an empty profile.
 
 ### Changes
+- **Nicer settings** — both settings windows have a grouped sidebar with search (it also finds settings like "dark mode" and jumps to them), tidier rows, sticky page titles, an ESC close button and smooth page transitions.
+- **Unsaved changes are safe** — trying to leave settings with unsaved changes shakes the save bar instead of losing your edits.
+- **Smoother app** — menus, dialogs, tooltips and buttons animate quickly and consistently, tooltips have arrows, and animations switch off when reduced motion is on.
 
 ### Bug Fixes
+- **Syncing a linked Discord server** — no longer fails with "That Discord server is already linked to another server".
+- **Discord bridge edits and deletes** — editing or deleting a message in SerikaCord now updates the Discord copy.
+- **Discord messages notify** — messages from Discord now show unread badges and notifications, are no longer mirrored twice, and same-named channels no longer post into each other.
+- **Discord link kept** — saving some server settings no longer silently removes the Discord link.
+- **Webhook posts split correctly** — posts from one webhook with a different picture no longer merge under one header.
+- **Light theme and accent colours** — several Appearance labels, loading skeletons and badge popups are readable in light theme, Server Settings use your accent colour instead of a fixed purple, and accent buttons visibly change on hover.
 
 ### Performance
 
 ### Security
+- **Smaller bot invite** — the Discord bridge invite asks only for the permissions it needs instead of Administrator, and Discord webhook URLs are never sent to the browser.
+- **Webhook access** — only members with Manage Webhooks can see a channel webhook list, and webhook pictures are stored on Serika servers.
 
 ### Removed
 
