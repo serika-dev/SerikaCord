@@ -91,24 +91,39 @@ export async function readBridgeHealth(serverId: string): Promise<Record<string,
 
 const BOT_KEY = 'discordbridge:bot';
 const BOT_TTL_SECONDS = 150;
+// Set alongside the heartbeat with a long TTL: tells "the bot stopped" apart
+// from "the running bot is a build that never reports" (e.g. production on an
+// older release while canary shows the new Status tab).
+const BOT_SEEN_KEY = 'discordbridge:bot:seen';
+const BOT_SEEN_TTL_SECONDS = 30 * 24 * 60 * 60;
 
 /** Called by the bridge bot on READY and every minute while connected. */
 export function recordBotHeartbeat(username: string | null): void {
   const redis = getRedis();
   if (!redis) return;
-  void redis.set(BOT_KEY, JSON.stringify({ at: new Date().toISOString(), username }), 'EX', BOT_TTL_SECONDS).catch(() => {});
+  const value = JSON.stringify({ at: new Date().toISOString(), username });
+  void redis.set(BOT_KEY, value, 'EX', BOT_TTL_SECONDS).catch(() => {});
+  void redis.set(BOT_SEEN_KEY, value, 'EX', BOT_SEEN_TTL_SECONDS).catch(() => {});
 }
 
-export async function readBotHeartbeat(): Promise<{ online: boolean; at: string | null; username: string | null }> {
+/**
+ * `online` is null when no bot has ever reported in: the bridge may well be
+ * running, just on an instance whose build doesn't send heartbeats yet.
+ */
+export async function readBotHeartbeat(): Promise<{ online: boolean | null; at: string | null; username: string | null }> {
   const redis = getRedis();
-  if (!redis) return { online: false, at: null, username: null };
+  if (!redis) return { online: null, at: null, username: null };
   try {
-    const raw = await redis.get(BOT_KEY);
-    if (!raw) return { online: false, at: null, username: null };
+    const [raw, seen] = await Promise.all([redis.get(BOT_KEY), redis.get(BOT_SEEN_KEY)]);
+    if (!raw) {
+      if (!seen) return { online: null, at: null, username: null };
+      const last = JSON.parse(seen) as { at?: string; username?: string | null };
+      return { online: false, at: last.at ?? null, username: last.username ?? null };
+    }
     const parsed = JSON.parse(raw) as { at?: string; username?: string | null };
     return { online: true, at: parsed.at ?? null, username: parsed.username ?? null };
   } catch {
-    return { online: false, at: null, username: null };
+    return { online: null, at: null, username: null };
   }
 }
 

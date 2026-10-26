@@ -29,7 +29,7 @@ export interface SerikaChannelView {
 
 export interface BridgeState {
   configured: boolean;
-  bot: { online: boolean; lastSeenAt: string | null; username: string | null; id: string; inviteUrl: string };
+  bot: { online: boolean | null; lastSeenAt: string | null; username: string | null; id: string; inviteUrl: string };
   account: { connected: boolean; username: string | null };
   enabled: boolean;
   restrictUnconsented: boolean;

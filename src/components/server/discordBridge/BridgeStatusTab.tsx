@@ -102,11 +102,20 @@ export function BridgeStatusTab({
           </div>
         </div>
         <div className="mt-3 flex flex-wrap gap-1.5">
-          <StatusPill tone={state.bot.online ? "ok" : "error"}>{state.bot.online ? gt("Bot online") : gt("Bot offline")}</StatusPill>
+          {state.bot.online === null ? (
+            <StatusPill tone="muted">{gt("Bot status unknown")}</StatusPill>
+          ) : (
+            <StatusPill tone={state.bot.online ? "ok" : "error"}>{state.bot.online ? gt("Bot online") : gt("Bot offline")}</StatusPill>
+          )}
           <StatusPill tone={state.enabled ? "ok" : "muted"}>{state.enabled ? gt("Mirroring on") : gt("Mirroring off")}</StatusPill>
           {problems > 0 && <StatusPill tone="error">{gt("{count} need attention", { count: problems })}</StatusPill>}
         </div>
-        {!state.bot.online && (
+        {state.bot.online === null && (
+          <p className="mt-2 text-xs text-[var(--text-secondary)]">
+            <T>The bridge bot runs on another SerikaCord instance that doesn&apos;t report its status yet. Send a test message to check a link.</T>
+          </p>
+        )}
+        {state.bot.online === false && (
           <p className="mt-2 text-xs text-[var(--text-secondary)]">
             <T>The bridge bot isn&apos;t connected to Discord right now, so Discord messages are not arriving. SerikaCord → Discord messages still go out through webhooks.</T>
           </p>
