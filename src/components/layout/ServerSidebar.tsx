@@ -64,32 +64,12 @@ interface DMChannel {
 }
 
 const DM_POLL_INTERVAL = 30_000;
-const DM_SEEN_KEY = "sc:dm-seen";
-const DM_SEEN_INIT_KEY = "sc:dm-seen-init";
-
-function loadDmSeen(): Record<string, string> {
-  if (typeof localStorage === "undefined") return {};
-  try {
-    return JSON.parse(localStorage.getItem(DM_SEEN_KEY) || "{}") as Record<string, string>;
-  } catch {
-    return {};
-  }
-}
-function saveDmSeen(map: Record<string, string>) {
-  if (typeof localStorage === "undefined") return;
-  try {
-    localStorage.setItem(DM_SEEN_KEY, JSON.stringify(map));
-  } catch {
-    /* quota — ignore */
-  }
-}
-
 export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarProps) {
   const gt = useGT();
   const confirmDialog = useConfirm();
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
-  const { isServerUnread, markServerRead: markServerUnreadRead, getServerMentionCount } = useUnread();
+  const { isServerUnread, markServerRead: markServerUnreadRead, getServerMentionCount, unreadChannels } = useUnread();
   // One source for every badge (rail, sidebar, inbox, tab title): the unread
   // engine, which honours per-server/channel notification settings.
   const mentionsFor = getServerMentionCount;
@@ -267,73 +247,46 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const clearDrag = () => { setDraggingKey(null); setDropTarget(null); };
 
   // ── DM unread rail ────────────────────────────────────────────────────────
-  // A DM is "unread" only when it has a real message that is newer than the last
-  // time we saw it (persisted per-device). On first ever load we baseline every
-  // existing conversation as read, so nothing shows until a genuinely new message
-  // arrives — this stops empty/old DMs from lingering in the rail.
+  // Which DMs are unread comes from UnreadContext: the same server-synced read
+  // markers as the DM list, so reading a conversation anywhere (the DM list,
+  // a notification, another device) clears it here too. This list only adds
+  // what the rail draws (group icon, member avatars).
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
-  const [dmSeen, setDmSeen] = useState<Record<string, string>>(loadDmSeen);
-
-  const markDmSeen = useCallback((channel: DMChannel) => {
-    const stamp = channel.updatedAt || new Date().toISOString();
-    setDmSeen((prev) => {
-      if (prev[channel.id] === stamp) return prev;
-      const next = { ...prev, [channel.id]: stamp };
-      saveDmSeen(next);
-      return next;
-    });
-  }, []);
 
   const fetchDMs = useCallback(async () => {
     try {
       const res = await sharedGet("/api/dms");
       if (!res.ok) return;
       const data = await res.json();
-      const channels = (data.channels || []) as DMChannel[];
-      setDmChannels(channels);
-      setDmSeen((prev) => {
-        const next = { ...prev };
-        let changed = false;
-        // First-run baseline: treat all current conversations as already read.
-        if (typeof localStorage !== "undefined" && !localStorage.getItem(DM_SEEN_INIT_KEY)) {
-          for (const c of channels) {
-            next[c.id] = c.updatedAt || new Date().toISOString();
-          }
-          localStorage.setItem(DM_SEEN_INIT_KEY, "1");
-          changed = true;
-        }
-        // Keep the currently-open DM marked read as new messages land in it.
-        if (pathname?.startsWith("/dm/")) {
-          const open = channels.find((c) => isDmChannelOpen(c, pathname));
-          if (open && next[open.id] !== (open.updatedAt || "")) {
-            next[open.id] = open.updatedAt || new Date().toISOString();
-            changed = true;
-          }
-        }
-        if (changed) saveDmSeen(next);
-        return changed ? next : prev;
-      });
+      setDmChannels((data.channels || []) as DMChannel[]);
     } catch {
       /* ignore — rail just won't populate */
     }
-  }, [pathname]);
+  }, []);
 
   // usePolling fires immediately on mount (and on tab refocus), so no separate
   // initial-fetch effect is needed.
   usePolling(() => void fetchDMs(), DM_POLL_INTERVAL);
 
+  // Newest first, muted ones already left out (UnreadContext). The fetched
+  // list only adds the group icon / member avatars; a conversation it doesn't
+  // have yet still shows, from the unread entry's own name and avatar.
   const unreadDMs = useMemo(() => {
-    return dmChannels
-      .filter((c) => {
-        const recipient = c.recipients?.[0];
-        if (!recipient || !c.lastMessageId || !c.updatedAt) return false;
-        // Don't flag the DM you're currently reading.
-        if (isDmChannelOpen(c, pathname)) return false;
-        const seen = dmSeen[c.id];
-        return !seen || new Date(c.updatedAt).getTime() > new Date(seen).getTime();
-      })
-      .map((c) => ({ channel: c, recipient: c.recipients[0] }));
-  }, [dmChannels, dmSeen, pathname]);
+    const byId = new Map(dmChannels.map((c) => [c.id, c]));
+    return unreadChannels.flatMap((u) => {
+      if (!u.isDM) return [];
+      const channel = byId.get(u.channelId) ?? null;
+      const recipient = channel?.recipients?.[0] ?? null;
+      const href = (channel ? dmChannelHref(channel) : null) ?? (recipient ? `/dm/${recipient.id}` : u.href);
+      // Don't flag the DM you're currently reading.
+      if (pathname === href || (channel && isDmChannelOpen(channel, pathname))) return [];
+      const isGroup = channel?.type === "group_dm";
+      const label = channel && isGroup
+        ? groupDisplayName(channel.name, channel.recipients.map((r) => r.displayName || r.username))
+        : recipient?.displayName || recipient?.username || u.name || "";
+      return [{ id: u.channelId, href, label, channel, isGroup, avatar: recipient?.avatar ?? u.avatar ?? null }];
+    });
+  }, [dmChannels, unreadChannels, pathname]);
 
   const totalDMUnread = unreadDMs.length;
 
@@ -727,40 +680,35 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
         {unreadDMs.length > 0 && (
           <div className="flex flex-col items-center gap-2 w-full">
             {(() => {
-              const { channel, recipient } = unreadDMs[0];
-              const href = dmChannelHref(channel) ?? `/dm/${recipient.id}`;
-              const isGroup = channel.type === "group_dm";
-              const label = isGroup
-                ? groupDisplayName(channel.name, channel.recipients.map((r) => r.displayName || r.username))
-                : recipient.displayName || recipient.username;
+              const dm = unreadDMs[0];
               return (
-                <Tooltip key={channel.id}>
+                <Tooltip key={dm.id}>
                   <TooltipTrigger asChild>
                     <button
-                      onClick={() => { markDmSeen(channel); router.push(href); }}
+                      onClick={() => router.push(dm.href)}
                       onMouseEnter={() => {
-                        const base = dmChannelApiBase(channel);
+                        const base = dm.channel ? dmChannelApiBase(dm.channel) : null;
                         if (base) void prefetchChannelMessages(base);
-                        router.prefetch(href);
+                        router.prefetch(dm.href);
                       }}
                       className="relative flex items-center justify-center w-12 h-12 rounded-[24px] transition-[border-radius] duration-200 hover:rounded-[16px] group overflow-hidden"
                     >
-                      {isGroup ? (
-                        <GroupDmIcon icon={channel.icon} members={channel.recipients} size={48} />
+                      {dm.isGroup && dm.channel ? (
+                        <GroupDmIcon icon={dm.channel.icon} members={dm.channel.recipients} size={48} />
                       ) : (
-                      <Avatar className="w-12 h-12">
-                        <AvatarImage src={cdnImage(recipient.avatar)} alt={recipient.displayName || recipient.username} />
-                        <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
-                          {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
+                        <Avatar className="w-12 h-12">
+                          <AvatarImage src={cdnImage(dm.avatar ?? undefined)} alt={dm.label} />
+                          <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)]">
+                            {(dm.label || "?").charAt(0).toUpperCase()}
+                          </AvatarFallback>
+                        </Avatar>
                       )}
                       <div className="absolute left-0 w-1 h-2.5 bg-[var(--text-primary)] rounded-r-full group-hover:h-5 transition-all duration-200" />
                       <span className="absolute bottom-0 right-0 w-3.5 h-3.5 flex items-center justify-center rounded-full bg-[var(--app-accent)] border-[3px] border-[var(--app-bg)]" />
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="right" className="bg-[var(--bg-card)] text-[var(--text-primary)] border border-[var(--border-subtle)]">
-                    {label}
+                    {dm.label}
                   </TooltipContent>
                 </Tooltip>
               );

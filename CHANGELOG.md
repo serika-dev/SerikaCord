@@ -38,6 +38,7 @@
 - **App Discovery search** — now filters as you type.
 - **Admin tools in light theme** — white text and fixed purple colours in staff tools now follow your theme.
 - **Active Now on every Friends tab** — the Active Now panel also shows on Pending, Blocked and Add Friend.
+- **DM unread dots clear when read** — a DM or group DM in the server list no longer keeps its unread dot after you read it in the DM list, from a notification or on another device, and new DMs show up there right away.
 
 ### Changes
 - **Reorder everything on your Board** — every widget (game sections, Serika Wishlist lists, app widgets, Connections and Recent activity) has up/down arrows, and the order you pick is the one everyone sees. Works with the keyboard and on phones. Visitors no longer see an empty Recent activity box.
