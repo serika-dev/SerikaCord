@@ -6,7 +6,6 @@ import { addReaction, removeReaction, type StoredReaction } from '@/lib/chat/rea
 import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage, type IChannel } from '@/lib/models';
 import { FormErrors } from '@/lib/botapi/formErrors';
 import { IS_COMPONENTS_V2, componentsPlainText, isComponentsV2, parseStoredComponents, resolveAttachmentRefs, validateMessageComponents } from '@/lib/botapi/components';
-import * as crypto from 'crypto';
 import { nanoid } from 'nanoid';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { config } from '@/lib/config';
@@ -4060,26 +4059,16 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const channel = c.channel;
   if (!channel.serverId) { set.status = 403; return MISSING_PERMISSIONS; }
 
-  const { name, avatar } = (body ?? {}) as { name?: unknown; avatar?: unknown };
-  const { cleanWebhookUsername, cleanWebhookAvatarUrl, blockedWebhookWord } = await import('@/lib/chat/webhook');
-  const blocked = typeof name === 'string' ? blockedWebhookWord(name) : null;
-  if (blocked) { set.status = 400; return { code: 50035, message: 'Invalid Form Body', errors: { name: { _errors: [{ code: 'USERNAME_INVALID_CONTAINS', message: `Username cannot contain "${blocked}"` }] } } }; }
-  const cleanName = cleanWebhookUsername(name);
-  if (!cleanName) { set.status = 400; return { code: 50035, message: 'Invalid Form Body', errors: { name: { _errors: [{ code: 'BASE_TYPE_BAD_LENGTH', message: 'Must be between 1 and 80 in length.' }] } } }; }
-
-  const token = crypto.randomBytes(34).toString('base64url');
-  const { serializeWebhook, webhookUrl } = await import('@/lib/services/channelWebhooks');
-  const created = await ChannelWebhook.create({
-    channelId: params.channelId,
-    serverId: channel.serverId ?? undefined,
-    name: cleanName,
-    avatar: typeof avatar === 'string' ? cleanWebhookAvatarUrl(avatar) : null,
-    token,
-    url: 'pending',
+  // Discord: name (1-80, no "clyde" / "discord") and avatar as image data.
+  const { createChannelWebhook, serializeWebhook } = await import('@/lib/services/channelWebhooks');
+  const created = await createChannelWebhook({
+    channel: { id: channel.id, serverId: channel.serverId },
+    body: (body ?? {}) as { name?: unknown; avatar?: unknown },
     creatorId: auth.botUser.id,
     applicationId: auth.app.id,
   });
-  const webhook = (await ChannelWebhook.updateById(created.id, { url: webhookUrl(created) })) ?? created;
+  if (!created.ok) { set.status = created.status; return created.body; }
+  const webhook = created.webhook;
   return serializeWebhook(webhook, { withToken: true, user: formatUser(auth.botUser) });
 })
 .get('/webhooks/:webhookId', async ({ headers, params, set }) => {
@@ -4122,6 +4111,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     },
     // Another app's webhook token stays with that app.
     viewerAppId: auth.app.id,
+    actorId: auth.botUser.id,
   });
   return respond(set, result);
 })
@@ -4138,7 +4128,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     if (!g || !g.ok) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
     if (!standingHas(g.standing, P.MANAGE_WEBHOOKS)) { set.status = 403; return MISSING_PERMISSIONS; }
   }
-  await ChannelWebhook.deleteById(params.webhookId);
+  const { removeWebhook } = await import('@/lib/services/channelWebhooks');
+  await removeWebhook(webhook);
   set.status = 204;
   return '';
 })

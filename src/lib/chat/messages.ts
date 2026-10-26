@@ -78,11 +78,11 @@ export function applyThreadUpdate<M extends ChatMessage>(
 
 /**
  * Identity used for grouping. Webhook posts can carry a different display name
- * per message (bridges post as many people through one webhook), so the name
- * is part of the key and different names never merge into one header.
+ * and avatar per message (bridges post as many people through one webhook), so
+ * both are part of the key and different identities never merge into one header.
  */
 export function messageGroupKey(message: Pick<ChatMessage, "authorId" | "webhookId" | "author">): string {
-  if (message.webhookId) return `wh:${message.webhookId}:${message.author?.username ?? ""}`;
+  if (message.webhookId) return `wh:${message.webhookId}:${message.author?.username ?? ""}:${message.author?.avatar ?? ""}`;
   return message.authorId;
 }
 

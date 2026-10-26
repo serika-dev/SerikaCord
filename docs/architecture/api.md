@@ -16,6 +16,7 @@ when Next runs alone.
 | `/api/friends` | `index.ts` | friends, requests, `/stream` SSE |
 | `/api/bug-reports`, `/api/notifications`, `/api/igdb`, `/api/discord` | `index.ts` | bug reports, notification prefs, game search, Discord bridge self-service (forget-me) |
 | `/api/servers`, `/api/invites` | `servers.ts` | servers, members, roles, bans, kicks, timeouts, emojis, stickers, channels list/create, partners, invites |
+| `/api/servers/:serverId/discord-bridge/*` | `discordBridge.ts` | Discord bridge settings: guild picker + link, channel mapping, per-link options, repair/test, health (Manage Server; bridge logic in `src/lib/discord/`) |
 | `/api/channels` | `channels.ts` | messages, reactions, pins, typing, threads/forums, webhooks, `/:channelId/stream` |
 | `/api/dms` | `dms.ts` | DM channels and messages, `/stream`, `/:recipientId/stream` |
 | `/api/servers/:serverId/messages/search`, `/api/dms/search` | `search.ts` | message search (server-wide over viewable channels, DMs + group DMs); `/api/channels/:id/messages/search` delegates to it |

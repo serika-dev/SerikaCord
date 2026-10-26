@@ -1,5 +1,8 @@
 import WebSocket from 'ws';
-import type { IServerSettings } from '@/lib/models';
+import { BoundedMap } from '@/lib/utils/boundedMap';
+import { applyAffixes, isInboundActive } from './bridgeConfig';
+import { listActiveBridges, resolveGuildBridge } from './bridgeStore';
+import { recordBotHeartbeat, recordBridgeSuccess } from './bridgeHealth';
 
 const BOT_ID = process.env.SERIKA_DISCORD_ID || '1524469730256355421';
 const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://serika.chat').replace(/\/$/, '');
@@ -136,18 +139,23 @@ function formatDiscordContentForSerika(content: string): string {
   return result;
 }
 
-async function findBridgedChannel(guildId: string, discordChannelId: string): Promise<{ server: any; serikaChannelId: string } | null> {
-  const { Server } = await import('@/lib/models');
-  const servers = await Server.find({});
-  for (const server of servers) {
-    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
-    if (!integrations.discord || integrations.discordGuildId !== guildId) continue;
-    const channelsMap = integrations.discordChannelsMap || {};
-    const serikaChannelId = channelsMap[discordChannelId];
-    if (serikaChannelId) return { server, serikaChannelId };
-  }
-  return null;
+/**
+ * The SerikaCord channel a Discord channel is bridged to. Exactly one server
+ * mirrors a guild (resolveGuildBridge picks it when older links stored the same
+ * guild on several servers), so a message is never mirrored twice.
+ */
+async function findBridgedChannel(guildId: string | undefined, discordChannelId: string) {
+  if (!guildId) return null;
+  const resolved = await resolveGuildBridge(guildId);
+  const link = resolved?.byDiscordChannel.get(discordChannelId);
+  if (!resolved || !link) return null;
+  return { server: resolved.server, serikaChannelId: link.serikaChannelId, options: link.options };
 }
+
+// One "please opt in" notice per user per channel every 10 minutes, so an
+// unconsented member typing a burst of messages doesn't get a burst of pings.
+const consentNoticeAt = new BoundedMap<string, number>(5000);
+const CONSENT_NOTICE_INTERVAL_MS = 10 * 60 * 1000;
 
 type ConsentStatus = 'pending' | 'granted' | 'denied';
 
@@ -431,7 +439,10 @@ async function handleUnconsentedMessage(server: any, discordUser: { discordId: s
   }
 
   // Post a brief notice in the bridged channel and auto-delete it after 1 min.
-  if (discordChannelId) {
+  const noticeKey = `${discordUser.discordId}:${discordChannelId}`;
+  const lastNotice = consentNoticeAt.get(noticeKey) ?? 0;
+  if (discordChannelId && Date.now() - lastNotice >= CONSENT_NOTICE_INTERVAL_MS) {
+    consentNoticeAt.set(noticeKey, Date.now());
     try {
       const noticeRes = await fetch(`${DISCORD_API}/channels/${discordChannelId}/messages`, {
         method: 'POST',
@@ -484,19 +495,15 @@ async function handleUnconsentedMessage(server: any, discordUser: { discordId: s
  */
 async function applyRestrictionTimeouts(discordId: string, opts?: { specificGuildId?: string }): Promise<void> {
   const { DiscordUser } = await import('@/lib/models/DiscordUser');
-  const { Server } = await import('@/lib/models');
   const row = await DiscordUser.findByDiscordId(discordId);
 
   // If a specific guild is given, check only that server's settings.
   // Otherwise scan all bridged servers.
-  const servers = await Server.find({});
   const targetGuilds: string[] = [];
-  for (const server of servers) {
-    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
-    if (!integrations.discord || !integrations.discordGuildId) continue;
-    if (!integrations.discordRestrictUnconsented) continue;
-    if (opts?.specificGuildId && integrations.discordGuildId !== opts.specificGuildId) continue;
-    targetGuilds.push(integrations.discordGuildId);
+  for (const bridge of await listActiveBridges()) {
+    if (!bridge.restrictUnconsented) continue;
+    if (opts?.specificGuildId && bridge.guildId !== opts.specificGuildId) continue;
+    targetGuilds.push(bridge.guildId);
   }
 
   if (targetGuilds.length === 0) return;
@@ -549,9 +556,16 @@ export async function startDiscordBot() {
 
   let ws: WebSocket | null = null;
   let heartbeatInterval: any = null;
+  // Bridge presence for the settings Status tab: a Redis key with a 150s TTL,
+  // refreshed every minute while the gateway socket is open (it lapses on its
+  // own when the bot is down; short reconnects don't flicker it).
+  let botUsername: string | null = null;
   let lastSequence: number | null = null;
   let sessionID: string | null = null;
   let resumeURL: string | null = null;
+  setInterval(() => {
+    if (ws && ws.readyState === WebSocket.OPEN && sessionID) recordBotHeartbeat(botUsername);
+  }, 60_000);
 
   function connect(url?: string) {
     const gatewayUrl = url || resumeURL || 'wss://gateway.discord.gg/?v=10&encoding=json';
@@ -628,6 +642,8 @@ export async function startDiscordBot() {
             sessionID = d.session_id;
             resumeURL = d.resume_gateway_url || null;
             console.log(`[Discord Bot] Bot ready! Logged in as ${d.user.username}#${d.user.discriminator}`);
+            botUsername = d.user.username || null;
+            recordBotHeartbeat(botUsername);
             // Register slash commands. application id === bot user id.
             void registerSlashCommands(d.application?.id || d.user.id);
             // Sweep all opted-out users and re-apply restriction timeouts in
@@ -637,6 +653,7 @@ export async function startDiscordBot() {
 
           if (t === 'RESUMED') {
             console.log('[Discord Bot] Session resumed — replaying missed events.');
+            recordBotHeartbeat(botUsername);
           }
 
           // Slash commands. type 2 = APPLICATION_COMMAND.
@@ -810,10 +827,14 @@ export async function startDiscordBot() {
 
             const bridge = await findBridgedChannel(d.guild_id, d.channel_id);
             if (!bridge) return;
-            const { server, serikaChannelId } = bridge;
+            const { server, serikaChannelId, options } = bridge;
+            // Link options: paused / SerikaCord -> Discord only / Discord bots off.
+            if (!isInboundActive(options)) return;
+            if (d.author.bot && !options.includeBots) return;
 
             const chan = await Channel.findById(serikaChannelId);
-            if (!chan) return;
+            // The map is server data: never write into a channel of another server.
+            if (!chan || String(chan.serverId).toLowerCase() !== String(server.id).toLowerCase()) return;
 
             const serikaUser = await getOrCreateDiscordUser(d.author);
             const isLinkedAccount = serikaUser.isLinked;
@@ -829,12 +850,14 @@ export async function startDiscordBot() {
 
             // Convert Discord content to Serika-friendly format
             const rawContent = d.content || '';
-            const content = formatDiscordContentForSerika(rawContent);
-            const attachments = mapAttachments(d);
+            const content = applyAffixes(formatDiscordContentForSerika(rawContent), options);
+            const attachments = options.attachments ? mapAttachments(d) : [];
             const embeds = mapEmbeds(d);
             const reply = await resolveReply(d, serikaChannelId);
 
             if (!content && attachments.length === 0 && embeds.length === 0) {
+              // Attachment-only message on a link that strips attachments.
+              if (!options.attachments && Array.isArray(d.attachments) && d.attachments.length > 0) return;
               console.warn('[Discord Bot] ⚠️ MESSAGE_CREATE has empty content and no attachments — skipping.');
               console.warn('[Discord Bot] ⚠️ This usually means the MESSAGE CONTENT INTENT is not enabled.');
               console.warn('[Discord Bot] ⚠️ Enable it at: Discord Developer Portal → Your App → Bot → Privileged Gateway Intents → MESSAGE CONTENT INTENT');
@@ -889,6 +912,19 @@ export async function startDiscordBot() {
             void import('@/lib/services/gatewayEvents')
               .then(({ emitMessageCreate }) => emitMessageCreate({ id: msg.id, channelId: serikaChannelId, serverId: server.id }))
               .catch(() => {});
+            // Unread badges and notifications, like any message made outside the user send route.
+            void import('@/lib/services/messageSignals')
+              .then(({ signalChannelMessage }) => signalChannelMessage({
+                channel: { id: serikaChannelId, serverId: server.id, name: chan.name, parentId: chan.parentId ?? null },
+                messageId: msg.id,
+                authorId: serikaUser.id,
+                authorName: serikaUser.displayName || serikaUser.username,
+                authorAvatar: serikaUser.avatar,
+                content,
+                createdAt: msg.createdAt,
+              }))
+              .catch(() => {});
+            recordBridgeSuccess(server.id, serikaChannelId, 'inbound');
             // Never log message content or author names (privacy; see security.md).
             console.log(`[Discord Bot] Forwarded message ${d.id} to Serika channel ${chan.id}`);
           }
@@ -903,14 +939,12 @@ export async function startDiscordBot() {
 
             const bridge = await findBridgedChannel(d.guild_id, d.channel_id);
             if (!bridge) return;
-            const { serikaChannelId } = bridge;
+            const { serikaChannelId, options } = bridge;
+            if (!isInboundActive(options) || !options.mirrorEdits) return;
 
             // Use the Discord message ID to find the corresponding Serika message
             const serikaMsg = await Message.findByDiscordMessageId(d.id);
-            if (!serikaMsg) {
-              console.log(`[Discord Bot] Message update for Discord msg ${d.id} — no matching Serika message found, skipping.`);
-              return;
-            }
+            if (!serikaMsg || String(serikaMsg.channelId).toLowerCase() !== serikaChannelId) return;
 
             // MESSAGE_UPDATE fires for content edits AND for embed-only changes
             // (e.g. Discord unfurling a link a moment after the message posts).
@@ -923,14 +957,14 @@ export async function startDiscordBot() {
             const update: Record<string, any> = { updatedAt: new Date() };
             let newContent: string | undefined;
             if (hasContent) {
-              newContent = formatDiscordContentForSerika(d.content);
+              newContent = applyAffixes(formatDiscordContentForSerika(d.content), options);
               update.content = await encryptForStorage(newContent);
               update.edited = true;
               update.editedTimestamp = new Date();
             }
             const newEmbeds = hasEmbeds ? mapEmbeds(d) : undefined;
             if (newEmbeds) update.embeds = newEmbeds;
-            const newAttachments = hasAttachments ? mapAttachments(d) : undefined;
+            const newAttachments = hasAttachments && options.attachments ? mapAttachments(d) : undefined;
             if (newAttachments) update.attachments = newAttachments;
 
             await Message.updateById(serikaMsg.id, update);
@@ -957,14 +991,12 @@ export async function startDiscordBot() {
 
             const bridge = await findBridgedChannel(d.guild_id, d.channel_id);
             if (!bridge) return;
-            const { serikaChannelId } = bridge;
+            const { serikaChannelId, options } = bridge;
+            if (!isInboundActive(options) || !options.mirrorDeletes) return;
 
             // Use the Discord message ID to find the corresponding Serika message
             const serikaMsg = await Message.findByDiscordMessageId(d.id);
-            if (!serikaMsg) {
-              console.log(`[Discord Bot] Message delete for Discord msg ${d.id} — no matching Serika message found.`);
-              return;
-            }
+            if (!serikaMsg || serikaMsg.isDeleted || String(serikaMsg.channelId).toLowerCase() !== serikaChannelId) return;
 
             // Soft delete the Serika message
             await Message.updateById(serikaMsg.id, { isDeleted: true, deletedAt: new Date() });

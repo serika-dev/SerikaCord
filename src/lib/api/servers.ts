@@ -17,6 +17,8 @@ import { normalizeId } from '@/lib/db/normalizeId';
 import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
 import { computeChannelPermissions, DEFAULT_EVERYONE_PERMISSIONS, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
 import { publicServerSettings, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
+import { pickClientIntegrations } from '@/lib/discord/bridgeConfig';
+import { settingsKeepingBridge } from '@/lib/discord/bridgeStore';
 import { getRolePermissions, getActorRoleContext, hasServerPermission, invalidateRolePerms, primeRolePermissions } from '@/lib/permissions/serverPermissions';
 import { canAssignRole, canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type ActorRoleContext, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
 import { addedRoleLinkTargets, expandLinkedRoles, isLinkableRole, normalizeRoleLinks, readRoleLinks, type RoleLinks } from '@/lib/roles/roleLinks';
@@ -997,14 +999,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     delete (settingsPayload as Record<string, unknown>).serverTag;
     delete (settingsPayload as Record<string, unknown>).discoveryTags;
     delete (settingsPayload as Record<string, unknown>).games;
-    // The Discord link and its webhook/channel maps are written only by the
-    // verified link + sync routes, never directly by clients.
+    // Only the allowlisted non-Discord integration keys. The Discord bridge
+    // (link, maps, options, on/off) changes only through the checked bridge
+    // routes (src/lib/api/discordBridge.ts), never through general settings.
     if (settingsPayload.integrations) {
-      const integ = { ...(settingsPayload.integrations as Record<string, unknown>) };
-      delete integ.discordGuildId;
-      delete integ.discordWebhooks;
-      delete integ.discordChannelsMap;
-      settingsPayload.integrations = integ as IServerSettings['integrations'];
+      settingsPayload.integrations = pickClientIntegrations(settingsPayload.integrations) as IServerSettings['integrations'];
     }
     // Server theme (CORD-50): colours only, validated; null clears it.
     let nextTheme: ServerTheme | null | undefined;
@@ -1102,7 +1101,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     await Server.updateById(server.id, {
-      settings: nextSettings,
+      // Bridge keys are kept exactly as stored at write time (never restored from this read).
+      settings: settingsKeepingBridge(nextSettings),
       // Kept in sync with settings.moderation: the verification gate reads them.
       verificationLevel: server.verificationLevel,
       explicitContentFilter: server.explicitContentFilter,
@@ -1127,7 +1127,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     return {
       success: true,
       settings: {
-        ...nextSettings,
+        // Never echo Discord webhook URLs (they carry tokens) or bridge internals.
+        ...(publicServerSettings(nextSettings) as Record<string, unknown>),
         discoveryDescription: server.discoveryDescription || '',
         discoveryCategories: server.discoveryCategories || [],
       },
@@ -1369,8 +1370,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           if (v !== undefined) staged.push(() => { section('safety').mentionSpamLimit = v; });
           break;
         }
+        // The Discord bridge is managed only through the checked bridge routes
+        // (src/lib/api/discordBridge.ts): Discord control, claims, expected guild.
         case 'integrations.discord':
         case 'integrations.discordRestrictUnconsented':
+        case 'integrations.discordGuildId':
+        case 'integrations.discordMode':
+          fieldErrors[key] = 'Change the Discord bridge in Integrations > Discord Bridge';
+          break;
         case 'integrations.twitch':
         case 'integrations.youtube':
         case 'integrations.webhooks': {
@@ -1378,25 +1385,6 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           if (v !== undefined) staged.push(() => { section('integrations')[key.split('.')[1]] = v; });
           break;
         }
-        case 'integrations.discordGuildId': {
-          const v = expectString(key, 32);
-          if (v === undefined) break;
-          const current = (server.settings as IServerSettings | undefined)?.integrations?.discordGuildId || '';
-          if (v === current) break;
-          if (v) {
-            const check = await verifyDiscordGuildControl(user.id, v, server.id);
-            if (!check.ok) { fieldErrors[key] = check.error; break; }
-          }
-          // A different guild (or unlinking) invalidates the old webhooks and channel map.
-          staged.push(() => {
-            const integ = section('integrations');
-            integ.discordGuildId = v;
-            delete integ.discordWebhooks;
-            delete integ.discordChannelsMap;
-          });
-          break;
-        }
-        case 'integrations.discordMode':
         case 'integrations.twitchChannel':
         case 'integrations.twitchNotificationChannelId':
         case 'integrations.youtubeChannel':
@@ -1571,7 +1559,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const { id: _sid, ...serverUpdates } = server;
-    await Server.updateById(server.id, serverUpdates);
+    // Bridge keys are kept exactly as stored at write time (never restored from this read).
+    await Server.updateById(server.id, { ...serverUpdates, settings: settingsKeepingBridge(server.settings) });
     invalidateServerTag(server.id);
     await cache.del(`server:${server.id}`);
     await cache.del(`server:safety:${server.id}`);
@@ -1594,7 +1583,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         afkTimeout: server.afkTimeout,
       },
       settings: {
-        ...(server.settings as Record<string, unknown>),
+        // Never echo Discord webhook URLs (they carry tokens) or bridge internals.
+        ...(publicServerSettings(server.settings) as Record<string, unknown>),
         discoveryDescription: server.discoveryDescription || '',
         discoveryCategories: server.discoveryCategories || [],
       },
@@ -1672,8 +1662,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         mentionSpamLimit: serverSettings2.safety?.mentionSpamLimit ?? 5,
       },
       integrations: {
-        discord: serverSettings2.integrations?.discord ?? false,
-        discordRestrictUnconsented: serverSettings2.integrations?.discordRestrictUnconsented ?? false,
+        // Keep every other integration key (Twitch/YouTube channels); Discord
+        // bridge keys are preserved from the row at write time below.
+        ...(serverSettings2.integrations || {}),
         twitch: serverSettings2.integrations?.twitch ?? false,
         youtube: serverSettings2.integrations?.youtube ?? false,
         webhooks: serverSettings2.integrations?.webhooks ?? false,
@@ -1685,7 +1676,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     } as IServerSettings;
 
     const { id: _updateId, ...serverFields } = server;
-    await Server.updateById(server.id, serverFields);
+    await Server.updateById(server.id, { ...serverFields, settings: settingsKeepingBridge(server.settings) });
 
     // Invalidate cache
     await cache.del(`server:${server.id}`);
@@ -4114,10 +4105,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const currentSettings = (server.settings as IServerSettings | undefined) || {};
     const currentInvites = currentSettings.invites || {};
     await Server.updateById(server.id, {
-      settings: {
+      settings: settingsKeepingBridge({
         ...currentSettings,
         invites: { ...currentInvites, lockToVanity: Boolean(body.locked) },
-      } as IServerSettings,
+      }),
     });
 
     return { lockToVanity: Boolean(body.locked) };
@@ -5279,138 +5270,75 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       set.status = 403;
       return { error: 'Forbidden' };
     }
-    const payload = body as Record<string, unknown>;
+    // A sync makes many calls with the shared bridge bot: tight limit per user and per server.
+    const { checkDiscordBridgeHeavyLimit } = await import('@/lib/discord/bridgeLimits');
+    const heavy = await checkDiscordBridgeHeavyLimit(user.id, server.id);
+    if (heavy) {
+      set.status = 429;
+      return { error: heavy };
+    }
+    const payload = body as { mode?: 'add' | 'delete'; roles?: boolean; permissions?: boolean; emojis?: boolean; stickers?: boolean; sounds?: boolean };
     const mode = payload.mode || 'add';
+    // What to import besides channels (all on by default, as before).
+    const importRoles = payload.roles !== false;
+    const importPermissions = payload.permissions !== false;
+    const importEmojis = payload.emojis !== false;
+    const importStickers = payload.stickers !== false;
+    const importSounds = payload.sounds !== false;
     const currentChannels = await Channel.find({ serverId: server.id });
     const botToken = process.env.SERIKA_DISCORD_TOKEN;
     const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
     const guildId = integrations.discordGuildId;
+    if (!guildId) {
+      set.status = 400;
+      return { error: 'No Discord server is linked. Link one in Server Settings > Integrations first.' };
+    }
     // Re-check on every sync: a link stored before verification existed (or
     // whose owner has since lost access) must not drive the bot.
-    if (guildId) {
-      const check = await verifyDiscordGuildControl(user.id, guildId, server.id, { alreadyLinked: true });
-      if (!check.ok) {
-        set.status = check.status;
-        return { error: check.error };
-      }
+    const check = await verifyDiscordGuildControl(user.id, guildId, server.id, { alreadyLinked: true });
+    if (!check.ok) {
+      set.status = check.status;
+      return { error: check.error };
     }
-    let discordChannels: Array<{ id: string; name: string; type: string; position: number; parentId: string | null; topic?: string; permissionOverwrites?: any[] }> = [];
-    const discordChannelWebhookMap: Record<string, string> = {};
+    const { getGuildChannels, ensureBridgeWebhook, isBridgeableKind } = await import('@/lib/discord/rest');
+    const { normalizeBridge, upsertLink, serializeLinks } = await import('@/lib/discord/bridgeConfig');
+    const { patchIntegrations } = await import('@/lib/discord/bridgeStore');
+    const guildChannels = await getGuildChannels(guildId, { fresh: true });
+    if (!guildChannels || guildChannels.length === 0) {
+      set.status = 502;
+      return { error: 'Failed to fetch channels from Discord. Check that the bot is in the server and can view its channels.' };
+    }
+    type SyncedType = 'text' | 'voice' | 'category' | 'announcement';
+    const discordChannels = guildChannels
+      .filter((c) => c.kind === 'text' || c.kind === 'voice' || c.kind === 'category' || c.kind === 'announcement')
+      .map((c) => ({ id: c.id, name: c.name, type: c.kind as SyncedType, position: c.position, parentId: c.parentId, topic: c.topic, permissionOverwrites: c.permissionOverwrites }));
     const discordRoleMap: Record<string, string> = {};
+    const overwritesFor = (dc: { permissionOverwrites?: Array<{ id: string; type: number | string; allow?: string; deny?: string }> }) => (importPermissions ? convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap) : []);
 
-    if (botToken && guildId) {
-      try {
-        console.log(`[Discord Bridge] Fetching channels for guild ${guildId} from Discord API`);
-        const res = await fetch(`https://discord.com/api/v10/guilds/${guildId}/channels`, {
-          headers: { Authorization: `Bot ${botToken}` },
-        });
-        if (res.ok) {
-          const channelsData = (await res.json()) as Array<{ id: string; name: string; type: number; position?: number; parent_id?: string | null; topic?: string | null; permission_overwrites?: unknown[] }>;
-          const typeMap: Record<number, string> = {
-            0: 'text',
-            2: 'voice',
-            4: 'category',
-            5: 'announcement',
-          };
-          discordChannels = channelsData
-            .filter((c) => typeMap[c.type] !== undefined)
-            .map((c) => ({
-              id: c.id,
-              name: c.name,
-              type: typeMap[c.type],
-              position: c.position || 0,
-              parentId: c.parent_id || null,
-              topic: c.topic || '',
-              permissionOverwrites: c.permission_overwrites || [],
-            }));
-
-          for (const c of channelsData) {
-            if (c.type === 0 || c.type === 5) {
-              try {
-                console.log(`[Discord Bridge] Checking webhooks for channel ${c.name} (${c.id})`);
-                const whRes = await fetch(`https://discord.com/api/v10/channels/${c.id}/webhooks`, {
-                  headers: { Authorization: `Bot ${botToken}` },
-                });
-                // Handle rate limiting on webhook listing
-                if (whRes.status === 429) {
-                  const retryAfter = parseFloat(whRes.headers.get('Retry-After') || '2') * 1000;
-                  console.warn(`[Discord Bridge] Rate limited on webhook list for ${c.name}, waiting ${retryAfter}ms`);
-                  await new Promise(r => setTimeout(r, retryAfter));
-                  continue; // Skip this channel — will be retried on next sync
-                }
-                let webhookUrl = '';
-                if (whRes.ok) {
-                  const webhooksList = (await whRes.json()) as Record<string, unknown>[];
-                  const existingWh = webhooksList.find(w => w.name === 'SerikaBridge' && w.token);
-                  if (existingWh) {
-                    webhookUrl = `https://discord.com/api/webhooks/${existingWh.id}/${existingWh.token}`;
-                    console.log(`[Discord Bridge] Found existing webhook for ${c.name}`);
-                  }
-                }
-
-                if (!webhookUrl) {
-                  console.log(`[Discord Bridge] Creating new webhook for channel ${c.name} (${c.id})`);
-                  let createAttempts = 0;
-                  const MAX_WEBHOOK_ATTEMPTS = 3;
-                  while (createAttempts < MAX_WEBHOOK_ATTEMPTS && !webhookUrl) {
-                    createAttempts++;
-                    const createWhRes = await fetch(`https://discord.com/api/v10/channels/${c.id}/webhooks`, {
-                      method: 'POST',
-                      headers: {
-                        Authorization: `Bot ${botToken}`,
-                        'Content-Type': 'application/json',
-                      },
-                      body: JSON.stringify({ name: 'SerikaBridge' }),
-                    });
-                    if (createWhRes.ok) {
-                      const newWh = await createWhRes.json();
-                      webhookUrl = `https://discord.com/api/webhooks/${newWh.id}/${newWh.token}`;
-                      console.log(`[Discord Bridge] Created new webhook for ${c.name}`);
-                    } else if (createWhRes.status === 429) {
-                      const retryAfter = parseFloat(createWhRes.headers.get('Retry-After') || '2') * 1000;
-                      console.warn(`[Discord Bridge] Rate limited creating webhook for ${c.name} (attempt ${createAttempts}/${MAX_WEBHOOK_ATTEMPTS}), waiting ${retryAfter}ms`);
-                      await new Promise(r => setTimeout(r, retryAfter));
-                    } else {
-                      console.warn(`[Discord Bridge] Failed to create webhook for ${c.name}: status ${createWhRes.status}`);
-                      break; // Non-retryable error
-                    }
-                  }
-                }
-
-                if (webhookUrl) {
-                  discordChannelWebhookMap[c.name.toLowerCase()] = webhookUrl;
-                }
-                // Small delay between channels to avoid burst rate limiting
-                await new Promise(r => setTimeout(r, 500));
-              } catch (whErr) {
-                console.error(`[Discord Bridge] Error handling webhook for channel ${c.name}:`, whErr);
-              }
-            }
-          }
-        } else {
-          console.warn('[Discord Bridge] Failed to fetch channels from Discord: status', res.status);
-        }
-
+    if (botToken) {
+      if (importRoles || importPermissions) try {
         console.log(`[Discord Bridge] Fetching roles for guild ${guildId} from Discord API`);
         const rolesRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/roles`, {
           headers: { Authorization: `Bot ${botToken}` },
         });
         if (rolesRes.ok) {
           const rolesData = (await rolesRes.json()) as Array<{ id: string; name: string; color?: number; hoist?: boolean; mentionable?: boolean; permissions?: string; position?: number }>;
-          const currentRoles = await Role.find({ serverId: server.id });
-          const currentRoleNames = new Set(currentRoles.map(r => r.name.toLowerCase()));
-          for (const dr of rolesData) {
-            if (dr.name === '@everyone') continue;
-            if (!currentRoleNames.has(dr.name.toLowerCase())) {
-              await Role.create({
-                serverId: server.id,
-                name: dr.name,
-                color: dr.color || 0,
-                hoist: dr.hoist || false,
-                mentionable: dr.mentionable || false,
-                permissions: dr.permissions || '0',
-                isDefault: false,
-              });
+          if (importRoles) {
+            const currentRoles = await Role.find({ serverId: server.id });
+            const currentRoleNames = new Set(currentRoles.map(r => r.name.toLowerCase()));
+            for (const dr of rolesData) {
+              if (dr.name === '@everyone') continue;
+              if (!currentRoleNames.has(dr.name.toLowerCase())) {
+                await Role.create({
+                  serverId: server.id,
+                  name: dr.name,
+                  color: dr.color || 0,
+                  hoist: dr.hoist || false,
+                  mentionable: dr.mentionable || false,
+                  permissions: dr.permissions || '0',
+                  isDefault: false,
+                });
+              }
             }
           }
           // Build Discord role ID → SerikaCord role ID map for permission overwrites
@@ -5424,146 +5352,147 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
             }
           }
         }
+      } catch (roleErr) {
+        console.error('[Discord Bridge] Error syncing roles:', roleErr);
+      }
 
-        // Sync emojis from Discord
-        try {
-          console.log(`[Discord Bridge] Fetching emojis for guild ${guildId}`);
-          const emojiRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/emojis`, {
-            headers: { Authorization: `Bot ${botToken}` },
-          });
-          if (emojiRes.ok) {
-            const emojisData = (await emojiRes.json()) as Array<{ id: string; name: string; animated?: boolean; available?: boolean; managed?: boolean }>;
-            const existingEmojis = await ServerEmoji.find({ serverId: server.id });
-            const existingEmojiNames = new Set(existingEmojis.map(e => e.name.toLowerCase()));
-            let syncedEmojis = 0;
-            for (const de of emojisData) {
-              if (existingEmojiNames.has(de.name.toLowerCase())) continue;
-              const ext = de.animated ? 'gif' : 'png';
-              const imageUrl = `https://cdn.discordapp.com/emojis/${de.id}.${ext}?size=128`;
-              try {
-                await ServerEmoji.create({
-                  serverId: server.id,
-                  name: de.name,
-                  imageUrl,
-                  animated: de.animated || false,
-                  available: de.available !== false,
-                  managed: de.managed || false,
-                  requireColons: true,
-                  roles: [],
-                  uploadedBy: user.id,
-                });
-                syncedEmojis++;
-              } catch (e) {
-                console.warn(`[Discord Bridge] Failed to sync emoji ${de.name}:`, e);
-              }
-            }
-            console.log(`[Discord Bridge] Synced ${syncedEmojis} emojis from Discord`);
-          }
-        } catch (emojiErr) {
-          console.error('[Discord Bridge] Error syncing emojis:', emojiErr);
-        }
-
-        // Sync stickers from Discord
-        try {
-          console.log(`[Discord Bridge] Fetching stickers for guild ${guildId}`);
-          const stickerRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/stickers`, {
-            headers: { Authorization: `Bot ${botToken}` },
-          });
-          if (stickerRes.ok) {
-            const stickersData = (await stickerRes.json()) as Array<{ id: string; name: string; description?: string | null; tags?: string; format_type?: number }>;
-            const existingStickers = await ServerSticker.find({ serverId: server.id });
-            const existingStickerNames = new Set(existingStickers.map(s => s.name.toLowerCase()));
-            let syncedStickers = 0;
-            for (const ds of stickersData) {
-              if (existingStickerNames.has(ds.name.toLowerCase())) continue;
-              const ext = ds.format_type === 1 ? 'png' : ds.format_type === 2 ? 'apng' : ds.format_type === 3 ? 'json' : 'gif';
-              const imageUrl = `https://cdn.discordapp.com/stickers/${ds.id}.${ext}`;
-              try {
-                await ServerSticker.create({
-                  serverId: server.id,
-                  name: ds.name,
-                  description: ds.description || null,
-                  imageUrl,
-                  tags: ds.tags ? ds.tags.split(',').map((t: string) => t.trim()) : [],
-                  available: true,
-                  uploadedBy: user.id,
-                });
-                syncedStickers++;
-              } catch (e) {
-                console.warn(`[Discord Bridge] Failed to sync sticker ${ds.name}:`, e);
-              }
-            }
-            console.log(`[Discord Bridge] Synced ${syncedStickers} stickers from Discord`);
-          }
-        } catch (stickerErr) {
-          console.error('[Discord Bridge] Error syncing stickers:', stickerErr);
-        }
-
-        // Sync soundboard sounds from Discord
-        try {
-          console.log(`[Discord Bridge] Fetching soundboard sounds for guild ${guildId}`);
-          const soundRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/soundboard-sounds`, {
-            headers: { Authorization: `Bot ${botToken}` },
-          });
-          if (soundRes.ok) {
-            const rawSounds = await soundRes.json();
-            const soundsData: Array<{ name?: string; sound_id?: string; emoji_name?: string }> = Array.isArray(rawSounds) ? rawSounds : (rawSounds?.soundboard_sounds ?? rawSounds?.sounds ?? []);
-            const existingSounds = (server.soundboardSounds as Array<{ name?: string; url?: string; emoji?: string; uploadedBy?: string }> | undefined) || [];
-            const existingSoundNames = new Set(existingSounds.map(s => s.name?.toLowerCase()));
-            let syncedSounds = 0;
-            const updatedSounds = [...existingSounds];
-            for (const ds of soundsData) {
-              if (existingSoundNames.has(ds.name?.toLowerCase())) continue;
-              updatedSounds.push({
-                name: (ds.name || 'Unknown').substring(0, 32),
-                url: `https://cdn.discordapp.com/soundboard-sounds/${ds.sound_id}`,
-                emoji: ds.emoji_name || '🔊',
+      // Sync emojis from Discord
+      if (importEmojis) try {
+        console.log(`[Discord Bridge] Fetching emojis for guild ${guildId}`);
+        const emojiRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/emojis`, {
+          headers: { Authorization: `Bot ${botToken}` },
+        });
+        if (emojiRes.ok) {
+          const emojisData = (await emojiRes.json()) as Array<{ id: string; name: string; animated?: boolean; available?: boolean; managed?: boolean }>;
+          const existingEmojis = await ServerEmoji.find({ serverId: server.id });
+          const existingEmojiNames = new Set(existingEmojis.map(e => e.name.toLowerCase()));
+          let syncedEmojis = 0;
+          for (const de of emojisData) {
+            if (existingEmojiNames.has(de.name.toLowerCase())) continue;
+            const ext = de.animated ? 'gif' : 'png';
+            const imageUrl = `https://cdn.discordapp.com/emojis/${de.id}.${ext}?size=128`;
+            try {
+              await ServerEmoji.create({
+                serverId: server.id,
+                name: de.name,
+                imageUrl,
+                animated: de.animated || false,
+                available: de.available !== false,
+                managed: de.managed || false,
+                requireColons: true,
+                roles: [],
                 uploadedBy: user.id,
               });
-              syncedSounds++;
-            }
-            if (syncedSounds > 0) {
-              await Server.updateById(server.id, { soundboardSounds: updatedSounds });
-              console.log(`[Discord Bridge] Synced ${syncedSounds} soundboard sounds from Discord`);
+              syncedEmojis++;
+            } catch (e) {
+              console.warn(`[Discord Bridge] Failed to sync emoji ${de.name}:`, e);
             }
           }
-        } catch (soundErr) {
-          console.error('[Discord Bridge] Error syncing soundboard sounds:', soundErr);
+          console.log(`[Discord Bridge] Synced ${syncedEmojis} emojis from Discord`);
         }
-      } catch (err) {
-        console.error('[Discord Bridge] Error syncing with Discord API:', err);
+      } catch (emojiErr) {
+        console.error('[Discord Bridge] Error syncing emojis:', emojiErr);
       }
-    }
 
-    if (discordChannels.length === 0) {
-      if (botToken && guildId) {
-        set.status = 502;
-        return {
-          error: 'Failed to fetch channels from Discord. Check that the bot is in the guild and has the correct permissions.',
-          details: { guildId, botConfigured: !!botToken },
-        };
+      // Sync stickers from Discord
+      if (importStickers) try {
+        console.log(`[Discord Bridge] Fetching stickers for guild ${guildId}`);
+        const stickerRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/stickers`, {
+          headers: { Authorization: `Bot ${botToken}` },
+        });
+        if (stickerRes.ok) {
+          const stickersData = (await stickerRes.json()) as Array<{ id: string; name: string; description?: string | null; tags?: string; format_type?: number }>;
+          const existingStickers = await ServerSticker.find({ serverId: server.id });
+          const existingStickerNames = new Set(existingStickers.map(s => s.name.toLowerCase()));
+          let syncedStickers = 0;
+          for (const ds of stickersData) {
+            if (existingStickerNames.has(ds.name.toLowerCase())) continue;
+            const ext = ds.format_type === 1 ? 'png' : ds.format_type === 2 ? 'apng' : ds.format_type === 3 ? 'json' : 'gif';
+            const imageUrl = `https://cdn.discordapp.com/stickers/${ds.id}.${ext}`;
+            try {
+              await ServerSticker.create({
+                serverId: server.id,
+                name: ds.name,
+                description: ds.description || null,
+                imageUrl,
+                tags: ds.tags ? ds.tags.split(',').map((t: string) => t.trim()) : [],
+                available: true,
+                uploadedBy: user.id,
+              });
+              syncedStickers++;
+            } catch (e) {
+              console.warn(`[Discord Bridge] Failed to sync sticker ${ds.name}:`, e);
+            }
+          }
+          console.log(`[Discord Bridge] Synced ${syncedStickers} stickers from Discord`);
+        }
+      } catch (stickerErr) {
+        console.error('[Discord Bridge] Error syncing stickers:', stickerErr);
       }
-      set.status = 400;
-      return {
-        error: 'No Discord guild is linked. Set the Discord guild ID in server integrations before syncing.',
-      };
+
+      // Sync soundboard sounds from Discord
+      if (importSounds) try {
+        console.log(`[Discord Bridge] Fetching soundboard sounds for guild ${guildId}`);
+        const soundRes = await fetch(`https://discord.com/api/v10/guilds/${guildId}/soundboard-sounds`, {
+          headers: { Authorization: `Bot ${botToken}` },
+        });
+        if (soundRes.ok) {
+          const rawSounds = await soundRes.json();
+          const soundsData: Array<{ name?: string; sound_id?: string; emoji_name?: string }> = Array.isArray(rawSounds) ? rawSounds : (rawSounds?.soundboard_sounds ?? rawSounds?.sounds ?? []);
+          const existingSounds = (server.soundboardSounds as Array<{ name?: string; url?: string; emoji?: string; uploadedBy?: string }> | undefined) || [];
+          const existingSoundNames = new Set(existingSounds.map(s => s.name?.toLowerCase()));
+          let syncedSounds = 0;
+          const updatedSounds = [...existingSounds];
+          for (const ds of soundsData) {
+            if (existingSoundNames.has(ds.name?.toLowerCase())) continue;
+            updatedSounds.push({
+              name: (ds.name || 'Unknown').substring(0, 32),
+              url: `https://cdn.discordapp.com/soundboard-sounds/${ds.sound_id}`,
+              emoji: ds.emoji_name || '🔊',
+              uploadedBy: user.id,
+            });
+            syncedSounds++;
+          }
+          if (syncedSounds > 0) {
+            await Server.updateById(server.id, { soundboardSounds: updatedSounds });
+            console.log(`[Discord Bridge] Synced ${syncedSounds} soundboard sounds from Discord`);
+          }
+        }
+      } catch (soundErr) {
+        console.error('[Discord Bridge] Error syncing soundboard sounds:', soundErr);
+      }
     }
 
     let deletedCount = 0;
     let createdCount = 0;
     let linkedCount = 0;
-    const discordWebhooks: Record<string, string> = {};
-    const discordChannelsMap: Record<string, string> = {};
-    const discordCategoryMap: Record<string, string> = {};
+    const webhookFailures: string[] = [];
+    // Existing links (manual or from earlier syncs) are kept in "add" mode;
+    // "delete" starts over because every SerikaCord channel is removed.
+    const bridge = normalizeBridge(integrations);
+    let links = mode === 'delete' ? [] : [...bridge.links];
+    const channelType = (t: SyncedType) => t as 'text' | 'voice' | 'category' | 'announcement';
 
     if (mode === 'delete') {
       for (const c of currentChannels) {
         await Channel.deleteById(c.id);
         deletedCount++;
       }
+    }
+    const liveChannels = mode === 'delete' ? [] : currentChannels;
+    const discordCategoryMap: Record<string, string> = {};
+    const linkedSerika = () => new Set(links.map((l) => l.serikaChannelId));
 
-      const categoryChannels = discordChannels.filter(dc => dc.type === 'category');
-      for (const dc of categoryChannels) {
+    // Categories first, so channels can be placed under them.
+    for (const dc of discordChannels.filter((c) => c.type === 'category')) {
+      const already = links.find((l) => l.discordChannelId === dc.id);
+      const existing = (already && liveChannels.find((c) => c.id.toLowerCase() === already.serikaChannelId && c.type === 'category'))
+        || liveChannels.find((c) => c.type === 'category' && c.name.toLowerCase() === dc.name.toLowerCase() && !linkedSerika().has(c.id.toLowerCase()));
+      if (existing) {
+        linkedCount++;
+        await Channel.updateById(existing.id, { position: dc.position, ...(importPermissions ? { permissionOverwrites: overwritesFor(dc) } : {}) });
+        discordCategoryMap[dc.id] = existing.id;
+      } else {
         const newChan = await Channel.create({
           serverId: server.id,
           name: dc.name,
@@ -5574,20 +5503,29 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           bitrate: 64000,
           userLimit: 0,
           recipientIds: [],
-          permissionOverwrites: convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap),
+          permissionOverwrites: overwritesFor(dc),
         });
         createdCount++;
         discordCategoryMap[dc.id] = newChan.id;
-        discordChannelsMap[dc.id] = newChan.id;
       }
+      links = upsertLink(links, { discordChannelId: dc.id, serikaChannelId: discordCategoryMap[dc.id], webhook: null });
+    }
 
-      const nonCategoryChannels = discordChannels.filter(dc => dc.type !== 'category');
-      for (const dc of nonCategoryChannels) {
-        const parentId = dc.parentId ? discordCategoryMap[dc.parentId] : null;
+    for (const dc of discordChannels.filter((c) => c.type !== 'category')) {
+      const parentId = dc.parentId ? discordCategoryMap[dc.parentId] ?? null : null;
+      const already = links.find((l) => l.discordChannelId === dc.id);
+      const existing = (already && liveChannels.find((c) => c.id.toLowerCase() === already.serikaChannelId))
+        || liveChannels.find((c) => c.name.toLowerCase() === dc.name.toLowerCase() && c.type === dc.type && !linkedSerika().has(c.id.toLowerCase()));
+      let serikaId: string;
+      if (existing) {
+        linkedCount++;
+        await Channel.updateById(existing.id, { position: dc.position, parentId, ...(importPermissions ? { permissionOverwrites: overwritesFor(dc) } : {}) });
+        serikaId = existing.id;
+      } else {
         const newChan = await Channel.create({
           serverId: server.id,
           name: dc.name,
-          type: dc.type as 'text' | 'voice' | 'category' | 'announcement' | 'stage' | 'forum' | 'public_thread' | 'private_thread' | 'dm' | 'group_dm',
+          type: channelType(dc.type),
           topic: dc.topic,
           position: dc.position,
           parentId,
@@ -5595,104 +5533,37 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
           bitrate: 64000,
           userLimit: 0,
           recipientIds: [],
-          permissionOverwrites: convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap),
+          permissionOverwrites: overwritesFor(dc),
         });
         createdCount++;
-        discordChannelsMap[dc.id] = newChan.id;
-
-        const wUrl = discordChannelWebhookMap[dc.name.toLowerCase()];
-        if (wUrl) {
-          discordWebhooks[newChan.id] = wUrl;
-        }
+        serikaId = newChan.id;
       }
-    } else {
-      const categoryChannels = discordChannels.filter(dc => dc.type === 'category');
-      const currentCategories = currentChannels.filter(c => c.type === 'category');
-      const currentCategoryMapByName = new Map(currentCategories.map(c => [c.name.toLowerCase(), c]));
-
-      for (const dc of categoryChannels) {
-        const existing = currentCategoryMapByName.get(dc.name.toLowerCase());
-        if (existing) {
-          linkedCount++;
-          await Channel.updateById(existing.id, { position: dc.position, permissionOverwrites: convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap) });
-          discordCategoryMap[dc.id] = existing.id;
-          discordChannelsMap[dc.id] = existing.id;
+      // Messages bridge only in text/announcement channels: those need the webhook.
+      const keep = links.find((l) => l.discordChannelId === dc.id && l.serikaChannelId === serikaId.toLowerCase());
+      let webhook = keep?.webhook ?? null;
+      if (isBridgeableKind(dc.type) && !webhook) {
+        const hook = await ensureBridgeWebhook(dc.id);
+        if (hook.ok) {
+          // Discord webhook URLs carry the webhook token: encrypted at rest, and
+          // decrypted only where the bridge posts (src/lib/discord/outbound.ts).
+          const { encryptField } = await import('@/lib/security/fieldEncryption');
+          webhook = await encryptField(hook.url);
         } else {
-          const newChan = await Channel.create({
-            serverId: server.id,
-            name: dc.name,
-            type: 'category',
-            topic: dc.topic,
-            position: dc.position,
-            nsfw: false,
-            bitrate: 64000,
-            userLimit: 0,
-            recipientIds: [],
-            permissionOverwrites: convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap),
-          });
-          createdCount++;
-          discordCategoryMap[dc.id] = newChan.id;
-          discordChannelsMap[dc.id] = newChan.id;
+          webhookFailures.push(dc.name);
         }
+        // Small delay between channels to avoid burst rate limiting
+        await new Promise(r => setTimeout(r, 300));
       }
-
-      const nonCategoryChannels = discordChannels.filter(dc => dc.type !== 'category');
-      const currentNonCategories = currentChannels.filter(c => c.type !== 'category');
-
-      for (const dc of nonCategoryChannels) {
-        const parentId = dc.parentId ? discordCategoryMap[dc.parentId] : null;
-        const existing = currentNonCategories.find(c => c.name.toLowerCase() === dc.name.toLowerCase() && c.type === dc.type);
-        if (existing) {
-          linkedCount++;
-          await Channel.updateById(existing.id, {
-            position: dc.position,
-            parentId,
-            permissionOverwrites: convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap),
-          });
-          discordChannelsMap[dc.id] = existing.id;
-          const wUrl = discordChannelWebhookMap[dc.name.toLowerCase()];
-          if (wUrl) {
-            discordWebhooks[existing.id] = wUrl;
-          }
-        } else {
-          const newChan = await Channel.create({
-            serverId: server.id,
-            name: dc.name,
-            type: dc.type as 'text' | 'voice' | 'category' | 'announcement' | 'stage' | 'forum' | 'public_thread' | 'private_thread' | 'dm' | 'group_dm',
-            topic: dc.topic,
-            position: dc.position,
-            parentId,
-            nsfw: false,
-            bitrate: 64000,
-            userLimit: 0,
-            recipientIds: [],
-            permissionOverwrites: convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap),
-          });
-          createdCount++;
-          discordChannelsMap[dc.id] = newChan.id;
-          const wUrl = discordChannelWebhookMap[dc.name.toLowerCase()];
-          if (wUrl) {
-            discordWebhooks[newChan.id] = wUrl;
-          }
-        }
-      }
+      links = upsertLink(links, { discordChannelId: dc.id, serikaChannelId: serikaId, webhook });
     }
 
-    // Discord webhook URLs carry the webhook token: encrypted at rest, and
-    // decrypted only where the bridge posts (channels.ts replicateToDiscord).
-    const { encryptField } = await import('@/lib/security/fieldEncryption');
-    const sealedWebhooks: Record<string, string> = {};
-    for (const [channelId, url] of Object.entries(discordWebhooks)) sealedWebhooks[channelId] = await encryptField(url);
-    const nextSettings = {
-      ...(server.settings as IServerSettings | undefined || {}),
-      integrations: {
-        ...(server.settings as IServerSettings | undefined)?.integrations || {},
-        discordWebhooks: sealedWebhooks,
-        discordChannelsMap,
-      }
-    };
-    await Server.updateById(server.id, { settings: nextSettings });
-    await cache.del(`server:${server.id}`);
+    // Only if the server still links the same guild: an unlink or switch
+    // made while the webhooks were being created must win.
+    const saved = await patchIntegrations(server.id, serializeLinks(links), [], { expectGuildId: guildId });
+    if (!saved) {
+      set.status = 409;
+      return { error: 'The Discord link changed while importing. Reload and try again.' };
+    }
 
     return {
       success: true,
@@ -5700,12 +5571,18 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
         mode,
         deleted: deletedCount,
         created: createdCount,
-        linked: linkedCount
+        linked: linkedCount,
+        webhookFailures,
       }
     };
   }, {
     body: t.Object({
-      mode: t.Union([t.Literal('add'), t.Literal('delete')])
+      mode: t.Union([t.Literal('add'), t.Literal('delete')]),
+      roles: t.Optional(t.Boolean()),
+      permissions: t.Optional(t.Boolean()),
+      emojis: t.Optional(t.Boolean()),
+      stickers: t.Optional(t.Boolean()),
+      sounds: t.Optional(t.Boolean()),
     })
   })
   .post('/:serverId/integrations/:type/mock-trigger', async ({ headers, cookie, params, body, set }) => {

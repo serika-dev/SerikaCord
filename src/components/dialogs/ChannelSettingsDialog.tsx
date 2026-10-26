@@ -18,7 +18,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Plus, Check, Bold, Italic, Underline, Strikethrough, Eye, EyeOff, Copy, Link, Radio, Info } from "lucide-react";
+import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Bold, Italic, Underline, Strikethrough, Eye, Link, Radio, Info } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
@@ -27,7 +27,6 @@ import { cn } from "@/lib/utils";
 import dynamic from "next/dynamic";
 import { normalizeOverwrites } from "@/lib/permissions/overwriteEditor";
 import { normalizeChannelName } from "@/lib/servers/channelRules";
-import { WebhookCard } from "@/components/dialogs/WebhookCard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -40,6 +39,12 @@ import {
 import { mobileSettingsBack, openMobileSection, type MobileSettingsNav } from "@/lib/settings/mobileSettingsNav";
 
 type ChannelSettingsTab = "overview" | "permissions" | "integrations" | "invites" | "delete";
+
+// The Integrations tab's webhook manager loads on first open too.
+const ChannelWebhooksPanel = dynamic(
+  () => import("@/components/dialogs/ChannelWebhooksPanel").then((m) => m.ChannelWebhooksPanel),
+  { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={28} /></div> },
+);
 
 // The Permissions tab (overwrite editor, member/role picker) loads on first open.
 const ChannelPermissionsPanel = dynamic(
@@ -66,56 +71,6 @@ interface ChannelSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channelId: string;
-}
-
-/**
- * Masked, copyable webhook URL field. The full URL is a secret (it contains the
- * token), so it's hidden by default with reveal + copy controls instead of a
- * truncated one-liner the user can't select.
- */
-function WebhookUrlField({ url, label }: { url: string; label: string }) {
-  const gt = useGT();
-  const [revealed, setRevealed] = useState(false);
-  const [copied, setCopied] = useState(false);
-
-  const copy = async () => {
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopied(true);
-      toast.success(label);
-      setTimeout(() => setCopied(false), 1500);
-    } catch {
-      toast.error("Failed to copy");
-    }
-  };
-
-  return (
-    <div className="flex items-center gap-1.5 mt-1 max-w-full">
-      <input
-        readOnly
-        value={url}
-        type={revealed ? "text" : "password"}
-        onFocus={(e) => e.currentTarget.select()}
-        className="min-w-0 flex-1 bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] rounded-md px-2 py-1 text-[11px] font-mono text-[var(--text-secondary)] focus:outline-none focus:border-[var(--accent,#8B5CF6)]"
-      />
-      <button
-        type="button"
-        onClick={() => setRevealed((v) => !v)}
-        className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar)] transition-colors shrink-0"
-        title={revealed ? gt("Hide") : gt("Reveal")}
-      >
-        {revealed ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-      </button>
-      <button
-        type="button"
-        onClick={copy}
-        className="p-1.5 rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-sidebar)] transition-colors shrink-0"
-        title={gt("Copy URL")}
-      >
-        {copied ? <Check className="w-3.5 h-3.5 text-green-400" /> : <Copy className="w-3.5 h-3.5" />}
-      </button>
-    </div>
-  );
 }
 
 export function ChannelSettingsDialog({
@@ -176,14 +131,7 @@ export function ChannelSettingsDialog({
   // New States for Advanced Channel Settings UI
   const [isPreviewTopic, setIsPreviewTopic] = useState(false);
   const [invites, setInvites] = useState<any[]>([]);
-  const [webhooks, setWebhooks] = useState<any[]>([]);
   const [isLoadingInvites, setIsLoadingInvites] = useState(false);
-  const [isLoadingWebhooks, setIsLoadingWebhooks] = useState(false);
-  // The webhook list (it carries secret tokens) needs MANAGE_WEBHOOKS.
-  const [webhooksForbidden, setWebhooksForbidden] = useState(false);
-  const [showWebhookForm, setShowWebhookForm] = useState(false);
-  const [newWebhookName, setNewWebhookName] = useState("");
-  const [creatingWebhook, setCreatingWebhook] = useState(false);
 
   // Populate form when channel data loads
   useEffect(() => {
@@ -340,78 +288,14 @@ export function ChannelSettingsDialog({
     }
   };
 
-  const fetchWebhooks = useCallback(async () => {
-    if (!channel) return;
-    setIsLoadingWebhooks(true);
-    try {
-      const res = await fetch(`/api/channels/${channel.id}/webhooks`);
-      setWebhooksForbidden(res.status === 403);
-      const data = await res.json();
-      setWebhooks(Array.isArray(data) ? data : []);
-    } catch (err) {
-      console.error("Failed to fetch webhooks", err);
-    } finally {
-      setIsLoadingWebhooks(false);
-    }
-  }, [channel]);
-
-  const handleCreateWebhook = async () => {
-    if (!channel || !newWebhookName.trim()) return;
-    setCreatingWebhook(true);
-    try {
-      const res = await fetch(`/api/channels/${channel.id}/webhooks`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newWebhookName.trim() }),
-      });
-      if (res.ok) {
-        toast.success(gt("Webhook created successfully"));
-        setNewWebhookName("");
-        setShowWebhookForm(false);
-        fetchWebhooks();
-      } else {
-        const err = await res.json().catch(() => ({}));
-        toast.error(err.error || gt("Failed to create webhook"));
-      }
-    } catch (err) {
-      toast.error(gt("Failed to create webhook"));
-    } finally {
-      setCreatingWebhook(false);
-    }
-  };
-
-  const handleDeleteWebhook = async (webhookId: string) => {
-    if (!channel) return;
-    if (!(await confirmDialog({
-      title: gt("Delete this webhook?"),
-      description: gt("Anything posting with its URL will stop working."),
-      confirmLabel: gt("Delete"),
-    }))) return;
-    try {
-      const res = await fetch(`/api/channels/${channel.id}/webhooks/${webhookId}`, {
-        method: "DELETE",
-      });
-      if (res.ok) {
-        toast.success(gt("Webhook deleted"));
-        fetchWebhooks();
-      } else {
-        toast.error(gt("Failed to delete webhook"));
-      }
-    } catch (err) {
-      toast.error(gt("Failed to delete webhook"));
-    }
-  };
-
   // Run fetches depending on the activeTab
   useEffect(() => {
     if (open && channel) {
       if (activeTab === "invites") {
         fetchInvites();
-      } else if (activeTab === "integrations") {
-        fetchWebhooks();
       }
     }
-  }, [open, channel, activeTab, fetchInvites, fetchWebhooks]);
+  }, [open, channel, activeTab, fetchInvites]);
 
   const topicRef = useRef<HTMLTextAreaElement>(null);
   const insertFormatting = (syntax: string) => {
@@ -923,76 +807,7 @@ export function ChannelSettingsDialog({
           <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Integrations")}</h2>
           <p className="text-sm text-[var(--text-muted)]">{gt("Manage webhooks and applications integrated with this channel.")}</p>
         </div>
-        <div className="flex flex-wrap items-center justify-between gap-3 p-4 sm:p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-          <div className="space-y-1">
-            <span className="text-sm font-semibold text-[var(--text-primary)]">
-              {gt("Webhooks Manager")}
-            </span>
-            <p className="text-xs text-[var(--text-muted)] max-w-md leading-relaxed">
-              {gt("Webhooks are an easy way to get data posted into this channel. Send alerts, build bots, or trigger hooks.")}
-            </p>
-          </div>
-          <Button
-            onClick={() => setShowWebhookForm(!showWebhookForm)}
-            className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
-          >
-            <Plus className="w-4 h-4 mr-1.5" />
-            {gt("New Webhook")}
-          </Button>
-        </div>
-
-        {showWebhookForm && (
-          <div className="flex items-center gap-3 p-4 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-            <Input
-              value={newWebhookName}
-              onChange={(e) => setNewWebhookName(e.target.value)}
-              placeholder={gt("Webhook name")}
-              className="flex-1"
-              onKeyDown={(e) => { if (e.key === "Enter" && newWebhookName.trim()) handleCreateWebhook(); }}
-            />
-            <Button
-              onClick={handleCreateWebhook}
-              disabled={!newWebhookName.trim() || creatingWebhook}
-              className="bg-[var(--app-accent)] hover:opacity-90 text-[var(--text-on-accent)] text-sm px-4 h-9"
-            >
-              {creatingWebhook ? <Loader size={16} className="size-4" /> : gt("Create")}
-            </Button>
-            <Button
-              onClick={() => { setShowWebhookForm(false); setNewWebhookName(""); }}
-              variant="ghost"
-              className="text-sm px-3 h-9"
-            >
-              {gt("Cancel")}
-            </Button>
-          </div>
-        )}
-
-        {isLoadingWebhooks ? (
-          <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading webhooks...")}</div>
-        ) : webhooksForbidden ? (
-          <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm">
-            {gt("You need the Manage Webhooks permission to view this channel's webhooks.")}
-          </div>
-        ) : webhooks.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
-            <Radio className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
-            <span>{gt("No webhooks created for this channel yet")}</span>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {webhooks.map((w) => (
-              <WebhookCard
-                key={w.id}
-                webhook={w}
-                channelId={channel.id}
-                channelOptions={webhookChannelOptions}
-                urlField={w.url ? <WebhookUrlField url={w.url} label={gt("Webhook URL copied")} /> : null}
-                onDelete={() => void handleDeleteWebhook(w.id)}
-                onChanged={() => void fetchWebhooks()}
-              />
-            ))}
-          </div>
-        )}
+        <ChannelWebhooksPanel channelId={channel.id} channelOptions={webhookChannelOptions} />
       </div>
     )}
 

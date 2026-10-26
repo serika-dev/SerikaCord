@@ -26,6 +26,7 @@ export const Intents = {
   GUILD_MODERATION: 1 << 2,
   GUILD_EXPRESSIONS: 1 << 3,
   GUILD_INTEGRATIONS: 1 << 4,
+  GUILD_WEBHOOKS: 1 << 5,
   GUILD_INVITES: 1 << 6,
   GUILD_VOICE_STATES: 1 << 7,
   GUILD_MESSAGES: 1 << 9,
@@ -394,6 +395,16 @@ export function emitReactionRemoveEmoji(opts: { channelId: string; guildId?: str
     guildId: opts.guildId ?? null,
     intent: reactionIntent(opts.guildId),
     d: { channel_id: opts.channelId, message_id: opts.messageId, ...(opts.guildId ? { guild_id: opts.guildId } : {}), emoji: discordEmoji(opts.emoji) },
+  }, opts.channelId);
+}
+
+/** WEBHOOKS_UPDATE after a channel webhook is created, edited, moved or deleted (GUILD_WEBHOOKS intent). */
+export function emitWebhooksUpdate(opts: { guildId: string; channelId: string }) {
+  return publishChannelScoped({
+    t: 'WEBHOOKS_UPDATE',
+    guildId: opts.guildId,
+    intent: Intents.GUILD_WEBHOOKS,
+    d: { guild_id: opts.guildId, channel_id: opts.channelId },
   }, opts.channelId);
 }
 

@@ -122,6 +122,7 @@ one when the owner asks; prefer its `--dry` mode where it has one.
 | `rl:<limiter>:<id>` | rate limiter buckets |
 | `qrlogin:<token>` | QR login handshake (120 s) |
 | `serikacord:discord-bot-lock` | Discord bridge leader lock |
+| `discordbridge:health:<serverId>` (hash), `discordbridge:bot` | Discord bridge per-link health (last mirror each way, last error; 30 days) and bot presence (150 s TTL) |
 | `search:backfill:v1:lock`, `:state`, `:done` | message search index backfill leader lock, resume cursor, finished flag |
 | `sse:channel`, `sse:dm`, `sse:dmlist`, `sse:activity`, `sse:user-fanout`, `voice:sse`, `voice:members`, `gateway:dispatch` | pub/sub buses (see `realtime.md`) |
 

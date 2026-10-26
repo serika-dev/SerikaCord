@@ -241,7 +241,7 @@ ciphertext can't be replayed as a token).
 | `safety_incidents.ip`, `safety_incidents.notes` | randomized | `recordIncident`, `updateIncident` | `listIncidents` (staff panel) |
 | `message_reports.details`, `.content`, `.staff_note` (randomized); `.attachments`, `.attachment_notes` (jsonb `{ enc }`) | randomized / jsonb | `fileMessageReport`, `importLegacyMessageReports`, `setReportCaseNote` (`services/messageReports.ts`) | `listReportCases`, `getReportCase` (staff report queue, `reports.review`) |
 | `push_devices.token` | deterministic (unique index still works) | `registerPushDevice` (removes a legacy plaintext duplicate first) | `devicesFor`; unregister and dead-token cleanup match both forms |
-| `servers.settings.integrations.discordWebhooks.*` (Discord webhook URLs) | randomized per value | Discord channel sync in `api/servers.ts` | `replicateToDiscord` in `api/channels.ts` |
+| `servers.settings.integrations.discordWebhooks.*` (Discord webhook URLs) | randomized per value | bridge link routes (`api/discordBridge.ts`) and Discord sync in `api/servers.ts` | `replicateToDiscord` in `lib/discord/outbound.ts` |
 
 Rules for new code: read and write these columns through the model or service
 listed above, never with a raw `db.select()` that hands the stored value to a

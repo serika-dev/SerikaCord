@@ -146,6 +146,12 @@ export const rateLimiters_config = {
   domainVerify: { points: 10, duration: 300 },
   // Server-owned connections: adding domains / starting OAuth links, per owner
   serverConnection: { points: 20, duration: 600 },
+  // Discord bridge settings (link, channel mapping, repair, test), per user
+  discordBridge: { points: 60, duration: 60 },
+  // Discord bridge calls that fan out to Discord with the shared bot (guild
+  // list, fresh channel list, webhook check, bulk mapping, sync); each is
+  // checked per user AND per server
+  discordBridgeHeavy: { points: 5, duration: 60 },
   // Website favicons fetched from the linked site (cache misses only), per IP
   faviconFetch: { points: 30, duration: 60 },
   // Rules screening submissions with manual approval, per member per server

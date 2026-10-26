@@ -18,7 +18,9 @@ import { RichPresence, type IRichPresence } from '@/lib/models/RichPresence';
 import { ActivityHistory } from '@/lib/models/ActivityHistory';
 import { authRoutes } from './auth';
 import { serverRoutes, inviteRoutes, partnerRoutes, computeOnlineCounts } from './servers';
+import { discordBridgeRoutes } from './discordBridge';
 import { channelRoutes } from './channels';
+import { serverWebhookRoutes } from './serverWebhooks';
 import { uploadRoutes } from './uploads';
 import { dmRoutes } from './dms';
 import { groupDmRoutes } from './groupDms';
@@ -4308,6 +4310,8 @@ export const api = new Elysia({ prefix: '/api' })
   .use(serverRoutes)
   .use(inviteRoutes)
   .use(partnerRoutes)
+  .use(discordBridgeRoutes)
+  .use(serverWebhookRoutes)
   .use(channelRoutes)
   .use(dmRoutes)
   .use(groupDmRoutes)

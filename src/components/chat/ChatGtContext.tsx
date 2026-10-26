@@ -75,6 +75,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "Unknown": gt("Unknown"),
       "Discord": "Discord", // product name, never translated
       "Bot": gt("Bot"),
+      "Webhook": gt("Webhook"),
       // MessageReactions
       "more": gt("more"),
       "Add Reaction": gt("Add Reaction"),

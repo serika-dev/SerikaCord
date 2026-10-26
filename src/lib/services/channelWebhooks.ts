@@ -8,6 +8,7 @@
  * token never selects a webhook by itself. Messages are stored under the
  * webhook's own id (never the creator's), see lib/chat/webhook.
  */
+import { randomBytes, randomUUID } from 'crypto';
 import { Channel, ChannelWebhook, type IChannel, type IMessage } from '@/lib/models';
 import { config } from '@/lib/config';
 import { checkRateLimit, isValidObjectId, sanitizeInput, secureCompare } from '@/lib/security';
@@ -19,7 +20,12 @@ import {
 import { createAppMessage, deleteAppMessage, editAppMessage, type AppAuthor } from '@/lib/services/appMessages';
 import { discordMessageFromRow, loadLiveMessage } from '@/lib/services/interactionPayload';
 import type { IncomingAttachment } from '@/lib/chat/attachmentPolicy';
-import { blockedWebhookWord, cleanWebhookAvatarUrl, cleanWebhookUsername } from '@/lib/chat/webhook';
+import {
+  MAX_WEBHOOKS_PER_CHANNEL, checkWebhookName, checkWebhookOverrides, classifyWebhookAvatar, randomWebhookName, webhookNameError,
+} from '@/lib/chat/webhook';
+export { webhookErrorMessage } from '@/lib/chat/webhook';
+import { cdnKeyOf } from '@/lib/botapi/cdn';
+import { decodeImageDataUri, type DecodedImage } from '@/lib/botapi/imageData';
 
 export type WebhookRow = NonNullable<Awaited<ReturnType<typeof ChannelWebhook.findById>>>;
 export type WebhookResult = { status: number; body: unknown; headers?: Record<string, string> };
@@ -60,6 +66,174 @@ export function serializeWebhook(w: WebhookRow, opts: { withToken: boolean; user
     ...(opts.user ? { user: opts.user } : {}),
     ...(opts.withToken ? { token: w.token, url: webhookUrl(w) } : {}),
   };
+}
+
+export interface WebhookCreator { id: string; username: string; displayName: string | null; avatar: string | null }
+
+/**
+ * The webhook as the web app's settings see it (user routes): the Discord
+ * fields plus creator and creation time. `withToken` only for whoever may
+ * manage it; an application's own webhook token never goes to users.
+ */
+export function serializeWebhookForUser(w: WebhookRow, opts: { withToken: boolean; creator?: WebhookCreator | null }) {
+  return {
+    id: w.id,
+    type: 1,
+    guild_id: w.serverId ?? null,
+    channel_id: w.channelId,
+    name: w.name,
+    avatar: w.avatar ?? null,
+    application_id: applicationIdOf(w),
+    creator_id: w.creatorId ?? null,
+    created_at: w.createdAt ? new Date(w.createdAt).toISOString() : null,
+    ...(opts.creator ? { user: opts.creator } : {}),
+    ...(opts.withToken && !applicationIdOf(w) ? { token: w.token, url: webhookUrl(w) } : {}),
+  };
+}
+
+/** Creators of these webhooks (one query), keyed by lower-cased id. */
+export async function loadWebhookCreators(rows: WebhookRow[]): Promise<Map<string, WebhookCreator>> {
+  const ids = [...new Set(rows.map((w) => w.creatorId).filter((id): id is string => !!id))];
+  const out = new Map<string, WebhookCreator>();
+  if (ids.length === 0) return out;
+  const { User } = await import('@/lib/models');
+  const users = await User.find({ id: { in: ids } }).catch(() => []);
+  for (const u of users as Array<{ id: string; username: string; displayName?: string | null; avatar?: string | null }>) {
+    out.set(u.id.toLowerCase(), { id: u.id, username: u.username, displayName: u.displayName ?? null, avatar: u.avatar ?? null });
+  }
+  return out;
+}
+
+/** A file on our own CDN (or its legacy B2 hosts), never another host. */
+export function isOwnMediaUrl(url: string): boolean {
+  return cdnKeyOf(url, config.CDN_URL, config.B2_BUCKET_NAME) !== null;
+}
+
+/** Decode a webhook avatar data URI (type sniffed, at most MAX_AVATAR_SIZE). */
+export function decodeWebhookAvatar(dataUri: string): DecodedImage {
+  return decodeImageDataUri(dataUri, config.MAX_AVATAR_SIZE);
+}
+
+const AVATAR_EXT: Record<string, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
+
+/**
+ * Store a webhook avatar under webhook-avatars/<webhookId>/ through
+ * storage.upload (type and size checks, Trust & Safety scan attributed to
+ * `actorId` in `channelId`).
+ */
+export async function uploadWebhookAvatar(
+  webhookId: string,
+  image: { contentType: string; data: Buffer },
+  ctx: { channelId: string; actorId: string; ip?: string },
+): Promise<{ ok: true; url: string } | { ok: false; status: number; message: string }> {
+  const { storage, ContentBlockedError } = await import('@/lib/services/storage');
+  try {
+    const result = await storage.upload({
+      category: 'webhook-avatars',
+      contentType: image.contentType,
+      data: image.data,
+      size: image.data.length,
+      filename: `avatar.${AVATAR_EXT[image.contentType] ?? 'png'}`,
+      channelId: webhookId,
+      scanChannelId: ctx.channelId,
+      scanUserId: ctx.actorId,
+      ip: ctx.ip,
+    });
+    return { ok: true, url: result.url };
+  } catch (err) {
+    if (err instanceof ContentBlockedError) return { ok: false, status: 403, message: 'This image cannot be used' };
+    console.error('[webhooks] avatar upload failed:', (err as Error)?.message);
+    return { ok: false, status: 500, message: 'Avatar upload failed' };
+  }
+}
+
+/** Best-effort delete of a replaced webhook avatar (only our own webhook-avatars/<id>/ objects). */
+export function cleanupWebhookAvatar(webhookId: string, oldUrl: string | null | undefined, newUrl: string | null | undefined): void {
+  if (!oldUrl || oldUrl === newUrl || !isOwnMediaUrl(oldUrl)) return;
+  void (async () => {
+    const { storage, keyFromUrl } = await import('@/lib/services/storage');
+    const { isOwnedMediaKey } = await import('@/lib/utils/ownedMedia');
+    const key = keyFromUrl(oldUrl);
+    if (isOwnedMediaKey(key, `webhook-avatars/${webhookId}/`)) await storage.delete(key);
+  })().catch(() => {});
+}
+
+/** WEBHOOKS_UPDATE for bots in the server (best-effort). */
+export function notifyWebhooksUpdate(serverId: string | null | undefined, channelId: string): void {
+  if (!serverId) return;
+  void import('@/lib/services/gatewayEvents')
+    .then(({ emitWebhooksUpdate }) => emitWebhooksUpdate({ guildId: serverId, channelId }))
+    .catch(() => {});
+}
+
+export type CreateWebhookResult =
+  | { ok: true; webhook: WebhookRow }
+  | { ok: false; status: number; body: unknown; message: string };
+
+/**
+ * Create a channel webhook (bot API and the web app). `name` follows
+ * checkWebhookName; with `defaultName` a missing name gets a friendly random
+ * one ("New Webhook" in settings). `avatar` is a data URI (uploaded after the
+ * row exists, the row is removed again if that fails), one of our CDN URLs,
+ * or null. Callers check MANAGE_WEBHOOKS first.
+ */
+export async function createChannelWebhook(opts: {
+  channel: { id: string; serverId: string };
+  body: { name?: unknown; avatar?: unknown };
+  creatorId: string;
+  applicationId?: string | null;
+  defaultName?: boolean;
+  ip?: string;
+}): Promise<CreateWebhookResult> {
+  const fail = (status: number, body: unknown, message: string): CreateWebhookResult => ({ ok: false, status, body, message });
+  const existing = await ChannelWebhook.find({ channelId: opts.channel.id });
+  if (existing.length >= MAX_WEBHOOKS_PER_CHANNEL) {
+    const message = `Maximum number of webhooks reached (${MAX_WEBHOOKS_PER_CHANNEL})`;
+    return fail(400, { code: 30007, message }, message);
+  }
+  const rawName = opts.body.name === undefined && opts.defaultName ? randomWebhookName() : opts.body.name;
+  const name = checkWebhookName(rawName);
+  if (!name.ok) {
+    const message = webhookNameError(name);
+    return fail(400, formError(['name'], name.reason === 'blocked' ? 'USERNAME_INVALID_CONTAINS' : name.reason === 'type' ? FE.REQUIRED : FE.BAD_LENGTH, message), message);
+  }
+  const avatar = classifyWebhookAvatar(opts.body.avatar, isOwnMediaUrl);
+  if (avatar.kind === 'invalid') return fail(400, formError(['avatar'], 'IMAGE_INVALID', avatar.message), avatar.message);
+  let image: Extract<DecodedImage, { ok: true }> | null = null;
+  if (avatar.kind === 'data') {
+    const decoded = decodeWebhookAvatar(avatar.value);
+    if (!decoded.ok) return fail(400, formError(['avatar'], 'IMAGE_INVALID', decoded.message), decoded.message);
+    const uploadLimit = await checkRateLimit('upload', `webhook-create:${opts.creatorId}`);
+    if (!uploadLimit.success) {
+      const message = 'You are being rate limited.';
+      return fail(429, { message, retry_after: uploadLimit.retryAfter ?? 1, global: false }, message);
+    }
+    image = decoded;
+  }
+
+  const id = randomUUID();
+  const token = randomBytes(34).toString('base64url');
+  let webhook = await ChannelWebhook.create({
+    id,
+    channelId: opts.channel.id,
+    serverId: opts.channel.serverId,
+    name: name.name,
+    avatar: avatar.kind === 'url' ? avatar.url : null,
+    token,
+    url: webhookUrl({ id, token }),
+    creatorId: opts.creatorId,
+    ...(opts.applicationId ? { applicationId: opts.applicationId } : {}),
+  });
+  if (image) {
+    const stored = await uploadWebhookAvatar(webhook.id, image, { channelId: opts.channel.id, actorId: opts.creatorId, ip: opts.ip });
+    if (!stored.ok) {
+      await ChannelWebhook.deleteById(webhook.id).catch(() => {});
+      return fail(stored.status === 403 ? 400 : stored.status, formError(['avatar'], 'IMAGE_INVALID', stored.message), stored.message);
+    }
+    webhook = (await ChannelWebhook.updateById(webhook.id, { avatar: stored.url })) ?? webhook;
+  }
+  notifyWebhooksUpdate(webhook.serverId, webhook.channelId);
+  return { ok: true, webhook };
 }
 
 /** The webhook with this id whose token matches (constant-time), or null. */
@@ -137,6 +311,9 @@ export async function executeWebhook(
   const parsed = parseOutgoingMessage(body, { mode: 'create', allowEphemeral: false });
   if (!parsed.ok) return apiFailure(parsed);
   const m = parsed.message;
+  // username / avatar_url overrides: Discord's rules are 400s, see checkWebhookOverrides.
+  const overrides = checkWebhookOverrides({ username: m.username, avatarUrl: m.avatarUrl });
+  if (!overrides.ok) return { status: 400, body: formError([overrides.field], overrides.code, overrides.message) };
   // Components count only with ?with_components=true, and interactive ones only for app-owned webhooks.
   let components = query.with_components === 'true' ? m.components : null;
   if (components && !applicationIdOf(w) && hasInteractive(components)) {
@@ -202,7 +379,7 @@ export async function executeWebhook(
   }
 
   const created = await createAppMessage({
-    author: authorOf(w, { username: m.username, avatarUrl: m.avatarUrl }),
+    author: authorOf(w, { username: overrides.username, avatarUrl: overrides.avatarUrl }),
     channel,
     body: {
       content,
@@ -224,7 +401,11 @@ export async function executeWebhook(
   return { status: 204, body: '' };
 }
 
-/** PATCH a webhook (by token: name / avatar; by a manager: also channel_id). */
+/**
+ * PATCH a webhook (by token: name / avatar; by a manager: also channel_id).
+ * `avatar` is a data URI (uploaded), one of our CDN URLs, or null to remove
+ * it; a replaced uploaded avatar is deleted from storage.
+ */
 export async function patchWebhook(
   w: WebhookRow,
   body: unknown,
@@ -232,37 +413,60 @@ export async function patchWebhook(
     allowChannel?: (channelId: string) => Promise<boolean>;
     /** Bot route: the calling app (the token is shown only when mayShowWebhookToken allows). Token routes omit it. */
     viewerAppId?: string | null;
+    /** Who is editing (Trust & Safety attribution of an uploaded avatar); defaults to the creator. */
+    actorId?: string;
+    ip?: string;
   } = {},
 ): Promise<WebhookResult> {
   const withToken = opts.viewerAppId === undefined ? true : mayShowWebhookToken(w, opts.viewerAppId);
   const input = (body && typeof body === 'object' ? body : {}) as { name?: unknown; avatar?: unknown; channel_id?: unknown };
   const errors = new FormErrors();
   const updates: { name?: string; avatar?: string | null; channelId?: string; url?: string } = {};
+  let image: Extract<DecodedImage, { ok: true }> | null = null;
   if (input.name !== undefined) {
-    const word = typeof input.name === 'string' ? blockedWebhookWord(input.name) : null;
-    const name = cleanWebhookUsername(input.name);
-    if (word) errors.add(['name'], 'USERNAME_INVALID_CONTAINS', `Username cannot contain "${word}"`);
-    else if (!name) errors.add(['name'], FE.BAD_LENGTH, 'Must be between 1 and 80 in length.');
-    else updates.name = name;
+    const name = checkWebhookName(input.name);
+    if (name.ok) updates.name = name.name;
+    else errors.add(['name'], name.reason === 'blocked' ? 'USERNAME_INVALID_CONTAINS' : FE.BAD_LENGTH, webhookNameError(name));
   }
-  if (input.avatar !== undefined) {
-    if (input.avatar === null) updates.avatar = null;
-    else {
-      const url = cleanWebhookAvatarUrl(input.avatar);
-      if (!url || !url.startsWith('https://')) errors.add(['avatar'], FE.INVALID, 'Avatar must be an https image URL (image data is not supported here).');
-      else updates.avatar = url;
-    }
+  const avatar = classifyWebhookAvatar(input.avatar, isOwnMediaUrl);
+  if (avatar.kind === 'clear') updates.avatar = null;
+  else if (avatar.kind === 'url') updates.avatar = avatar.url;
+  else if (avatar.kind === 'invalid') errors.add(['avatar'], 'IMAGE_INVALID', avatar.message);
+  else if (avatar.kind === 'data') {
+    const decoded = decodeWebhookAvatar(avatar.value);
+    if (decoded.ok) image = decoded;
+    else errors.add(['avatar'], 'IMAGE_INVALID', decoded.message);
   }
   if (input.channel_id !== undefined) {
     if (!opts.allowChannel) errors.add(['channel_id'], FE.INVALID, 'The channel can only be changed with a bot token.');
     else if (typeof input.channel_id !== 'string' || !isValidObjectId(input.channel_id)) errors.add(['channel_id'], FE.BAD_TYPE, 'Value is not snowflake.');
     else if (!(await opts.allowChannel(input.channel_id))) return { status: 403, body: { code: 50013, message: 'Missing Permissions' } };
-    else updates.channelId = input.channel_id;
+    else if (!same(input.channel_id, w.channelId)) updates.channelId = input.channel_id;
   }
   if (!errors.ok) return { status: 400, body: errors.toBody() };
+  if (updates.channelId) {
+    const taken = await ChannelWebhook.find({ channelId: updates.channelId });
+    if (taken.length >= MAX_WEBHOOKS_PER_CHANNEL) {
+      return { status: 400, body: { code: 30007, message: `Maximum number of webhooks reached (${MAX_WEBHOOKS_PER_CHANNEL})` } };
+    }
+  }
+  if (image) {
+    // Uploads (and their image scan) get the upload budget, per webhook.
+    const uploadLimit = await checkRateLimit('upload', `webhook:${w.id}`);
+    if (!uploadLimit.success) {
+      const retry = uploadLimit.retryAfter ?? 1;
+      return { status: 429, body: { message: 'You are being rate limited.', retry_after: retry, global: false }, headers: { 'Retry-After': String(retry) } };
+    }
+    const stored = await uploadWebhookAvatar(w.id, image, { channelId: updates.channelId ?? w.channelId, actorId: opts.actorId ?? w.creatorId, ip: opts.ip });
+    if (!stored.ok) return { status: stored.status === 403 ? 400 : stored.status, body: formError(['avatar'], 'IMAGE_INVALID', stored.message) };
+    updates.avatar = stored.url;
+  }
   if (Object.keys(updates).length === 0) return { status: 200, body: serializeWebhook(w, { withToken }) };
-  if (updates.channelId) updates.url = `${config.API_BASE_URL}/api/webhooks/${w.id}/${w.token}`;
+  if (updates.channelId) updates.url = webhookUrl(w);
   const next = (await ChannelWebhook.updateById(w.id, updates)) ?? w;
+  if (updates.avatar !== undefined) cleanupWebhookAvatar(w.id, w.avatar, updates.avatar);
+  notifyWebhooksUpdate(w.serverId, w.channelId);
+  if (updates.channelId) notifyWebhooksUpdate(w.serverId, updates.channelId);
   return { status: 200, body: serializeWebhook(next, { withToken }) };
 }
 
@@ -295,8 +499,15 @@ export async function runWebhookTokenRoute(
 }
 
 export async function deleteWebhook(w: WebhookRow): Promise<WebhookResult> {
-  await ChannelWebhook.deleteById(w.id);
+  await removeWebhook(w);
   return { status: 204, body: '' };
+}
+
+/** Delete a webhook row, its uploaded avatar, and tell bots (every delete route). */
+export async function removeWebhook(w: WebhookRow): Promise<void> {
+  await ChannelWebhook.deleteById(w.id);
+  cleanupWebhookAvatar(w.id, w.avatar, null);
+  notifyWebhooksUpdate(w.serverId, w.channelId);
 }
 
 /** A message this webhook posted (in its channel or a thread under it). */

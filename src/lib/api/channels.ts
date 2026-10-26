@@ -1,7 +1,7 @@
 import { withoutServerTag } from '@/lib/servers/serverProfile';
 import { customizationWithTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
 import { Elysia, t } from 'elysia';
-import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings, type IUserSettings } from '@/lib/models';
+import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, isValidObjectId } from '@/lib/security';
@@ -440,17 +440,6 @@ async function loadManageableWebhook(
     return { error: 'Missing MANAGE_WEBHOOKS permission', status: 403 };
   }
   return { channel, webhook };
-}
-
-/** Best-effort delete of a replaced webhook avatar (only our own webhook-avatars/<id>/ objects). */
-function cleanupWebhookAvatar(webhookId: string, oldUrl: string | null | undefined, newUrl: string): void {
-  if (!oldUrl || oldUrl === newUrl) return;
-  void (async () => {
-    const { storage, keyFromUrl } = await import('@/lib/services/storage');
-    const { isOwnedMediaKey } = await import('@/lib/utils/ownedMedia');
-    const key = keyFromUrl(oldUrl);
-    if (isOwnedMediaKey(key, `webhook-avatars/${webhookId}/`)) await storage.delete(key);
-  })().catch(() => {});
 }
 
 /**
@@ -1197,27 +1186,13 @@ async function canAccessAllTickets(
   return mine.some((r) => access.includes(r));
 }
 
-// Discord bridge replication helper
-
-/**
- * Convert Serika-formatted content to Discord-friendly text.
- * Serika uses UUID-based mention tokens (<@uuid>, <@&uuid>, <#uuid>) and
- * UUID-based custom emoji tokens (<:name:uuid>). Discord can't resolve these,
- * so we convert them to readable text fallbacks.
- */
-function formatSerikaContentForDiscord(content: string): string {
-  if (!content) return '';
-  let result = content;
-  // User mentions: <@uuid> → @username (we don't have the username here, so just @user)
-  result = result.replace(/<@!?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>/g, '@user');
-  // Role mentions: <@&uuid> → @rolename
-  result = result.replace(/<@&[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>/g, '@role');
-  // Channel mentions: <#uuid> → #channel
-  result = result.replace(/<#[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>/g, '#channel');
-  // Custom emoji: <:name:uuid> or <:name:uuid> → :name: (Discord can't resolve Serika emoji IDs)
-  result = result.replace(/<a?:([a-zA-Z0-9_]+):[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>/g, ':$1:');
-  // @everyone / @here are already plain text, pass through
-  return result;
+// Discord bridge (SerikaCord -> Discord). Lives in src/lib/discord/outbound.ts;
+// loaded lazily so this module stays free of the bridge's dependencies.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelId: string, message: any): void {
+  void import('@/lib/discord/outbound')
+    .then(({ replicateToDiscord: replicate }) => replicate(action, channelId, message))
+    .catch(() => {});
 }
 
 /**
@@ -1267,239 +1242,6 @@ export async function softDeleteChannelMessage(
   // A thread's chip shows its message count.
   if (channel.type === 'public_thread' || channel.type === 'private_thread') {
     refreshThreadAfterMessage(channel.id);
-  }
-}
-
-async function replicateToDiscord(action: 'create' | 'edit' | 'delete', channelId: string, message: any) {
-  try {
-    const channel = await Channel.findById(channelId);
-    if (!channel || !channel.serverId) return;
-    const server = await Server.findById(channel.serverId);
-    if (!server) return;
-    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
-    if (!integrations.discord) return;
-
-    // Avoid feedback loops from Discord-bridged users
-    if (message.author?.isDiscord || message.author?.username?.startsWith('discord-')) {
-      return;
-    }
-
-    // Outbound consent gate: only forward a Serika user's messages to Discord if
-    // they have explicitly agreed to their content being processed by Discord.
-    // If not agreed, NEVER sync this user. (Deletes are allowed through so a
-    // previously-synced message can still be removed from Discord.)
-    if (action !== 'delete') {
-      const authorId = message.authorId || message.author?.id;
-      if (authorId) {
-        const author = await User.findById(authorId);
-        const consented = Boolean((author?.settings as IUserSettings | undefined)?.dataPrivacy?.discordBridgeOutbound);
-        if (!consented) {
-          console.log(`[Discord Bridge] Author ${authorId} has not consented to Discord processing — skipping outbound sync.`);
-          return;
-        }
-      }
-    }
-
-    const guildId = integrations.discordGuildId;
-    // Stored encrypted (servers.ts discord sync); older servers hold plaintext.
-    const storedWebhookUrl = (integrations.discordWebhooks as Record<string, string> | undefined)?.[channelId];
-    if (!storedWebhookUrl) return;
-    const { decryptField } = await import('@/lib/security/fieldEncryption');
-    const webhookUrl = await decryptField(storedWebhookUrl);
-    if (!webhookUrl.startsWith('https://')) return;
-
-    console.log(`[Discord Bridge] Replicating ${action} on channel #${channel.name} to Discord (Guild: ${guildId})`);
-
-    const username = message.author?.displayName || message.author?.username || 'User';
-    const avatarUrl = message.author?.avatar || undefined;
-    const webhookUserPart = {
-      username: `${username} (Serika)`,
-      avatar_url: avatarUrl,
-      // Bridged messages may never ping @everyone/@here or any role. Allow only
-      // direct user mentions to resolve. This is applied to every webhook body.
-      allowed_mentions: { parse: ['users'] as string[] },
-    };
-
-    // Build Discord-friendly content from Serika content. Webhooks can't create
-    // native replies, so a Serika reply is rendered as a Discord-style quote line
-    // referencing the replied-to author + a snippet of their message.
-    let replyPrefix = '';
-    if (action === 'create' && message.referencedMessageId) {
-      try {
-        const refMsg = await Message.findById(message.referencedMessageId);
-        // Only quote a live message from this same channel.
-        if (refMsg && refMsg.channelId === message.channelId && !refMsg.isDeleted) {
-          const refAuthor = await User.findById(refMsg.authorId);
-          const refName = refAuthor?.displayName || refAuthor?.username || 'someone';
-          let refText = '';
-          try { refText = refMsg.content ? await decryptFromStorage(refMsg.content) : ''; } catch { /* ignore */ }
-          refText = refText.replace(/\n/g, ' ').slice(0, 80);
-          replyPrefix = `> **@${refName}**${refText ? `: ${refText}` : ''}\n`;
-        }
-      } catch { /* best-effort reply quoting */ }
-    }
-    const discordContent = `${replyPrefix}${formatSerikaContentForDiscord(message.content || '')}`;
-
-    // Build embeds from attachments — handle images, videos, and other files.
-    // Spoilered images are returned as URLs to be appended to the content as
-    // ||url|| (Discord renders this as a spoilered image), since embeds don't
-    // support spoiler tags.
-    const spoileredImageUrls: string[] = [];
-    const buildAttachmentEmbeds = (attachments: any[]): any[] => {
-      if (!attachments || !Array.isArray(attachments)) return [];
-      const embeds: any[] = [];
-      for (const att of attachments) {
-        const url = att.url || att;
-        const contentType = att.contentType || '';
-        const filename = att.filename || '';
-        // Media flagged by the explicit content filter goes out spoilered too.
-        const isSpoiler = att.spoiler === true || att.sensitive === true;
-        if (contentType.startsWith('image/')) {
-          if (isSpoiler) {
-            spoileredImageUrls.push(url);
-          } else {
-            embeds.push({ image: { url } });
-          }
-        } else if (contentType.startsWith('video/')) {
-          embeds.push({ video: { url } });
-        } else if (contentType.startsWith('audio/')) {
-          embeds.push({
-            title: filename || 'Audio file',
-            description: `[${filename || 'Audio file'}](${url})`,
-            color: 0x8B5CF6,
-          });
-        } else {
-          // Other files (PDF, text, etc.) — link in description
-          embeds.push({
-            title: filename || 'File',
-            description: `[${filename || 'Download file'}](${url})`,
-            color: 0x5865F2,
-          });
-        }
-      }
-      return embeds;
-    };
-
-    if (action === 'create') {
-      const spoilerSuffix = spoileredImageUrls.length > 0
-        ? '\n' + spoileredImageUrls.map(u => `||${u}||`).join('\n')
-        : '';
-      const body: any = {
-        content: discordContent + spoilerSuffix,
-        ...webhookUserPart,
-      };
-      const embeds = buildAttachmentEmbeds(message.attachments);
-      if (embeds.length > 0) body.embeds = embeds;
-
-      // Add sticker as embed if present
-      if (message.sticker?.imageUrl) {
-        body.embeds = [...(body.embeds || []), { image: { url: message.sticker.imageUrl } }];
-      }
-
-      const res = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      }).catch(err => console.error('[Discord Bridge] Failed to post to webhook:', err));
-
-      // Store the Discord message ID for future edit/delete
-      if (res && res.ok) {
-        const discordMsg = await res.json().catch(() => null);
-        if (discordMsg?.id && message.id) {
-          await Message.updateById(message.id, { discordMessageId: discordMsg.id }).catch(err => {
-            console.error(`[Discord Bridge] Failed to store Discord message ID ${discordMsg.id} for Serika message ${message.id}:`, err);
-          });
-          console.log(`[Discord Bridge] Stored Discord message ID ${discordMsg.id} for Serika message ${message.id}`);
-        }
-      }
-    }
-
-    if (action === 'edit') {
-      // Look up the Discord message ID from the Serika message
-      const serikaMsg = message.id ? await Message.findById(message.id) : null;
-      const discordMsgId = serikaMsg?.discordMessageId;
-
-      if (discordMsgId) {
-        // Edit the existing webhook message via PATCH
-        const editUrl = `${webhookUrl}/messages/${discordMsgId}`;
-        const editSpoilerSuffix = spoileredImageUrls.length > 0
-          ? '\n' + spoileredImageUrls.map(u => `||${u}||`).join('\n')
-          : '';
-        const body: any = {
-          content: discordContent + editSpoilerSuffix,
-          allowed_mentions: { parse: ['users'] },
-        };
-        const embeds = buildAttachmentEmbeds(message.attachments);
-        if (embeds.length > 0) body.embeds = embeds;
-
-        const res = await fetch(editUrl, {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        }).catch(err => console.error('[Discord Bridge] Failed to edit webhook message:', err));
-
-        if (res && !res.ok) {
-          // If edit fails (message too old, deleted, etc.), fall back to delete + repost
-          console.warn(`[Discord Bridge] Edit failed (${res.status}), falling back to delete + repost`);
-          await fetch(editUrl, { method: 'DELETE' }).catch(() => {});
-          // Post a new message
-          const repostBody: any = {
-            content: discordContent + editSpoilerSuffix,
-            ...webhookUserPart,
-          };
-          if (embeds.length > 0) repostBody.embeds = embeds;
-          const repostRes = await fetch(webhookUrl, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(repostBody),
-          }).catch(() => null);
-          if (repostRes && repostRes.ok) {
-            const newDiscordMsg = await repostRes.json().catch(() => null);
-            if (newDiscordMsg?.id && message.id) {
-              await Message.updateById(message.id, { discordMessageId: newDiscordMsg.id }).catch(() => {});
-            }
-          }
-        }
-      } else {
-        // No Discord message ID stored — post as new message with edit indicator
-        const editFallbackSpoilerSuffix = spoileredImageUrls.length > 0
-          ? '\n' + spoileredImageUrls.map(u => `||${u}||`).join('\n')
-          : '';
-        const body: any = {
-          content: `*(edited)* ${discordContent}${editFallbackSpoilerSuffix}`,
-          ...webhookUserPart,
-        };
-        const embeds = buildAttachmentEmbeds(message.attachments);
-        if (embeds.length > 0) body.embeds = embeds;
-        await fetch(webhookUrl, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(body),
-        }).catch(err => console.error('[Discord Bridge] Failed to post edit fallback:', err));
-      }
-    }
-
-    if (action === 'delete') {
-      // Look up the Discord message ID
-      const serikaMsg = message.id ? await Message.findById(message.id) : null;
-      const discordMsgId = serikaMsg?.discordMessageId;
-
-      if (discordMsgId) {
-        const deleteUrl = `${webhookUrl}/messages/${discordMsgId}`;
-        const res = await fetch(deleteUrl, {
-          method: 'DELETE',
-        }).catch(err => console.error('[Discord Bridge] Failed to delete webhook message:', err));
-        if (res && !res.ok) {
-          console.error(`[Discord Bridge] Delete webhook message returned ${res.status}: ${await res.text().catch(() => '')}`);
-        } else {
-          console.log(`[Discord Bridge] Deleted Discord message ${discordMsgId} for Serika message ${message.id}`);
-        }
-      } else {
-        console.log(`[Discord Bridge] No Discord message ID stored for Serika message ${message.id} — cannot delete on Discord.`);
-      }
-    }
-  } catch (err) {
-    console.error('[Discord Bridge] Error in replicateToDiscord:', err);
   }
 }
 
@@ -2875,6 +2617,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           isBot: populatedAuthor.isBot,
           isVerified: populatedAuthor.isVerified,
           isDiscord: populatedAuthor.isDiscord || false,
+          ...((populatedAuthor as { isWebhook?: boolean }).isWebhook ? { isWebhook: true } : {}),
           customization: customizationWithTag(serverTags, populatedAuthor.id, populatedAuthor.customization || null),
         } : null,
         channelId: msg.channelId,
@@ -4657,7 +4400,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     const server = await Server.findById(channel.serverId);
     const integrations = (server?.settings as IServerSettings | undefined)?.integrations || {};
-    const bridged = Boolean(integrations.discord) && Boolean((integrations.discordWebhooks as Record<string, string> | undefined)?.[params.channelId]);
+    // Only links that actually send SerikaCord messages out (not paused, not Discord -> SerikaCord only).
+    const { isOutboundBridgedChannel } = await import('@/lib/discord/bridgeConfig');
+    const bridged = isOutboundBridgedChannel(integrations, channel.id);
     return { bridged };
   }, {
     params: t.Object({
@@ -4834,99 +4579,75 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
   })
 
   // ─── Channel Webhooks (user-authenticated) ─────────────────────────────────
+  // Listing needs MANAGE_WEBHOOKS like Discord (the rows carry the secret
+  // token/url). An application's own webhook token stays with the app.
   .get('/:channelId/webhooks', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
     const { hasAccess, channel, membership } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
-    // The token/url is the webhook's secret: only people who can manage
-    // webhooks here (or the webhook's creator) get it.
-    let canManage = true;
-    if (channel.serverId) {
-      canManage = await canManageWebhooksInServer(channel.serverId, user.id, membership);
+    if (!channel.serverId) return [];
+    if (!(await canManageWebhooksInServer(channel.serverId, user.id, membership))) {
+      set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' };
     }
     const { ChannelWebhook } = await import('@/lib/models');
-    const webhooks = await ChannelWebhook.find({ channelId: params.channelId });
-    return webhooks.map((w) => {
-      // An app's own webhook token (it can send that app's buttons) stays with the app.
-      const appOwned = Boolean((w as { applicationId?: string | null }).applicationId);
-      const showSecret = !appOwned && (canManage || Boolean(w.creatorId && compareIds(w.creatorId, user.id)));
-      return {
-        id: w.id,
-        type: 1,
-        guild_id: channel.serverId ?? null,
-        channel_id: params.channelId,
-        name: w.name,
-        avatar: w.avatar,
-        ...(showSecret ? { token: w.token, url: w.url } : {}),
-        creator_id: w.creatorId ?? null,
-      };
-    });
+    const { serializeWebhookForUser, loadWebhookCreators } = await import('@/lib/services/channelWebhooks');
+    const webhooks = await ChannelWebhook.find({ channelId: channel.id });
+    const creators = await loadWebhookCreators(webhooks);
+    return webhooks
+      .sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())
+      .map((w) => serializeWebhookForUser(w, { withToken: true, creator: w.creatorId ? creators.get(w.creatorId.toLowerCase()) : null }));
   })
-  .post('/:channelId/webhooks', async ({ headers, cookie, params, body, set }) => {
+  // Create a webhook (Discord's POST /channels/:id/webhooks). `name` is
+  // optional here: "New Webhook" in settings gets a friendly random name.
+  // `avatar` is image data (data URI), like Discord.
+  .post('/:channelId/webhooks', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
     const { hasAccess, channel, membership } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
-    if (channel.serverId && !(await canManageWebhooksInServer(channel.serverId, user.id, membership))) {
+    if (!channel.serverId || ['category', 'public_thread', 'private_thread'].includes(String(channel.type))) {
+      set.status = 400; return { error: 'Webhooks can only be created in server text channels' };
+    }
+    if (!(await canManageWebhooksInServer(channel.serverId, user.id, membership))) {
       set.status = 403; return { error: 'Missing MANAGE_WEBHOOKS permission' };
     }
-    const { name, avatar } = body as { name: string; avatar?: unknown };
-    if (!name || typeof name !== 'string') { set.status = 400; return { error: 'Name is required' }; }
-    // Same avatar rule as the token PATCH route: an https image URL or nothing
-    // (uploads go through POST /webhooks/:id/avatar).
-    let avatarUrl: string | null = null;
-    if (avatar !== undefined && avatar !== null && avatar !== '') {
-      const { cleanWebhookAvatarUrl } = await import('@/lib/chat/webhook');
-      avatarUrl = cleanWebhookAvatarUrl(avatar);
-      if (!avatarUrl) { set.status = 400; return { error: 'Avatar must be an https image URL' }; }
-    }
-    // Same name rules as webhook overrides: no posing as the platform or staff.
-    const { blockedWebhookWord } = await import('@/lib/chat/webhook');
-    const blockedWord = blockedWebhookWord(name);
-    if (blockedWord) { set.status = 400; return { error: `Webhook names cannot contain "${blockedWord}"` }; }
-    const { ChannelWebhook } = await import('@/lib/models');
-    const token = randomUUID().replace(/-/g, '');
-    const webhook = await ChannelWebhook.create({
-      channelId: params.channelId,
-      serverId: channel.serverId ?? undefined,
-      name: name.trim(),
-      avatar: avatarUrl,
-      token,
-      url: `${config.API_BASE_URL}/api/webhooks/${params.channelId}/${token}`,
+    const limit = await checkRateLimit('webhookToken', `create:${user.id}`);
+    if (!limit.success) { set.status = 429; return { error: 'Rate limited', retryAfter: limit.retryAfter }; }
+    const { getClientIP } = await import('@/lib/security');
+    const { createChannelWebhook, serializeWebhookForUser } = await import('@/lib/services/channelWebhooks');
+    const created = await createChannelWebhook({
+      channel: { id: channel.id, serverId: channel.serverId },
+      body: body ?? {},
       creatorId: user.id,
+      defaultName: true,
+      ip: getClientIP(request),
     });
-    if (channel.serverId) {
-      audit({
-        serverId: channel.serverId,
-        userId: user.id,
-        actionType: AuditLogEvent.WEBHOOK_CREATE,
-        targetId: webhook.id,
-        changes: [{ key: 'name', new: webhook.name }, { key: 'channel_id', new: params.channelId }, { key: 'type', new: 1 }],
-        options: { channel_name: channel.name, webhook_name: webhook.name },
-      });
-    }
-    return {
-      id: webhook.id,
-      type: 1,
-      guild_id: channel.serverId ?? null,
-      channel_id: params.channelId,
-      name: webhook.name,
-      avatar: webhook.avatar,
-      token: webhook.token,
-      url: webhook.url,
-      creator_id: user.id,
-    };
+    if (!created.ok) { set.status = created.status; return { error: created.message }; }
+    const webhook = created.webhook;
+    audit({
+      serverId: channel.serverId,
+      userId: user.id,
+      actionType: AuditLogEvent.WEBHOOK_CREATE,
+      targetId: webhook.id,
+      changes: [{ key: 'name', new: webhook.name }, { key: 'channel_id', new: channel.id }, { key: 'type', new: 1 }],
+      options: { channel_name: channel.name, webhook_name: webhook.name },
+    });
+    return serializeWebhookForUser(webhook, {
+      withToken: true,
+      creator: { id: user.id, username: user.username, displayName: user.displayName ?? null, avatar: user.avatar ?? null },
+    });
   }, {
-    body: t.Object({
-      name: t.String({ minLength: 1, maxLength: 80 }),
-      avatar: t.Optional(t.Union([t.String({ maxLength: 2048 }), t.Null()])),
-    }),
+    body: t.Optional(t.Object({
+      name: t.Optional(t.String({ maxLength: 200 })),
+      // A data URI (up to MAX_AVATAR_SIZE once decoded), one of our CDN URLs, or null.
+      avatar: t.Optional(t.Union([t.String({ maxLength: 8_000_000 }), t.Null()])),
+    })),
   })
-  // Edit a webhook from channel settings (CORD-67): name, avatar removal and
-  // the channel it posts to. Needs MANAGE_WEBHOOKS, and
-  // MANAGE_WEBHOOKS in the destination channel's server for a move.
-  .patch('/:channelId/webhooks/:webhookId', async ({ headers, cookie, params, body, set }) => {
+  // Edit a webhook from settings (CORD-67): name, avatar (data URI or null)
+  // and the channel it posts to. Needs MANAGE_WEBHOOKS here, and in the
+  // destination channel's server for a move.
+  .patch('/:channelId/webhooks/:webhookId', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
     const managed = await loadManageableWebhook(user.id, params.channelId, params.webhookId);
@@ -4935,11 +4656,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const editLimit = await checkRateLimit('webhookToken', webhook.id);
     if (!editLimit.success) { set.status = 429; return { error: 'Rate limited', retryAfter: editLimit.retryAfter }; }
 
-    const input = body as { name?: string; avatar?: null; channelId?: string };
-    const patch: { name?: string; avatar?: null; channel_id?: string } = {};
+    const input = body as { name?: string; avatar?: string | null; channelId?: string };
+    const patch: { name?: string; avatar?: string | null; channel_id?: string } = {};
     if (input.name !== undefined) patch.name = input.name;
-    // Setting an avatar goes through the upload route; here it can only be removed.
-    if (input.avatar === null) patch.avatar = null;
+    if (input.avatar !== undefined) patch.avatar = input.avatar;
     let target: IChannel | null = null;
     if (input.channelId !== undefined && !compareIds(input.channelId, channel.id)) {
       if (!isValidObjectId(input.channelId)) { set.status = 400; return { error: 'Invalid channel' }; }
@@ -4960,19 +4680,20 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       patch.channel_id = target.id;
     }
 
-    const { patchWebhook } = await import('@/lib/services/channelWebhooks');
-    const result = await patchWebhook(webhook, patch, { allowChannel: async () => Boolean(target) });
+    const { getClientIP } = await import('@/lib/security');
+    const { patchWebhook, serializeWebhookForUser, loadWebhookCreators, webhookErrorMessage } = await import('@/lib/services/channelWebhooks');
+    const result = await patchWebhook(webhook, patch, { allowChannel: async () => Boolean(target), actorId: user.id, ip: getClientIP(request) });
     if (result.status !== 200) {
       set.status = result.status;
-      const errBody = result.body as { message?: string; errors?: unknown };
-      return { error: errBody?.message || 'Invalid webhook update', details: errBody?.errors };
+      return { error: webhookErrorMessage(result.body) };
     }
-    const next = result.body as { name: string; avatar: string | null; channel_id: string };
+    const { ChannelWebhook } = await import('@/lib/models');
+    const next = (await ChannelWebhook.findById(webhook.id)) ?? webhook;
     if (channel.serverId) {
       const changes: Array<{ key: string; old?: unknown; new?: unknown }> = [];
       if (next.name !== webhook.name) changes.push({ key: 'name', old: webhook.name, new: next.name });
       if ((next.avatar ?? null) !== (webhook.avatar ?? null)) changes.push({ key: 'avatar_hash', old: webhook.avatar ?? null, new: next.avatar ?? null });
-      if (!compareIds(next.channel_id, webhook.channelId)) changes.push({ key: 'channel_id', old: webhook.channelId, new: next.channel_id });
+      if (!compareIds(next.channelId, webhook.channelId)) changes.push({ key: 'channel_id', old: webhook.channelId, new: next.channelId });
       if (changes.length > 0) {
         audit({
           serverId: channel.serverId,
@@ -4984,19 +4705,19 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         });
       }
     }
-    if (patch.avatar === null) cleanupWebhookAvatar(webhook.id, webhook.avatar, '');
-    return result.body;
+    const creators = await loadWebhookCreators([next]);
+    return serializeWebhookForUser(next, { withToken: true, creator: next.creatorId ? creators.get(next.creatorId.toLowerCase()) : null });
   }, {
     params: t.Object({ channelId: t.String(), webhookId: t.String() }),
     body: t.Object({
-      name: t.Optional(t.String({ minLength: 1, maxLength: 80 })),
-      avatar: t.Optional(t.Null()),
+      name: t.Optional(t.String({ maxLength: 200 })),
+      avatar: t.Optional(t.Union([t.String({ maxLength: 8_000_000 }), t.Null()])),
       channelId: t.Optional(t.String()),
     }),
   })
-  // Upload a webhook avatar (CORD-67): image types and size like server icons,
-  // stored under webhook-avatars/<webhookId>/ through StorageService (sniffing
-  // and Trust & Safety scanning happen there).
+  // Upload a webhook avatar file (CORD-67): image types and size like server
+  // icons, stored under webhook-avatars/<webhookId>/ through StorageService
+  // (sniffing and Trust & Safety scanning happen there).
   .post('/:channelId/webhooks/:webhookId/avatar', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
@@ -5014,18 +4735,21 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (file.size > config.MAX_AVATAR_SIZE) {
       set.status = 400; return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
     }
-    const { storage, ContentBlockedError } = await import('@/lib/services/storage');
-    let url: string;
-    try {
-      const uploaded = await storage.uploadFromFormData(file, 'webhook-avatars', { channelId: webhook.id, scanChannelId: channel.id, scanUserId: user.id, ip });
-      url = uploaded.url;
-    } catch (error: unknown) {
-      set.status = error instanceof ContentBlockedError ? 403 : 500;
-      return { error: error instanceof Error ? error.message : 'Failed to upload avatar' };
+    // The declared type is the client's word: the bytes must really be that image.
+    const data = Buffer.from(await file.arrayBuffer());
+    const { sniffImage } = await import('@/lib/botapi/imageData');
+    const sniffed = sniffImage(data);
+    if (!sniffed || sniffed !== (file.type === 'image/jpg' ? 'image/jpeg' : file.type)) {
+      set.status = 400; return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
     }
+    const { uploadWebhookAvatar, cleanupWebhookAvatar, notifyWebhooksUpdate } = await import('@/lib/services/channelWebhooks');
+    const stored = await uploadWebhookAvatar(webhook.id, { contentType: sniffed, data }, { channelId: channel.id, actorId: user.id, ip });
+    if (!stored.ok) { set.status = stored.status; return { error: stored.message }; }
+    const url = stored.url;
     const { ChannelWebhook } = await import('@/lib/models');
     await ChannelWebhook.updateById(webhook.id, { avatar: url });
     cleanupWebhookAvatar(webhook.id, webhook.avatar, url);
+    notifyWebhooksUpdate(webhook.serverId, webhook.channelId);
     if (channel.serverId) {
       audit({
         serverId: channel.serverId,
@@ -5044,11 +4768,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
   .delete('/:channelId/webhooks/:webhookId', async ({ headers, cookie, params, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    if (!isValidObjectId(params.channelId) || !isValidObjectId(params.webhookId)) { set.status = 404; return { error: 'Webhook not found' }; }
     const { hasAccess, channel, membership } = await checkChannelAccess(user.id, params.channelId);
     if (!hasAccess || !channel) { set.status = 403; return { error: 'Access denied' }; }
     const { ChannelWebhook } = await import('@/lib/models');
     const webhook = await ChannelWebhook.findById(params.webhookId);
-    if (!webhook || webhook.channelId !== params.channelId) {
+    if (!webhook || !compareIds(webhook.channelId, channel.id)) {
       set.status = 404; return { error: 'Webhook not found' };
     }
     if (channel.serverId) {
@@ -5057,14 +4782,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         set.status = 403; return { error: 'You can only delete your own webhooks' };
       }
     }
-    await ChannelWebhook.deleteById(params.webhookId);
+    const { removeWebhook } = await import('@/lib/services/channelWebhooks');
+    await removeWebhook(webhook);
     if (channel.serverId) {
       audit({
         serverId: channel.serverId,
         userId: user.id,
         actionType: AuditLogEvent.WEBHOOK_DELETE,
         targetId: webhook.id,
-        changes: [{ key: 'name', old: webhook.name }, { key: 'channel_id', old: params.channelId }],
+        changes: [{ key: 'name', old: webhook.name }, { key: 'channel_id', old: channel.id }],
         options: { channel_name: channel.name, webhook_name: webhook.name },
       });
     }

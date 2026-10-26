@@ -34,7 +34,8 @@ export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: Group
     </Avatar>
   );
 
-  if (!author.id || author.id === "unknown") return avatar;
+  // Webhook posts have no profile to open (the id is the webhook's).
+  if (!author.id || author.id === "unknown" || author.isWebhook) return avatar;
 
   return (
     <>
@@ -99,7 +100,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
   return (
     <div className="flex items-center gap-2 mb-1">
       {userMenu}
-      {author.id && author.id !== "unknown" ? (
+      {author.id && author.id !== "unknown" && !author.isWebhook ? (
         <MemberProfilePopup
           member={{
             id: author.id,
@@ -166,7 +167,7 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
                 : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
             )}>
               {author.isVerified && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
-              {gt("Bot")}
+              {author.isWebhook ? gt("Webhook") : gt("Bot")}
             </span>
           )}
         </span>

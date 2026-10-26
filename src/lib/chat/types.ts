@@ -21,6 +21,8 @@ export interface MessageAuthor {
   isBot?: boolean;
   isVerified?: boolean;
   isDiscord?: boolean;
+  /** A channel webhook's post (the id is the webhook's, not a user's). */
+  isWebhook?: boolean;
   customization?: {
     profileColor?: string;
     profileAccentColor?: string;
