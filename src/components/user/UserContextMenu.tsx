@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { usePathname, useRouter } from "next/navigation";
 import { useAppCommands } from "@/hooks/useAppCommands";
@@ -244,16 +244,16 @@ export function UserMenuItems({
         </button>
       )}
       {human && (
-        <>
+        <MenuSubmenu label={gt("Call")} icon={<Phone className="w-4 h-4" />}>
           <button className="ctx-item" onClick={run(() => router.push(`/dm/${user.id}?call=voice`))}>
             <Phone className="w-4 h-4" />
-            {gt("Call")}
+            {gt("Voice Call")}
           </button>
           <button className="ctx-item" onClick={run(() => router.push(`/dm/${user.id}?call=video`))}>
             <Video className="w-4 h-4" />
             {gt("Video Call")}
           </button>
-        </>
+        </MenuSubmenu>
       )}
       {!isSelf && !user.isSystem && !user.isDiscord && (
         <button className="ctx-item" onClick={run(() => openUserAction("note", target))}>
@@ -294,19 +294,35 @@ export function UserMenuItems({
         </>
       )}
 
+      {(canChangeNickname || (canRoles && serverId) || canTimeout || canKick || canBan || (canModView && serverId)) && (
+        <div className="ctx-sep" />
+      )}
       {canChangeNickname && (
-        <>
-          <div className="ctx-sep" />
-          <button className="ctx-item" onClick={run(() => openUserAction("nickname", target))}>
-            <Pencil className="w-4 h-4" />
-            {isSelf ? gt("Edit Server Nickname") : gt("Change Nickname")}
-          </button>
-        </>
+        <button className="ctx-item" onClick={run(() => openUserAction("nickname", target))}>
+          <Pencil className="w-4 h-4" />
+          {isSelf ? gt("Edit Server Nickname") : gt("Change Nickname")}
+        </button>
       )}
 
-      {(canTimeout || canKick || canBan) && (
-        <>
-          <div className="ctx-sep" />
+      {canRoles && serverId && (
+        <RolesSubmenu
+          open={rolesOpen}
+          onOpenChange={setRolesOpen}
+          serverId={serverId}
+          userId={user.id}
+          memberRoles={member?.roles}
+          onRolesUpdated={(roles) => serverMembers?.applyMemberRoles(user.id, roles)}
+        />
+      )}
+
+      {(canTimeout || canKick || canBan || (canModView && serverId)) && (
+        <MenuSubmenu label={gt("Moderation")} icon={<ShieldAlert className="w-4 h-4" />}>
+          {canModView && serverId && (
+            <button className="ctx-item" onClick={run(() => openUserAction("modview", target))}>
+              <ShieldAlert className="w-4 h-4" />
+              {gt("Open Mod View")}
+            </button>
+          )}
           {canTimeout && (
             <button className="ctx-item ctx-item-danger" onClick={run(() => openUserAction("timeout", target))}>
               <Clock className="w-4 h-4" />
@@ -325,34 +341,12 @@ export function UserMenuItems({
               {gt("Ban {name}", { name })}
             </button>
           )}
-        </>
-      )}
-
-      {canRoles && serverId && (
-        <>
-          <div className="ctx-sep" />
-          <RolesSubmenu
-            open={rolesOpen}
-            onOpenChange={setRolesOpen}
-            serverId={serverId}
-            userId={user.id}
-            memberRoles={member?.roles}
-            onRolesUpdated={(roles) => serverMembers?.applyMemberRoles(user.id, roles)}
-          />
-        </>
-      )}
-
-      {canModView && serverId && (
-        <button className="ctx-item" onClick={run(() => openUserAction("modview", target))}>
-          <ShieldAlert className="w-4 h-4" />
-          {gt("Open Mod View")}
-        </button>
+        </MenuSubmenu>
       )}
 
       {/* App user commands (context menu, type 2) for the open channel. */}
       {userCommands.length > 0 && appChannelId && !user.isDiscord && !user.isSystem && (
-        <>
-          <div className="ctx-sep" />
+        <MenuSubmenu label={gt("Apps")} icon={<Blocks className="w-4 h-4" />}>
           {userCommands.map((cmd) => (
             <button
               key={cmd.commandId}
@@ -366,19 +360,60 @@ export function UserMenuItems({
               <span className="truncate">{cmd.name}</span>
             </button>
           ))}
-        </>
+        </MenuSubmenu>
       )}
 
       <div className="ctx-sep" />
-      <button className="ctx-item" onClick={() => copy(user.username, gt("Username copied"))}>
-        <Copy className="w-4 h-4" />
-        {gt("Copy Username")}
-      </button>
-      <button className="ctx-item" onClick={() => copy(user.id, gt("User ID copied"))}>
-        <Copy className="w-4 h-4" />
-        {gt("Copy User ID")}
-      </button>
+      <MenuSubmenu label={gt("Copy")} icon={<Copy className="w-4 h-4" />}>
+        <button className="ctx-item" onClick={() => copy(user.username, gt("Username copied"))}>
+          <Copy className="w-4 h-4" />
+          {gt("Copy Username")}
+        </button>
+        <button className="ctx-item" onClick={() => copy(user.id, gt("User ID copied"))}>
+          <Copy className="w-4 h-4" />
+          {gt("Copy User ID")}
+        </button>
+      </MenuSubmenu>
     </>
+  );
+}
+
+/**
+ * A "Label ▸" row that opens a nested menu on hover or click, toward the side
+ * with room, shifted up if it would run past the bottom of the screen. Keeps
+ * long menus (moderators see many actions) short enough to fit.
+ */
+function MenuSubmenu({ label, icon, children }: { label: string; icon?: ReactNode; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  const [flipLeft, setFlipLeft] = useState(false);
+  const rowRef = useRef<HTMLDivElement | null>(null);
+  const show = (next: boolean) => {
+    if (next && rowRef.current) setFlipLeft(rowRef.current.getBoundingClientRect().right + 228 > window.innerWidth);
+    setOpen(next);
+  };
+  // Measured on mount (no state): lift the panel so it ends above the bottom edge.
+  const placePanel = useCallback((el: HTMLDivElement | null) => {
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    const overflow = rect.bottom - (window.innerHeight - 8);
+    if (overflow > 0) el.style.top = `${-Math.min(overflow, rect.top - 8)}px`;
+  }, []);
+  return (
+    <div ref={rowRef} className="relative" onMouseEnter={() => show(true)} onMouseLeave={() => show(false)}>
+      <button className="ctx-item justify-between" aria-haspopup="menu" aria-expanded={open} onClick={() => show(!open)}>
+        <span className="flex items-center gap-2">{icon}{label}</span>
+        <ChevronRight className="w-4 h-4" />
+      </button>
+      {open && (
+        <div
+          ref={placePanel}
+          role="menu"
+          className={cn("ctx-menu absolute top-0 z-[10000] min-w-[200px]", flipLeft ? "right-full mr-1" : "left-full ml-1")}
+        >
+          {children}
+        </div>
+      )}
+    </div>
   );
 }
 

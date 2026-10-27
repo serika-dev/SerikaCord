@@ -16,6 +16,7 @@ import { useEmojiFavorites } from "@/hooks/useEmojiFavorites";
 import { toast } from "sonner";
 import { recordEmoji, useFrecentEmojis } from "@/lib/chat/emojiFrecencyStore";
 import type { FrecencyEmoji } from "@/lib/chat/emojiFrecency";
+import { useMenuPlacement } from "@/hooks/useMenuPlacement";
 
 interface CustomEmoji {
   id: string;
@@ -262,6 +263,7 @@ export function CustomEmojiPicker({
     customEmojiId?: string;
     url?: string;
   } | null>(null);
+  const placeCtxMenu = useMenuPlacement(ctxMenu?.x ?? 0, ctxMenu?.y ?? 0);
 
   // Close context menu on any click elsewhere or Escape
   useEffect(() => {
@@ -1112,10 +1114,7 @@ export function CustomEmojiPicker({
       {typeof document !== "undefined" && ctxMenu && createPortal(
         <div
           className="ctx-menu fixed z-[9999] min-w-[168px]"
-          style={{ 
-            left: Math.min(ctxMenu.x, window.innerWidth - 168), 
-            top: Math.min(ctxMenu.y, window.innerHeight - 88) 
-          }}
+          ref={placeCtxMenu}
           onClick={(e) => e.stopPropagation()}
         >
           <button

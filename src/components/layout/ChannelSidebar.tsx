@@ -88,6 +88,7 @@ import { ServerGuideEntry } from "@/components/server/community/ServerGuideEntry
 import { ServerPageEntries } from "@/components/server/community/ServerPageEntries";
 import { StatusBadge } from "@/components/user/StatusBadge";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { useMenuPlacement } from "@/hooks/useMenuPlacement";
 
 const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
@@ -242,11 +243,14 @@ export function ChannelSidebar({
   };
 
   const closeContextMenu = () => setContextMenu(null);
+  // Keep the menu on screen (a channel near the bottom used to open it off-screen).
+  const placeChannelMenu = useMenuPlacement(contextMenu?.x ?? 0, contextMenu?.y ?? 0);
 
   // DM row context menu (separate from server channels — different item set).
   const [dmContextMenu, setDmContextMenu] = useState<{ x: number; y: number; channel: DMChannel } | null>(null);
   const messageRequests = useMessageRequests();
   const closeDmContextMenu = () => setDmContextMenu(null);
+  const placeDmMenu = useMenuPlacement(dmContextMenu?.x ?? 0, dmContextMenu?.y ?? 0);
 
   // Close context menu when clicking outside or pressing Escape
   useEffect(() => {
@@ -1438,8 +1442,8 @@ export function ChannelSidebar({
         {/* DM row context menu */}
         {dmContextMenu && (
           <div
+            ref={placeDmMenu}
             className="ctx-menu fixed z-50 min-w-[188px]"
-            style={{ left: dmContextMenu.x, top: dmContextMenu.y }}
             onClick={(e) => e.stopPropagation()}
           >
             <button
@@ -1820,8 +1824,8 @@ export function ChannelSidebar({
       {/* Channel Context Menu */}
       {contextMenu && (
         <div
+          ref={placeChannelMenu}
           className="ctx-menu fixed z-50 min-w-[188px]"
-          style={{ left: contextMenu.x, top: contextMenu.y }}
           onClick={(e) => e.stopPropagation()}
         >
           {canManageChannels && (

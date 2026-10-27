@@ -18,6 +18,7 @@ import { toast } from "sonner";
 import { useEmojiFavorites } from "@/hooks/useEmojiFavorites";
 import { createPortal } from "react-dom";
 import { EMOJI_TO_NAME } from "@/lib/constants/emojis";
+import { useMenuPlacement } from "@/hooks/useMenuPlacement";
 
 interface CustomEmoji {
   id: string;
@@ -131,6 +132,7 @@ export const MessageContent = memo(function MessageContent({
     emoji: CustomEmoji;
     isCustom?: boolean;
   } | null>(null);
+  const placeEmojiMenu = useMenuPlacement(emojiCtxMenu?.x ?? 0, emojiCtxMenu?.y ?? 0);
 
   // Close emoji context menu on click elsewhere or Escape
   useEffect(() => {
@@ -579,10 +581,7 @@ export const MessageContent = memo(function MessageContent({
       {typeof document !== "undefined" && emojiCtxMenu && createPortal(
         <div
           className="ctx-menu fixed z-[9999] min-w-[188px]"
-          style={{ 
-            left: Math.min(emojiCtxMenu.x, window.innerWidth - 188), 
-            top: Math.min(emojiCtxMenu.y, window.innerHeight - 148) 
-          }}
+          ref={placeEmojiMenu}
           onClick={(e) => e.stopPropagation()}
         >
           {/* Emoji preview header */}

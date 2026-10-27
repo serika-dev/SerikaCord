@@ -27,7 +27,10 @@ import {
 import { SettingsSearchInput } from "@/components/settings/blocks/SettingsSearchInput";
 import { SettingsButton } from "@/components/settings/blocks/SettingsButton";
 import { SettingsEmptyState } from "@/components/settings/blocks/SettingsEmptyState";
-import { MembersPager, MEMBERS_PAGE_SIZE } from "@/components/dialogs/serverSettings/MembersPager";
+import { MembersPager } from "@/components/dialogs/serverSettings/MembersPager";
+
+/** Recent Members shows a short page, like Discord's members page. */
+const PAGE_SIZE = 7;
 import type { ServerMember } from "@/components/dialogs/serverSettings/types";
 import { ServerTagPill } from "@/components/user/ServerTagPill";
 import { useUserContextMenu, type ContextMenuUser } from "@/components/user/UserContextMenu";
@@ -233,9 +236,9 @@ export function ServerMembersView({ serverId }: { serverId: string }) {
   const ownerId = currentServer?.ownerId;
   const visible = useMemo(() => filterAndSortMembers(members, { search: deferredSearch, sort }), [members, deferredSearch, sort]);
 
-  const pageCount = Math.max(1, Math.ceil(visible.length / MEMBERS_PAGE_SIZE));
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
   const safePage = Math.min(page, pageCount - 1);
-  const rows = visible.slice(safePage * MEMBERS_PAGE_SIZE, (safePage + 1) * MEMBERS_PAGE_SIZE);
+  const rows = visible.slice(safePage * PAGE_SIZE, (safePage + 1) * PAGE_SIZE);
   const loading = !ready || (isMembersLoading && members.length === 0);
 
   const onMenu = useCallback(
@@ -371,7 +374,7 @@ export function ServerMembersView({ serverId }: { serverId: string }) {
                 />
               ))}
             </div>
-            <MembersPager page={safePage} pageCount={pageCount} total={visible.length} onPage={setPage} />
+            <MembersPager page={safePage} pageCount={pageCount} total={visible.length} onPage={setPage} pageSize={PAGE_SIZE} />
           </div>
         )}
       </section>

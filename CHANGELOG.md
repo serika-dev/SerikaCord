@@ -54,6 +54,8 @@
 - **Redesigned channel settings** — channel, category and thread settings look like the rest of Settings, with one Save bar for every page, Discord-style permissions (allow / inherit / deny per role or member), an Invites table, and only the options that actually do something.
 
 ### Bug Fixes
+- **Menus stay on screen** — right-clicking a channel near the bottom of the list, or an emoji, opens the menu above the pointer instead of off the screen; the member ⋯ menu groups Call, Moderation, Apps and Copy into submenus so it always fits.
+- **Members page** — shows 7 members per page.
 - **Syncing a linked Discord server** — no longer fails with "That Discord server is already linked to another server".
 - **Discord bridge edits and deletes** — editing or deleting a message in SerikaCord now updates the Discord copy.
 - **Discord messages notify** — messages from Discord now show unread badges and notifications, are no longer mirrored twice, and same-named channels no longer post into each other.
