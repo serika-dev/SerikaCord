@@ -12,6 +12,7 @@
 
 ### Bug Fixes
 - **Verification wait times stick** — the minimum account age and member age in Server Settings → Safety no longer jump back to 5 minutes after you reload.
+- **Webhook and bridged profiles** — webhooks, Discord-bridged users and system accounts show a simple card without Message, Add Friend, Add Role, Mod View or View Full Profile, and replies to webhook posts show the webhook's name.
 
 ### Performance
 

@@ -340,6 +340,7 @@ function MessageGroupInner<M extends ChatMessage>({
                                 displayName: message.referencedMessage.author.displayName,
                                 avatar: message.referencedMessage.author.avatar,
                                 isDiscord: message.referencedMessage.author.isDiscord,
+                                isWebhook: message.referencedMessage.author.isWebhook,
                               }}
                               serverId={serverId}
                               side="right"

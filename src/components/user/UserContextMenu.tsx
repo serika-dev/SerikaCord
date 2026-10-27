@@ -46,6 +46,8 @@ export interface ContextMenuUser {
   isSystem?: boolean;
   /** Bridged Discord users can't be messaged or called from SerikaCord. */
   isDiscord?: boolean;
+  /** A channel webhook (its id is not a user's). */
+  isWebhook?: boolean;
 }
 
 interface ServerRoleLite {
@@ -95,7 +97,7 @@ export function UserMenuItems({
 
   const id = norm(user.id);
   const isSelf = me?.id ? norm(me.id) === id : false;
-  const reachable = !isSelf && !user.isSystem && !user.isDiscord;
+  const reachable = !isSelf && !user.isSystem && !user.isDiscord && !user.isWebhook;
   const human = reachable && !user.isBot;
   const isFriend = rel.friends.has(id);
   const isBlocked = rel.blocked.has(id);
@@ -111,7 +113,7 @@ export function UserMenuItems({
   const pathMatch = /^\/channels\/([^/]+)\/([^/?#]+)/.exec(pathname ?? "");
   const appChannelId = serverId && pathMatch && norm(pathMatch[1]) === norm(serverId) ? channelIdFromSegment(pathMatch[2]) : null;
   const { userCommands } = useAppCommands(appChannelId);
-  const inServer = Boolean(serverId) && !user.isDiscord && (member !== null || !serverMembers);
+  const inServer = Boolean(serverId) && !user.isDiscord && !user.isWebhook && (member !== null || !serverMembers);
   const targetIsOwner = Boolean(member?.isOwner);
   const canModerateTarget = inServer && !isSelf && !targetIsOwner && !permsLoading;
 
@@ -255,7 +257,7 @@ export function UserMenuItems({
           </button>
         </MenuSubmenu>
       )}
-      {!isSelf && !user.isSystem && !user.isDiscord && (
+      {!isSelf && !user.isSystem && !user.isDiscord && !user.isWebhook && (
         <button className="ctx-item" onClick={run(() => openUserAction("note", target))}>
           <NotebookPen className="w-4 h-4" />
           {gt("Add Note")}

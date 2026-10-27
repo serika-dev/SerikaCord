@@ -2559,6 +2559,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         });
       }
     }
+    // Replies to webhook posts: the author id is the webhook's.
+    const webhookRefAuthorIds = refAuthorIds.filter((id) => !refAuthorMap.has(id));
+    if (webhookRefAuthorIds.length > 0) {
+      const { loadWebhookAuthors } = await import('@/lib/services/webhookAuthors');
+      for (const wa of await loadWebhookAuthors(webhookRefAuthorIds)) refAuthorMap.set(wa.id, { ...wa, isWebhook: true });
+    }
 
     // Phase 3: Decrypt referenced message contents (batch, parallel)
     const refDecryptEntries = (messages as IMessage[])
@@ -2610,6 +2616,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               avatar?: string;
               isBot?: boolean;
               isVerified?: boolean;
+              isDiscord?: boolean;
+              isWebhook?: boolean;
             };
             createdAt?: Date;
           }
@@ -2629,6 +2637,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               avatar: refAuthorData.avatar,
               isBot: Boolean(refAuthorData.isBot),
               isVerified: Boolean(refAuthorData.isVerified),
+              isDiscord: Boolean(refAuthorData.isDiscord),
+              isWebhook: Boolean(refAuthorData.isWebhook),
             } : undefined,
             createdAt: refMsg.createdAt,
           };

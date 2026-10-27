@@ -152,7 +152,8 @@ function MemberProfilePopupBody({
   }, [member]);
 
   useEffect(() => {
-    if ((!open && !fullProfileOpen) || !member.id) return;
+    // A webhook's id isn't a user: there is no profile to load.
+    if ((!open && !fullProfileOpen) || !member.id || member.isWebhook) return;
     let cancelled = false;
 
     const fetchProfile = async () => {

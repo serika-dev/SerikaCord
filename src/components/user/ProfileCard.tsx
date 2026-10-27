@@ -71,6 +71,8 @@ export interface ProfileCardUser {
   isVerified?: boolean;
   /** Bridged Discord user (no real SerikaCord account) — hides friend actions. */
   isDiscord?: boolean;
+  /** A channel webhook's post: the id is the webhook's, not a user's. */
+  isWebhook?: boolean;
   connections?: Array<{
     provider: string;
     accountId: string;
@@ -256,6 +258,10 @@ export function ProfileCard({
     }
   };
 
+  // Webhooks, bridged Discord users and system accounts aren't SerikaCord
+  // members you can message, befriend, moderate or open a full profile of.
+  const limited = Boolean(user.isWebhook || user.isDiscord || user.isSystem);
+
   const handleSendMessage = () => {
     onNavigate?.();
     router.push(`/dm/${user.id}`);
@@ -353,7 +359,7 @@ export function ProfileCard({
         <div className="absolute inset-0 bg-gradient-to-t from-[#0c0c10]/70 via-transparent to-transparent" />
 
         {/* Mod view button in the top right of the banner */}
-        {!isSelf && user.id && serverId && isAdminOfServer && onOpenModView && (
+        {!isSelf && !limited && user.id && serverId && isAdminOfServer && onOpenModView && (
           <button
             onClick={onOpenModView}
             aria-label={gt("Open in Mod View")}
@@ -383,7 +389,7 @@ export function ProfileCard({
         <div className="flex justify-end gap-2 pt-3 min-h-[44px]">
           {!isSelf && user.id && (
             <>
-              {!hideMessageButton && (
+              {!hideMessageButton && !limited && (
                 <button
                   onClick={handleSendMessage}
                   className="flex items-center gap-1.5 px-3.5 py-2 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] active:scale-[0.97] text-white text-sm font-medium transition-all"
@@ -392,7 +398,7 @@ export function ProfileCard({
                   {gt("Message")}
                 </button>
               )}
-              {!isFriendNow && !user.isDiscord && (
+              {!isFriendNow && !limited && (
                 friendRequestSent ? (
                   <button
                     disabled
@@ -579,7 +585,7 @@ export function ProfileCard({
                         )}
                     </span>
                   ))}
-                  {canManageRoles && (
+                  {canManageRoles && !limited && (
                     <Popover open={roleMenuOpen} onOpenChange={setRoleMenuOpen}>
                       <PopoverTrigger asChild>
                         <button
@@ -647,12 +653,12 @@ export function ProfileCard({
         )}
 
         {/* Private note (only visible to you) */}
-        {!isSelf && user.id && !user.isSystem && !user.isDiscord && (
+        {!isSelf && user.id && !limited && (
           <UserNoteField userId={user.id} className="mt-3" />
         )}
 
         {/* View Full Profile button */}
-        {user.id && (
+        {user.id && !limited && (
           <div className="mt-auto pt-4">
             <button
               onClick={() => {

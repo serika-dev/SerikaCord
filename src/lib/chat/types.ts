@@ -123,6 +123,8 @@ export interface ReferencedMessage {
     isBot?: boolean;
     isVerified?: boolean;
     isDiscord?: boolean;
+    /** The reply points at a webhook post. */
+    isWebhook?: boolean;
   };
   createdAt?: string;
   /** The referenced message is end-to-end encrypted (its text comes from the reply's own envelope). */
