@@ -417,3 +417,26 @@ describe("components v2: client rendering helpers", () => {
     expect(isComponentsV2Message(undefined)).toBeFalse();
   });
 });
+
+describe("component emoji", () => {
+  test("a pasted <:name:id> mention in emoji.name is split into name and id", () => {
+    const errors = new FormErrors();
+    const r = validateMessageComponents(
+      [{ type: 1, components: [{ type: 2, style: 5, url: "https://serika.art", label: "art", emoji: { name: "<:suisei_shook:2b8af1a3-cdc1-46e9-9123-a07af804546e>" } }] }],
+      { errors },
+    );
+    expect(errors.count).toBe(0);
+    const json = JSON.stringify(r);
+    expect(json).toContain('"id":"2b8af1a3-cdc1-46e9-9123-a07af804546e"');
+    expect(json).toContain('"name":"suisei_shook"');
+  });
+  test("an animated mention keeps animated, a plain long name still fails", () => {
+    const ok = new FormErrors();
+    const r = validateMessageComponents([{ type: 1, components: [{ type: 2, style: 5, url: "https://x.y", emoji: { name: "<a:dance:123456789012345678>" } }] }], { errors: ok });
+    expect(ok.count).toBe(0);
+    expect(JSON.stringify(r)).toContain('"animated":true');
+    const bad = new FormErrors();
+    validateMessageComponents([{ type: 1, components: [{ type: 2, style: 5, url: "https://x.y", emoji: { name: "x".repeat(40) } }] }], { errors: bad });
+    expect(bad.count).toBeGreaterThan(0);
+  });
+});

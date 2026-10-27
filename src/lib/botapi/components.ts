@@ -221,9 +221,19 @@ export function attachmentRefName(url: string): string | null {
 
 const SNOWFLAKE_OR_UUID = /^(?:\d{1,20}|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
+/** A pasted custom emoji mention: `<:name:id>` or `<a:name:id>`. */
+const EMOJI_MENTION = /^<(a)?:([^:<>\s]{1,32}):([^>\s]+)>$/;
+
 function emoji(e: FormErrors, path: FormErrorPath, v: unknown): ComponentEmoji | undefined {
   if (v === undefined || v === null) return undefined;
   if (!isObj(v)) { e.add(path, FE.BAD_TYPE, 'Must be an object.'); return undefined; }
+  // Lenient where Discord is strict: a whole emoji mention pasted into `name`
+  // (no id) is split into name / id / animated instead of failing the
+  // 32-character name limit.
+  if ((v.id === undefined || v.id === null) && typeof v.name === 'string') {
+    const m = EMOJI_MENTION.exec(v.name.trim());
+    if (m) return emoji(e, path, { ...v, name: m[2], id: m[3], animated: m[1] === 'a' || v.animated === true });
+  }
   const out: ComponentEmoji = {};
   if (v.id !== undefined && v.id !== null) {
     if (typeof v.id !== 'string' || !SNOWFLAKE_OR_UUID.test(v.id)) { e.add([...path, 'id'], FE.BAD_TYPE, 'Value is not snowflake.'); return undefined; }
