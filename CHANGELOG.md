@@ -14,6 +14,7 @@
 - **Custom emojis in onboarding and the Server Guide** — onboarding answers, Server Guide to-dos and resources, and welcome screen recommended channels now have an emoji picker that offers your server's own custom emojis (animated ones too) alongside regular emoji, with a button to clear it. New members see the custom emojis in the join flow, the Server Guide and Channels & Roles, and bots get them as normal emoji objects. (CORD-71)
 
 ### Changes
+- **Status bubble on profile cards** — the profile pop-out now shows a custom status as a thought bubble next to the avatar, like the full profile.
 
 ### Bug Fixes
 - **Bot verification progress** — the developer portal now shows how many servers your bot is really in (it always showed 0), so the Apply for Verification button appears once you reach 100.

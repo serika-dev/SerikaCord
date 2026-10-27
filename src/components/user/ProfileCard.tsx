@@ -382,6 +382,18 @@ export function ProfileCard({
               </AvatarFallback>
             </Avatar>
             <StatusBadge status={status} size={16} ring={4} ringColor="#0c0c10" className="absolute bottom-1 right-1" />
+            {/* Custom status: a thought bubble rising from the avatar (as in FullProfileDialog) */}
+            {hasCustomStatus(user.customStatus, user.customization) && (
+              <>
+                <span aria-hidden className="absolute left-[86px] top-[40px] z-30 size-[7px] rounded-full border border-white/10 bg-[#1a1a22] shadow" />
+                <span aria-hidden className="absolute left-[93px] top-[26px] z-30 size-[11px] rounded-full border border-white/10 bg-[#1a1a22] shadow" />
+                <div className="absolute left-[102px] bottom-[52px] z-30 w-max max-w-[min(206px,calc(100vw-160px))] rounded-[18px] border border-white/10 bg-[#1a1a22]/95 px-3 py-1.5 shadow-lg backdrop-blur-md">
+                  <div className="text-sm text-[#e2e2ee] min-h-6 flex items-center min-w-0">
+                    <CustomStatusLine text={user.customStatus} customization={user.customization} className="max-w-full" emojiClassName="w-4 h-4" renderText={(t) => <MarkdownRenderer content={t} />} />
+                  </div>
+                </div>
+              </>
+            )}
           </div>
         </div>
 
@@ -458,11 +470,6 @@ export function ProfileCard({
           </button>
           {user.pronouns && (
             <div className="text-xs text-[#9a9aad] mt-0.5">{user.pronouns}</div>
-          )}
-          {hasCustomStatus(user.customStatus, user.customization) && (
-            <div className="text-sm text-[#c8c8d8] mt-1.5 italic">
-              <CustomStatusLine text={user.customStatus} customization={user.customization} emojiClassName="w-4 h-4 not-italic" renderText={(t) => <MarkdownRenderer content={t} />} />
-            </div>
           )}
           <div className="flex items-center gap-1.5 mt-1.5">
             <StatusIcon status={status} size={10} />
