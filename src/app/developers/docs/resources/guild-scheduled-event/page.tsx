@@ -1,4 +1,4 @@
-import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Endpoint, Table } from "../../DocPage";
+import { DocPage, P, H2, CodeBlock, Callout, Link2, Endpoint, Table } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
 import { getGT } from "gt-next/server";
 
@@ -52,9 +52,24 @@ export default async function GuildScheduledEventDoc() {
       <Endpoint method="PATCH" path="/guilds/{guild.id}/scheduled-events/{event.id}">{gt("Update a scheduled event.")}</Endpoint>
       <Endpoint method="DELETE" path="/guilds/{guild.id}/scheduled-events/{event.id}">{gt("Delete a scheduled event.")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events/{event.id}/users">{gt("Get event subscribers.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events/{event.id}/users/counts">{gt("Count event subscribers. Takes up to 10 guild_scheduled_event_exception_ids.")}</Endpoint>
+      <CodeBlock lang="json">{`{
+  "guild_scheduled_event_count": 42,
+  "guild_scheduled_event_exception_counts": {}
+}`}</CodeBlock>
       <Callout type="info" title={gt("SerikaCord Differences")}>
-        {gt("Events are guild-only (privacy_level 2) and can't repeat. Creating needs Create Events (editing or deleting someone else's event needs Manage Events). Stage instances are not supported yet: their endpoints answer Unknown Stage Instance.")}
+        {gt("Events are guild-only (privacy_level 2) and can't repeat. Creating needs Create Events (editing or deleting someone else's event needs Manage Events). Live stage topics are documented on the")}{" "}
+        <Link2 href="/developers/docs/resources/stage-instance">{gt("Stage Instance")}</Link2>{" "}
+        {gt("page.")}
       </Callout>
+
+      <H2 id="exceptions">{gt("Event Exceptions")}</H2>
+      <P>{gt("Discord uses exceptions to change or cancel one occurrence of a recurring event. Serika events never recur, so no event has exceptions and the per-exception counts above are always empty.")}</P>
+      <Endpoint method="POST" path="/guilds/{guild.id}/scheduled-events/{event.id}/exceptions">{gt("Checks permissions and the body, then answers 400 (50035) with GUILD_SCHEDULED_EVENT_NOT_RECURRING on original_scheduled_start_time.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/scheduled-events/{event.id}/exceptions/{exception.id}">{gt("Answers 404 Unknown Guild Scheduled Event Exception.")}</Endpoint>
+      <Endpoint method="DELETE" path="/guilds/{guild.id}/scheduled-events/{event.id}/exceptions/{exception.id}">{gt("Answers 404 Unknown Guild Scheduled Event Exception.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/scheduled-events/{event.id}/{exception.id}/users">{gt("Answers 404 Unknown Guild Scheduled Event Exception.")}</Endpoint>
+      <P>{gt("The write routes need Manage Events, or Create Events for the bot's own event. Events in channels the bot can't see answer Unknown Guild Scheduled Event.")}</P>
     </DocPage>
   );
 }

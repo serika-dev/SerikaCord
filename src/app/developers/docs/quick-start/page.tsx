@@ -31,32 +31,32 @@ export default async function QuickStartDoc() {
 
       <H2 id="nodejs">{gt("Node.js (serika.js)")}</H2>
       <P>
-        {gt("serika.js is the official SerikaCord SDK. It provides a full REST client, Gateway WebSocket client, and TypeScript types out of the box — no base-URL patching needed.")}
+        {gt("serika.js is the official SerikaCord SDK (npm @serikadev/serika.js, version 1.1.0). It covers the whole bot REST API with Discord-style bucket rate limits, a resilient gateway client (resume, zlib-stream, sharding from GET /gateway/bot, the 120 payloads per minute send limit), interaction helpers and TypeScript types, with no base-URL patching. It runs on Node.js 22+, Bun and Deno; Node.js 18-21 also needs the ws package.")}
       </P>
-      <CodeBlock lang="bash">npm install @serikadev/serika.js</CodeBlock>
+      <CodeBlock lang="bash">{`npm install @serikadev/serika.js
+# or
+bun add @serikadev/serika.js`}</CodeBlock>
       <CodeBlock lang="javascript">{`import { SerikaClient, Intents } from "@serikadev/serika.js";
 
-const client = new SerikaClient({
-  token: process.env.BOT_TOKEN!,
-  baseURL: "https://api.serika.chat",
-});
+const client = new SerikaClient({ token: process.env.BOT_TOKEN });
 
 // Gateway: listen for events
-const gw = await client.connectGateway({
+const gateway = await client.connectGateway({
   intents: Intents.GUILDS | Intents.GUILD_MESSAGES | Intents.MESSAGE_CONTENT,
+  waitForReady: true,
 });
 
-gw.onReady(() => console.log("Bot is ready!"));
+console.log("Bot is ready!");
 
-gw.onDispatch((event, data) => {
-  if (event === "MESSAGE_CREATE") {
-    const msg = data;
-    if (msg.author.bot) return;
-    if (msg.content === "!ping") {
-      client.bot.createMessage(msg.channel_id, { content: "Pong!" });
-    }
+gateway.on("MESSAGE_CREATE", async (message) => {
+  if (message.author.bot) return;
+  if (message.content === "!ping") {
+    await client.bot.reply(message.channel_id, message.id, "Pong!");
   }
 });`}</CodeBlock>
+      <P>
+        {gt("MESSAGE_CONTENT is privileged: enable it for your bot in the Developer Portal. Slash commands and buttons don't need it; see the serika.js README for client.interactions.reply, defer and followUp.")}
+      </P>
 
       <H2 id="discordjs">{gt("Node.js (discord.js v14)")}</H2>
       <P>

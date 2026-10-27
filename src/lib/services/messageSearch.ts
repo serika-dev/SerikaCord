@@ -337,6 +337,10 @@ export interface MessageSearchParams {
   sort?: SearchSort;
   offset?: number;
   limit?: number;
+  /** `has` values the hits must NOT have (the bot API's `-file`, `-image`, ...). */
+  hasNot?: SearchHas[];
+  /** Extra conditions on `messages` (the bot API's reply / role-mention / embed / attachment filters). */
+  extra?: SQL[];
 }
 
 export type SearchMessageRow = typeof schema.messages.$inferSelect;
@@ -428,6 +432,23 @@ function buildConditions(p: MessageSearchParams, termPairs: string[][]): SQL[] {
   }
   if (p.minTime) conds.push(gte(m.createdAt, p.minTime));
   if (p.maxTime) conds.push(lt(m.createdAt, p.maxTime));
+
+  // Negated has: (same tests as above).
+  for (const h of new Set(p.hasNot || [])) {
+    let c: SQL | undefined;
+    switch (h) {
+      case 'link': c = flagged(CONTENT_FLAG.LINK); break;
+      case 'file': c = sql`jsonb_array_length(${ATTACH_ARRAY}) > 0`; break;
+      case 'embed': c = sql`jsonb_array_length(${EMBED_ARRAY}) > 0 AND ${m.suppressEmbeds} IS NOT TRUE`; break;
+      case 'image': c = or(attachmentKind('image', IMAGE_EXT), embedHas('image'), flagged(CONTENT_FLAG.IMAGE_URL)); break;
+      case 'video': c = or(attachmentKind('video', VIDEO_EXT), embedHas('video'), flagged(CONTENT_FLAG.VIDEO_URL)); break;
+      case 'sound': c = or(attachmentKind('audio', SOUND_EXT), flagged(CONTENT_FLAG.SOUND_URL)); break;
+      case 'sticker': c = sql`${m.sticker} IS NOT NULL AND ${m.sticker} <> 'null'::jsonb`; break;
+      case 'poll': c = sql`${EMBED_ARRAY} @> '[{"type":"poll"}]'::jsonb`; break;
+    }
+    if (c) conds.push(sql`NOT (${c})`);
+  }
+  for (const c of p.extra || []) conds.push(c);
   return conds;
 }
 
@@ -445,7 +466,7 @@ export async function searchMessages(p: MessageSearchParams): Promise<MessageSea
   // has:image/video/sound also look at index flags; without the table they
   // fall back to attachments/embeds only.
   const conds = buildConditions(
-    schemaReady ? p : { ...p, has: (p.has || []).filter((h) => h !== 'link') },
+    schemaReady ? p : { ...p, has: (p.has || []).filter((h) => h !== 'link'), hasNot: (p.hasNot || []).filter((h) => h !== 'link') },
     termPairs,
   );
   const where = and(...conds);

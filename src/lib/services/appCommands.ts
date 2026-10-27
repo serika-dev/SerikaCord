@@ -327,6 +327,79 @@ export async function putCommandPermissions(
   return { ok: true, status: 200, body: out };
 }
 
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Copy every error of `from` into `to` under `prefix` (per-entry validation of a batch). */
+function mergeFormErrors(to: FormErrors, from: FormErrors, prefix: Array<string | number>) {
+  const walk = (node: Record<string, unknown>, path: Array<string | number>) => {
+    for (const [k, v] of Object.entries(node)) {
+      if (k === '_errors' && Array.isArray(v)) for (const leaf of v as Array<{ code: string; message: string }>) to.add(path, leaf.code, leaf.message);
+      else if (v && typeof v === 'object') walk(v as Record<string, unknown>, [...path, k]);
+    }
+  };
+  walk(from.tree as Record<string, unknown>, prefix);
+}
+
+/**
+ * PUT …/guilds/{guild_id}/commands/permissions (the batch form): replaces
+ * every permission override of this app in the guild with the given list of
+ * `{ id, permissions }` (id = a command of this app, global or this guild's,
+ * or the app id for app-wide overrides). Entries with an empty list clear
+ * that command's overrides; commands not listed lose theirs.
+ */
+export async function putGuildCommandPermissionsBatch(
+  app: { id: string; botId: string | null },
+  guildId: string,
+  body: unknown,
+): Promise<ApiResult<Array<ReturnType<typeof serializePermissions>>>> {
+  if (!Array.isArray(body)) return { ok: false, status: 400, body: formError([], FE.BAD_TYPE, 'Must be an array.') };
+  if (body.length > 250) return { ok: false, status: 400, body: formError([], FE.MAX_LENGTH, 'Must be 250 or fewer in length.') };
+  const errors = new FormErrors();
+  const entries: Array<{ commandId: string; permissions: CommandPermissionEntry[] }> = [];
+  const seen = new Set<string>();
+  body.forEach((raw, i) => {
+    const id = raw && typeof raw === 'object' ? (raw as { id?: unknown }).id : undefined;
+    if (typeof id !== 'string' || !UUID_RE.test(id)) { errors.add([i, 'id'], FE.BAD_TYPE, 'Value is not snowflake.'); return; }
+    const sub = new FormErrors();
+    const perms = validateCommandPermissions(raw, sub);
+    if (!perms) { mergeFormErrors(errors, sub, [i]); return; }
+    const commandId = id.toLowerCase();
+    if (seen.has(commandId)) { errors.add([i, 'id'], 'APPLICATION_COMMAND_PERMISSIONS_DUPLICATE_ID', 'Duplicate command id.'); return; }
+    seen.add(commandId);
+    entries.push({ commandId, permissions: perms });
+  });
+  if (!errors.ok) return { ok: false, status: 400, body: errors.toBody() };
+  const commandIds = entries.map((e) => e.commandId).filter((id) => !same(id, app.id));
+  if (commandIds.length) {
+    const rows = await db.select({ id: schema.appCommands.id, applicationId: schema.appCommands.applicationId, guildId: schema.appCommands.guildId })
+      .from(schema.appCommands).where(inArray(schema.appCommands.id, commandIds));
+    const ok = new Set(rows.filter((r) => same(r.applicationId, app.id) && (!r.guildId || same(r.guildId, guildId))).map((r) => r.id.toLowerCase()));
+    if (commandIds.some((id) => !ok.has(id))) return { ok: false, status: 404, body: UNKNOWN_COMMAND };
+  }
+  const now = new Date();
+  const kept = entries.filter((e) => e.permissions.length > 0);
+  await db.transaction(async (tx) => {
+    await tx.delete(schema.appCommandPermissions)
+      .where(and(eq(schema.appCommandPermissions.applicationId, app.id), eq(schema.appCommandPermissions.guildId, guildId)));
+    if (kept.length) {
+      await tx.insert(schema.appCommandPermissions).values(kept.map((e) => ({
+        guildId, commandId: e.commandId, applicationId: app.id, permissions: e.permissions, updatedAt: now,
+      })));
+    }
+  });
+  const out = kept.map((e) => serializePermissions({ commandId: e.commandId, applicationId: app.id, guildId, permissions: e.permissions }));
+  if (app.botId) {
+    // One update per command whose overrides were set or cleared (Discord).
+    const changed = entries.map((e) => serializePermissions({ commandId: e.commandId, applicationId: app.id, guildId, permissions: e.permissions }));
+    void import('@/lib/services/gatewayEvents')
+      .then(({ emitApplicationCommandPermissionsUpdate }) => {
+        for (const permissions of changed) void emitApplicationCommandPermissionsUpdate({ botId: app.botId!, guildId, permissions });
+      })
+      .catch(() => {});
+  }
+  return { ok: true, status: 200, body: out };
+}
+
 // ─── What a user may use ────────────────────────────────────
 
 export interface CommandViewer {

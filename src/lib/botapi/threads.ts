@@ -182,23 +182,33 @@ export async function createBotThread(opts: CreateThreadOptions): Promise<Result
   const autoArchiveDuration = input.autoArchiveDuration !== undefined
     ? input.autoArchiveDuration
     : forum ? null : normalizeAutoArchiveDuration(parent.defaultAutoArchiveDuration);
-  const created = await Channel.create({
-    serverId: parent.serverId,
-    name,
-    type,
-    parentId: parent.id,
-    ownerId: bot.id,
-    position: 0,
-    threadMemberIds: [bot.id],
-    messageCount: 0,
-    archived: false,
-    locked: false,
-    autoArchiveDuration,
-    starterMessageId: starter?.id ?? null,
-    rateLimitPerUser: input.rateLimitPerUser ?? (forum ? parent.defaultThreadRateLimitPerUser ?? 0 : 0),
-    ...(forum ? { appliedTags } : {}),
-    ...(type === 'private_thread' && input.invitable === false ? { threadInvitable: false } : {}),
-  });
+  // A thread started from a message takes the message's id, like Discord
+  // (discord.js finds `message.thread` by the message id). A second create
+  // for the same message collides on the primary key.
+  let created: IChannel;
+  try {
+    created = await Channel.create({
+      ...(starter ? { id: starter.id } : {}),
+      serverId: parent.serverId,
+      name,
+      type,
+      parentId: parent.id,
+      ownerId: bot.id,
+      position: 0,
+      threadMemberIds: [bot.id],
+      messageCount: 0,
+      archived: false,
+      locked: false,
+      autoArchiveDuration,
+      starterMessageId: starter?.id ?? null,
+      rateLimitPerUser: input.rateLimitPerUser ?? (forum ? parent.defaultThreadRateLimitPerUser ?? 0 : 0),
+      ...(forum ? { appliedTags } : {}),
+      ...(type === 'private_thread' && input.invitable === false ? { threadInvitable: false } : {}),
+    });
+  } catch (err) {
+    if (starter && /duplicate key|unique/i.test(String((err as Error)?.message ?? err))) return { status: 400, body: THREAD_ALREADY_CREATED };
+    throw err;
+  }
   if (starter) {
     const { claimStarterMessage } = await import('@/lib/services/threads');
     if (!(await claimStarterMessage(starter.id, created.id))) {
@@ -436,8 +446,12 @@ export async function listBotThreadMembers(channelId: string, q: { withMember: b
   if (!thread) return { status: 400, body: WRONG_CHANNEL_TYPE };
   const limit = threadListLimit(q.limit, 100, 100);
   const ids = pageThreadMemberIds(thread.threadMemberIds ?? [], { after: q.after ?? null, limit });
-  const members = q.withMember && thread.serverId ? await memberObjects(thread.serverId, ids) : new Map();
-  return { status: 200, body: ids.map((id) => toDiscordThreadMember(thread, id, members.get(id))) };
+  const { readThreadJoins } = await import('./threadMemberJoins');
+  const [members, joins] = await Promise.all([
+    q.withMember && thread.serverId ? memberObjects(thread.serverId, ids) : Promise.resolve(new Map<string, unknown>()),
+    readThreadJoins(thread.id, ids),
+  ]);
+  return { status: 200, body: ids.map((id) => toDiscordThreadMember(thread, id, members.get(id), joins.get(id.toLowerCase()))) };
 }
 
 /** GET /channels/{thread}/thread-members/{user}. */
@@ -446,8 +460,12 @@ export async function getBotThreadMember(channelId: string, userId: string, with
   if (!thread) return { status: 400, body: WRONG_CHANNEL_TYPE };
   const id = (thread.threadMemberIds ?? []).find((m) => same(m, userId));
   if (!id) return { status: 404, body: UNKNOWN_MEMBER };
-  const members = withMember && thread.serverId ? await memberObjects(thread.serverId, [id]) : new Map();
-  return { status: 200, body: toDiscordThreadMember(thread, id, members.get(id.toLowerCase())) };
+  const { readThreadJoins } = await import('./threadMemberJoins');
+  const [members, joins] = await Promise.all([
+    withMember && thread.serverId ? memberObjects(thread.serverId, [id]) : Promise.resolve(new Map<string, unknown>()),
+    readThreadJoins(thread.id, [id]),
+  ]);
+  return { status: 200, body: toDiscordThreadMember(thread, id, members.get(id.toLowerCase()), joins.get(id.toLowerCase())) };
 }
 
 /** PUT /channels/{thread}/thread-members/@me and /{user}. */
@@ -574,7 +592,23 @@ export async function searchBotThreads(botId: string, channelId: string, q: Reco
   const visible = (await listViewableServerChannels(botId, parent.serverId)) ?? [];
   const limit = threadListLimit(q.limit, 25, 25);
   const offset = Math.max(0, Math.min(9975, Math.floor(Number(q.offset) || 0)));
-  const plan = threadSearchPlan(q);
+  // slop (0..100) and min_id / max_id (thread ids = creation-time bounds; a
+  // UUID from a legacy app is resolved to that thread's creation time).
+  const { parseSlop, snowflakeBoundMs } = await import('./threadSearchMatch');
+  if (parseSlop(q.slop) === null) return { status: 400, body: { code: 50035, message: 'Invalid Form Body', errors: { slop: { _errors: [{ code: 'NUMBER_TYPE_MAX', message: 'int value should be between 0 and 100.' }] } } } };
+  const bound = async (key: 'min_id' | 'max_id'): Promise<number | undefined | null> => {
+    const raw = q[key];
+    const sf = snowflakeBoundMs(raw);
+    if (sf === undefined || !Number.isNaN(sf)) return sf;
+    const ref = isValidObjectId(String(raw)) ? visible.find((t) => same(t.id, String(raw))) ?? await Channel.findById(String(raw)) : null;
+    return ref?.createdAt ? new Date(ref.createdAt).getTime() : null;
+  };
+  const [minMs, maxMs] = await Promise.all([bound('min_id'), bound('max_id')]);
+  if (minMs === null || maxMs === null) {
+    const key = minMs === null ? 'min_id' : 'max_id';
+    return { status: 400, body: { code: 50035, message: 'Invalid Form Body', errors: { [key]: { _errors: [{ code: 'NUMBER_TYPE_COERCE', message: 'Value is not snowflake.' }] } } } };
+  }
+  const plan = threadSearchPlan(q, { minMs, maxMs });
   const all = visible.filter((t) => isThread(t) && same(t.parentId, parent.id));
   const matched = filterAndSortThreads(all, plan);
   const page = matched.slice(offset, offset + limit);

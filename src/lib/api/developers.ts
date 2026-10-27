@@ -24,6 +24,8 @@ export const VALID_OAUTH_SCOPES: ReadonlySet<string> = new Set([
   'guilds',
   'guilds.join',
   'guilds.members.read',
+  // Lets the app's bot add the user to a group DM (PUT /channels/{id}/recipients/{user_id}).
+  'gdm.join',
   'messages.read',
   'rpc',
   'rpc.notifications.read',
@@ -46,6 +48,13 @@ export const VALID_OAUTH_SCOPES: ReadonlySet<string> = new Set([
   'profile.read',
   'profile.write',
   'analytics.read',
+  // OpenID Connect (id_token on the code exchange, GET /oauth2/userinfo) and
+  // linked roles (PUT /users/@me/applications/{id}/role-connection).
+  'openid',
+  'role_connections.write',
+  // Social SDK: lobbies (PUT /lobbies, lobby messages, channel linking) for the
+  // app's own lobbies only (src/lib/api/botApi/social.ts).
+  'sdk.social_layer',
 ]);
 
 // Scopes that require another scope to also be present
@@ -1633,7 +1642,7 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     const authorizeLimit = await checkRateLimit('oauthAuthorize', user.id);
     if (!authorizeLimit.success) { set.status = 429; return { error: 'Too many requests', retryAfter: authorizeLimit.retryAfter }; }
 
-    const payload = body as { client_id?: string; serverId?: string; permissions?: string; permissions_numbering?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string; code_challenge?: string; code_challenge_method?: string };
+    const payload = body as { client_id?: string; serverId?: string; permissions?: string; permissions_numbering?: string; scopes?: string[]; redirect_uri?: string; state?: string; response_type?: string; code_challenge?: string; code_challenge_method?: string; nonce?: string };
     const clientId = payload.client_id || (query.client_id as string);
     const serverId = payload.serverId;
     let requestedPermissions = parsePermissionsParam(payload.permissions);
@@ -1871,7 +1880,11 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
           if (state) frag.set('state', state);
           callbackUrl = `${redirectUri.split('#')[0]}#${frag.toString()}`;
         } else {
-          const code = await issueAuthorizationCode({ applicationId: app.id, userId: user.id, scopes: grantScopes, redirectUri: requestedRedirectUri ? redirectUri : null, codeChallenge: pkce.challenge });
+          const { parseNonce } = await import('@/lib/oauth/oidc');
+          const code = await issueAuthorizationCode({
+            applicationId: app.id, userId: user.id, scopes: grantScopes, redirectUri: requestedRedirectUri ? redirectUri : null, codeChallenge: pkce.challenge,
+            nonce: parseNonce(payload.nonce ?? query.nonce), authTime: Math.floor(Date.now() / 1000),
+          });
           const params: Record<string, string> = { code };
           if (state) params.state = state;
           callbackUrl = appendQuery(redirectUri, params);

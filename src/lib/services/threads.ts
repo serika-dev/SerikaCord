@@ -189,6 +189,7 @@ export async function claimStarterMessage(messageId: string, threadId: string): 
 
 /** A deleted thread leaves its starter message (chip gone) and "started a thread" row behind. */
 export async function releaseThreadMessages(threadId: string, parentId: string): Promise<void> {
+  void import('@/lib/botapi/threadMemberJoins').then((m) => m.clearThreadJoins(threadId)).catch(() => {});
   // Scoped to the parent channel so it rides the channel_id index (there is
   // no index on thread_id).
   await db
@@ -237,7 +238,11 @@ export async function addThreadMembers(threadId: string, userIds: string[]): Pro
     })
     .where(eq(schema.channels.id, normalizeId(threadId)))
     .returning();
-  if (row) announceMembershipToBots(row, { added: fresh });
+  if (row) {
+    // Per-member join time for the bot API's thread member objects.
+    void import('@/lib/botapi/threadMemberJoins').then((m) => m.recordThreadJoins(row.id, fresh)).catch(() => {});
+    announceMembershipToBots(row, { added: fresh });
+  }
   return fresh;
 }
 
@@ -253,6 +258,7 @@ export async function removeThreadMember(threadId: string, userId: string): Prom
     ))
     .returning();
   if (!row) return false;
+  void import('@/lib/botapi/threadMemberJoins').then((m) => m.forgetThreadJoin(row.id, uid)).catch(() => {});
   announceMembershipToBots(row, { removed: [uid] });
   return true;
 }

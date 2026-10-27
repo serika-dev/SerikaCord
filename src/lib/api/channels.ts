@@ -1358,20 +1358,32 @@ async function createChannelThread(
     body.autoArchiveDuration,
     normalizeAutoArchiveDuration(parent.defaultAutoArchiveDuration),
   );
-  const thread = await Channel.create({
-    serverId: parent.serverId,
-    name,
-    type: wantsPrivate ? 'private_thread' : 'public_thread',
-    parentId: parent.id,
-    ownerId: user.id,
-    position: 0,
-    threadMemberIds: [user.id],
-    messageCount: 0,
-    archived: false,
-    locked: false,
-    autoArchiveDuration,
-    starterMessageId: starter?.id ?? null,
-  });
+  // A thread started from a message takes the message's id, like Discord
+  // (bots find a message's thread by the message id); a second create for
+  // the same message collides on the primary key.
+  let thread: IChannel;
+  try {
+    thread = await Channel.create({
+      ...(starter ? { id: starter.id } : {}),
+      serverId: parent.serverId,
+      name,
+      type: wantsPrivate ? 'private_thread' : 'public_thread',
+      parentId: parent.id,
+      ownerId: user.id,
+      position: 0,
+      threadMemberIds: [user.id],
+      messageCount: 0,
+      archived: false,
+      locked: false,
+      autoArchiveDuration,
+      starterMessageId: starter?.id ?? null,
+    });
+  } catch (err) {
+    if (starter && /duplicate key|unique/i.test(String((err as Error)?.message ?? err))) {
+      return { status: 409, body: { error: 'A thread already exists for this message', threadId: starter.id } };
+    }
+    throw err;
+  }
 
   if (starter && !(await claimStarterMessage(starter.id, thread.id))) {
     // Someone else started a thread on it a moment earlier.

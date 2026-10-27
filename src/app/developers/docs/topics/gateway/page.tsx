@@ -24,7 +24,21 @@ export default async function GatewayDoc() {
       <CodeBlock lang="bash">wss://api.serika.chat/api/v10/gateway</CodeBlock>
       <P>{gt("You can also retrieve it dynamically via REST:")}</P>
       <CodeBlock lang="bash">{`GET https://api.serika.chat/api/v10/gateway
-# Response: { "url": "wss://api.serika.chat/api/v10/gateway" }`}</CodeBlock>
+# Response: { "url": "wss://api.serika.chat/api/v10/gateway" }
+
+GET https://api.serika.chat/api/v10/gateway/bot   (Authorization: Bot <token>)
+# Response:
+# {
+#   "url": "wss://api.serika.chat/api/v10/gateway",
+#   "shards": 1,
+#   "session_start_limit": { "total": 1000, "remaining": 998, "reset_after": 81234567, "max_concurrency": 1 }
+# }`}</CodeBlock>
+      <P>
+        <InlineCode>GET /gateway/bot</InlineCode> {gt("recommends one shard per 1,000 guilds the bot is in, and session_start_limit shows how many IDENTIFYs the bot has left today (it reads the real counter without using one up).")}
+      </P>
+      <P>
+        {gt("Query parameters on the gateway URL work like Discord's:")} <InlineCode>v=10</InlineCode> {gt("(9 is also accepted; anything else closes with 4012),")} <InlineCode>encoding=json</InlineCode>{gt(", and")} <InlineCode>compress=zlib-stream</InlineCode> {gt("for transport compression (binary frames, one zlib context per connection, each message ends with the Z_SYNC_FLUSH suffix).")}
+      </P>
       <Callout type="info" title={gt("Canary environment")}>
         {gt("The canary/staging deployment is served from")} <InlineCode>capi.serika.dev</InlineCode>{gt(". Use")}{" "}
         <InlineCode>wss://capi.serika.dev/api/v10/gateway</InlineCode> {gt("for the gateway and")}{" "}
@@ -49,14 +63,19 @@ export default async function GatewayDoc() {
         ["0", "Dispatch", "Server→Client", gt("Dispatches an event (MESSAGE_CREATE, READY, etc.)")],
         ["1", "Heartbeat", "Both", gt("Maintains connection — send every heartbeat_interval ms; the server may also send it to request an immediate beat")],
         ["2", "Identify", "Client→Server", gt("Initial authentication with token and intents")],
-        ["3", "Presence Update", "Client→Server", gt("Update the bot's presence (not fully implemented)")],
-        ["4", "Voice State Update", "Client→Server", gt("Join/leave a voice channel")],
+        ["3", "Presence Update", "Client→Server", gt("Update the bot's status and activities")],
+        ["4", "Voice State Update", "Client→Server", gt("Join/leave a voice channel (answered with VOICE_SERVER_UPDATE endpoint null: bots can't join Serika voice)")],
         ["6", "Resume", "Client→Server", gt("Resume a disconnected session")],
-        ["7", "Reconnect", "Server→Client", gt("Server requests you to reconnect")],
-        ["9", "Invalid Session", "Server→Client", gt("Session invalidated — must re-identify, not resume")],
+        ["7", "Reconnect", "Server→Client", gt("Server requests you to reconnect and resume (sent before a deploy or shutdown)")],
+        ["8", "Request Guild Members", "Client→Server", gt("Request members of a guild, answered with GUILD_MEMBERS_CHUNK")],
+        ["9", "Invalid Session", "Server→Client", gt("Session invalidated — the d boolean says whether you may resume")],
         ["10", "Hello", "Server→Client", gt("Sent on connect — contains heartbeat_interval")],
         ["11", "Heartbeat ACK", "Server→Client", gt("Acknowledges a heartbeat — connection is healthy")],
+        ["31", "Request Soundboard Sounds", "Client→Server", gt("Request the soundboard sounds of guilds, answered with SOUNDBOARD_SOUNDS")],
       ]} />
+      <P>
+        {gt("Op 43 (Request Channel Info) is not implemented and closes the connection with 4001 Unknown opcode.")}
+      </P>
       <Callout type="info" title={gt("Opcode numbering")}>
         {gt("SerikaCord uses the same opcode numbers as Discord v10. The")} <InlineCode>Hello</InlineCode> {gt("opcode is")} <InlineCode>10</InlineCode> {gt("and")} <InlineCode>Heartbeat ACK</InlineCode> {gt("is")}{" "}
         <InlineCode>11</InlineCode>, {gt("matching the Discord protocol.")}
@@ -95,11 +114,11 @@ export default async function GatewayDoc() {
   }
 }`}</CodeBlock>
       <P>
-        {gt("The token can be prefixed with")} <InlineCode>Bot </InlineCode> {gt("or sent bare — both are accepted. On success, the server sends a")} <InlineCode>READY</InlineCode> {gt("dispatch event. On failure, it sends")} <InlineCode>Invalid Session</InlineCode> {gt("(op 8) and closes with code")}{" "}
-        <InlineCode>4004</InlineCode>.
+        {gt("The token can be prefixed with")} <InlineCode>Bot </InlineCode> {gt("or sent bare — both are accepted. On success, the server sends a")} <InlineCode>READY</InlineCode> {gt("dispatch event, then one")} <InlineCode>GUILD_CREATE</InlineCode> {gt("per guild. A missing or malformed token gets")} <InlineCode>Invalid Session</InlineCode> {gt("(op 9) followed by close code")}{" "}
+        <InlineCode>4004</InlineCode>{gt("; a token that matches no bot closes with")} <InlineCode>4004</InlineCode> {gt("directly.")}
       </P>
-      <Callout type="warning" title={gt("Identify is one-time")}>
-        {gt("You can only identify once per connection. Sending")} <InlineCode>IDENTIFY</InlineCode> {gt("again on an already-authenticated connection is silently ignored.")}
+      <Callout type="warning" title={gt("Identify limits")}>
+        {gt("You can only identify once per connection: a second IDENTIFY (or a RESUME after IDENTIFY) closes with 4005. Like Discord, each bot may identify once every 5 seconds (max_concurrency 1): a faster IDENTIFY is answered with op 9 and the connection stays open, so wait and identify again. Each bot has 1,000 IDENTIFYs per 24 hours; past that the connection closes with 4008. A bot can hold at most 16 live and resumable sessions (more close with 4008), and a socket that hasn't identified or resumed within 20 seconds is closed.")}
       </Callout>
 
       <H2 id="ready">{gt("Ready Event")}</H2>
@@ -138,27 +157,29 @@ export default async function GatewayDoc() {
       </P>
 
       <H2 id="intents">{gt("Gateway Intents")}</H2>
-      <P>{gt("Intents are bitwise flags that determine which events your bot receives:")}</P>
+      <P>{gt("Intents are bitwise flags that determine which events your bot receives. The numbering is Discord's; unknown bits close the connection with 4013.")}</P>
       <Table headers={[gt("Bit"), gt("Intent"), gt("Events")]} rows={[
-        ["1 << 0", "GUILDS", "GUILD_CREATE, GUILD_UPDATE, GUILD_DELETE, GUILD_ROLE_CREATE / UPDATE / DELETE, CHANNEL_CREATE / UPDATE / DELETE"],
-        ["1 << 1", "GUILD_MEMBERS", "GUILD_MEMBER_ADD, UPDATE, REMOVE (privileged)"],
-        ["1 << 2", "GUILD_MODERATION", "GUILD_BAN_ADD, GUILD_BAN_REMOVE"],
-        ["1 << 3", "GUILD_EMOJIS_AND_STICKERS", "GUILD_EMOJIS_UPDATE, STICKERS_UPDATE"],
+        ["1 << 0", "GUILDS", "GUILD_CREATE / UPDATE / DELETE, GUILD_ROLE_*, CHANNEL_*, CHANNEL_PINS_UPDATE, THREAD_*, STAGE_INSTANCE_*, VOICE_CHANNEL_STATUS_UPDATE"],
+        ["1 << 1", "GUILD_MEMBERS", "GUILD_MEMBER_ADD, UPDATE, REMOVE, THREAD_MEMBERS_UPDATE (privileged)"],
+        ["1 << 2", "GUILD_MODERATION", "GUILD_AUDIT_LOG_ENTRY_CREATE, GUILD_BAN_ADD, GUILD_BAN_REMOVE"],
+        ["1 << 3", "GUILD_EXPRESSIONS", "GUILD_EMOJIS_UPDATE, GUILD_STICKERS_UPDATE, GUILD_SOUNDBOARD_SOUND_*"],
         ["1 << 4", "GUILD_INTEGRATIONS", "GUILD_INTEGRATIONS_UPDATE"],
         ["1 << 5", "GUILD_WEBHOOKS", "WEBHOOKS_UPDATE"],
         ["1 << 6", "GUILD_INVITES", "INVITE_CREATE, INVITE_DELETE"],
-        ["1 << 7", "GUILD_VOICE_STATES", "VOICE_STATE_UPDATE"],
+        ["1 << 7", "GUILD_VOICE_STATES", "VOICE_STATE_UPDATE, VOICE_CHANNEL_EFFECT_SEND"],
         ["1 << 8", "GUILD_PRESENCES", "PRESENCE_UPDATE (privileged)"],
-        ["1 << 9", "GUILD_MESSAGES", "MESSAGE_CREATE, UPDATE, DELETE"],
-        ["1 << 10", "GUILD_MESSAGE_REACTIONS", "MESSAGE_REACTION_ADD, etc."],
+        ["1 << 9", "GUILD_MESSAGES", "MESSAGE_CREATE, UPDATE, DELETE, DELETE_BULK"],
+        ["1 << 10", "GUILD_MESSAGE_REACTIONS", "MESSAGE_REACTION_ADD, REMOVE, REMOVE_ALL, REMOVE_EMOJI"],
         ["1 << 11", "GUILD_MESSAGE_TYPING", "TYPING_START"],
-        ["1 << 12", "DIRECT_MESSAGES", "DM message events"],
-        ["1 << 13", "DIRECT_MESSAGE_REACTIONS", "DM reaction events"],
-        ["1 << 14", "DIRECT_MESSAGE_TYPING", "DM typing events"],
+        ["1 << 12", "DIRECT_MESSAGES", "MESSAGE_CREATE, UPDATE, DELETE, CHANNEL_PINS_UPDATE (DMs)"],
+        ["1 << 13", "DIRECT_MESSAGE_REACTIONS", "MESSAGE_REACTION_* (DMs)"],
+        ["1 << 14", "DIRECT_MESSAGE_TYPING", "TYPING_START (DMs)"],
         ["1 << 15", "MESSAGE_CONTENT", "Access message content (privileged)"],
-        ["1 << 16", "GUILD_SCHEDULED_EVENTS", "Scheduled event events"],
-        ["1 << 17", "AUTO_MODERATION_CONFIGURATION", "Auto mod rule events"],
-        ["1 << 18", "AUTO_MODERATION_EXECUTION", "Auto mod action events"],
+        ["1 << 16", "GUILD_SCHEDULED_EVENTS", "GUILD_SCHEDULED_EVENT_*"],
+        ["1 << 20", "AUTO_MODERATION_CONFIGURATION", "AUTO_MODERATION_RULE_*"],
+        ["1 << 21", "AUTO_MODERATION_EXECUTION", "AUTO_MODERATION_ACTION_EXECUTION"],
+        ["1 << 24", "GUILD_MESSAGE_POLLS", "MESSAGE_POLL_VOTE_ADD, MESSAGE_POLL_VOTE_REMOVE"],
+        ["1 << 25", "DIRECT_MESSAGE_POLLS", "MESSAGE_POLL_VOTE_ADD, MESSAGE_POLL_VOTE_REMOVE (DMs)"],
       ]} />
       <Callout type="warning" title={gt("Privileged Intents")}>
         <InlineCode>GUILD_PRESENCES</InlineCode>, <InlineCode>GUILD_MEMBERS</InlineCode>, {gt("and")}{" "}
@@ -178,6 +199,11 @@ export default async function GatewayDoc() {
         {gt("If the server doesn't receive a heartbeat within roughly 1.5× the interval, it closes the connection with code")} <InlineCode>4009</InlineCode> {gt("(Session timed out), which you can resume. Start the heartbeat timer immediately after receiving")} <InlineCode>Hello</InlineCode>. {gt("The server also sends WebSocket-level pings to keep proxies from dropping the connection — the")} <InlineCode>ws</InlineCode> {gt("library answers these automatically.")}
       </Callout>
 
+      <H2 id="send-limit">{gt("Send rate limit")}</H2>
+      <P>
+        {gt("Like Discord, a connection may send at most 120 payloads per 60 seconds (heartbeats included). The next payload closes the connection with")} <InlineCode>4008</InlineCode> {gt("(Rate limited), which you can resume.")}
+      </P>
+
       <H2 id="resuming">{gt("Resuming Sessions (op 6)")}</H2>
       <P>{gt("If your connection drops, reconnect and send a Resume to re-establish the session:")}</P>
       <CodeBlock lang="json">{`{
@@ -189,8 +215,11 @@ export default async function GatewayDoc() {
   }
 }`}</CodeBlock>
       <P>
-        {gt("The Resume payload is authenticated by its")} <InlineCode>token</InlineCode>, {gt("so the connection is re-registered for dispatch and immediately resumes receiving events. On success the server sends a")} <InlineCode>RESUMED</InlineCode> {gt("dispatch. Note there is no event replay — events missed while disconnected are not redelivered, so treat Resume as a fast reconnect rather than a gap-filling recovery.")}
+        {gt("A closed session can be resumed for 5 minutes. The server keeps the last 1,000 dispatches (up to 1 MB) of each session: on RESUME it replays every dispatch after your seq, then sends")} <InlineCode>RESUMED</InlineCode>{gt(". A seq ahead of the session closes with 4007. If the session is unknown, belongs to another bot, or the dispatches you missed are no longer buffered, you get op 9 with d false: identify again.")}
       </P>
+      <Callout type="info" title={gt("Replay is per instance")}>
+        {gt("The replay buffer lives in the gateway process that held your session. A RESUME that reaches another instance, or comes after a server restart, gets op 9 and you identify again. Before a deploy the server sends op 7 Reconnect so bots resume while the old instance is still up.")}
+      </Callout>
 
       <H2 id="dispatch-routing">{gt("Dispatch Routing")}</H2>
       <P>
@@ -259,16 +288,19 @@ export default async function GatewayDoc() {
       <CodeBlock lang="text">{`shard_id = (guild_id >> 22) % num_shards`}</CodeBlock>
       <P>{gt("Specify shards in the Identify payload:")}</P>
       <CodeBlock lang="json">{`"shard": [0, 1]  // shard 0 of 1`}</CodeBlock>
+      <P>
+        {gt("A bot in more than 2,500 guilds that connects without sharding (no shard, or [0, 1]) is closed with 4011 (Sharding required); an invalid shard array closes with 4010. Use the shards count from GET /gateway/bot.")}
+      </P>
 
       <H2 id="encoding">{gt("Encoding & Compression")}</H2>
       <P>
-        {gt("The Gateway supports")} <InlineCode>json</InlineCode> {gt("(default) encoding. All frames are sent as JSON text messages. The")} <InlineCode>etf</InlineCode> {gt("(Erlang Term Format) encoding is not currently supported.")}
+        {gt("The Gateway supports")} <InlineCode>json</InlineCode> {gt("(default) encoding and")} <InlineCode>compress=zlib-stream</InlineCode> {gt("transport compression. The")} <InlineCode>etf</InlineCode> {gt("(Erlang Term Format) encoding and")} <InlineCode>zstd-stream</InlineCode> {gt("compression are not supported.")}
       </P>
 
       <H2 id="standalone-gateway">{gt("Standalone Gateway (Horizontal Scaling)")}</H2>
       <P>
         {gt("For production deployments, SerikaCord supports a standalone Gateway server via")}{" "}
-        <InlineCode>scripts/gateway.ts</InlineCode>. {gt("This runs a dedicated Bun.serve WebSocket server that connects to MongoDB and subscribes to Redis for cross-instance event fan-out. This allows you to scale the Gateway independently from the web app.")}
+        <InlineCode>scripts/gateway.ts</InlineCode>. {gt("This runs a dedicated Bun.serve WebSocket server that connects to Postgres and subscribes to Redis for cross-instance event fan-out. This allows you to scale the Gateway independently from the web app.")}
       </P>
       <Callout type="info" title={gt("Redis fan-out")}>
         {gt("In multi-instance deployments, events are published to Redis and fanned out to all Gateway instances. Each instance routes events only to the bot connections it holds. A Redis-based leadership lock (")}

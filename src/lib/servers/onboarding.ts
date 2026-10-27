@@ -20,6 +20,7 @@ export const GUIDE_WELCOME_MAX = 500;
 export const GUIDE_TODOS_MAX = 5;
 export const GUIDE_RESOURCES_MAX = 7;
 export const LINKED_CONNECTIONS_MAX = 8;
+export const ONBOARDING_CHANNELS_MAX = 50;
 
 export interface OnboardingOption {
   id: string;
@@ -28,6 +29,12 @@ export interface OnboardingOption {
   /** A unicode emoji, or one of the server's custom emojis as `<:name:id>` / `<a:name:id>`. */
   emoji: string | null;
   roleIds: string[];
+  /**
+   * Channels picking this option opts the member into (Discord's option
+   * `channel_ids`). Set through the bot API only; Serika shows every channel
+   * anyway, so they are stored and reported but grant nothing. Omitted when empty.
+   */
+  channelIds?: string[];
 }
 
 export interface OnboardingQuestion {
@@ -73,6 +80,10 @@ export interface OnboardingConfig {
   enabled: boolean;
   questions: OnboardingQuestion[];
   guide: ServerGuide;
+  /** Discord's default_channel_ids (bot API only; stored and reported). Omitted when empty. */
+  defaultChannelIds?: string[];
+  /** Discord's onboarding mode: 1 = ONBOARDING_ADVANCED. Omitted for the default (0). */
+  mode?: 1;
 }
 
 export const EMPTY_GUIDE: ServerGuide = { enabled: false, welcomeMessage: '', todos: [], resources: [] };
@@ -92,6 +103,16 @@ function multiline(value: unknown, max: number): string {
 function channelRef(value: unknown, valid?: ReadonlySet<string>): string | null {
   if (typeof value !== 'string' || !value || value.length > 64) return null;
   return !valid || valid.has(value) ? value : null;
+}
+
+function channelRefs(value: unknown, valid?: ReadonlySet<string>): string[] {
+  const out = new Set<string>();
+  for (const v of Array.isArray(value) ? value : []) {
+    const id = channelRef(v, valid);
+    if (id) out.add(id);
+    if (out.size >= ONBOARDING_CHANNELS_MAX) break;
+  }
+  return [...out];
 }
 
 export interface OnboardingContext {
@@ -156,7 +177,11 @@ export function normalizeOnboardingConfig(input: unknown, ctx: OnboardingContext
         .filter((r): r is string => typeof r === 'string' && r.length > 0 && r.length <= 64)
         .filter((r) => !ctx.roleIds || ctx.roleIds.has(r)))]
         .slice(0, ONBOARDING_ROLES_PER_OPTION);
-      options.push({ id: oid, title: otitle, description: str(or.description, ONBOARDING_DESCRIPTION_MAX), emoji: normalizeCommunityEmoji(or.emoji, ctx.emojis), roleIds });
+      const channelIds = channelRefs(or.channelIds, ctx.channelIds);
+      options.push({
+        id: oid, title: otitle, description: str(or.description, ONBOARDING_DESCRIPTION_MAX), emoji: normalizeCommunityEmoji(or.emoji, ctx.emojis), roleIds,
+        ...(channelIds.length > 0 ? { channelIds } : {}),
+      });
       if (options.length >= ONBOARDING_OPTIONS_MAX) break;
     }
     if (options.length === 0) continue;
@@ -194,6 +219,7 @@ export function normalizeOnboardingConfig(input: unknown, ctx: OnboardingContext
     if (resources.length >= GUIDE_RESOURCES_MAX) break;
   }
 
+  const defaultChannelIds = channelRefs(raw.defaultChannelIds, ctx.channelIds);
   return {
     enabled: raw.enabled === true && questions.length > 0,
     questions,
@@ -203,6 +229,40 @@ export function normalizeOnboardingConfig(input: unknown, ctx: OnboardingContext
       todos,
       resources,
     },
+    ...(defaultChannelIds.length > 0 ? { defaultChannelIds } : {}),
+    ...(raw.mode === 1 ? { mode: 1 as const } : {}),
+  };
+}
+
+/**
+ * The bot-API-only fields (option channels, default channels, mode) of
+ * `current` carried into a config submitted by the web editor, which doesn't
+ * know them: options keep their channels by option id.
+ */
+export function withBotOnboardingFields(submitted: Record<string, unknown>, current: OnboardingConfig): Record<string, unknown> {
+  const channelsByOption = new Map<string, string[]>();
+  for (const q of current.questions) for (const o of q.options) if (o.channelIds?.length) channelsByOption.set(o.id, o.channelIds);
+  const questions = Array.isArray(submitted.questions)
+    ? submitted.questions.map((q) => {
+      if (!q || typeof q !== 'object') return q;
+      const qr = q as Record<string, unknown>;
+      if (!Array.isArray(qr.options)) return q;
+      return {
+        ...qr,
+        options: qr.options.map((o) => {
+          if (!o || typeof o !== 'object') return o;
+          const or = o as Record<string, unknown>;
+          const kept = typeof or.id === 'string' ? channelsByOption.get(or.id) : undefined;
+          return kept && or.channelIds === undefined ? { ...or, channelIds: kept } : or;
+        }),
+      };
+    })
+    : submitted.questions;
+  return {
+    ...submitted,
+    questions,
+    defaultChannelIds: submitted.defaultChannelIds ?? current.defaultChannelIds,
+    mode: submitted.mode ?? current.mode,
   };
 }
 

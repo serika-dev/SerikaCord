@@ -45,6 +45,9 @@ export async function getBotOnboarding(guildId: string): Promise<Result> {
 export async function putBotOnboarding(guildId: string, botId: string, body: unknown): Promise<Result> {
   const perms = await guildPerms(guildId, botId);
   if (!has(perms, P.MANAGE_SERVER) || !has(perms, P.MANAGE_ROLES)) return { status: 403, body: MISSING_PERMISSIONS };
+  const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
+  if (b.mode !== undefined && b.mode !== 0 && b.mode !== 1) return { status: 400, body: formError('mode', 'BASE_TYPE_CHOICES', 'Value must be one of {0, 1}.') };
+  if (b.default_channel_ids !== undefined && !Array.isArray(b.default_channel_ids)) return { status: 400, body: formError('default_channel_ids', 'BASE_TYPE_BAD_TYPE', 'Must be an array.') };
   const server = await Server.findById(guildId);
   if (!server) return { status: 404, body: { code: 10004, message: 'Unknown Guild' } };
   const { getOnboardingConfig, saveOnboardingConfig } = await import('@/lib/services/serverCommunity');

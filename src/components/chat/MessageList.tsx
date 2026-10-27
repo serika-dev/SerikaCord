@@ -38,6 +38,7 @@ import { GroupSystemRow } from "@/components/chat/GroupSystemRow";
 import { E2eeSystemRow } from "@/components/chat/E2eeSystemRow";
 import { ThreadSystemRow } from "@/components/chat/ThreadRows";
 import { PollResultRow } from "@/components/chat/PollResultRow";
+import { PinSystemRow } from "@/components/chat/PinSystemRow";
 import { isGroupDmEventType } from "@/lib/chat/groupDm";
 import type { CallGroup } from "@/lib/chat/dmCall";
 import { MessageSkeleton } from "@/components/ui/skeleton";
@@ -957,6 +958,12 @@ function MessageListInner<M extends ChatMessage>(
       formattedTimestamp={formattedTimestamps[idx]}
       onOpenThread={onOpenThread}
       onSeeAllThreads={onSeeAllThreads}
+    />
+    ) : group.messages[0].type === "channel_pinned_message" ? (
+    <PinSystemRow
+      message={group.messages[0]}
+      formattedTimestamp={formattedTimestamps[idx]}
+      onJumpToMessage={jumpToMessage}
     />
     ) : group.messages[0].type === "poll_result" ? (
     <PollResultRow

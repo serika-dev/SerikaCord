@@ -236,11 +236,13 @@ SerikaCord implements standard v10 REST resources.
 - **Channels**: \`/channels/{channel_id}\`, \`/channels/{channel_id}/messages\`, \`/channels/{channel_id}/pins\`
 - **Guilds / Servers**: \`/guilds/{guild_id}\`, \`/guilds/{guild_id}/members\`, \`/guilds/{guild_id}/roles\`
 - **Users**: \`/users/@me\`, \`/users/{user_id}\`
-- **Applications**: \`GET/PATCH /applications/@me\`, \`GET /oauth2/applications/@me\`, \`GET/PATCH /applications/{application_id}\` (your own application only). PATCH accepts \`description\`, \`tags\`, \`custom_install_url\`, \`install_params\`, \`interactions_endpoint_url\` (verified with a signed PING) and the intent \`flags\`.
-- **Gateway**: \`GET /gateway\`, \`GET /gateway/bot\`. The gateway sends READY, then one GUILD_CREATE per server (channels with permission overwrites, threads, roles, emojis, stickers, scheduled events, members). It supports \`compress=zlib-stream\`, RESUME (missed events are replayed for 5 minutes), op 3 presence, op 8 Request Guild Members and op 7 RECONNECT before deploys.
+- **Applications**: \`GET/PATCH /applications/@me\`, \`GET /oauth2/applications/@me\`, \`GET/PATCH /applications/{application_id}\` (your own application only). PATCH accepts every Discord field: \`description\`, \`tags\`, \`icon\` / \`cover_image\` (image data), \`custom_install_url\`, \`install_params\`, \`integration_types_config\`, \`interactions_endpoint_url\` (verified with a signed PING), \`role_connections_verification_url\`, \`event_webhooks_*\` (status 2 is refused: no webhook events yet), \`explicit_content_filter\`, \`max_participants\` and the intent \`flags\`. Also \`POST /applications/{application_id}/attachment\` and linked-roles metadata.
+- **Gateway**: \`GET /gateway\`, \`GET /gateway/bot\` (recommended shards, 1 per 1000 guilds, and the real remaining daily IDENTIFY budget). The gateway sends READY, then one GUILD_CREATE per server (channels with permission overwrites, threads, roles, emojis, stickers, scheduled events, members). It supports \`compress=zlib-stream\`, RESUME (missed events are replayed for 5 minutes on the same instance), op 3 presence, op 8 Request Guild Members, op 31 Request Soundboard Sounds and op 7 RECONNECT before deploys.
+- **Guild extras**: \`GET /guilds/{guild_id}/messages/search\`, join requests (\`/guilds/{guild_id}/requests\`), \`PUT /guilds/{guild_id}/incident-actions\`, \`GET /guilds/{guild_id}/new-member-welcome\`, \`widget.json\` and \`widget.png\` (public), soundboard sounds, \`/stage-instances\`, \`PUT /channels/{channel_id}/voice-status\`, \`POST /channels/{channel_id}/send-soundboard-sound\`.
+- **Social SDK**: \`/lobbies\` (app-scoped; user calls need the \`sdk.social_layer\` scope), \`/invites/{code}/target-users\`, \`/partner-sdk/*\` (answers 530000: no provisional accounts).
 - **Interactions & Commands**: \`/applications/{application_id}/commands\`, \`/interactions/{interaction_id}/{interaction_token}/callback\`
-- **Webhooks**: \`/webhooks/{webhook_id}/{webhook_token}\`
-- **OAuth2**: \`/oauth2/authorize\`, \`/oauth2/token\`
+- **Webhooks**: \`/webhooks/{webhook_id}/{webhook_token}\`, plus \`/slack\` and \`/github\` compatible execute
+- **OAuth2**: \`/oauth2/authorize\`, \`/oauth2/token\`, \`/oauth2/userinfo\`, \`/oauth2/keys\` (OpenID Connect)
 
 ## Standard Error Response Format
 \`\`\`json
@@ -584,8 +586,15 @@ https://api.serika.chat/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot%
 - \`identify\`: Read user basic profile
 - \`email\`: Read user email address
 - \`guilds\`: Read user server list
+- \`guilds.join\`: Add the user to a server (\`PUT /guilds/{guild_id}/members/{user_id}\`)
+- \`gdm.join\`: Add the user to a group DM (\`PUT /channels/{channel_id}/recipients/{user_id}\`, or \`POST /users/@me/channels\` with \`access_tokens\`)
+- \`openid\`: OpenID Connect: an RS256 \`id_token\` in the token response (also on refresh), \`GET /oauth2/userinfo\`, signing keys at \`GET /oauth2/keys\`. There is no discovery document.
+- \`role_connections.write\`: Write the user's linked-roles connection (\`/users/@me/applications/{application_id}/role-connection\`)
+- \`sdk.social_layer\`: Act as the user in your application's lobbies
 - \`bot\`: Install bot user to server
-- \`applications.commands\`: Register slash commands in server`,
+- \`applications.commands\`: Register slash commands in server
+
+\`client_credentials\` tokens act as the application's owner and only get \`identify\` and the \`applications.commands*\` scopes.`,
   },
   "topics/opcodes-and-status-codes": {
     slug: "topics/opcodes-and-status-codes",
@@ -596,12 +605,16 @@ https://api.serika.chat/api/oauth2/authorize?client_id=YOUR_CLIENT_ID&scope=bot%
 
 Complete reference for all Gateway opcodes, close codes, HTTP status codes, and JSON API error codes.
 
-## Gateway Opcodes (0-11)
+## Gateway Opcodes
 - \`0\` Dispatch | \`1\` Heartbeat | \`2\` Identify | \`3\` Presence Update | \`4\` Voice State Update
-- \`6\` Resume | \`7\` Reconnect | \`8\` Request Guild Members | \`9\` Invalid Session | \`10\` Hello | \`11\` Heartbeat ACK
+- \`6\` Resume | \`7\` Reconnect | \`8\` Request Guild Members | \`9\` Invalid Session | \`10\` Hello | \`11\` Heartbeat ACK | \`31\` Request Soundboard Sounds
+- Op 43 (Request Channel Info) is not implemented (close 4001).
 
-## Common Close Event Codes
-- \`4000\` Unknown Error | \`4004\` Authentication Failed | \`4008\` Rate Limited | \`4014\` Disallowed Intent(s)
+## Close Event Codes
+- \`4000\` Unknown Error | \`4001\` Unknown opcode | \`4002\` Decode error | \`4003\` Not authenticated | \`4004\` Authentication Failed | \`4005\` Already authenticated | \`4007\` Invalid seq | \`4008\` Rate Limited | \`4009\` Session timed out | \`4010\` Invalid shard | \`4011\` Sharding required | \`4012\` Invalid API version | \`4013\` Invalid intent(s) | \`4014\` Disallowed Intent(s)
+
+## JSON error codes
+Discord's numbers, e.g. \`10003\` Unknown Channel, \`10031\` Unknown lobby, \`10067\` Unknown Stage Instance, \`10097\` Unknown Sound, \`50004\` Widget disabled, \`50013\` Missing Permissions, \`50025\` Invalid OAuth2 access token, \`50026\` Missing required OAuth2 scope, \`50035\` Invalid Form Body (with an \`errors\` tree), \`160004\` A thread has already been created for this message, \`530000\` provisional accounts not enabled, \`530007\` invalid client secret.
 
 ## HTTP Status Codes
 - \`200\` OK | \`201\` Created | \`204\` No Content | \`400\` Bad Request | \`401\` Unauthorized | \`403\` Forbidden | \`404\` Not Found | \`429\` Too Many Requests`,
@@ -650,7 +663,8 @@ Requests with a valid bot token count against per-bot limits, reported with Disc
 - All requests: 50 per second per bot (global).
 - \`POST /channels/{id}/messages\`: 5 per 5 seconds per channel. Reactions: 4 per second per channel. Deleting a message: 5 per second per channel. Other writes: 30 per 10 seconds per route and channel/server.
 - A 429 has \`Retry-After\`, \`X-RateLimit-Scope\` and the body \`{ "message": "You are being rate limited.", "retry_after": 0.642, "global": false, "code": 0 }\`.
-- Requests without a valid bot token share a per-IP limit of 1,200 requests per minute (429 body \`{ "error", "retryAfter" }\`). Channel webhook execution: 30 requests per 10 seconds per webhook.
+- Requests without a valid bot token share a per-IP limit of 1,200 requests per minute (429 body \`{ "error", "retryAfter" }\`). Channel webhook execution (including \`/slack\` and \`/github\`): 30 requests per 10 seconds per webhook. Interaction token routes: 5 per 2 seconds per interaction. Guild message search: 40 per minute per bot. Lobby writes with a user's Bearer token use the bot budgets keyed by that user.
+- Gateway: 120 payloads per 60 seconds per connection (close 4008); IDENTIFY once per 5 seconds per bot (faster ones get op 9) and 1000 per day (close 4008), reported in \`GET /gateway/bot\` \`session_start_limit\`; a full op 8 member list once per guild every 30 seconds (else a RATE_LIMITED dispatch).
 
 Read the headers rather than hard-coding these numbers, and honour \`retry_after\` / \`Retry-After\` on any 429 (exponential backoff when it is missing).`,
   },
@@ -676,7 +690,9 @@ Content-Type: application/json
   "name": "Project Discussion",
   "auto_archive_duration": 1440
 }
-\`\`\``,
+\`\`\`
+
+The thread takes the starter message's id, like Discord; a second create for the same message answers 160004. Forum posts (\`POST /channels/{channel_id}/threads\` with \`message\`) need View Channel and Send Messages in the forum. Thread members carry their real \`join_timestamp\` (members who joined before join times were recorded fall back to the thread's creation time); \`flags\` is always 0. \`GET /channels/{channel_id}/threads/search\` honours \`slop\`, \`min_id\` and \`max_id\`.`,
   },
   "topics/gateway": {
     slug: "topics/gateway",
@@ -692,7 +708,14 @@ Connect to \`${API.gateway}\` to maintain real-time bidirectional communication.
 2. Server sends Opcode 10 (\`HELLO\`) with \`heartbeat_interval\` (e.g. 41250ms).
 3. Client starts heartbeat timer sending Opcode 1 (\`HEARTBEAT\`) with last sequence number.
 4. Client sends Opcode 2 (\`IDENTIFY\`) payload with token and intents.
-5. Server sends Opcode 0 (\`READY\`) event containing initial bot state.`,
+5. Server sends Opcode 0 (\`READY\`) event containing initial bot state, then one \`GUILD_CREATE\` per guild.
+
+## Limits and failures
+- A missing or malformed token gets op 9 (Invalid Session) then close 4004; an unknown token closes with 4004. A second IDENTIFY closes with 4005.
+- IDENTIFY: once per 5 seconds per bot (a faster one gets op 9, retry later) and 1000 per day (close 4008). At most 16 live + resumable sessions per bot.
+- 120 payloads per 60 seconds per connection; the next one closes with 4008.
+- RESUME within 5 minutes replays missed dispatches (last 1000 / 1 MB per session, same instance only); otherwise op 9 and identify again. A seq ahead of the session closes with 4007.
+- \`compress=zlib-stream\` is supported; ETF and zstd are not.`,
   },
   "topics/webhooks": {
     slug: "topics/webhooks",
@@ -713,7 +736,13 @@ Content-Type: application/json
   "username": "Custom Sender Name",
   "avatar_url": "https://example.com/avatar.png"
 }
-\`\`\``,
+\`\`\`
+
+Execute also takes \`embeds\`, \`components\` (\`?with_components=true\`), files, \`poll\`, \`thread_id\` (query) and \`thread_name\` + \`applied_tags\` for a new forum post, and \`?wait=true\` to get the message back. Creating or editing a webhook takes \`avatar\` as image data.
+
+## Slack and GitHub compatible execute
+- \`POST /webhooks/{webhook_id}/{webhook_token}/slack\`: Slack incoming-webhook JSON (\`text\`, \`username\`, \`icon_url\`, \`attachments\`); mrkdwn becomes markdown and attachments become embeds. Answers \`ok\`, or the message with \`?wait=true\`.
+- \`POST /webhooks/{webhook_id}/{webhook_token}/github\`: point a GitHub webhook here (content type application/json). Push, create, delete, issues, issue_comment, pull_request, pull_request_review(_comment), commit_comment, release, star, watch, fork, member, public, discussion(_comment), check_run and check_suite become embeds; other events answer 204.`,
   },
   "topics/message-formatting": {
     slug: "topics/message-formatting",
@@ -853,8 +882,11 @@ Bots joined to 75 or more servers require developer identity verification and pr
 Allows apps to register custom metadata fields for user linked role verification.
 
 ## Endpoints
-- \`GET /applications/{application_id}/role-connections/metadata\` - Get app role connection metadata
-- \`PUT /applications/{application_id}/role-connections/metadata\` - Update app role connection metadata`,
+- \`GET /applications/{application_id}/role-connections/metadata\` - Get app role connection metadata (bot token)
+- \`PUT /applications/{application_id}/role-connections/metadata\` - Replace the records (bot token): up to 5, types 1-8, \`key\` 1-50 of a-z 0-9 _, \`name\` 1-100, \`description\` 1-200, optional localizations
+- \`GET\` / \`PUT\` / \`DELETE /users/@me/applications/{application_id}/role-connection\` - The user's connection (Bearer with \`role_connections.write\`): \`platform_name\` (50), \`platform_username\` (100), \`metadata\` values checked against the records
+
+Values are stored and returned like Discord's, but Serika servers can't require them for roles yet.`,
   },
   "resources/application": {
     slug: "resources/application",
@@ -867,7 +899,11 @@ Represents a developer application registered on SerikaCord.
 
 ## Endpoints
 - \`GET /applications/@me\` - Get current developer app info
-- \`GET /applications/{application.id}\` - Fetch application details`,
+- \`GET /applications/{application.id}\` - Fetch application details
+- \`PATCH /applications/@me\`, \`PATCH /applications/{application.id}\` - Edit your own application: \`description\`, \`tags\`, \`icon\` / \`cover_image\` (image data), \`custom_install_url\`, \`install_params\`, \`integration_types_config\`, \`interactions_endpoint_url\` (verified with a signed PING), \`role_connections_verification_url\`, \`event_webhooks_url\` / \`_types\` / \`_status\` (2 = enabled is refused: SerikaCord does not deliver webhook events), \`explicit_content_filter\`, \`max_participants\`, \`flags\`. \`team_id\` can't be changed here.
+- \`POST /applications/{application.id}/attachment\` - Upload an Activities attachment (multipart \`file\`), returned as an ephemeral attachment
+- \`GET /applications/{application.id}/activity-instances/{instance_id}\` - Always 404 (no Embedded App activities)
+- \`PUT /applications/{application.id}/guilds/{guild.id}/commands/permissions\` - Batch command permissions (\`[{ id, permissions }]\`, replaces every override the app has in the guild)`,
   },
   "resources/audit-log": {
     slug: "resources/audit-log",
@@ -891,9 +927,13 @@ Tracks administrative actions taken within a server (channel modifications, role
 Represents a guild text channel, voice channel, category, thread, or DM channel.
 
 ## Endpoints
-- \`GET /channels/{channel.id}\` - Get channel
+- \`GET /channels/{channel.id}\` - Get channel (DMs and group DMs carry \`recipients\` as user objects, your bot left out)
 - \`PATCH /channels/{channel.id}\` - Modify channel
-- \`DELETE /channels/{channel.id}\` - Delete channel`,
+- \`DELETE /channels/{channel.id}\` - Delete channel
+- \`PUT /channels/{channel.id}/recipients/{user.id}\` - Add a user to a group DM with their \`gdm.join\` access token for your application (\`nick\` is ignored); 50025 for a bad token, 50026 without the scope
+- \`PUT /channels/{channel.id}/voice-status\` - Set a voice channel's status (\`status\` up to 500 characters, null clears; needs Set Voice Channel Status and Manage Channels; cleared when the channel empties; not shown in the web client yet)
+- \`POST /channels/{channel.id}/send-soundboard-sound\` - Play a soundboard sound (\`sound_id\`, \`source_guild_id\`) to everyone in a voice channel; the bot need not be connected (bots can't join voice)
+- Pinning a message posts a "pinned a message" system message (type 6) with \`message_reference\` to the pinned message.`,
   },
   "resources/emoji": {
     slug: "resources/emoji",
@@ -920,7 +960,13 @@ Guilds in SerikaCord represent servers where users interact across channels.
 ## Endpoints
 - \`GET /guilds/{guild.id}\` - Get guild details
 - \`GET /guilds/{guild.id}/members\` - List guild members
-- \`GET /guilds/{guild.id}/roles\` - List guild roles`,
+- \`GET /guilds/{guild.id}/roles\` - List guild roles
+- \`GET /guilds/{guild.id}/messages/search\` - Discord's guild message search (channels the bot can read; content filters need MESSAGE_CONTENT; \`slop\` ignored; offsets past 5000 return an empty page; 40 searches per minute)
+- \`GET /guilds/{guild.id}/requests\`, \`PATCH /guilds/{guild.id}/requests/{request.id}\` - Join requests (member applications), MANAGE_GUILD
+- \`PUT /guilds/{guild.id}/incident-actions\` - Pause invites (\`invites_disabled_until\`, enforced) and DMs (\`dms_disabled_until\`, stored and reported only, not enforced)
+- \`GET /guilds/{guild.id}/new-member-welcome\` - The Server Guide
+- \`GET /guilds/{guild.id}/widget.json\`, \`GET /guilds/{guild.id}/widget.png?style=shield|banner1-4\` - Public while the widget is enabled (else 50004)
+- \`GET/POST /guilds/{guild.id}/soundboard-sounds\`, \`GET/PATCH/DELETE /guilds/{guild.id}/soundboard-sounds/{sound.id}\` - Server soundboard`,
   },
   "resources/guild-scheduled-event": {
     slug: "resources/guild-scheduled-event",
@@ -933,7 +979,9 @@ Represents upcoming community events in voice or stage channels.
 
 ## Endpoints
 - \`GET /guilds/{guild_id}/scheduled-events\` - List scheduled events
-- \`POST /guilds/{guild_id}/scheduled-events\` - Create scheduled event`,
+- \`POST /guilds/{guild_id}/scheduled-events\` - Create scheduled event
+- \`GET /guilds/{guild_id}/scheduled-events/{event_id}/users/counts\` - Interested user count (exception counts are always empty)
+- Exception routes (\`POST .../exceptions\`, \`PATCH/DELETE .../exceptions/{exception_id}\`, \`GET .../{exception_id}/users\`): Serika events don't recur, so no exceptions exist (create answers 50035, the others 404).`,
   },
   "resources/invite": {
     slug: "resources/invite",
@@ -946,7 +994,9 @@ Represents a server invite code link used by members to join a guild.
 
 ## Endpoints
 - \`GET /invites/{invite_code}\` - Get invite details
-- \`DELETE /invites/{invite_code}\` - Revoke invite link`,
+- \`DELETE /invites/{invite_code}\` - Revoke invite link
+- \`POST /channels/{channel_id}/invites\` - Create an invite (\`max_age\`, \`max_uses\`, \`temporary\`, \`unique\`; target fields are ignored)
+- Invite target users (only listed users may accept): \`GET\` / \`PUT /invites/{invite_code}/target-users\` (CSV; PUT takes multipart \`target_users_file\`), \`GET .../target-users/job-status\`, \`POST .../target-users/bulk-add\` and \`/bulk-delete\` (\`user_ids\`, 1-1000), \`PUT\` / \`DELETE .../target-users/{user_id}\`. The inviter or Manage Server may change the list.`,
   },
   "resources/message": {
     slug: "resources/message",
@@ -1052,7 +1102,7 @@ Represents a SerikaCord user account or bot user.
 - \`GET /users/@me/guilds/{guild_id}/member\` - Own member object; Bearer needs \`guilds.members.read\`
 - \`DELETE /users/@me/guilds/{guild_id}\` - Bot leaves the server
 - \`GET /users/@me/connections\` - Bearer only, \`connections\` scope
-- \`POST /users/@me/channels\` - Open a DM (\`recipient_id\`): only with users who share a server or already have a DM with the bot, who haven't blocked it and accept DMs; never with other bots (50007). Group DM creation is not supported.`,
+- \`POST /users/@me/channels\` - Open a DM (\`recipient_id\`): only with users who share a server or already have a DM with the bot, who haven't blocked it and accept DMs; never with other bots (50007). With \`access_tokens\` (users' \`gdm.join\` tokens for your app) it creates a group DM.`,
   },
   "resources/voice": {
     slug: "resources/voice",
@@ -1068,8 +1118,11 @@ Bots can see voice state but cannot carry audio yet: op 4 is answered with VOICE
 ## Endpoints
 - \`GET /voice/regions\`, \`GET /guilds/{guild_id}/regions\` - One region, \`serika\`
 - \`GET /guilds/{guild_id}/voice-states/{user_id}\` - A member's voice state (10065 when not in voice); \`@me\` is always 10065
-- \`PATCH /guilds/{guild_id}/voice-states/{user_id}\` - Needs MUTE_MEMBERS; answers 50024 (no stage channels yet)
-- \`GET /soundboard-default-sounds\`, \`GET /guilds/{guild_id}/soundboard-sounds\` - Empty
+- \`PATCH /guilds/{guild_id}/voice-states/{user_id}\` - Needs MUTE_MEMBERS; answers 10065 when the user isn't in voice, otherwise 50024 (suppress isn't supported); \`@me\` is always 10065
+- \`PUT /channels/{channel_id}/voice-status\` - Voice channel status (see Channel)
+- \`POST /channels/{channel_id}/send-soundboard-sound\` - Play a server soundboard sound to the channel (bot need not be connected)
+- \`GET /soundboard-default-sounds\` - Empty (no built-in sounds); \`/guilds/{guild_id}/soundboard-sounds\` lists, creates, edits and deletes the server soundboard
+- \`/stage-instances\` - Stage instance CRUD (topic, privacy_level 2)
 
 ## Events
 - \`VOICE_STATE_UPDATE\` (GUILD_VOICE_STATES intent) on join, leave, mute, deafen, camera, screen share and moderator mute / deafen / disconnect
@@ -1084,9 +1137,14 @@ Bots can see voice state but cannot carry audio yet: op 4 is answered with VOICE
 
 - **Ids**: new apps see snowflakes and image hashes; apps created earlier see UUIDs and full URLs until switched in the portal.
 - **CDN**: set the library CDN base to ${API.cdn} (discord.js \`rest.cdn\`, discord.py \`Asset.BASE\`); Discord CDN paths redirect to cdn.serika.chat. Images hosted elsewhere come back as null.
-- **Voice**: no audio for bots; voice states and VOICE_STATE_UPDATE work; op 4 gets VOICE_SERVER_UPDATE endpoint null.
+- **Voice**: no audio for bots; voice states and VOICE_STATE_UPDATE work; op 4 gets VOICE_SERVER_UPDATE endpoint null. send-soundboard-sound plays without the bot connected; voice-status always needs Manage Channels and isn't shown in the web client; stage instances send no start notification.
 - **Presence**: op 3 activities show on the bot's profile; PRESENCE_UPDATE for bots with GUILD_PRESENCES.
-- **OAuth2**: Bearer tokens on users/@me, users/@me/guilds, .../member, connections, oauth2/@me and command routes only; no OpenID Connect, linked roles or gdm.join.
+- **OAuth2**: Bearer tokens work on the routes Discord allows them on. OpenID Connect (\`openid\`, \`/oauth2/userinfo\`, \`/oauth2/keys\`) and gdm.join work; linked roles are stored but no server uses them for roles yet. client_credentials tokens only get identify and applications.commands scopes.
+- **Applications**: interaction callback types 10 and 12 are rejected (50035); \`event_webhooks_status\` 2 is refused (no webhook events); activity instances 404.
+- **Incident actions**: only the invite pause is enforced; \`dms_disabled_until\` is stored and reported.
+- **Scheduled events**: no recurrence, so no exceptions.
+- **Lobbies**: app-scoped; text-only messages kept 72 hours; linked channels get a copy from the app's bot but nothing is relayed back; no lobby gateway events. Partner-sdk (provisional accounts) routes answer 530000.
+- **Messages**: one sticker per message; shared_client_theme ignored; guild search ignores slop.
 - **Monetization**: no payments; lists are empty, lookups 404.
 - **Usernames**: unique lower-case handles (2-32 of a-z 0-9 _ .).`,
   },
@@ -1101,7 +1159,67 @@ Represents an incoming HTTP webhook attached to a text channel.
 
 ## Endpoints
 - \`GET /channels/{channel_id}/webhooks\` - List channel webhooks
-- \`POST /webhooks/{webhook_id}/{webhook_token}\` - Execute webhook`,
+- \`POST /channels/{channel_id}/webhooks\` - Create (\`name\`, \`avatar\` as image data)
+- \`POST /webhooks/{webhook_id}/{webhook_token}\` - Execute webhook (polls, forum posts with \`thread_name\` + \`applied_tags\`, \`?wait=true\`, \`?thread_id\`)
+- \`POST /webhooks/{webhook_id}/{webhook_token}/slack\`, \`/github\` - Slack- and GitHub-compatible execute`,
+  },
+  "resources/lobby": {
+    slug: "resources/lobby",
+    title: "Lobby Resource",
+    section: "Resources",
+    description: "Discord-compatible Social SDK lobbies: members, lobby chat and linked channels.",
+    content: `# Lobby Resource
+
+Lobbies are groups of users of one application who can chat together, like Discord's Social SDK lobbies. A lobby belongs to the application that created it; other applications get 10031 Unknown lobby.
+
+- Bot token: create, edit, delete lobbies and manage members. Users act through a Bearer token with the \`sdk.social_layer\` scope granted to your application.
+- Members must be SerikaCord users who authorized your application (others are dropped; unknown users 404). Up to 1000 members per lobby, 100 lobbies per user, 10000 lobbies per application. Member flag 1 (CanLinkLobby) lets a member link a channel.
+- \`idle_timeout_seconds\`: a lobby with no writes for that long is deleted on its next access.
+- Lobby messages are text only (embeds, attachments, components, polls, stickers, replies and TTS are rejected with 50035), encrypted at rest and kept for 72 hours.
+- A linked server text channel gets a copy of each lobby message, posted by your bot when it can send there. Messages sent in the channel are not relayed back. No lobby gateway events are sent.
+
+## Endpoints
+- \`POST /lobbies\`, \`PUT /lobbies\` (create, or join by \`secret\` with a user token), \`GET/PATCH/DELETE /lobbies/{lobby_id}\`
+- \`PATCH /lobbies/{lobby_id}/channel-linking\` (link with \`channel_id\`, unlink without; needs View Channel, Send Messages and Manage Channels in that channel)
+- \`POST /lobbies/{lobby_id}/members/bulk\`, \`PUT/DELETE /lobbies/{lobby_id}/members/{user_id}\`, \`DELETE /lobbies/{lobby_id}/members/@me\`
+- \`POST /lobbies/{lobby_id}/members/@me/invites\`, \`POST /lobbies/{lobby_id}/members/{user_id}/invites\` (single-use, one-hour invite to the linked channel for that user)
+- \`GET/POST /lobbies/{lobby_id}/messages\`, \`PUT /lobbies/{lobby_id}/messages/{message_id}/moderation-metadata\`
+
+## Partner SDK
+SerikaCord has no provisional accounts: \`POST /partner-sdk/token\`, \`/partner-sdk/token/bot\`, \`/partner-sdk/provisional-accounts/unmerge\` and \`/unmerge/bot\` validate the request (530007 for a bad client secret) and then answer 530000. \`PUT /partner-sdk/dms/{user_id_1}/{user_id_2}/messages/{message_id}/moderation-metadata\` stores app-scoped metadata on a DM message between two users who both authorized your application.`,
+  },
+  "resources/soundboard": {
+    slug: "resources/soundboard",
+    title: "Soundboard Resource",
+    section: "Resources",
+    description: "Server soundboard sounds: list, create, edit, delete and play them in voice channels.",
+    content: `# Soundboard Resource
+
+The server soundboard, the same sounds members play from the voice panel.
+
+## Endpoints
+- \`GET /soundboard-default-sounds\` - Always empty (SerikaCord has no built-in sounds)
+- \`GET /guilds/{guild_id}/soundboard-sounds\` - \`{ items }\`; \`user\` only for bots with Create or Manage Expressions
+- \`GET /guilds/{guild_id}/soundboard-sounds/{sound_id}\`
+- \`POST /guilds/{guild_id}/soundboard-sounds\` - \`name\`, \`sound\` (audio data URI), \`volume\`, \`emoji_id\` / \`emoji_name\`; needs Create Expressions
+- \`PATCH\` / \`DELETE /guilds/{guild_id}/soundboard-sounds/{sound_id}\` - Manage Expressions, or Create Expressions for your own sounds
+- \`POST /channels/{channel_id}/send-soundboard-sound\` - Play to everyone in a voice channel (View Channel, Speak, Use Soundboard; Use External Sounds for another server's sound). The bot need not be connected.
+- Gateway: op 31 Request Soundboard Sounds -> SOUNDBOARD_SOUNDS; GUILD_SOUNDBOARD_SOUND_CREATE / UPDATE / DELETE (GUILD_EXPRESSIONS); VOICE_CHANNEL_EFFECT_SEND when a sound plays. Changes are audit-logged (130-132).`,
+  },
+  "resources/stage-instance": {
+    slug: "resources/stage-instance",
+    title: "Stage Instance Resource",
+    section: "Resources",
+    description: "Stage instances: the topic and privacy level of a live stage channel.",
+    content: `# Stage Instance Resource
+
+A stage instance holds the topic of a live stage channel. One per stage channel.
+
+## Endpoints
+- \`POST /stage-instances\` - \`channel_id\`, \`topic\` (1-120), \`privacy_level\` (2 GUILD_ONLY; 1 is refused), \`send_start_notification\` (needs Mention Everyone; no notification is sent yet), \`guild_scheduled_event_id\`
+- \`GET\` / \`PATCH\` / \`DELETE /stage-instances/{channel_id}\`
+
+Needs the stage moderator permissions (Manage Channels, Mute Members and Move Members in the channel). Emits STAGE_INSTANCE_CREATE / UPDATE / DELETE and audit log entries 83-85.`,
   },
 };
 

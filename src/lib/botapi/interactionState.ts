@@ -71,7 +71,27 @@ export interface InteractionResponseState {
   loading?: boolean;
 }
 
-export type CheckResult = { ok: true } | { ok: false; status: number; code: number; message: string };
+export type CheckResult =
+  | { ok: true }
+  | { ok: false; status: number; code: number; message: string; errors?: Record<string, { _errors: Array<{ code: string; message: string }> }> };
+
+/**
+ * Callback types SerikaCord apps can use. 10 PREMIUM_REQUIRED (deprecated,
+ * monetized apps only) and 12 LAUNCH_ACTIVITY (apps with Activities) are
+ * unavailable to every app here: SerikaCord has no app monetization and no
+ * Activities, so they fail like any value outside the allowed set.
+ */
+const SUPPORTED_CALLBACK_TYPES = [1, 4, 5, 6, 7, 8, 9] as const;
+
+function unavailableCallbackType(why: string): CheckResult {
+  return {
+    ok: false,
+    status: 400,
+    code: 50035,
+    message: `Invalid Form Body (type: ${why})`,
+    errors: { type: { _errors: [{ code: 'BASE_TYPE_CHOICES', message: `Value must be one of {${SUPPORTED_CALLBACK_TYPES.join(', ')}}.` }] } },
+  };
+}
 
 const UNKNOWN_INTERACTION: CheckResult = { ok: false, status: 404, code: 10062, message: 'Unknown interaction' };
 const ALREADY_ACKED: CheckResult = { ok: false, status: 400, code: 40060, message: 'Interaction has already been acknowledged.' };
@@ -99,10 +119,10 @@ export function checkInitialCallback(state: InteractionState, callbackType: unkn
   if (now - state.createdAt > ACK_DEADLINE_MS + ACK_GRACE_MS) return UNKNOWN_INTERACTION;
   if (acked) return ALREADY_ACKED;
   if (callbackType === CallbackType.PREMIUM_REQUIRED) {
-    return { ok: false, status: 400, code: 50035, message: 'Invalid Form Body (type: PREMIUM_REQUIRED is deprecated and not supported)' };
+    return unavailableCallbackType('PREMIUM_REQUIRED is deprecated and needs app monetization, which SerikaCord does not have');
   }
   if (callbackType === CallbackType.LAUNCH_ACTIVITY) {
-    return { ok: false, status: 400, code: 50035, message: 'Invalid Form Body (type: activities are not supported on SerikaCord)' };
+    return unavailableCallbackType('LAUNCH_ACTIVITY needs Activities, which no SerikaCord application has');
   }
   if (typeof callbackType !== 'number' || !Number.isInteger(callbackType)) {
     return { ok: false, status: 400, code: 50035, message: 'Invalid Form Body (type: This field is required)' };

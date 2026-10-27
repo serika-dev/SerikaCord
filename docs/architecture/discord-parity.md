@@ -23,22 +23,67 @@ regex probes (`FEATURES`), gateway events by finding emitters and their callers.
 The numbers are a floor for what is missing, not proof that something works.
 Only the smoke tests in section 6 can show that.
 
-## 0. Status (2026-10-16, v2.1.22)
+## 0. Status (2026-10-27, after v2.3.0)
 
-M1 and M2 are done and most of M3/M4 has landed (releases v2.1.15-v2.1.22):
-REST coverage went from 19% to 71% (78% reachable), gateway receive events
-from 21 to 62 of 82, opcodes 12/13, close codes 14/14. Unmodified discord.js
-14 and discord.py 2.x log in, receive guilds, messages, interactions and
-member chunks, and reply, against the local harness in `scripts/bot-compat/`
-(see its README). Snowflake ids, CDN hashes and Discord permission bit numbers
-apply to applications with `api_id_format = 'snowflake'` (the default for new
-apps); legacy UUID-format apps keep the old behaviour.
+M1-M4 are done. Every non-deprecated REST operation in the pinned spec now has
+a route: **248 of 248 reachable, 226 implemented + 22 partial, 95.6% weighted
+coverage** (bot-usable: 243 reachable, 95.5%). History: 19% at the original
+snapshot, 71% (78% reachable, 55 routes missing) at v2.1.22. Gateway: 73 of 82 receive events emitted, opcodes
+12/13 (op 43 Request Channel Info is the only one missing), close codes 14/14,
+intents 21/21, protocol features 64/67. Unmodified discord.js 14 and
+discord.py 2.x log in, receive guilds, messages, interactions and member
+chunks, and reply, against the local harness in `scripts/bot-compat/` (see its
+README). Snowflake ids, CDN hashes and Discord permission bit numbers apply to
+applications with `api_id_format = 'snowflake'` (the default for new apps);
+legacy UUID-format apps keep the old behaviour.
 
-Still open: Social SDK lobbies (out of scope), OpenID Connect + linked roles,
-gdm.join, stage instances (stubs), scheduled-event exceptions/recurrence, voice
-media for bots (needs an SFU, see WP7), ETF/zstd, cross-instance RESUME
-(the replay buffer is per process). The sections below are the original plan
-and analysis; the generated tables at the bottom are current.
+Landed in the October parity pass (uncommitted at the time of writing, see the
+`KNOWN_GAPS` history in `scripts/discord-parity.ts`):
+
+- Messages: CHANNEL_PINNED_MESSAGE (type 6) system message on pin
+  (`src/lib/botapi/pinNotice.ts`), components on create and edit, custom emoji
+  `name:<snowflake>` reaction paths resolved through the snowflake store, DM
+  `recipients` as user objects (`src/lib/botapi/dmRecipients.ts`).
+- Threads: a thread started from a message takes the message's id, forum posts
+  need only SEND_MESSAGES in the forum (`forumStarterGrant.ts`), real
+  per-member `join_timestamp` (Redis hash, `threadMemberJoins.ts`),
+  `threads/search` honours `slop`, `min_id`, `max_id`.
+- Guilds: message search (`guildSearch.ts`), join requests, incident actions,
+  new-member welcome, widget.json with channels/members + widget.png, audit log
+  `application_commands` / `guild_scheduled_events`, onboarding `mode` /
+  channel ids stored, scheduled-event user counts and (always empty) exception
+  routes, soundboard CRUD, stage instances (`stage_instances` table), voice
+  channel status, `send-soundboard-sound`, `GET /gateway/bot` shard
+  recommendation and the real IDENTIFY budget.
+- Webhooks: avatar image data, polls, `applied_tags` with `thread_name`,
+  Slack- and GitHub-compatible execute (`/slack`, `/github`).
+- Applications / OAuth2: every editable `PATCH /applications/@me` field
+  (`application_api_settings` side table), batch command permissions,
+  activity attachment upload, linked roles (role connection metadata + user
+  role connections), OpenID Connect (`openid` scope, RS256 `id_token`,
+  `/oauth2/userinfo`, `/oauth2/keys`), `gdm.join`.
+- Social SDK: lobbies (app-scoped, `sdk.social_layer` Bearer tokens, linked
+  channels, lobby chat), invite target users, partner-sdk routes (validate, then
+  530000: no provisional accounts).
+
+Still open (the 22 partial routes are listed with reasons in the generated
+tables): voice media for bots (needs an SFU, see WP7), ETF and zstd transport,
+gateway op 43 / CHANNEL_INFO and VOICE_CHANNEL_START_TIME_UPDATE, cross-instance
+RESUME (the replay buffer is per process), monetization and integration events
+(no payments, no integrations), recurring scheduled events (no exceptions
+exist), Social SDK gateway events and lobby <- linked channel relay, and the
+Discord webhook-events delivery (`event_webhooks_status` 2 is refused), and
+the incident-actions DM pause (`dms_disabled_until` is stored and reported, not
+enforced).
+Remaining body/query fields the checker sees unread on implemented routes:
+`POST /channels/{id}/invites` `target_type` / `target_user_id` /
+`target_application_id` / `target_user_ids` / `role_ids`, a few forum and
+guild settings on `PATCH /channels/{id}`, `POST /guilds/{id}/channels` and
+`PATCH /guilds/{id}`, `with_localizations`, `thread_id` on `@original`
+GET/DELETE, `shard` on `GET /users/@me/guilds`, `bio` on `PATCH
+members/@me`, `override_event_webhooks_url` on lobbies. The sections below are
+the original plan and analysis; the generated tables at the bottom are
+current.
 
 ## 1. Where we are (summary, as originally written)
 
@@ -530,9 +575,10 @@ on separate files. WP7 is last and partly research.
 - **Files:** `botApi/threads.ts`, `src/lib/services/threads.ts` (already has
   the members/archive logic and `thread_members_update` fan-out),
   `channels.ts` thread routes (wiring only).
-- **Data model:** none expected (`channels` has thread/forum columns,
-  `threadMemberIds`). Thread-member `join_timestamp`/`flags` may need
-  `CREATE TABLE IF NOT EXISTS thread_members` if the array is not enough.
+- **Data model:** none (`channels` has thread/forum columns,
+  `threadMemberIds`). Thread-member `join_timestamp` is kept in a Redis hash
+  per thread (`thread:joins:<threadId>`, `src/lib/botapi/threadMemberJoins.ts`)
+  and falls back to the thread's creation time; `flags` is always 0.
 - **Tests:** contract tests and the discord.js `forum.threads.create` +
   `thread.members.add` smoke flows.
 
@@ -582,6 +628,14 @@ on separate files. WP7 is last and partly research.
 - **Risks:** webhook tokens in URLs (keep timing-safe compares and
   per-webhook rate limits), and an open redirect on the CDN shim (only
   redirect to our own CDN).
+- **Status (2026-10-27):** all of the above has landed. Linked roles use the
+  `application_api_settings` side tables (`drizzle/manual_application_api_settings.sql`,
+  created on first use) instead of the two tables sketched here; nothing in the
+  Serika UI consumes role connections yet. OIDC is served by SerikaCord itself
+  (`src/lib/oauth/oidc.ts`, signing key from `OIDC_SIGNING_KEY` or a
+  Redis-shared generated key in `src/lib/services/oidcKeys.ts`), not by
+  serika-accounts. `/slack` and `/github` webhook execute convert payloads in
+  `src/lib/botapi/webhookCompat.ts`.
 
 ### WP7: Voice, stage, soundboard, monetization, Social SDK lobbies (research + 1 engineer)
 
@@ -607,12 +661,31 @@ on separate files. WP7 is last and partly research.
   `endpoint: null` (Discord's "voice server unavailable" signal) so library
   joins time out with a clear error instead of hanging mid-handshake; revisit
   with the SFU work.
-- **Stage instances and soundboard:** CRUD stubs over existing channel types
-  (`stage_voice` exists in the enum), soundboard list/default sounds (Serika
-  has TTS sound triggers but no soundboard, so return `[]`) and
-  `send-soundboard-sound` → 50024/501.
-- **Social SDK lobbies / partner-sdk:** out of scope for bot compatibility.
-  Serika has its own `social-sdk.ts`; map later if there is demand.
+- **Stage instances and soundboard (done):** stage instances are real rows in
+  `stage_instances` (`src/lib/botapi/guildStageInstances.ts`,
+  `drizzle/manual_stage_instances.sql`) with STAGE_INSTANCE_* events and audit
+  entries 83-85; `send_start_notification` is permission-checked only. The
+  server soundboard (`servers.soundboard_sounds`) is exposed through
+  `GET/POST/PATCH/DELETE /guilds/{id}/soundboard-sounds` with
+  GUILD_SOUNDBOARD_SOUND_* events and audit entries 130-132;
+  `/soundboard-default-sounds` is `[]` (Serika has no built-in set);
+  `send-soundboard-sound` plays to everyone in the voice channel without the
+  bot being connected (bots can't join voice) and emits
+  VOICE_CHANNEL_EFFECT_SEND. Voice channel status (`PUT
+  /channels/{id}/voice-status`) lives in Redis and is cleared when the channel
+  empties; the web client doesn't show it yet.
+- **Social SDK lobbies / partner-sdk (done, app-scoped):** Discord's Lobby
+  resource is implemented in `src/lib/api/botApi/social.ts` (rules in
+  `src/lib/botapi/lobbies.ts`, storage in `src/lib/services/lobbies.ts`,
+  `drizzle/manual_social_parity.sql`). A lobby belongs to one application;
+  members must be users who authorized it; user calls take a Bearer token with
+  `sdk.social_layer`. Lobby chat is text only, encrypted at rest and kept 72
+  hours. A linked channel gets a copy of each lobby message from the app's bot
+  (when it may send there); nothing is relayed back, and no LOBBY_* gateway
+  events are sent. The partner-sdk token / unmerge routes validate the request
+  and answer 530000 (no provisional accounts); DM moderation metadata is stored
+  per application. Serika's own Social SDK (`social-sdk.ts`, `/api/v1`) is
+  separate and unchanged.
 
 ### WP8: Developer experience (1 engineer, continuous)
 
@@ -726,58 +799,58 @@ Generated from `discord/discord-api-spec@ed01408` (2026-10-14) and `discord/disc
 
 | Surface | Total | Implemented | Partial | Missing | Coverage | Reachable |
 |---|---:|---:|---:|---:|---:|---:|
-| REST, every operation | 248 | 161 | 32 | 55 | 71.4% | 77.8% |
-| REST, bot-token usable | 243 | 159 | 32 | 52 | 72% | 78.6% |
+| REST, every operation | 248 | 226 | 22 | 0 | 95.6% | 100% |
+| REST, bot-token usable | 243 | 221 | 22 | 0 | 95.5% | 100% |
 
-Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code paths), 0 more have an emitter nobody calls; 12/13 opcodes; 14/14 close codes used; 20/21 intents defined. Protocol features: 60/64.
+Gateway: 73/82 receive events emitted (89%; 3 of them only from some code paths), 0 more have an emitter nobody calls; 12/13 opcodes; 14/14 close codes used; 21/21 intents defined. Protocol features: 64/67.
 
 ### REST coverage by area
 
 | Area | WP | Total | Impl. | Partial | Missing | Coverage |
 |---|---|---:|---:|---:|---:|---:|
-| Social SDK lobbies / provisional accounts | WP7 | 20 | 0 | 0 | 20 | 0% |
-| OAuth2 + linked roles | WP6 | 12 | 5 | 0 | 7 | 41.7% |
-| Gateway discovery | WP1 | 2 | 1 | 1 | 0 | 75% |
+| Social SDK lobbies / provisional accounts | WP7 | 20 | 13 | 7 | 0 | 82.5% |
+| OAuth2 + linked roles | WP6 | 12 | 12 | 0 | 0 | 100% |
+| Gateway discovery | WP1 | 2 | 2 | 0 | 0 | 100% |
 | Interaction callbacks | WP3 | 1 | 0 | 1 | 0 | 50% |
-| Application commands | WP3 | 16 | 11 | 4 | 1 | 81.3% |
+| Application commands | WP3 | 16 | 16 | 0 | 0 | 100% |
 | Monetization (entitlements, SKUs, subscriptions) | WP7 | 9 | 9 | 0 | 0 | 100% |
-| Applications (app info, app emojis, activities) | WP6 | 11 | 7 | 2 | 2 | 72.7% |
-| Webhooks (incl. interaction followups) | WP6 | 18 | 11 | 5 | 2 | 75% |
-| Reactions | WP2 | 6 | 5 | 1 | 0 | 91.7% |
-| Threads + forums | WP5 | 13 | 9 | 4 | 0 | 84.6% |
-| Messages, pins, polls, typing | WP2 | 13 | 10 | 3 | 0 | 88.5% |
-| Channels (settings, overwrites, invites, followers, group DM) | WP4 | 12 | 8 | 2 | 2 | 75% |
-| Scheduled events + stage instances | WP4 | 15 | 6 | 4 | 5 | 53.3% |
-| Voice (regions, voice states, soundboard) | WP7 | 12 | 8 | 1 | 3 | 70.8% |
+| Applications (app info, app emojis, activities) | WP6 | 11 | 9 | 2 | 0 | 90.9% |
+| Webhooks (incl. interaction followups) | WP6 | 18 | 18 | 0 | 0 | 100% |
+| Reactions | WP2 | 6 | 6 | 0 | 0 | 100% |
+| Threads + forums | WP5 | 13 | 12 | 1 | 0 | 96.2% |
+| Messages, pins, polls, typing | WP2 | 13 | 12 | 1 | 0 | 96.2% |
+| Channels (settings, overwrites, invites, followers, group DM) | WP4 | 12 | 9 | 3 | 0 | 87.5% |
+| Scheduled events + stage instances | WP4 | 15 | 11 | 4 | 0 | 86.7% |
+| Voice (regions, voice states, soundboard) | WP7 | 12 | 12 | 0 | 0 | 100% |
 | Emojis + stickers | WP4 | 13 | 13 | 0 | 0 | 100% |
-| Invites | WP4 | 10 | 3 | 0 | 7 | 30% |
-| Audit log + AutoMod | WP4 | 7 | 5 | 1 | 1 | 78.6% |
-| Members, bans, prune, join requests | WP4 | 18 | 16 | 0 | 2 | 88.9% |
+| Invites | WP4 | 10 | 10 | 0 | 0 | 100% |
+| Audit log + AutoMod | WP4 | 7 | 6 | 1 | 0 | 92.9% |
+| Members, bans, prune, join requests | WP4 | 18 | 18 | 0 | 0 | 100% |
 | Users + DMs | WP1 | 8 | 7 | 1 | 0 | 93.8% |
-| Guild settings (guild, roles, channels list, widget, onboarding, templates, ...) | WP4 | 32 | 27 | 2 | 3 | 87.5% |
+| Guild settings (guild, roles, channels list, widget, onboarding, templates, ...) | WP4 | 32 | 31 | 1 | 0 | 98.4% |
 
 ### REST coverage by work package
 
 | WP | Scope | Total | Impl. | Partial | Missing | Coverage |
 |---|---|---:|---:|---:|---:|---:|
-| WP1 | Gateway core + event plumbing | 10 | 8 | 2 | 0 | 90% |
-| WP2 | Messages, reactions, pins, polls, attachments, components | 19 | 15 | 4 | 0 | 89.5% |
-| WP3 | Interactions + application commands | 17 | 11 | 5 | 1 | 79.4% |
-| WP4 | Guild resources (guild, channels, roles, members, bans, expressions, invites, moderation, events) | 107 | 78 | 9 | 20 | 77.1% |
-| WP5 | Threads + forums | 13 | 9 | 4 | 0 | 84.6% |
-| WP6 | Webhooks, applications, OAuth2, CDN compat | 41 | 23 | 7 | 11 | 64.6% |
-| WP7 | Voice, stage, soundboard, monetization, Social SDK lobbies | 41 | 17 | 1 | 23 | 42.7% |
+| WP1 | Gateway core + event plumbing | 10 | 9 | 1 | 0 | 95% |
+| WP2 | Messages, reactions, pins, polls, attachments, components | 19 | 18 | 1 | 0 | 97.4% |
+| WP3 | Interactions + application commands | 17 | 16 | 1 | 0 | 97.1% |
+| WP4 | Guild resources (guild, channels, roles, members, bans, expressions, invites, moderation, events) | 107 | 98 | 9 | 0 | 95.8% |
+| WP5 | Threads + forums | 13 | 12 | 1 | 0 | 96.2% |
+| WP6 | Webhooks, applications, OAuth2, CDN compat | 41 | 39 | 2 | 0 | 97.6% |
+| WP7 | Voice, stage, soundboard, monetization, Social SDK lobbies | 41 | 34 | 7 | 0 | 91.5% |
 
 ### Protocol features
 
 | WP | Feature | Status | Evidence |
 |---|---|---|---|
-| WP0 | Ids exposed as numeric snowflakes (discord.py/JDA/Serenity/DSharpPlus parse ids as 64-bit ints) | yes | src/lib/botapi/boundary.ts |
-| WP0 | Validation errors are 400 + code 50035 with an `errors` tree | yes | src/lib/api/botApi.ts, src/lib/botapi/threads.ts, src/lib/botapi/expressions.ts, src/lib/botapi/errors.ts |
-| WP0 | X-RateLimit-Limit/Remaining/Reset/Reset-After/Bucket headers on bot routes | yes | src/lib/security/botRateLimit.ts |
-| WP0 | 429 body is { message, retry_after, global } (+ X-RateLimit-Scope) | yes | src/lib/api/botApi.ts, src/lib/botapi/threads.ts, src/lib/security/botRateLimit.ts |
-| WP6 | OAuth2 Bearer tokens accepted on /api/v10 (users/@me, guilds, connections) | yes | src/lib/api/botApi.ts |
-| WP0 | Channel permission overwrites applied to bot actions (reuse computeChannelPermissions from src/lib/permissions/channelOverwrites.ts) | yes | src/lib/api/botApi.ts, src/lib/botapi/threads.ts, src/lib/botapi/expressions.ts, src/lib/botapi/automod.ts |
+| WP0 | Ids exposed as numeric snowflakes (discord.py/JDA/Serenity/DSharpPlus parse ids as 64-bit ints) | yes | src/lib/api/botApi/applications.ts, src/lib/botapi/boundary.ts |
+| WP0 | Validation errors are 400 + code 50035 with an `errors` tree | yes | src/lib/botapi/threads.ts, src/lib/botapi/gdmJoin.ts, src/lib/botapi/expressions.ts, src/lib/botapi/errors.ts |
+| WP0 | X-RateLimit-Limit/Remaining/Reset/Reset-After/Bucket headers on bot routes | yes | src/lib/security/botRateLimit.ts, server.ts |
+| WP0 | 429 body is { message, retry_after, global } (+ X-RateLimit-Scope) | yes | src/lib/api/botApi.ts, src/lib/api/botApi/applications.ts, src/lib/botapi/threads.ts, src/lib/security/botRateLimit.ts |
+| WP6 | OAuth2 Bearer tokens accepted on /api/v10 (users/@me, guilds, connections) | yes | src/lib/api/botApi.ts, src/lib/api/botApi/applications.ts |
+| WP0 | Channel permission overwrites applied to bot actions (reuse computeChannelPermissions from src/lib/permissions/channelOverwrites.ts) | yes | src/lib/api/botApi.ts, src/lib/api/botApi/social.ts, src/lib/botapi/guildSearch.ts, src/lib/botapi/guildExtras.ts |
 | WP0 | Permission bitfields in Discord v10 numbering (bits 42-46 permuted at the boundary for snowflake-format apps) | yes | src/lib/botapi/boundary.ts |
 | WP6 | Discord CDN path compatibility (/avatars/{user_id}/{hash}.png, /icons/, /emojis/{id}.png, /embed/avatars/) | yes | src/lib/botapi/cdnCompat.ts, server.ts |
 | WP1 | GUILD_CREATE sent for every guild after READY | yes | src/lib/gateway/core.ts |
@@ -798,6 +871,7 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 | WP1 | DMs opened after IDENTIFY are tracked (CHANNEL_CREATE for DMs) | yes | src/lib/gateway/core.ts |
 | WP1 | Leaving/kicked/banned guilds are dropped from the session (GUILD_DELETE) | yes | src/lib/gateway/core.ts |
 | WP1 | Gateway send rate limit (120 / 60 s) with close 4008 | yes | src/lib/gateway/session.ts |
+| WP1 | IDENTIFY budget: 1 per 5 s per bot (op 9) and 1000 per day (close 4008), reported by GET /gateway/bot | yes | src/lib/gateway/core.ts, src/lib/security/botRateLimit.ts |
 | WP1 | Payload before IDENTIFY closes with 4003 | yes | src/lib/gateway/session.ts |
 | WP1 | Second IDENTIFY closes with 4005 | yes | src/lib/gateway/session.ts |
 | WP1 | Unknown opcode closes with 4001 | yes | src/lib/gateway/session.ts |
@@ -805,17 +879,18 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 | WP1 | Op 7 RECONNECT sent before deploy/shutdown so bots resume | yes | src/lib/gateway/core.ts |
 | WP2 | multipart/form-data with files[n] + payload_json | yes | src/lib/api/botApi.ts, src/lib/botapi/boundary.ts, src/lib/chat/botMultipart.ts |
 | WP2 | allowed_mentions honoured (parse/users/roles/replied_user) | yes | src/lib/api/botApi.ts, src/lib/chat/allowedMentions.ts |
-| WP2 | message_reference on create (replies + forwards), referenced_message in responses | yes | src/lib/api/botApi.ts |
+| WP2 | message_reference on create (replies + forwards), referenced_message in responses | yes | src/lib/api/botApi.ts, src/lib/api/botApi/social.ts, src/lib/botapi/lobbies.ts |
 | WP2 | Message components persisted on messages | yes | src/lib/db/schema.ts |
-| WP2 | Components v2 (IS_COMPONENTS_V2, container/section/text display/media gallery/file) | yes | src/lib/api/botApi.ts, src/lib/botapi/components.ts, src/lib/chat/interactionEvents.ts |
+| WP2 | Components v2 (IS_COMPONENTS_V2, container/section/text display/media gallery/file) | yes | src/lib/api/botApi.ts, src/lib/botapi/components.ts, src/lib/chat/interactionEvents.ts, src/lib/chat/componentsV2.ts |
 | WP2 | Embed validation + limits (10 embeds, 6000 chars, field limits) | yes | src/lib/api/botApi.ts, src/lib/botapi/commands.ts, src/lib/botapi/threadRules.ts, src/lib/chat/embedValidation.ts |
 | WP2 | GET messages honours before/after/around | yes | src/lib/api/botApi.ts, src/lib/botapi/users.ts |
 | WP2 | MESSAGE_UPDATE emitted on edits (any surface) | yes | src/lib/discord/bot.ts, src/lib/api/dms.ts, src/lib/api/botApi.ts, src/lib/api/announcements.ts |
+| WP2 | Pinning posts a CHANNEL_PINNED_MESSAGE (type 6) system message | yes | src/lib/api/botApi.ts, src/lib/botapi/pinNotice.ts |
 | WP2 | sticker_ids on create / sticker_items in responses | yes | src/lib/botapi/permissionBits.ts, src/lib/chat/discordMessage.ts |
-| WP3 | Ed25519-signed HTTP interactions endpoint (+ PING verification) | **no** | - |
-| WP3 | Callback 5 DEFERRED_CHANNEL_MESSAGE shows "thinking…" and is completed by @original edit | yes | src/lib/services/interactions.ts |
-| WP3 | Callbacks 6/7 DEFERRED_UPDATE_MESSAGE / UPDATE_MESSAGE | yes | src/lib/services/interactions.ts |
-| WP3 | Callback 8 APPLICATION_COMMAND_AUTOCOMPLETE_RESULT | yes | src/lib/services/interactions.ts, src/lib/botapi/interactionState.ts |
+| WP3 | Ed25519-signed HTTP interactions endpoint (+ PING verification) | yes | src/lib/botapi/endpointVerify.ts |
+| WP3 | Callback 5 DEFERRED_CHANNEL_MESSAGE shows "thinking…" and is completed by @original edit | yes | src/lib/services/interactions.ts, src/lib/botapi/roleConnections.ts |
+| WP3 | Callbacks 6/7 DEFERRED_UPDATE_MESSAGE / UPDATE_MESSAGE | yes | src/lib/services/interactions.ts, src/lib/botapi/roleConnections.ts |
+| WP3 | Callback 8 APPLICATION_COMMAND_AUTOCOMPLETE_RESULT | yes | src/lib/services/interactions.ts, src/lib/botapi/interactionState.ts, src/lib/botapi/roleConnections.ts |
 | WP3 | Callback 9 MODAL | yes | src/lib/services/interactions.ts, src/lib/botapi/interactionState.ts, src/lib/botapi/interactionState.ts |
 | WP3 | Type 3 MESSAGE_COMPONENT interactions from button/select clicks | yes | src/lib/services/interactions.ts, src/lib/botapi/interactionState.ts |
 | WP3 | Type 4 APPLICATION_COMMAND_AUTOCOMPLETE while typing options | yes | src/lib/services/interactions.ts, src/lib/botapi/interactionState.ts |
@@ -826,11 +901,12 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 | WP3 | interaction.data.resolved (users/members/roles/channels/attachments) | yes | src/lib/services/interactions.ts |
 | WP3 | interaction.app_permissions / member.permissions / entitlements / context / authorizing_integration_owners | yes | src/lib/services/interactions.ts |
 | WP3 | User + message context-menu commands (data.target_id) invocable from the UI | yes | src/lib/services/interactions.ts |
-| WP3 | default_member_permissions / contexts / integration_types stored and enforced | yes | src/lib/botapi/permissionBits.ts, src/lib/botapi/commands.ts, src/lib/services/appCommands.ts, src/lib/db/schema.ts |
-| WP3 | name_localizations / description_localizations | yes | src/lib/botapi/permissionBits.ts, src/lib/botapi/commands.ts, src/lib/db/schema.ts |
+| WP3 | default_member_permissions / contexts / integration_types stored and enforced | yes | src/lib/api/botApi/applications.ts, src/lib/botapi/permissionBits.ts, src/lib/botapi/commands.ts, src/lib/services/appCommands.ts |
+| WP3 | name_localizations / description_localizations | yes | src/lib/api/botApi/applications.ts, src/lib/botapi/permissionBits.ts, src/lib/botapi/roleConnections.ts, src/lib/botapi/commands.ts |
 | WP6 | Webhook execute ?wait=true returns the message | yes | src/lib/services/channelWebhooks.ts |
-| WP6 | Webhook execute thread_id / thread_name (forum posts) | yes | src/lib/services/channelWebhooks.ts |
+| WP6 | Webhook execute thread_id / thread_name (forum posts) | yes | src/lib/api/botApi.ts, src/lib/services/channelWebhooks.ts |
 | WP6 | OAuth2 bot install (scope=bot&permissions=…) creates the managed role and sends GUILD_CREATE | yes | src/lib/api/developers.ts |
+| WP6 | OpenID Connect: RS256 id_token from POST /oauth2/token with the openid scope (+ /oauth2/userinfo, /oauth2/keys) | yes | src/lib/services/oauth2Tokens.ts |
 | WP6 | client_credentials grant | yes | src/lib/api/developers.ts, src/lib/services/oauth2Tokens.ts |
 | WP6 | Application flags expose GATEWAY_* intent approvals (1<<12…1<<19) and gate privileged intents | yes | src/lib/botapi/application.ts, src/lib/gateway/intents.ts |
 | WP7 | Voice gateway for bots (VOICE_SERVER_UPDATE + voice WS v8 / UDP RTP Opus / DAVE) | **no** | - |
@@ -841,15 +917,15 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 
 | Object | Schema | Coverage | Missing fields | Source |
 |---|---|---:|---|---|
-| User (REST) | UserResponse | 79% | avatar_decoration_data, collectibles, primary_guild | src/lib/api/botApi.ts:655 formatUser() |
-| User (gateway) | UserResponse | 0% | accent_color, avatar, avatar_decoration_data, banner, bot, collectibles, discriminator, flags, global_name, id, primary_guild, public_flags, system, username | src/lib/services/gatewayEvents.ts:180 toDiscordUser() |
-| Message (REST) | MessageResponse | 75% | activity, actor, application, lobby_member, purchase_notification, resolved, role_subscription_data, shared_client_theme, stickers, thread | src/lib/chat/discordMessage.ts:276 serializeMessage() |
-| Message (gateway) | MessageResponse | 75% | activity, actor, application, lobby_member, purchase_notification, resolved, role_subscription_data, shared_client_theme, stickers, thread | src/lib/chat/discordMessage.ts:276 serializeMessage() |
-| Guild channel | GuildChannelResponse | 0% | available_tags, bitrate, default_auto_archive_duration, default_forum_layout, default_reaction_emoji, default_sort_order, default_tag_setting, default_thread_rate_limit_per_user, flags, guild_id, id, last_message_id, last_pin_timestamp, name, nsfw, parent_id, permission_overwrites, permissions, position, rate_limit_per_user, rtc_region, topic, type, user_limit, video_quality_mode | src/lib/api/botApi.ts:676 formatChannel() |
-| Guild | GuildResponse | 12% | afk_channel_id, afk_timeout, application_id, banner, default_message_notifications, description, discovery_splash, explicit_content_filter, features, home_header, icon, id, incidents_data, max_members, max_presences, max_stage_video_channel_users, max_video_channel_users, mfa_level, name, nsfw, nsfw_level, owner_id, preferred_locale, premium_progress_bar_enabled, premium_progress_bar_enabled_user_updated_at, premium_subscription_count, premium_tier, public_updates_channel_id, region, rules_channel_id, safety_alerts_channel_id, splash, system_channel_flags, system_channel_id, vanity_url_code, verification_level | src/lib/api/botApi.ts:686 formatGuild() |
-| Role | GuildRoleResponse | 0% | color, colors, flags, hoist, icon, id, managed, mentionable, name, permissions, position, tags, unicode_emoji | src/lib/api/botApi.ts:715 formatRole() |
-| Guild member | GuildMemberResponse | 7% | avatar, avatar_decoration_data, banner, collectibles, communication_disabled_until, deaf, flags, joined_at, mute, nick, pending, premium_since, roles | src/lib/api/botApi.ts:719 formatMember() |
-| Invite | GuildInviteResponse | 50% | flags, guild_id, guild_scheduled_event, is_contact, is_nickname_changeable, roles, target_application, target_channel_id, target_message_id, target_type, target_user, type | src/lib/api/botApi.ts:1315 formatInvite() |
+| User (REST) | UserResponse | 79% | avatar_decoration_data, collectibles, primary_guild | src/lib/api/botApi.ts:670 formatUser() |
+| User (gateway) | UserResponse | 0% | accent_color, avatar, avatar_decoration_data, banner, bot, collectibles, discriminator, flags, global_name, id, primary_guild, public_flags, system, username | src/lib/services/gatewayEvents.ts:182 toDiscordUser() |
+| Message (REST) | MessageResponse | 75% | activity, actor, application, lobby_member, purchase_notification, resolved, role_subscription_data, shared_client_theme, stickers, thread | src/lib/chat/discordMessage.ts:310 serializeMessage() |
+| Message (gateway) | MessageResponse | 75% | activity, actor, application, lobby_member, purchase_notification, resolved, role_subscription_data, shared_client_theme, stickers, thread | src/lib/chat/discordMessage.ts:310 serializeMessage() |
+| Guild channel | GuildChannelResponse | 0% | available_tags, bitrate, default_auto_archive_duration, default_forum_layout, default_reaction_emoji, default_sort_order, default_tag_setting, default_thread_rate_limit_per_user, flags, guild_id, id, last_message_id, last_pin_timestamp, name, nsfw, parent_id, permission_overwrites, permissions, position, rate_limit_per_user, rtc_region, topic, type, user_limit, video_quality_mode | src/lib/api/botApi.ts:691 formatChannel() |
+| Guild | GuildResponse | 12% | afk_channel_id, afk_timeout, application_id, banner, default_message_notifications, description, discovery_splash, explicit_content_filter, features, home_header, icon, id, incidents_data, max_members, max_presences, max_stage_video_channel_users, max_video_channel_users, mfa_level, name, nsfw, nsfw_level, owner_id, preferred_locale, premium_progress_bar_enabled, premium_progress_bar_enabled_user_updated_at, premium_subscription_count, premium_tier, public_updates_channel_id, region, rules_channel_id, safety_alerts_channel_id, splash, system_channel_flags, system_channel_id, vanity_url_code, verification_level | src/lib/api/botApi.ts:701 formatGuild() |
+| Role | GuildRoleResponse | 0% | color, colors, flags, hoist, icon, id, managed, mentionable, name, permissions, position, tags, unicode_emoji | src/lib/api/botApi.ts:730 formatRole() |
+| Guild member | GuildMemberResponse | 7% | avatar, avatar_decoration_data, banner, collectibles, communication_disabled_until, deaf, flags, joined_at, mute, nick, pending, premium_since, roles | src/lib/api/botApi.ts:734 formatMember() |
+| Invite | GuildInviteResponse | 50% | flags, guild_id, guild_scheduled_event, is_contact, is_nickname_changeable, roles, target_application, target_channel_id, target_message_id, target_type, target_user, type | src/lib/api/botApi.ts:1347 formatInvite() |
 | READY payload | gateway docs | 100% | - | src/lib/gateway/core.ts |
 | IDENTIFY fields read | gateway docs | 63% | properties, compress, capabilities | src/lib/gateway/core.ts |
 | GUILD_CREATE (after READY + on install) | gateway docs | 98% | premium_progress_bar_enabled_user_updated_at | src/lib/gateway/guildPayload.ts |
@@ -864,7 +940,7 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 | RECONNECT | - | emitted | OP.RECONNECT in core.ts |
 | RATE_LIMITED | - | emitted | src/lib/gateway/core.ts |
 | INVALID_SESSION | - | emitted | OP.INVALID_SESSION in core.ts |
-| APPLICATION_COMMAND_PERMISSIONS_UPDATE | - | emitted | emitApplicationCommandPermissionsUpdate() ×1 |
+| APPLICATION_COMMAND_PERMISSIONS_UPDATE | - | emitted | emitApplicationCommandPermissionsUpdate() ×2 |
 | AUTO_MODERATION_RULE_CREATE | AUTO_MODERATION_CONFIGURATION | emitted | src/lib/services/automod.ts, emitAutoModRuleEvent() ×1 |
 | AUTO_MODERATION_RULE_UPDATE | AUTO_MODERATION_CONFIGURATION | emitted | src/lib/services/automod.ts, emitAutoModRuleEvent() ×1 |
 | AUTO_MODERATION_RULE_DELETE | AUTO_MODERATION_CONFIGURATION | emitted | src/lib/services/automod.ts, emitAutoModRuleEvent() ×1 |
@@ -880,7 +956,7 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 | THREAD_LIST_SYNC | GUILDS | partial | emitThreadListSync() ×1; sent by the instance that made the access change, and only when it held a recent audience snapshot of the guild |
 | THREAD_MEMBER_UPDATE | GUILDS | partial | emitThreadMembersUpdate() ×1; only when the bot itself joins a thread (Serika has no per-member thread flags) |
 | THREAD_MEMBERS_UPDATE | GUILDS, GUILD_MEMBERS | emitted | emitThreadMembersUpdate() ×1 |
-| ENTITLEMENT_CREATE | - | **missing** | - |
+| ENTITLEMENT_CREATE | - | emitted | src/lib/botapi/application.ts |
 | ENTITLEMENT_UPDATE | - | **missing** | - |
 | ENTITLEMENT_DELETE | - | **missing** | - |
 | GUILD_CREATE | GUILDS | emitted | src/lib/gateway/core.ts, emitGuildCreate() ×1 |
@@ -904,10 +980,10 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 | GUILD_SCHEDULED_EVENT_DELETE | GUILD_SCHEDULED_EVENTS | emitted | src/lib/services/scheduledEvents.ts (template) |
 | GUILD_SCHEDULED_EVENT_USER_ADD | GUILD_SCHEDULED_EVENTS | emitted | src/lib/api/scheduledEvents.ts |
 | GUILD_SCHEDULED_EVENT_USER_REMOVE | GUILD_SCHEDULED_EVENTS | emitted | src/lib/api/scheduledEvents.ts |
-| GUILD_SOUNDBOARD_SOUND_CREATE | GUILD_EXPRESSIONS | **missing** | - |
-| GUILD_SOUNDBOARD_SOUND_UPDATE | GUILD_EXPRESSIONS | **missing** | - |
-| GUILD_SOUNDBOARD_SOUND_DELETE | GUILD_EXPRESSIONS | **missing** | - |
-| GUILD_SOUNDBOARD_SOUNDS_UPDATE | GUILD_EXPRESSIONS | **missing** | - |
+| GUILD_SOUNDBOARD_SOUND_CREATE | GUILD_EXPRESSIONS | emitted | src/lib/botapi/guildSoundboard.ts, emitGuildSoundboardSound() ×3 |
+| GUILD_SOUNDBOARD_SOUND_UPDATE | GUILD_EXPRESSIONS | emitted | src/lib/botapi/guildSoundboard.ts, emitGuildSoundboardSound() ×3 |
+| GUILD_SOUNDBOARD_SOUND_DELETE | GUILD_EXPRESSIONS | emitted | src/lib/botapi/guildSoundboard.ts, emitGuildSoundboardSound() ×3 |
+| GUILD_SOUNDBOARD_SOUNDS_UPDATE | GUILD_EXPRESSIONS | emitted | src/lib/botapi/guildSoundboard.ts, emitGuildSoundboardSound() ×3 |
 | SOUNDBOARD_SOUNDS | - | emitted | src/lib/gateway/core.ts |
 | INTEGRATION_CREATE | GUILD_INTEGRATIONS | **missing** | - |
 | INTEGRATION_UPDATE | GUILD_INTEGRATIONS | **missing** | - |
@@ -915,7 +991,7 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 | INTERACTION_CREATE | - | emitted | emitInteractionCreate() ×1 |
 | INVITE_CREATE | GUILD_INVITES | emitted | src/lib/services/guildGatewayEvents.ts |
 | INVITE_DELETE | GUILD_INVITES | emitted | src/lib/services/guildGatewayEvents.ts |
-| MESSAGE_CREATE | GUILD_MESSAGES, DIRECT_MESSAGES | emitted | emitMessageCreate() ×16 |
+| MESSAGE_CREATE | GUILD_MESSAGES, DIRECT_MESSAGES | emitted | emitMessageCreate() ×17 |
 | MESSAGE_UPDATE | GUILD_MESSAGES, DIRECT_MESSAGES | emitted | emitMessageUpdate() ×9 |
 | MESSAGE_DELETE | GUILD_MESSAGES, DIRECT_MESSAGES | emitted | emitMessageDelete() ×3 |
 | MESSAGE_DELETE_BULK | GUILD_MESSAGES | emitted | emitMessageDeleteBulk() ×3 |
@@ -924,20 +1000,20 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 | MESSAGE_REACTION_REMOVE_ALL | GUILD_MESSAGE_REACTIONS, DIRECT_MESSAGE_REACTIONS | emitted | emitReactionRemoveAll() ×1 |
 | MESSAGE_REACTION_REMOVE_EMOJI | GUILD_MESSAGE_REACTIONS, DIRECT_MESSAGE_REACTIONS | emitted | emitReactionRemoveEmoji() ×1 |
 | PRESENCE_UPDATE | GUILD_PRESENCES | emitted | emitPresenceUpdate() ×3 |
-| STAGE_INSTANCE_CREATE | GUILDS | **missing** | - |
-| STAGE_INSTANCE_UPDATE | GUILDS | **missing** | - |
-| STAGE_INSTANCE_DELETE | GUILDS | **missing** | - |
+| STAGE_INSTANCE_CREATE | GUILDS | emitted | src/lib/botapi/guildStageInstances.ts, emitStageInstance() ×3 |
+| STAGE_INSTANCE_UPDATE | GUILDS | emitted | src/lib/botapi/guildStageInstances.ts, emitStageInstance() ×3 |
+| STAGE_INSTANCE_DELETE | GUILDS | emitted | src/lib/botapi/guildStageInstances.ts, emitStageInstance() ×3 |
 | SUBSCRIPTION_CREATE | - | **missing** | - |
 | SUBSCRIPTION_UPDATE | - | **missing** | - |
 | SUBSCRIPTION_DELETE | - | **missing** | - |
 | TYPING_START | GUILD_MESSAGE_TYPING, DIRECT_MESSAGE_TYPING | emitted | emitTypingStart() ×4 |
 | USER_UPDATE | - | emitted | emitUserUpdate() ×1 |
-| VOICE_CHANNEL_EFFECT_SEND | GUILD_VOICE_STATES | **missing** | - |
+| VOICE_CHANNEL_EFFECT_SEND | GUILD_VOICE_STATES | emitted | emitVoiceChannelEffectSend() ×2 |
 | VOICE_CHANNEL_START_TIME_UPDATE | GUILDS | **missing** | - |
-| VOICE_CHANNEL_STATUS_UPDATE | GUILDS | **missing** | - |
+| VOICE_CHANNEL_STATUS_UPDATE | GUILDS | emitted | emitVoiceChannelStatusUpdate() ×2 |
 | VOICE_STATE_UPDATE | GUILD_VOICE_STATES | emitted | src/lib/gateway/core.ts, emitVoiceStateUpdate() ×1 |
 | VOICE_SERVER_UPDATE | - | emitted | src/lib/gateway/core.ts |
-| WEBHOOKS_UPDATE | GUILD_WEBHOOKS | **missing** | - |
+| WEBHOOKS_UPDATE | GUILD_WEBHOOKS | emitted | emitWebhooksUpdate() ×1 |
 | MESSAGE_POLL_VOTE_ADD | GUILD_MESSAGE_POLLS, DIRECT_MESSAGE_POLLS | emitted | emitPollVoteChanges() ×1 |
 | MESSAGE_POLL_VOTE_REMOVE | GUILD_MESSAGE_POLLS, DIRECT_MESSAGE_POLLS | emitted | emitPollVoteChanges() ×1 |
 
@@ -961,62 +1037,62 @@ Gateway: 62/82 receive events emitted (75.6%; 3 of them only from some code path
 
 Close codes used: 4000, 4001, 4002, 4003, 4004, 4005, 4007, 4008, 4009, 4010, 4011, 4012, 4013, 4014. Never sent: .
 
-Intents missing from `Intents` in gatewayEvents.ts: GUILD_WEBHOOKS (1<<5).
+Intents missing from `Intents` in gatewayEvents.ts: none.
 
 ### REST operations
 
-<details><summary><b>Social SDK lobbies / provisional accounts</b> (WP7): 0 implemented, 0 partial, 20 missing</summary>
+<details><summary><b>Social SDK lobbies / provisional accounts</b> (WP7): 13 implemented, 7 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| **missing** | POST | `/lobbies` |  |  |
-| **missing** | PUT | `/lobbies` |  |  |
-| **missing** | DELETE | `/lobbies/{lobby_id}` |  |  |
-| **missing** | GET | `/lobbies/{lobby_id}` |  |  |
-| **missing** | PATCH | `/lobbies/{lobby_id}` |  |  |
-| **missing** | PATCH | `/lobbies/{lobby_id}/channel-linking` |  |  |
-| **missing** | DELETE | `/lobbies/{lobby_id}/members/{user_id}` |  |  |
-| **missing** | PUT | `/lobbies/{lobby_id}/members/{user_id}` |  |  |
-| **missing** | POST | `/lobbies/{lobby_id}/members/{user_id}/invites` |  |  |
-| **missing** | DELETE | `/lobbies/{lobby_id}/members/@me` |  |  |
-| **missing** | POST | `/lobbies/{lobby_id}/members/@me/invites` |  |  |
-| **missing** | POST | `/lobbies/{lobby_id}/members/bulk` |  |  |
-| **missing** | GET | `/lobbies/{lobby_id}/messages` |  |  |
-| **missing** | POST | `/lobbies/{lobby_id}/messages` |  |  |
-| **missing** | PUT | `/lobbies/{lobby_id}/messages/{message_id}/moderation-metadata` |  |  |
-| **missing** | PUT | `/partner-sdk/dms/{user_id_1}/{user_id_2}/messages/{message_id}/moderation-metadata` |  |  |
-| **missing** | POST | `/partner-sdk/provisional-accounts/unmerge` |  |  |
-| **missing** | POST | `/partner-sdk/provisional-accounts/unmerge/bot` |  |  |
-| **missing** | POST | `/partner-sdk/token` |  |  |
-| **missing** | POST | `/partner-sdk/token/bot` |  |  |
+| ok | POST | `/lobbies` | src/lib/api/botApi/social.ts:272 | body 4/5 |
+| ok | PUT | `/lobbies` | src/lib/api/botApi/social.ts:288 | body 5/5 |
+| ok | DELETE | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:349 |  |
+| ok | GET | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:321 |  |
+| ok | PATCH | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:328 | body 4/5 |
+| partial | PATCH | `/lobbies/{lobby_id}/channel-linking` | src/lib/api/botApi/social.ts:362 | body 1/1; messages sent in the linked channel are not relayed back into the lobby |
+| ok | DELETE | `/lobbies/{lobby_id}/members/{user_id}` | src/lib/api/botApi/social.ts:468 |  |
+| ok | PUT | `/lobbies/{lobby_id}/members/{user_id}` | src/lib/api/botApi/social.ts:444 | body 3/3 |
+| ok | POST | `/lobbies/{lobby_id}/members/{user_id}/invites` | src/lib/api/botApi/social.ts:480 |  |
+| ok | DELETE | `/lobbies/{lobby_id}/members/@me` | src/lib/api/botApi/social.ts:399 |  |
+| ok | POST | `/lobbies/{lobby_id}/members/@me/invites` | src/lib/api/botApi/social.ts:411 |  |
+| ok | POST | `/lobbies/{lobby_id}/members/bulk` | src/lib/api/botApi/social.ts:431 |  |
+| ok | GET | `/lobbies/{lobby_id}/messages` | src/lib/api/botApi/social.ts:492 | query 1/1 |
+| partial | POST | `/lobbies/{lobby_id}/messages` | src/lib/api/botApi/social.ts:506 | body 13/13; text only: embeds/attachments/components/poll/sticker_ids/message_reference/tts rejected with 50035; linked-channel copy is posted by the app bot, only when it can send there; no Social SDK gateway events |
+| ok | PUT | `/lobbies/{lobby_id}/messages/{message_id}/moderation-metadata` | src/lib/api/botApi/social.ts:566 |  |
+| partial | PUT | `/partner-sdk/dms/{user_id_1}/{user_id_2}/messages/{message_id}/moderation-metadata` | src/lib/api/botApi/social.ts:729 | stored app-scoped; no client consumes it |
+| partial | POST | `/partner-sdk/provisional-accounts/unmerge` | src/lib/api/botApi/social.ts:707 | body 4/4; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
+| partial | POST | `/partner-sdk/provisional-accounts/unmerge/bot` | src/lib/api/botApi/social.ts:719 | body 1/1; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
+| partial | POST | `/partner-sdk/token` | src/lib/api/botApi/social.ts:687 | body 4/4; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
+| partial | POST | `/partner-sdk/token/bot` | src/lib/api/botApi/social.ts:699 | body 3/3; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
 
 </details>
 
-<details><summary><b>OAuth2 + linked roles</b> (WP6): 5 implemented, 0 partial, 7 missing</summary>
+<details><summary><b>OAuth2 + linked roles</b> (WP6): 12 implemented, 0 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| **missing** | GET | `/applications/{application_id}/role-connections/metadata` |  |  |
-| **missing** | PUT | `/applications/{application_id}/role-connections/metadata` |  |  |
-| ok | GET | `/oauth2/@me` | src/lib/api/botApi.ts:1618 |  |
-| ok | GET | `/oauth2/applications/@me` | src/lib/api/botApi.ts:1643 |  |
-| ok | GET | `/oauth2/authorize` | src/lib/api/botApi.ts:1604 |  |
-| **missing** | GET | `/oauth2/keys` |  |  |
-| ok | POST | `/oauth2/token` | src/lib/api/botApi.ts:1608 |  |
-| ok | POST | `/oauth2/token/revoke` | src/lib/api/botApi.ts:1613 |  |
-| **missing** | GET | `/oauth2/userinfo` |  |  |
-| **missing** | DELETE | `/users/@me/applications/{application_id}/role-connection` |  |  |
-| **missing** | GET | `/users/@me/applications/{application_id}/role-connection` |  |  |
-| **missing** | PUT | `/users/@me/applications/{application_id}/role-connection` |  |  |
+| ok | GET | `/applications/{application_id}/role-connections/metadata` | src/lib/api/botApi/applications.ts:253 |  |
+| ok | PUT | `/applications/{application_id}/role-connections/metadata` | src/lib/api/botApi/applications.ts:260 |  |
+| ok | GET | `/oauth2/@me` | src/lib/api/botApi.ts:1619 |  |
+| ok | GET | `/oauth2/applications/@me` | src/lib/api/botApi.ts:1644 |  |
+| ok | GET | `/oauth2/authorize` | src/lib/api/botApi.ts:1605 |  |
+| ok | GET | `/oauth2/keys` | src/lib/api/botApi/applications.ts:368 |  |
+| ok | POST | `/oauth2/token` | src/lib/api/botApi.ts:1609 |  |
+| ok | POST | `/oauth2/token/revoke` | src/lib/api/botApi.ts:1614 |  |
+| ok | GET | `/oauth2/userinfo` | src/lib/api/botApi/applications.ts:359 |  |
+| ok | DELETE | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:290 |  |
+| ok | GET | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:271 |  |
+| ok | PUT | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:277 | body 3/3 |
 
 </details>
 
-<details><summary><b>Gateway discovery</b> (WP1): 1 implemented, 1 partial, 0 missing</summary>
+<details><summary><b>Gateway discovery</b> (WP1): 2 implemented, 0 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/gateway` | src/lib/api/botApi.ts:1512 |  |
-| partial | GET | `/gateway/bot` | src/lib/api/botApi.ts:1513 | always 1 shard; session_start_limit is static |
+| ok | GET | `/gateway` | src/lib/api/botApi.ts:1515 |  |
+| ok | GET | `/gateway/bot` | src/lib/api/botApi.ts:1516 |  |
 
 </details>
 
@@ -1024,30 +1100,30 @@ Intents missing from `Intents` in gatewayEvents.ts: GUILD_WEBHOOKS (1<<5).
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| partial | POST | `/interactions/{interaction_id}/{interaction_token}/callback` | src/lib/api/botApi.ts:3364 | query 1/1; body 0/2; callback types 10 (premium) and 12 (launch activity) are rejected with 50035 |
+| partial | POST | `/interactions/{interaction_id}/{interaction_token}/callback` | src/lib/api/botApi.ts:3382 | query 1/1; body 2/2; callback types 10 (PREMIUM_REQUIRED, deprecated) and 12 (LAUNCH_ACTIVITY) are rejected with 50035: SerikaCord has no app monetization or Activities |
 
 </details>
 
-<details><summary><b>Application commands</b> (WP3): 11 implemented, 4 partial, 1 missing</summary>
+<details><summary><b>Application commands</b> (WP3): 16 implemented, 0 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3223 | query 0/1 |
-| partial | POST | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3237 | body 0/11; reads 0/11 body fields |
-| ok | PUT | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3230 |  |
-| ok | DELETE | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3260 |  |
-| ok | GET | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3244 |  |
-| partial | PATCH | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3252 | body 0/10; reads 0/10 body fields |
-| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3268 | query 0/1 |
-| partial | POST | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3286 | body 0/11; reads 0/11 body fields |
-| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3277 |  |
-| ok | DELETE | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3327 |  |
-| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3307 |  |
-| partial | PATCH | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3317 | body 0/10; reads 0/10 body fields |
-| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions` | src/lib/api/botApi.ts:3337 |  |
-| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions` | src/lib/api/botApi.ts:3348 | body 0/1 |
-| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/permissions` | src/lib/api/botApi.ts:3298 |  |
-| **missing** | PUT | `/applications/{application_id}/guilds/{guild_id}/commands/permissions` |  |  |
+| ok | GET | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3275 | query 0/1 |
+| ok | POST | `/applications/{application_id}/commands` | src/lib/api/botApi/applications.ts:175 | body 11/11 |
+| ok | PUT | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3282 |  |
+| ok | DELETE | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3297 |  |
+| ok | GET | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3289 |  |
+| ok | PATCH | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi/applications.ts:189 | body 10/10 |
+| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3305 | query 0/1 |
+| ok | POST | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi/applications.ts:204 | body 11/11 |
+| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3314 |  |
+| ok | DELETE | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3345 |  |
+| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3335 |  |
+| ok | PATCH | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi/applications.ts:220 | body 10/10 |
+| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions` | src/lib/api/botApi.ts:3355 |  |
+| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions` | src/lib/api/botApi.ts:3366 | body 1/1 |
+| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/permissions` | src/lib/api/botApi.ts:3326 |  |
+| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands/permissions` | src/lib/api/botApi/applications.ts:242 |  |
 
 </details>
 
@@ -1055,171 +1131,171 @@ Intents missing from `Intents` in gatewayEvents.ts: GUILD_WEBHOOKS (1<<5).
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4673 | query 8/9 |
-| ok | POST | `/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4692 | body 3/3 |
-| ok | DELETE | `/applications/{application_id}/entitlements/{entitlement_id}` | src/lib/api/botApi.ts:4702 |  |
-| ok | GET | `/applications/{application_id}/entitlements/{entitlement_id}` | src/lib/api/botApi.ts:4685 |  |
-| ok | POST | `/applications/{application_id}/entitlements/{entitlement_id}/consume` | src/lib/api/botApi.ts:4709 |  |
-| ok | GET | `/applications/{application_id}/skus` | src/lib/api/botApi.ts:4667 |  |
-| ok | GET | `/skus/{sku_id}/subscriptions` | src/lib/api/botApi.ts:4725 | query 4/4 |
-| ok | GET | `/skus/{sku_id}/subscriptions/{subscription_id}` | src/lib/api/botApi.ts:4732 | query 0/1 |
-| ok | GET | `/users/@me/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4716 | query 1/2 |
+| ok | GET | `/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4775 | query 8/9 |
+| ok | POST | `/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4794 | body 3/3 |
+| ok | DELETE | `/applications/{application_id}/entitlements/{entitlement_id}` | src/lib/api/botApi.ts:4804 |  |
+| ok | GET | `/applications/{application_id}/entitlements/{entitlement_id}` | src/lib/api/botApi.ts:4787 |  |
+| ok | POST | `/applications/{application_id}/entitlements/{entitlement_id}/consume` | src/lib/api/botApi.ts:4811 |  |
+| ok | GET | `/applications/{application_id}/skus` | src/lib/api/botApi.ts:4769 |  |
+| ok | GET | `/skus/{sku_id}/subscriptions` | src/lib/api/botApi.ts:4827 | query 4/4 |
+| ok | GET | `/skus/{sku_id}/subscriptions/{subscription_id}` | src/lib/api/botApi.ts:4834 | query 0/1 |
+| ok | GET | `/users/@me/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4818 | query 1/2 |
 
 </details>
 
-<details><summary><b>Applications (app info, app emojis, activities)</b> (WP6): 7 implemented, 2 partial, 2 missing</summary>
+<details><summary><b>Applications (app info, app emojis, activities)</b> (WP6): 9 implemented, 2 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/applications/{application_id}` | src/lib/api/botApi.ts:1648 |  |
-| partial | PATCH | `/applications/{application_id}` | src/lib/api/botApi.ts:1660 | body 0/17; reads 0/17 body fields |
-| **missing** | GET | `/applications/{application_id}/activity-instances/{instance_id}` |  |  |
-| **missing** | POST | `/applications/{application_id}/attachment` |  |  |
-| ok | GET | `/applications/{application_id}/emojis` | src/lib/api/botApi.ts:3950 |  |
-| ok | POST | `/applications/{application_id}/emojis` | src/lib/api/botApi.ts:3964 | body 2/2 |
-| ok | DELETE | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3980 |  |
-| ok | GET | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3957 |  |
-| ok | PATCH | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3972 | body 1/1 |
-| ok | GET | `/applications/@me` | src/lib/api/botApi.ts:1638 |  |
-| partial | PATCH | `/applications/@me` | src/lib/api/botApi.ts:1655 | body 0/17; reads 0/17 body fields |
+| ok | GET | `/applications/{application_id}` | src/lib/api/botApi.ts:1649 |  |
+| partial | PATCH | `/applications/{application_id}` | src/lib/api/botApi/applications.ts:155 | body 17/17; event_webhooks_status 2 (enabled) is refused: SerikaCord does not deliver webhook events |
+| ok | GET | `/applications/{application_id}/activity-instances/{instance_id}` | src/lib/api/botApi/applications.ts:347 |  |
+| ok | POST | `/applications/{application_id}/attachment` | src/lib/api/botApi/applications.ts:305 | body 1/1 |
+| ok | GET | `/applications/{application_id}/emojis` | src/lib/api/botApi.ts:3986 |  |
+| ok | POST | `/applications/{application_id}/emojis` | src/lib/api/botApi.ts:4000 | body 2/2 |
+| ok | DELETE | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4016 |  |
+| ok | GET | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3993 |  |
+| ok | PATCH | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4008 | body 1/1 |
+| ok | GET | `/applications/@me` | src/lib/api/botApi.ts:1639 |  |
+| partial | PATCH | `/applications/@me` | src/lib/api/botApi/applications.ts:141 | body 17/17; event_webhooks_status 2 (enabled) is refused: SerikaCord does not deliver webhook events |
 
 </details>
 
-<details><summary><b>Webhooks (incl. interaction followups)</b> (WP6): 11 implemented, 5 partial, 2 missing</summary>
+<details><summary><b>Webhooks (incl. interaction followups)</b> (WP6): 18 implemented, 0 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/channels/{channel_id}/webhooks` | src/lib/api/botApi.ts:4000 |  |
-| ok | POST | `/channels/{channel_id}/webhooks` | src/lib/api/botApi.ts:4013 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/webhooks` | src/lib/api/botApi.ts:3989 |  |
-| ok | DELETE | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4088 |  |
-| ok | GET | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4045 |  |
-| partial | PATCH | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4067 | body 0/3; avatar takes an https URL, not image data; reads 0/3 body fields |
-| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4141 |  |
-| ok | GET | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4122 |  |
-| partial | PATCH | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4135 | body 0/2; avatar takes an https URL, not image data |
-| partial | POST | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4111 | query 3/3; body 0/12; applied_tags only used with thread_name; poll is ignored; reads 0/12 body fields |
-| **missing** | POST | `/webhooks/{webhook_id}/{webhook_token}/github` |  |  |
-| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4186 | query 1/1 |
-| ok | GET | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4165 | query 1/1 |
-| partial | PATCH | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4175 | query 2/2; body 0/7; reads 0/7 body fields |
-| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4159 | query 0/1 |
-| ok | GET | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4147 | query 0/1 |
-| partial | PATCH | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4153 | query 0/2; body 0/7; reads 0/7 body fields; reads 0/2 query params |
-| **missing** | POST | `/webhooks/{webhook_id}/{webhook_token}/slack` |  |  |
+| ok | GET | `/channels/{channel_id}/webhooks` | src/lib/api/botApi.ts:4036 |  |
+| ok | POST | `/channels/{channel_id}/webhooks` | src/lib/api/botApi.ts:4049 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/webhooks` | src/lib/api/botApi.ts:4025 |  |
+| ok | DELETE | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4117 |  |
+| ok | GET | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4071 |  |
+| ok | PATCH | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4093 | body 3/3 |
+| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4185 |  |
+| ok | GET | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4162 |  |
+| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4175 | body 2/2 |
+| ok | POST | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4141 | query 3/3; body 12/12 |
+| ok | POST | `/webhooks/{webhook_id}/{webhook_token}/github` | src/lib/api/botApi/messages.ts:128 | query 2/2; body 20/20 |
+| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4250 | query 1/1 |
+| ok | GET | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4220 | query 1/1 |
+| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4230 | query 2/2; body 7/7 |
+| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4214 | query 0/1 |
+| ok | GET | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4191 | query 0/1 |
+| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4197 | query 2/2; body 7/7 |
+| ok | POST | `/webhooks/{webhook_id}/{webhook_token}/slack` | src/lib/api/botApi/messages.ts:120 | query 2/2; body 4/4 |
 
 </details>
 
-<details><summary><b>Reactions</b> (WP2): 5 implemented, 1 partial, 0 missing</summary>
+<details><summary><b>Reactions</b> (WP2): 6 implemented, 0 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions` | src/lib/api/botApi.ts:3172 |  |
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}` | src/lib/api/botApi.ts:3147 |  |
-| ok | GET | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}` | src/lib/api/botApi.ts:3122 | query 3/3 |
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/{user_id}` | src/lib/api/botApi.ts:3113 |  |
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me` | src/lib/api/botApi.ts:3106 |  |
-| partial | PUT | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me` | src/lib/api/botApi.ts:3060 | custom emoji ids must be Serika ids until the snowflake layer resolves `name:<snowflake>` path segments |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions` | src/lib/api/botApi.ts:3222 |  |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}` | src/lib/api/botApi.ts:3197 |  |
+| ok | GET | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}` | src/lib/api/botApi.ts:3172 | query 3/3 |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/{user_id}` | src/lib/api/botApi.ts:3163 |  |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me` | src/lib/api/botApi.ts:3156 |  |
+| ok | PUT | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me` | src/lib/api/botApi.ts:3110 |  |
 
 </details>
 
-<details><summary><b>Threads + forums</b> (WP5): 9 implemented, 4 partial, 0 missing</summary>
+<details><summary><b>Threads + forums</b> (WP5): 12 implemented, 1 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| partial | POST | `/channels/{channel_id}/messages/{message_id}/threads` | src/lib/api/botApi.ts:4426 | body 3/3; the thread gets its own id (Discord reuses the starter message id) |
-| partial | GET | `/channels/{channel_id}/thread-members` | src/lib/api/botApi.ts:4439 | query 3/3; join_timestamp is the thread creation time (no per-member timestamp or flags) |
-| ok | DELETE | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4475 |  |
-| ok | GET | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4460 | query 1/1 |
-| ok | PUT | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4469 |  |
-| ok | DELETE | `/channels/{channel_id}/thread-members/@me` | src/lib/api/botApi.ts:4454 |  |
-| ok | PUT | `/channels/{channel_id}/thread-members/@me` | src/lib/api/botApi.ts:4448 |  |
-| partial | POST | `/channels/{channel_id}/threads` | src/lib/api/botApi.ts:4410 | body 7/7; forum posts send their first message through POST /channels/{id}/messages, so the bot also needs SEND_MESSAGES_IN_THREADS |
-| ok | GET | `/channels/{channel_id}/threads/archived/private` | src/lib/api/botApi.ts:4488 | query 2/2 |
-| ok | GET | `/channels/{channel_id}/threads/archived/public` | src/lib/api/botApi.ts:4481 | query 2/2 |
-| partial | GET | `/channels/{channel_id}/threads/search` | src/lib/api/botApi.ts:4502 | query 8/11; slop and min_id / max_id ignored; relevance sorts by last activity |
-| ok | GET | `/channels/{channel_id}/users/@me/threads/archived/private` | src/lib/api/botApi.ts:4495 | query 2/2 |
-| ok | GET | `/guilds/{guild_id}/threads/active` | src/lib/api/botApi.ts:4509 |  |
+| ok | POST | `/channels/{channel_id}/messages/{message_id}/threads` | src/lib/api/botApi.ts:4501 | body 3/3 |
+| partial | GET | `/channels/{channel_id}/thread-members` | src/lib/api/botApi.ts:4514 | query 3/3; flags always 0; join_timestamp falls back to the thread creation for members who joined before join times were recorded |
+| ok | DELETE | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4550 |  |
+| ok | GET | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4535 | query 1/1 |
+| ok | PUT | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4544 |  |
+| ok | DELETE | `/channels/{channel_id}/thread-members/@me` | src/lib/api/botApi.ts:4529 |  |
+| ok | PUT | `/channels/{channel_id}/thread-members/@me` | src/lib/api/botApi.ts:4523 |  |
+| ok | POST | `/channels/{channel_id}/threads` | src/lib/api/botApi.ts:4476 | body 7/7 |
+| ok | GET | `/channels/{channel_id}/threads/archived/private` | src/lib/api/botApi.ts:4563 | query 2/2 |
+| ok | GET | `/channels/{channel_id}/threads/archived/public` | src/lib/api/botApi.ts:4556 | query 2/2 |
+| ok | GET | `/channels/{channel_id}/threads/search` | src/lib/api/botApi.ts:4577 | query 11/11 |
+| ok | GET | `/channels/{channel_id}/users/@me/threads/archived/private` | src/lib/api/botApi.ts:4570 | query 2/2 |
+| ok | GET | `/guilds/{guild_id}/threads/active` | src/lib/api/botApi.ts:4584 |  |
 
 </details>
 
-<details><summary><b>Messages, pins, polls, typing</b> (WP2): 10 implemented, 3 partial, 0 missing</summary>
+<details><summary><b>Messages, pins, polls, typing</b> (WP2): 12 implemented, 1 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/channels/{channel_id}/messages` | src/lib/api/botApi.ts:2308 | query 4/4 |
-| partial | POST | `/channels/{channel_id}/messages` | src/lib/api/botApi.ts:2369 | body 12/13; components are not stored or rendered yet (message components work package); sticker_ids: one sticker per message (Serika limit); shared_client_theme ignored |
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2865 |  |
-| ok | GET | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2359 |  |
-| partial | PATCH | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2701 | body 7/7; components ignored (message components work package) |
-| ok | POST | `/channels/{channel_id}/messages/{message_id}/crosspost` | src/lib/api/botApi.ts:2964 |  |
-| ok | POST | `/channels/{channel_id}/messages/bulk-delete` | src/lib/api/botApi.ts:2902 | body 1/1 |
-| ok | GET | `/channels/{channel_id}/messages/pins` | src/lib/api/botApi.ts:2322 | query 2/2 |
-| ok | DELETE | `/channels/{channel_id}/messages/pins/{message_id}` | src/lib/api/botApi.ts:2352 |  |
-| partial | PUT | `/channels/{channel_id}/messages/pins/{message_id}` | src/lib/api/botApi.ts:2345 | no system "pinned a message" (type 6) message is posted |
-| ok | GET | `/channels/{channel_id}/polls/{message_id}/answers/{answer_id}` | src/lib/api/botApi.ts:2992 | query 2/2 |
-| ok | POST | `/channels/{channel_id}/polls/{message_id}/expire` | src/lib/api/botApi.ts:3016 |  |
-| ok | POST | `/channels/{channel_id}/typing` | src/lib/api/botApi.ts:3198 |  |
+| ok | GET | `/channels/{channel_id}/messages` | src/lib/api/botApi.ts:2327 | query 4/4 |
+| partial | POST | `/channels/{channel_id}/messages` | src/lib/api/botApi.ts:2388 | body 13/13; sticker_ids: one sticker per message (Serika limit); shared_client_theme ignored |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2915 |  |
+| ok | GET | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2378 |  |
+| ok | PATCH | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2736 | body 7/7 |
+| ok | POST | `/channels/{channel_id}/messages/{message_id}/crosspost` | src/lib/api/botApi.ts:3014 |  |
+| ok | POST | `/channels/{channel_id}/messages/bulk-delete` | src/lib/api/botApi.ts:2952 | body 1/1 |
+| ok | GET | `/channels/{channel_id}/messages/pins` | src/lib/api/botApi.ts:2341 | query 2/2 |
+| ok | DELETE | `/channels/{channel_id}/messages/pins/{message_id}` | src/lib/api/botApi.ts:2371 |  |
+| ok | PUT | `/channels/{channel_id}/messages/pins/{message_id}` | src/lib/api/botApi.ts:2364 |  |
+| ok | GET | `/channels/{channel_id}/polls/{message_id}/answers/{answer_id}` | src/lib/api/botApi.ts:3042 | query 2/2 |
+| ok | POST | `/channels/{channel_id}/polls/{message_id}/expire` | src/lib/api/botApi.ts:3066 |  |
+| ok | POST | `/channels/{channel_id}/typing` | src/lib/api/botApi.ts:3248 |  |
 
 </details>
 
-<details><summary><b>Channels (settings, overwrites, invites, followers, group DM)</b> (WP4): 8 implemented, 2 partial, 2 missing</summary>
+<details><summary><b>Channels (settings, overwrites, invites, followers, group DM)</b> (WP4): 9 implemented, 3 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | DELETE | `/channels/{channel_id}` | src/lib/api/botApi.ts:2115 |  |
-| partial | GET | `/channels/{channel_id}` | src/lib/api/botApi.ts:2080 | DM recipients are bare ids |
-| ok | PATCH | `/channels/{channel_id}` | src/lib/api/botApi.ts:2089 | body 18/26 |
-| ok | POST | `/channels/{channel_id}/followers` | src/lib/api/botApi.ts:2265 | body 1/1 |
-| ok | GET | `/channels/{channel_id}/invites` | src/lib/api/botApi.ts:2182 |  |
-| ok | POST | `/channels/{channel_id}/invites` | src/lib/api/botApi.ts:2191 | body 4/9 |
-| ok | DELETE | `/channels/{channel_id}/permissions/{overwrite_id}` | src/lib/api/botApi.ts:2157 |  |
-| ok | PUT | `/channels/{channel_id}/permissions/{overwrite_id}` | src/lib/api/botApi.ts:2130 | body 3/3 |
-| ok | DELETE | `/channels/{channel_id}/recipients/{user_id}` | src/lib/api/botApi.ts:2292 |  |
-| partial | PUT | `/channels/{channel_id}/recipients/{user_id}` | src/lib/api/botApi.ts:2284 | body 0/2; needs an OAuth2 gdm.join access token, which SerikaCord does not issue yet: 403 50025 |
-| **missing** | POST | `/channels/{channel_id}/send-soundboard-sound` |  |  |
-| **missing** | PUT | `/channels/{channel_id}/voice-status` |  |  |
+| ok | DELETE | `/channels/{channel_id}` | src/lib/api/botApi.ts:2122 |  |
+| ok | GET | `/channels/{channel_id}` | src/lib/api/botApi.ts:2085 |  |
+| ok | PATCH | `/channels/{channel_id}` | src/lib/api/botApi.ts:2096 | body 20/26 |
+| ok | POST | `/channels/{channel_id}/followers` | src/lib/api/botApi.ts:2272 | body 1/1 |
+| ok | GET | `/channels/{channel_id}/invites` | src/lib/api/botApi.ts:2189 |  |
+| ok | POST | `/channels/{channel_id}/invites` | src/lib/api/botApi.ts:2198 | body 4/9 |
+| ok | DELETE | `/channels/{channel_id}/permissions/{overwrite_id}` | src/lib/api/botApi.ts:2164 |  |
+| ok | PUT | `/channels/{channel_id}/permissions/{overwrite_id}` | src/lib/api/botApi.ts:2137 | body 3/3 |
+| ok | DELETE | `/channels/{channel_id}/recipients/{user_id}` | src/lib/api/botApi.ts:2311 |  |
+| partial | PUT | `/channels/{channel_id}/recipients/{user_id}` | src/lib/api/botApi.ts:2291 | body 2/2; nick is ignored (Serika group DMs have no per-member nicknames) |
+| partial | POST | `/channels/{channel_id}/send-soundboard-sound` | src/lib/api/botApi/messages.ts:61 | body 2/2; the bot need not be connected to voice (bots cannot join SerikaCord voice); plays for everyone in the channel |
+| partial | PUT | `/channels/{channel_id}/voice-status` | src/lib/api/botApi/messages.ts:33 | body 1/1; MANAGE_CHANNELS always required (bots never join voice); status not shown in the web client |
 
 </details>
 
-<details><summary><b>Scheduled events + stage instances</b> (WP4): 6 implemented, 4 partial, 5 missing</summary>
+<details><summary><b>Scheduled events + stage instances</b> (WP4): 11 implemented, 4 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/scheduled-events` | src/lib/api/botApi.ts:4258 | query 1/1 |
-| ok | POST | `/guilds/{guild_id}/scheduled-events` | src/lib/api/botApi.ts:4265 | body 10/10 |
-| ok | DELETE | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4287 |  |
-| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4272 | query 1/1 |
-| ok | PATCH | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4279 | body 11/11 |
-| **missing** | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/{guild_scheduled_event_exception_id}/users` |  |  |
-| **missing** | POST | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions` |  |  |
-| **missing** | DELETE | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}` |  |  |
-| **missing** | PATCH | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}` |  |  |
-| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users` | src/lib/api/botApi.ts:4293 | query 4/4 |
-| **missing** | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users/counts` |  |  |
-| partial | POST | `/stage-instances` | src/lib/api/botApi.ts:4306 | body 0/5; stage instances are not supported yet: 501; reads 0/5 body fields |
-| partial | DELETE | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4324 | stage instances are not supported yet: always 10067 Unknown Stage Instance |
-| partial | GET | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4312 | stage instances are not supported yet: always 10067 Unknown Stage Instance |
-| partial | PATCH | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4318 | body 0/2; stage instances are not supported yet: always 10067 Unknown Stage Instance |
+| ok | GET | `/guilds/{guild_id}/scheduled-events` | src/lib/api/botApi.ts:4322 | query 1/1 |
+| ok | POST | `/guilds/{guild_id}/scheduled-events` | src/lib/api/botApi.ts:4329 | body 10/10 |
+| ok | DELETE | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4351 |  |
+| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4336 | query 1/1 |
+| ok | PATCH | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4343 | body 11/11 |
+| partial | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/{guild_scheduled_event_exception_id}/users` | src/lib/api/botApi/guilds.ts:137 | query 4/4; Serika scheduled events do not recur: no exceptions exist |
+| partial | POST | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions` | src/lib/api/botApi/guilds.ts:117 | body 4/4; Serika scheduled events do not recur: no exceptions exist |
+| partial | DELETE | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}` | src/lib/api/botApi/guilds.ts:131 | Serika scheduled events do not recur: no exceptions exist |
+| partial | PATCH | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}` | src/lib/api/botApi/guilds.ts:124 | body 3/3; Serika scheduled events do not recur: no exceptions exist |
+| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users` | src/lib/api/botApi.ts:4357 | query 4/4 |
+| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users/counts` | src/lib/api/botApi/guilds.ts:108 | query 1/1 |
+| ok | POST | `/stage-instances` | src/lib/api/botApi.ts:4370 | body 5/5 |
+| ok | DELETE | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4390 |  |
+| ok | GET | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4377 |  |
+| ok | PATCH | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4383 | body 2/2 |
 
 </details>
 
-<details><summary><b>Voice (regions, voice states, soundboard)</b> (WP7): 8 implemented, 1 partial, 3 missing</summary>
+<details><summary><b>Voice (regions, voice states, soundboard)</b> (WP7): 12 implemented, 0 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/regions` | src/lib/api/botApi.ts:1798 |  |
-| partial | GET | `/guilds/{guild_id}/soundboard-sounds` | src/lib/api/botApi.ts:4652 | always empty: Serika soundboard sounds have no Discord sound ids |
-| **missing** | POST | `/guilds/{guild_id}/soundboard-sounds` |  |  |
-| **missing** | DELETE | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` |  |  |
-| ok | GET | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` | src/lib/api/botApi.ts:4657 |  |
-| **missing** | PATCH | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` |  |  |
-| ok | GET | `/guilds/{guild_id}/voice-states/{user_id}` | src/lib/api/botApi.ts:4613 |  |
-| ok | PATCH | `/guilds/{guild_id}/voice-states/{user_id}` | src/lib/api/botApi.ts:4629 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/voice-states/@me` | src/lib/api/botApi.ts:4607 |  |
-| ok | PATCH | `/guilds/{guild_id}/voice-states/@me` | src/lib/api/botApi.ts:4620 | body 3/3 |
-| ok | GET | `/soundboard-default-sounds` | src/lib/api/botApi.ts:4647 |  |
-| ok | GET | `/voice/regions` | src/lib/api/botApi.ts:4597 |  |
+| ok | GET | `/guilds/{guild_id}/regions` | src/lib/api/botApi.ts:1789 |  |
+| ok | GET | `/guilds/{guild_id}/soundboard-sounds` | src/lib/api/botApi.ts:4753 |  |
+| ok | POST | `/guilds/{guild_id}/soundboard-sounds` | src/lib/api/botApi/guilds.ts:146 | body 5/5 |
+| ok | DELETE | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` | src/lib/api/botApi/guilds.ts:160 |  |
+| ok | GET | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` | src/lib/api/botApi.ts:4759 |  |
+| ok | PATCH | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` | src/lib/api/botApi/guilds.ts:153 | body 4/4 |
+| ok | GET | `/guilds/{guild_id}/voice-states/{user_id}` | src/lib/api/botApi.ts:4714 |  |
+| ok | PATCH | `/guilds/{guild_id}/voice-states/{user_id}` | src/lib/api/botApi.ts:4730 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/voice-states/@me` | src/lib/api/botApi.ts:4708 |  |
+| ok | PATCH | `/guilds/{guild_id}/voice-states/@me` | src/lib/api/botApi.ts:4721 | body 3/3 |
+| ok | GET | `/soundboard-default-sounds` | src/lib/api/botApi.ts:4748 |  |
+| ok | GET | `/voice/regions` | src/lib/api/botApi.ts:4698 |  |
 
 </details>
 
@@ -1227,75 +1303,75 @@ Intents missing from `Intents` in gatewayEvents.ts: GUILD_WEBHOOKS (1<<5).
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/emojis` | src/lib/api/botApi.ts:2037 |  |
-| ok | POST | `/guilds/{guild_id}/emojis` | src/lib/api/botApi.ts:3872 | body 3/3 |
-| ok | DELETE | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3886 |  |
-| ok | GET | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3866 |  |
-| ok | PATCH | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3879 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/stickers` | src/lib/api/botApi.ts:3894 |  |
-| ok | POST | `/guilds/{guild_id}/stickers` | src/lib/api/botApi.ts:3906 | body 4/4 |
-| ok | DELETE | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3924 |  |
-| ok | GET | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3900 |  |
-| ok | PATCH | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3917 | body 3/3 |
-| ok | GET | `/sticker-packs` | src/lib/api/botApi.ts:3937 |  |
-| ok | GET | `/sticker-packs/{pack_id}` | src/lib/api/botApi.ts:3942 |  |
-| ok | GET | `/stickers/{sticker_id}` | src/lib/api/botApi.ts:3930 |  |
+| ok | GET | `/guilds/{guild_id}/emojis` | src/lib/api/botApi.ts:2042 |  |
+| ok | POST | `/guilds/{guild_id}/emojis` | src/lib/api/botApi.ts:3908 | body 3/3 |
+| ok | DELETE | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3922 |  |
+| ok | GET | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3902 |  |
+| ok | PATCH | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3915 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/stickers` | src/lib/api/botApi.ts:3930 |  |
+| ok | POST | `/guilds/{guild_id}/stickers` | src/lib/api/botApi.ts:3942 | body 4/4 |
+| ok | DELETE | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3960 |  |
+| ok | GET | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3936 |  |
+| ok | PATCH | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3953 | body 3/3 |
+| ok | GET | `/sticker-packs` | src/lib/api/botApi.ts:3973 |  |
+| ok | GET | `/sticker-packs/{pack_id}` | src/lib/api/botApi.ts:3978 |  |
+| ok | GET | `/stickers/{sticker_id}` | src/lib/api/botApi.ts:3966 |  |
 
 </details>
 
-<details><summary><b>Invites</b> (WP4): 3 implemented, 0 partial, 7 missing</summary>
+<details><summary><b>Invites</b> (WP4): 10 implemented, 0 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/invites` | src/lib/api/botApi.ts:2067 |  |
-| ok | DELETE | `/invites/{code}` | src/lib/api/botApi.ts:3380 |  |
-| ok | GET | `/invites/{code}` | src/lib/api/botApi.ts:3372 | query 2/4 |
-| **missing** | GET | `/invites/{code}/target-users` |  |  |
-| **missing** | PUT | `/invites/{code}/target-users` |  |  |
-| **missing** | DELETE | `/invites/{code}/target-users/{user_id}` |  |  |
-| **missing** | PUT | `/invites/{code}/target-users/{user_id}` |  |  |
-| **missing** | POST | `/invites/{code}/target-users/bulk-add` |  |  |
-| **missing** | POST | `/invites/{code}/target-users/bulk-delete` |  |  |
-| **missing** | GET | `/invites/{code}/target-users/job-status` |  |  |
+| ok | GET | `/guilds/{guild_id}/invites` | src/lib/api/botApi.ts:2072 |  |
+| ok | DELETE | `/invites/{code}` | src/lib/api/botApi.ts:3398 |  |
+| ok | GET | `/invites/{code}` | src/lib/api/botApi.ts:3390 | query 2/4 |
+| ok | GET | `/invites/{code}/target-users` | src/lib/api/botApi/social.ts:581 |  |
+| ok | PUT | `/invites/{code}/target-users` | src/lib/api/botApi/social.ts:595 | body 1/1 |
+| ok | DELETE | `/invites/{code}/target-users/{user_id}` | src/lib/api/botApi/social.ts:676 |  |
+| ok | PUT | `/invites/{code}/target-users/{user_id}` | src/lib/api/botApi/social.ts:666 |  |
+| ok | POST | `/invites/{code}/target-users/bulk-add` | src/lib/api/botApi/social.ts:639 | body 1/1 |
+| ok | POST | `/invites/{code}/target-users/bulk-delete` | src/lib/api/botApi/social.ts:657 | body 1/1 |
+| ok | GET | `/invites/{code}/target-users/job-status` | src/lib/api/botApi/social.ts:634 |  |
 
 </details>
 
-<details><summary><b>Audit log + AutoMod</b> (WP4): 5 implemented, 1 partial, 1 missing</summary>
+<details><summary><b>Audit log + AutoMod</b> (WP4): 6 implemented, 1 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| partial | GET | `/guilds/{guild_id}/audit-logs` | src/lib/api/botApi.ts:4198 | query 6/6; application_commands / guild_scheduled_events arrays stay empty (Serika logs neither change) |
-| ok | GET | `/guilds/{guild_id}/auto-moderation/rules` | src/lib/api/botApi.ts:4224 |  |
-| ok | POST | `/guilds/{guild_id}/auto-moderation/rules` | src/lib/api/botApi.ts:4236 | body 8/8 |
-| ok | DELETE | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4250 |  |
-| ok | GET | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4230 |  |
-| ok | PATCH | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4243 | body 8/8 |
-| **missing** | PUT | `/guilds/{guild_id}/incident-actions` |  |  |
+| ok | GET | `/guilds/{guild_id}/audit-logs` | src/lib/api/botApi.ts:4262 | query 6/6 |
+| ok | GET | `/guilds/{guild_id}/auto-moderation/rules` | src/lib/api/botApi.ts:4288 |  |
+| ok | POST | `/guilds/{guild_id}/auto-moderation/rules` | src/lib/api/botApi.ts:4300 | body 8/8 |
+| ok | DELETE | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4314 |  |
+| ok | GET | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4294 |  |
+| ok | PATCH | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4307 | body 8/8 |
+| partial | PUT | `/guilds/{guild_id}/incident-actions` | src/lib/api/botApi/guilds.ts:98 | body 2/2; dms_disabled_until is stored and reported but not enforced; invites_disabled_until pauses invite joins |
 
 </details>
 
-<details><summary><b>Members, bans, prune, join requests</b> (WP4): 16 implemented, 0 partial, 2 missing</summary>
+<details><summary><b>Members, bans, prune, join requests</b> (WP4): 18 implemented, 0 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/bans` | src/lib/api/botApi.ts:2045 | query 3/3 |
-| ok | DELETE | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3850 |  |
-| ok | GET | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3838 |  |
-| ok | PUT | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3800 | body 2/2 |
-| ok | POST | `/guilds/{guild_id}/bulk-ban` | src/lib/api/botApi.ts:3818 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/members` | src/lib/api/botApi.ts:1986 | query 2/2 |
-| ok | DELETE | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3741 |  |
-| ok | GET | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:2025 |  |
-| ok | PATCH | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3645 | body 7/7 |
-| ok | PUT | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3670 | body 5/6 |
-| ok | DELETE | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | src/lib/api/botApi.ts:3664 |  |
-| ok | PUT | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | src/lib/api/botApi.ts:3659 |  |
-| ok | PATCH | `/guilds/{guild_id}/members/@me` | src/lib/api/botApi.ts:3638 | body 3/4 |
-| ok | GET | `/guilds/{guild_id}/members/search` | src/lib/api/botApi.ts:2001 | query 2/2 |
-| ok | GET | `/guilds/{guild_id}/prune` | src/lib/api/botApi.ts:3764 | query 2/2 |
-| ok | POST | `/guilds/{guild_id}/prune` | src/lib/api/botApi.ts:3775 | body 3/3 |
-| **missing** | GET | `/guilds/{guild_id}/requests` |  |  |
-| **missing** | PATCH | `/guilds/{guild_id}/requests/{request_id}` |  |  |
+| ok | GET | `/guilds/{guild_id}/bans` | src/lib/api/botApi.ts:2050 | query 3/3 |
+| ok | DELETE | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3886 |  |
+| ok | GET | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3874 |  |
+| ok | PUT | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3836 | body 2/2 |
+| ok | POST | `/guilds/{guild_id}/bulk-ban` | src/lib/api/botApi.ts:3854 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/members` | src/lib/api/botApi.ts:1991 | query 2/2 |
+| ok | DELETE | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3777 |  |
+| ok | GET | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:2030 |  |
+| ok | PATCH | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3670 | body 7/7 |
+| ok | PUT | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3695 | body 5/6 |
+| ok | DELETE | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | src/lib/api/botApi.ts:3689 |  |
+| ok | PUT | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | src/lib/api/botApi.ts:3684 |  |
+| ok | PATCH | `/guilds/{guild_id}/members/@me` | src/lib/api/botApi.ts:3663 | body 3/4 |
+| ok | GET | `/guilds/{guild_id}/members/search` | src/lib/api/botApi.ts:2006 | query 2/2 |
+| ok | GET | `/guilds/{guild_id}/prune` | src/lib/api/botApi.ts:3800 | query 2/2 |
+| ok | POST | `/guilds/{guild_id}/prune` | src/lib/api/botApi.ts:3811 | body 3/3 |
+| ok | GET | `/guilds/{guild_id}/requests` | src/lib/api/botApi/guilds.ts:84 | query 4/4 |
+| ok | PATCH | `/guilds/{guild_id}/requests/{request_id}` | src/lib/api/botApi/guilds.ts:91 | body 2/2 |
 
 </details>
 
@@ -1303,61 +1379,62 @@ Intents missing from `Intents` in gatewayEvents.ts: GUILD_WEBHOOKS (1<<5).
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/users/{user_id}` | src/lib/api/botApi.ts:1587 |  |
-| ok | GET | `/users/@me` | src/lib/api/botApi.ts:1524 |  |
-| partial | PATCH | `/users/@me` | src/lib/api/botApi.ts:1535 | body 3/3; username follows Serika handle rules (2-32 of a-z 0-9 _ .), not Discord display names |
-| ok | POST | `/users/@me/channels` | src/lib/api/botApi.ts:4528 | body 3/3 |
-| ok | GET | `/users/@me/connections` | src/lib/api/botApi.ts:1580 |  |
-| ok | GET | `/users/@me/guilds` | src/lib/api/botApi.ts:1548 | query 4/5 |
-| ok | DELETE | `/users/@me/guilds/{guild_id}` | src/lib/api/botApi.ts:4582 |  |
-| ok | GET | `/users/@me/guilds/{guild_id}/member` | src/lib/api/botApi.ts:1565 |  |
+| ok | GET | `/users/{user_id}` | src/lib/api/botApi.ts:1588 |  |
+| ok | GET | `/users/@me` | src/lib/api/botApi.ts:1525 |  |
+| partial | PATCH | `/users/@me` | src/lib/api/botApi.ts:1536 | body 3/3; username follows Serika handle rules (2-32 of a-z 0-9 _ .), not Discord display names |
+| ok | POST | `/users/@me/channels` | src/lib/api/botApi.ts:4603 | body 3/3 |
+| ok | GET | `/users/@me/connections` | src/lib/api/botApi.ts:1581 |  |
+| ok | GET | `/users/@me/guilds` | src/lib/api/botApi.ts:1549 | query 4/5 |
+| ok | DELETE | `/users/@me/guilds/{guild_id}` | src/lib/api/botApi.ts:4683 |  |
+| ok | GET | `/users/@me/guilds/{guild_id}/member` | src/lib/api/botApi.ts:1566 |  |
 
 </details>
 
-<details><summary><b>Guild settings (guild, roles, channels list, widget, onboarding, templates, ...)</b> (WP4): 27 implemented, 2 partial, 3 missing</summary>
+<details><summary><b>Guild settings (guild, roles, channels list, widget, onboarding, templates, ...)</b> (WP4): 31 implemented, 1 partial, 0 missing</summary>
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}` | src/lib/api/botApi.ts:1668 | query 1/1 |
-| ok | PATCH | `/guilds/{guild_id}` | src/lib/api/botApi.ts:1677 | body 14/21 |
-| ok | GET | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:1883 |  |
-| ok | PATCH | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:1893 |  |
-| ok | POST | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:3388 | body 12/19 |
-| ok | GET | `/guilds/{guild_id}/integrations` | src/lib/api/botApi.ts:4396 |  |
-| ok | DELETE | `/guilds/{guild_id}/integrations/{integration_id}` | src/lib/api/botApi.ts:4402 |  |
-| **missing** | GET | `/guilds/{guild_id}/messages/search` |  |  |
-| **missing** | GET | `/guilds/{guild_id}/new-member-welcome` |  |  |
-| ok | GET | `/guilds/{guild_id}/onboarding` | src/lib/api/botApi.ts:4332 |  |
-| partial | PUT | `/guilds/{guild_id}/onboarding` | src/lib/api/botApi.ts:4338 | body 4/4; option channel_ids, default_channel_ids and mode are ignored (Serika options only grant roles) |
-| ok | GET | `/guilds/{guild_id}/preview` | src/lib/api/botApi.ts:1771 |  |
-| ok | GET | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:1954 |  |
-| ok | PATCH | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:3549 |  |
-| ok | POST | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:3490 | body 8/8 |
-| ok | DELETE | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:3610 |  |
-| ok | GET | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:1979 |  |
-| ok | PATCH | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:3561 | body 8/8 |
-| ok | GET | `/guilds/{guild_id}/roles/member-counts` | src/lib/api/botApi.ts:1962 |  |
-| ok | GET | `/guilds/{guild_id}/templates` | src/lib/api/botApi.ts:4364 |  |
-| ok | POST | `/guilds/{guild_id}/templates` | src/lib/api/botApi.ts:4370 | body 2/2 |
-| ok | DELETE | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4390 |  |
-| ok | PATCH | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4383 | body 2/2 |
-| ok | PUT | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4377 |  |
-| ok | GET | `/guilds/{guild_id}/vanity-url` | src/lib/api/botApi.ts:1805 |  |
-| ok | GET | `/guilds/{guild_id}/welcome-screen` | src/lib/api/botApi.ts:4345 |  |
-| ok | PATCH | `/guilds/{guild_id}/welcome-screen` | src/lib/api/botApi.ts:4351 | body 3/3 |
-| ok | GET | `/guilds/{guild_id}/widget` | src/lib/api/botApi.ts:1812 |  |
-| ok | PATCH | `/guilds/{guild_id}/widget` | src/lib/api/botApi.ts:1820 | body 2/2 |
-| partial | GET | `/guilds/{guild_id}/widget.json` | src/lib/api/botApi.ts:1864 | channels and members lists are empty; instant_invite only for partnered vanity links |
-| **missing** | GET | `/guilds/{guild_id}/widget.png` |  |  |
-| ok | GET | `/guilds/templates/{code}` | src/lib/api/botApi.ts:4358 |  |
+| ok | GET | `/guilds/{guild_id}` | src/lib/api/botApi.ts:1659 | query 1/1 |
+| ok | PATCH | `/guilds/{guild_id}` | src/lib/api/botApi.ts:1668 | body 14/21 |
+| ok | GET | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:1860 |  |
+| ok | PATCH | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:1898 |  |
+| ok | POST | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:3406 | body 12/19 |
+| ok | GET | `/guilds/{guild_id}/integrations` | src/lib/api/botApi.ts:4462 |  |
+| ok | DELETE | `/guilds/{guild_id}/integrations/{integration_id}` | src/lib/api/botApi.ts:4468 |  |
+| partial | GET | `/guilds/{guild_id}/messages/search` | src/lib/api/botApi/guilds.ts:50 | query 24/24; slop ignored; offsets past 5000 return an empty page |
+| ok | GET | `/guilds/{guild_id}/new-member-welcome` | src/lib/api/botApi/guilds.ts:78 |  |
+| ok | GET | `/guilds/{guild_id}/onboarding` | src/lib/api/botApi.ts:4398 |  |
+| ok | PUT | `/guilds/{guild_id}/onboarding` | src/lib/api/botApi.ts:4404 | body 4/4 |
+| ok | GET | `/guilds/{guild_id}/preview` | src/lib/api/botApi.ts:1762 |  |
+| ok | GET | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:1959 |  |
+| ok | PATCH | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:3574 |  |
+| ok | POST | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:3515 | body 8/8 |
+| ok | DELETE | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:3635 |  |
+| ok | GET | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:1984 |  |
+| ok | PATCH | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:3586 | body 8/8 |
+| ok | GET | `/guilds/{guild_id}/roles/member-counts` | src/lib/api/botApi.ts:1967 |  |
+| ok | GET | `/guilds/{guild_id}/templates` | src/lib/api/botApi.ts:4430 |  |
+| ok | POST | `/guilds/{guild_id}/templates` | src/lib/api/botApi.ts:4436 | body 2/2 |
+| ok | DELETE | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4456 |  |
+| ok | PATCH | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4449 | body 2/2 |
+| ok | PUT | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4443 |  |
+| ok | GET | `/guilds/{guild_id}/vanity-url` | src/lib/api/botApi.ts:1796 |  |
+| ok | GET | `/guilds/{guild_id}/welcome-screen` | src/lib/api/botApi.ts:4411 |  |
+| ok | PATCH | `/guilds/{guild_id}/welcome-screen` | src/lib/api/botApi.ts:4417 | body 3/3 |
+| ok | GET | `/guilds/{guild_id}/widget` | src/lib/api/botApi.ts:1803 |  |
+| ok | PATCH | `/guilds/{guild_id}/widget` | src/lib/api/botApi.ts:1811 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/widget.json` | src/lib/api/botApi.ts:1856 |  |
+| ok | GET | `/guilds/{guild_id}/widget.png` | src/lib/api/botApi/guilds.ts:168 | query 1/1 |
+| ok | GET | `/guilds/templates/{code}` | src/lib/api/botApi.ts:4424 |  |
 
 </details>
 
 ### SerikaCord /api/v10 routes with no Discord counterpart
 
-- `PATCH /api/v10/guilds/:guildId/channels/:channelId` (src/lib/api/botApi.ts:3467)
-- `DELETE /api/v10/guilds/:guildId/channels/:channelId` (src/lib/api/botApi.ts:3477)
-- `GET /api/v10/users/@me/channels` (src/lib/api/botApi.ts:4517)
+- `GET /api/v10/guilds/:guildId/bridge` (src/lib/api/botApi.ts:1874)
+- `PATCH /api/v10/guilds/:guildId/channels/:channelId` (src/lib/api/botApi.ts:3492)
+- `DELETE /api/v10/guilds/:guildId/channels/:channelId` (src/lib/api/botApi.ts:3502)
+- `GET /api/v10/users/@me/channels` (src/lib/api/botApi.ts:4592)
 - `GET /api/v10/mcp` (src/lib/api/mcp.ts:893)
 - `GET /api/v10/docs/mcp` (src/lib/api/mcp.ts:895)
 - `POST /api/v10/mcp` (src/lib/api/mcp.ts:899)

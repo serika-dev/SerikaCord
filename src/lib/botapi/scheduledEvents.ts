@@ -21,6 +21,8 @@ import { emitEventGateway, ensureScheduledEventSchema, notifyEventStarted, publi
 import { toDiscordGuildMember, toDiscordUserRow } from '@/lib/services/gatewayEvents';
 import { parseImageDataUri } from './expressionRules';
 import { fromDiscordEventBody } from './scheduledEventRules';
+import { audit } from '@/lib/services/auditLog';
+import { AuditLogEvent } from '@/lib/audit/auditLog';
 
 type Result = { status: number; body: unknown };
 
@@ -69,6 +71,22 @@ async function views(rows: ScheduledEventRow[], withUserCount: boolean) {
     creator: creatorBy.get(r.creatorId.toLowerCase()) ?? null,
     recurrence_rule: null,
   }));
+}
+
+/** Audit-log changes between two versions of an event (Discord keys). */
+export function scheduledEventChanges(before: ScheduledEventRow, after: ScheduledEventRow) {
+  const pick = (r: ScheduledEventRow) => ({
+    name: r.name,
+    description: r.description ?? null,
+    location: r.location ?? null,
+    channel_id: r.channelId ?? null,
+    status: r.status,
+    scheduled_start_time: r.startAt ? new Date(r.startAt).toISOString() : null,
+    scheduled_end_time: r.endAt ? new Date(r.endAt).toISOString() : null,
+  });
+  const a = pick(before);
+  const b = pick(after);
+  return (Object.keys(a) as Array<keyof typeof a>).filter((k) => a[k] !== b[k]).map((k) => ({ key: k, old: a[k], new: b[k] }));
 }
 
 async function loadEvent(guildId: string, eventId: string): Promise<ScheduledEventRow | null> {
@@ -171,6 +189,7 @@ export async function createBotEvent(guildId: string, botId: string, body: Recor
   }).returning();
   emitEventGateway('CREATE', row);
   void publishEventsChanged(guildId, row.id);
+  audit({ serverId: guildId, userId: botId, actionType: AuditLogEvent.GUILD_SCHEDULED_EVENT_CREATE, targetId: row.id, changes: [{ key: 'name', new: row.name }] });
   const [view] = await views([row], false);
   return { status: 200, body: view };
 }
@@ -234,6 +253,7 @@ export async function updateBotEvent(guildId: string, eventId: string, botId: st
   if (!updated) return { status: 409, body: { code: 0, message: 'The event changed, try again' } };
   emitEventGateway('UPDATE', updated);
   void publishEventsChanged(guildId, updated.id);
+  audit({ serverId: guildId, userId: botId, actionType: AuditLogEvent.GUILD_SCHEDULED_EVENT_UPDATE, targetId: updated.id, changes: scheduledEventChanges(row, updated) });
   if (to === 'active') void notifyEventStarted(updated, botId);
   const [view] = await views([updated], false);
   return { status: 200, body: view };
@@ -250,6 +270,7 @@ export async function deleteBotEvent(guildId: string, eventId: string, botId: st
   await db.delete(ev).where(and(eq(ev.id, row.id), eq(ev.serverId, guildId)));
   emitEventGateway('DELETE', row);
   void publishEventsChanged(guildId, row.id);
+  audit({ serverId: guildId, userId: botId, actionType: AuditLogEvent.GUILD_SCHEDULED_EVENT_DELETE, targetId: row.id, changes: [{ key: 'name', old: row.name }] });
   return { status: 204, body: '' };
 }
 

@@ -184,6 +184,9 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "There were no votes": gt("There were no votes"),
       "The results were tied": gt("The results were tied"),
       "View Poll": gt("View Poll"),
+      // PinSystemRow
+      "{actor} pinned {message} to this channel.": gt("{actor} pinned {message} to this channel.", { actor: "{actor}", message: "{message}" }),
+      "a message": gt("a message"),
       // End-to-end encryption (MessageGroup, MessageAttachments, E2eeSystemRow)
       "Decrypting…": gt("Decrypting…"),
       "Downloading… {percent}%": gt("Downloading… {percent}%", { percent: "{percent}" }),

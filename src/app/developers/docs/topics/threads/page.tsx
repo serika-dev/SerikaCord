@@ -37,6 +37,9 @@ export default async function ThreadsDoc() {
       <Endpoint method="POST" path="/channels/{channel.id}/messages/{message.id}/threads">
         {gt("Create a thread attached to a specific message.")}
       </Endpoint>
+      <P>
+        {gt("Like Discord, the new thread takes the starter message's id, so the thread id equals the message id (libraries such as discord.js rely on this). A message can start only one thread: a second create for the same message answers 400 with code 160004, \"A thread has already been created for this message\". System messages can't start threads, and forum channels don't take this route.")}
+      </P>
 
       <H2 id="listing-threads">{gt("Listing Active Threads")}</H2>
       <Endpoint method="GET" path="/guilds/{guild.id}/threads/active">
@@ -51,6 +54,9 @@ export default async function ThreadsDoc() {
       <Endpoint method="GET" path="/channels/{channel.id}/thread-members">
         {gt("List members of a thread. Requires the")}{" "}<InlineCode>GUILD_MEMBERS</InlineCode> {gt("privileged intent.")}
       </Endpoint>
+      <P>
+        {gt("Each thread member's join_timestamp is when that member joined the thread. Members who joined before SerikaCord started recording join times (and, if the record is unavailable, everyone) show the thread's creation time instead. flags is always 0.")}
+      </P>
 
       <H2 id="auto-archive">{gt("Auto-Archive")}</H2>
       <P>{gt("Threads auto-archive after a period of inactivity:")}</P>
@@ -86,7 +92,7 @@ export default async function ThreadsDoc() {
       <P>
         {gt("In a forum channel the same endpoint creates a post: send the first message in")}{" "}<InlineCode>message</InlineCode>{" "}
         {gt("(content, embeds, components, files as multipart) and up to 5 tag ids in")}{" "}<InlineCode>applied_tags</InlineCode>.{" "}
-        {gt("Posts need the Send Messages permission in the forum. Forums with the REQUIRE_TAG flag reject posts without a tag.")}
+        {gt("Like Discord, a new post only needs View Channel and Send Messages in the forum; Send Messages in Threads is not required for the first message. Forums with the REQUIRE_TAG flag reject posts without a tag.")}
       </P>
       <Callout type="info" title={gt("Ticket Forums")}>
         {gt("In a SerikaCord ticket forum every post is a private thread: only its members, roles with ticket access and members with Manage Threads can see it.")}
@@ -103,7 +109,19 @@ export default async function ThreadsDoc() {
       <Endpoint method="GET" path="/channels/{channel.id}/threads/archived/public">{gt("Public archived threads, newest archive first. Requires Read Message History.")}</Endpoint>
       <Endpoint method="GET" path="/channels/{channel.id}/threads/archived/private">{gt("Private archived threads. Also requires Manage Threads.")}</Endpoint>
       <Endpoint method="GET" path="/channels/{channel.id}/users/@me/threads/archived/private">{gt("Private archived threads the bot has joined.")}</Endpoint>
-      <Endpoint method="GET" path="/channels/{channel.id}/threads/search">{gt("Search a channel's threads by name words, tags and archive state.")}</Endpoint>
+      <Endpoint method="GET" path="/channels/{channel.id}/threads/search">{gt("Search a channel's threads by name words, tags and archive state. Requires Read Message History.")}</Endpoint>
+      <Table headers={[gt("Query"), gt("Description")]} rows={[
+        ["name", gt("Search words. Every word must match the start of some word in the thread title")],
+        ["slop", gt("How many other title words may sit between the matched words, 0-100 (default 2). Other values answer 50035")],
+        ["tag", gt("Comma-separated tag ids")],
+        ["tag_setting", gt("match_some (default) or match_all")],
+        ["archived", gt("true or false; leave it out for both")],
+        ["min_id / max_id", gt("Only threads created at or after / at or before the time encoded in this id")],
+        ["sort_by", gt("last_message_time (default), archive_time, creation_time or relevance")],
+        ["sort_order", gt("desc (default) or asc")],
+        ["limit / offset", gt("Page size 1-25 (default 25) and offset")],
+      ]} />
+      <P>{gt("The response has threads, the bot's own thread members, has_more and total_results. Relevance ranks exact titles first, then the words as a phrase, then tighter and earlier matches.")}</P>
 
       <H2 id="managing-members">{gt("Adding and Removing Members")}</H2>
       <Endpoint method="PUT" path="/channels/{channel.id}/thread-members/{user.id}">{gt("Add a member. Needs Send Messages in Threads; in a private thread the bot must be in it, and the thread must be invitable unless the bot has Manage Threads.")}</Endpoint>
@@ -117,7 +135,7 @@ export default async function ThreadsDoc() {
         <InlineCode>THREAD_MEMBERS_UPDATE</InlineCode> {gt("needs the GUILD_MEMBERS intent, except when the bot itself was added or removed.")}
       </P>
       <Callout type="warning" title={gt("SerikaCord Differences")}>
-        {gt("A thread started from a message gets its own id (on Discord it reuses the message id). Thread member join_timestamp is the time the thread was created.")}
+        {gt("Thread member flags are always 0, and members who joined before join times were recorded show the thread's creation time as join_timestamp.")}
       </Callout>
     </DocPage>
   );

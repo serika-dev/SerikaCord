@@ -7,6 +7,7 @@ import { discordUser, serializeMessage, type UserLike } from '@/lib/chat/discord
 import { discordEmoji } from '@/lib/chat/reactionEmoji';
 import { processShared } from '@/lib/realtime/processShared';
 import { BoundedMap } from '@/lib/utils/boundedMap';
+import { incidentsDataOf } from '@/lib/botapi/guildIncidentRules';
 
 /**
  * Central bus that feeds the standalone bot Gateway (scripts/gateway.ts).
@@ -566,6 +567,25 @@ export function emitGuildScheduledEvent(t: string, guildId: string, d: unknown) 
   return publish({ t, guildId, intent: Intents.GUILD_SCHEDULED_EVENTS, d });
 }
 
+/** GUILD_SOUNDBOARD_SOUND_CREATE / _UPDATE / _DELETE and GUILD_SOUNDBOARD_SOUNDS_UPDATE (GUILD_EXPRESSIONS intent). */
+export function emitGuildSoundboardSound(
+  t: 'GUILD_SOUNDBOARD_SOUND_CREATE' | 'GUILD_SOUNDBOARD_SOUND_UPDATE' | 'GUILD_SOUNDBOARD_SOUND_DELETE' | 'GUILD_SOUNDBOARD_SOUNDS_UPDATE',
+  guildId: string,
+  d: unknown,
+) {
+  return publish({ t, guildId, intent: Intents.GUILD_EXPRESSIONS, d });
+}
+
+/** STAGE_INSTANCE_CREATE / _UPDATE / _DELETE to the bots that can view the stage channel (GUILDS intent). */
+export function emitStageInstance(
+  t: 'STAGE_INSTANCE_CREATE' | 'STAGE_INSTANCE_UPDATE' | 'STAGE_INSTANCE_DELETE',
+  guildId: string,
+  channelId: string,
+  d: unknown,
+) {
+  return publishChannelScoped({ t, guildId, intent: Intents.GUILDS, d }, channelId);
+}
+
 // ─── Threads (WP5) ─────────────────────────────────────────
 // THREAD_CREATE / _UPDATE reach the bots that can view the thread (private
 // threads: members, the owner, MANAGE_THREADS and ticket-access roles; see
@@ -578,11 +598,13 @@ export function toDiscordThreadMember(
   thread: { id: string; createdAt?: Date | string | null },
   userId: string,
   member?: unknown,
+  /** When they joined (src/lib/botapi/threadMemberJoins.ts); defaults to the thread's creation. */
+  joinedAt?: Date | string | number | null,
 ) {
   return {
     id: thread.id,
     user_id: userId,
-    join_timestamp: iso(thread.createdAt) ?? new Date(0).toISOString(),
+    join_timestamp: (joinedAt !== undefined && joinedAt !== null ? iso(new Date(joinedAt)) : null) ?? iso(thread.createdAt) ?? new Date(0).toISOString(),
     flags: 0,
     ...(member ? { member } : {}),
   };
@@ -676,10 +698,12 @@ export async function emitThreadMembersUpdate(
     ]);
     const memberBy = new Map(members.map((m: MemberRowLike & { userId: string }) => [m.userId.toLowerCase(), m]));
     const userBy = new Map(users.map((u: UserRowLike) => [u.id.toLowerCase(), u]));
+    const joinedNow = new Date();
     const addedMembers = added.map((id) => {
       const m = memberBy.get(id.toLowerCase());
       const u = userBy.get(id.toLowerCase());
-      return toDiscordThreadMember(thread, id, m ? toDiscordGuildMember(m, u ?? { id }) : undefined);
+      // They joined just now (Discord's join_timestamp).
+      return toDiscordThreadMember(thread, id, m ? toDiscordGuildMember(m, u ?? { id }) : undefined, joinedNow);
     });
     const d = {
       id: thread.id,
@@ -702,7 +726,7 @@ export async function emitThreadMembersUpdate(
       if (joined && !canSee.has(botId.toLowerCase())) continue;
       await publish({ t: 'THREAD_MEMBERS_UPDATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d });
       if (!joined) continue;
-      const own = toDiscordThreadMember(thread, botId);
+      const own = toDiscordThreadMember(thread, botId, undefined, joinedNow);
       await publish({ t: 'THREAD_MEMBER_UPDATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d: { ...own, guild_id: guildId } });
       await publish({ t: 'THREAD_CREATE', guildId, intent: Intents.GUILDS, targetBotId: botId, d: { ...toDiscordChannel(thread), member: own } });
     }
@@ -1108,6 +1132,8 @@ export interface ServerRowLike {
   vanityUrlCode?: string | null;
   mfaLevel?: number | null;
   isAgeGated?: boolean | null;
+  /** servers.settings (incident actions live in settings.incidents). */
+  settings?: unknown;
 }
 
 /** Discord guild object: top-level fields only (no roles/emojis/channels). */
@@ -1150,7 +1176,7 @@ export function toDiscordGuildBase(s: ServerRowLike) {
     home_header: null,
     premium_progress_bar_enabled: false,
     safety_alerts_channel_id: null,
-    incidents_data: null,
+    incidents_data: incidentsDataOf(s.settings),
   };
 }
 
@@ -1231,4 +1257,41 @@ export async function emitPresenceUpdate(userId: string, presence?: { status: st
  */
 export function emitVoiceStateUpdate(guildId: string, channelId: string, state: Record<string, unknown>) {
   return publishChannelScoped({ t: 'VOICE_STATE_UPDATE', guildId, intent: Intents.GUILD_VOICE_STATES, d: { ...state, guild_id: guildId } }, channelId);
+}
+
+/** VOICE_CHANNEL_STATUS_UPDATE (GUILDS): a voice channel's status was set or cleared (null). */
+export function emitVoiceChannelStatusUpdate(opts: { channelId: string; guildId: string; status: string | null }) {
+  return publishChannelScoped({
+    t: 'VOICE_CHANNEL_STATUS_UPDATE',
+    guildId: opts.guildId,
+    intent: Intents.GUILDS,
+    d: { id: opts.channelId, guild_id: opts.guildId, status: opts.status },
+  }, opts.channelId);
+}
+
+/**
+ * VOICE_CHANNEL_EFFECT_SEND (GUILD_VOICE_STATES): someone played a soundboard
+ * sound in a voice channel (animation_type / emoji only for emoji effects).
+ */
+export function emitVoiceChannelEffectSend(opts: {
+  channelId: string;
+  guildId: string;
+  userId: string;
+  soundId: string;
+  soundVolume: number;
+  emoji?: { id: string | null; name: string | null } | null;
+}) {
+  return publishChannelScoped({
+    t: 'VOICE_CHANNEL_EFFECT_SEND',
+    guildId: opts.guildId,
+    intent: Intents.GUILD_VOICE_STATES,
+    d: {
+      channel_id: opts.channelId,
+      guild_id: opts.guildId,
+      user_id: opts.userId,
+      emoji: opts.emoji ?? null,
+      sound_id: opts.soundId,
+      sound_volume: opts.soundVolume,
+    },
+  }, opts.channelId);
 }

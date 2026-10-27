@@ -104,12 +104,36 @@ export default async function SlashCommandsDoc() {
         ["nsfw", gt("Only usable in age-restricted channels (and DMs).")],
         ["name_localizations / description_localizations", gt("Stored and returned to your bot.")],
       ]} />
-      <Endpoint method="PUT" path="/applications/{'{application.id}'}/guilds/{'{guild.id}'}/commands/{'{command.id}'}/permissions">
+      <Endpoint method="PUT" path="/applications/{application.id}/guilds/{guild.id}/commands/{command.id}/permissions">
         {gt("Per-server overrides for users (type 2), roles (type 1, the @everyone role or the guild id for everyone) and channels (type 3, the guild id for all channels). Use your application id as the command id for app-wide defaults. Your bot token may call this; the bot gets APPLICATION_COMMAND_PERMISSIONS_UPDATE.")}
       </Endpoint>
-      <Endpoint method="GET" path="/applications/{'{application.id}'}/guilds/{'{guild.id}'}/commands/permissions">
+      <Endpoint method="GET" path="/applications/{application.id}/guilds/{guild.id}/commands/permissions">
         {gt("All overrides your app has in a server.")}
       </Endpoint>
+      <Endpoint method="PUT" path="/applications/{application.id}/guilds/{guild.id}/commands/permissions">
+        {gt("Batch form: send an array of entries, each with a command id and its permissions array, and it replaces every override your app has in that server. Commands you leave out lose their overrides, and an entry with an empty permissions array clears that command. Discord no longer lets bots use this route; SerikaCord keeps it.")}
+      </Endpoint>
+      <CodeBlock lang="json">{`[
+  {
+    "id": "COMMAND_ID",
+    "permissions": [
+      { "id": "ROLE_ID", "type": 1, "permission": true },
+      { "id": "GUILD_ID", "type": 1, "permission": false }
+    ]
+  },
+  {
+    "id": "YOUR_APPLICATION_ID",
+    "permissions": [
+      { "id": "CHANNEL_ID", "type": 3, "permission": false }
+    ]
+  }
+]`}</CodeBlock>
+      <P>
+        {gt("Up to 250 entries with up to 100 permissions each, and each command id at most once. Every id must be a global command of your app, one of its commands in that server, or your application id (app-wide defaults); otherwise nothing changes and the request answers 404 Unknown application command (10063). Returns the stored overrides, and your bot gets one APPLICATION_COMMAND_PERMISSIONS_UPDATE per entry.")}
+      </P>
+      <P>
+        {gt("Both PUT routes take the same callers: your app's bot token, or a user's Bearer token with applications.commands.permissions.update. With a Bearer token, your bot must be in the server and that user must be able to manage the server and its roles.")}
+      </P>
 
       <H2 id="option-types">{gt("Option types")}</H2>
       <Table headers={[gt("Type"), gt("Name"), gt("Description")]} rows={[

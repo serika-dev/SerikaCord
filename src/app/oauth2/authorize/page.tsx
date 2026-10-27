@@ -86,6 +86,8 @@ function AuthorizeForm() {
   // PKCE (RFC 7636): passed through to the server, which binds it to the code.
   const codeChallenge = searchParams.get("code_challenge") || "";
   const codeChallengeMethod = searchParams.get("code_challenge_method") || "";
+  // OpenID Connect nonce, echoed in the id_token (openid scope).
+  const nonce = searchParams.get("nonce") || "";
   // Preselects a server (App Discovery "Add to Server"); only used when the user can manage it.
   const preferredGuildId = searchParams.get("guild_id") || "";
 
@@ -202,6 +204,7 @@ function AuthorizeForm() {
           response_type: responseType,
           code_challenge: codeChallenge || undefined,
           code_challenge_method: codeChallengeMethod || undefined,
+          nonce: nonce || undefined,
         }),
       });
 

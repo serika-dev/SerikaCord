@@ -37,12 +37,19 @@ export const AuditLogEvent = {
   MESSAGE_BULK_DELETE: 73,
   MESSAGE_PIN: 74,
   MESSAGE_UNPIN: 75,
+  STAGE_INSTANCE_CREATE: 83,
+  STAGE_INSTANCE_UPDATE: 84,
+  STAGE_INSTANCE_DELETE: 85,
   STICKER_CREATE: 90,
   STICKER_UPDATE: 91,
   STICKER_DELETE: 92,
+  GUILD_SCHEDULED_EVENT_CREATE: 100,
+  GUILD_SCHEDULED_EVENT_UPDATE: 101,
+  GUILD_SCHEDULED_EVENT_DELETE: 102,
   THREAD_CREATE: 110,
   THREAD_UPDATE: 111,
   THREAD_DELETE: 112,
+  APPLICATION_COMMAND_PERMISSION_UPDATE: 121,
   SOUNDBOARD_SOUND_CREATE: 130,
   SOUNDBOARD_SOUND_UPDATE: 131,
   SOUNDBOARD_SOUND_DELETE: 132,
@@ -66,7 +73,8 @@ export function isAuditLogEventType(value: unknown): value is AuditLogEventType 
 /** What kind of object an event's `targetId` refers to. */
 export type AuditTargetKind =
   | 'guild' | 'channel' | 'user' | 'role' | 'invite' | 'webhook'
-  | 'emoji' | 'sticker' | 'thread' | 'soundboard' | 'automod_rule';
+  | 'emoji' | 'sticker' | 'thread' | 'soundboard' | 'automod_rule'
+  | 'stage_instance' | 'scheduled_event' | 'application_command';
 
 export function auditTargetKind(action: number): AuditTargetKind {
   if (action < 10) return 'guild';
@@ -77,8 +85,11 @@ export function auditTargetKind(action: number): AuditTargetKind {
   if (action < 60) return 'webhook';
   if (action < 70) return 'emoji';
   if (action < 80) return 'user'; // message events target the author
+  if (action >= 83 && action < 86) return 'stage_instance';
   if (action >= 90 && action < 100) return 'sticker';
+  if (action >= 100 && action < 103) return 'scheduled_event';
   if (action >= 110 && action < 120) return 'thread';
+  if (action === 121) return 'application_command';
   if (action >= 130 && action < 140) return 'soundboard';
   if (action >= 140 && action < 143) return 'automod_rule';
   if (action >= 143 && action < 150) return 'user'; // AutoMod actions target the author
@@ -97,6 +108,8 @@ export function auditVerb(action: number): 'create' | 'update' | 'delete' {
     case AuditLogEvent.STICKER_CREATE:
     case AuditLogEvent.THREAD_CREATE:
     case AuditLogEvent.SOUNDBOARD_SOUND_CREATE:
+    case AuditLogEvent.STAGE_INSTANCE_CREATE:
+    case AuditLogEvent.GUILD_SCHEDULED_EVENT_CREATE:
     case AuditLogEvent.MESSAGE_PIN:
     case AuditLogEvent.BOT_ADD:
     case AuditLogEvent.MEMBER_BAN_REMOVE:
@@ -115,6 +128,8 @@ export function auditVerb(action: number): 'create' | 'update' | 'delete' {
     case AuditLogEvent.STICKER_DELETE:
     case AuditLogEvent.THREAD_DELETE:
     case AuditLogEvent.SOUNDBOARD_SOUND_DELETE:
+    case AuditLogEvent.STAGE_INSTANCE_DELETE:
+    case AuditLogEvent.GUILD_SCHEDULED_EVENT_DELETE:
     case AuditLogEvent.MESSAGE_DELETE:
     case AuditLogEvent.MESSAGE_BULK_DELETE:
     case AuditLogEvent.MESSAGE_UNPIN:

@@ -55,6 +55,8 @@ export interface OutgoingMessage {
   username?: unknown;
   avatarUrl?: unknown;
   threadName?: unknown;
+  /** The request's `poll` as sent (callers that support polls validate it). */
+  rawPoll?: unknown;
   tts: boolean;
   /** `attachment://` names to resolve after the existing + new files are known. */
   attachmentRefs: string[];
@@ -206,6 +208,7 @@ export function parseOutgoingPayload(
       username: p.username,
       avatarUrl: p.avatar_url,
       threadName: p.thread_name,
+      rawPoll: p.poll,
       tts: p.tts === true,
       attachmentRefs,
     },

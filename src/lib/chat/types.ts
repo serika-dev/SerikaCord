@@ -139,7 +139,7 @@ export interface ReferencedMessage {
 export interface ChatMessage {
   id: string;
   content: string;
-  type?: "default" | "reply" | "system" | "call" | "thread_created" | "poll_result" | "e2ee_enabled" | "e2ee_disabled" | GroupDmEventType;
+  type?: "default" | "reply" | "system" | "call" | "thread_created" | "poll_result" | "e2ee_enabled" | "e2ee_disabled" | "channel_pinned_message" | GroupDmEventType;
   authorId: string;
   author: MessageAuthor;
   channelId: string;

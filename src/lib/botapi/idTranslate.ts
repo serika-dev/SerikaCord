@@ -66,7 +66,7 @@ function setOwn(obj: Record<string, unknown>, key: string, value: unknown) {
 export const MAX_OUTBOUND_IDS = 5000;
 
 /** Structural kinds (api_snowflakes.kind) for ids that live in jsonb, not in a table. */
-export const STRUCTURAL_KIND = { message: 4, attachment: 11, interaction: 12, tag: 18 } as const;
+export const STRUCTURAL_KIND = { message: 4, attachment: 11, interaction: 12, tag: 18, soundboardSound: 19 } as const;
 
 export interface OutboundScan {
   /** Lower-cased UUIDs found in the payload (at most MAX_OUTBOUND_IDS). */
@@ -97,6 +97,8 @@ function walkOut(v: unknown, key: string | null, parent: Record<string, unknown>
       const u = v.toLowerCase();
       addOut(scan, u);
       if (key === 'applied_tags') scan.kinds.set(u, STRUCTURAL_KIND.tag);
+      // Soundboard sounds live in servers.soundboard_sounds (jsonb).
+      else if (key === 'sound_id') scan.kinds.set(u, STRUCTURAL_KIND.soundboardSound);
     } else if (v.includes('<')) for (const m of v.matchAll(OUT_TOKEN_RE)) addOut(scan, m[2].toLowerCase());
     return;
   }
@@ -343,6 +345,8 @@ export function unknownIdError(param: string): { status: number; body: { code: n
     integrationId: [10005, 'Unknown Integration'],
     entitlementId: [10049, 'Unknown entitlement'],
     skuId: [10029, 'Unknown SKU'],
+    lobbyId: [10031, 'Unknown lobby'],
+    soundId: [10097, 'Unknown sound'],
   };
   const [code, message] = map[param] ?? [0, '404: Not Found'];
   return { status: 404, body: { code, message } };

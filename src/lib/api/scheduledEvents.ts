@@ -36,6 +36,9 @@ import {
   publishEventsChanged,
   type ScheduledEventRow,
 } from '@/lib/services/scheduledEvents';
+import { audit } from '@/lib/services/auditLog';
+import { AuditLogEvent } from '@/lib/audit/auditLog';
+import { scheduledEventChanges } from '@/lib/botapi/scheduledEvents';
 
 type Cookie = Record<string, { value?: unknown }>;
 type Fail = { status: number; error: string };
@@ -187,6 +190,7 @@ export const scheduledEventRoutes = new Elysia({ prefix: '/servers' })
     await db.insert(eu).values({ eventId: row.id, userId: user.id }).onConflictDoNothing();
     emitEventGateway('CREATE', row);
     void publishEventsChanged(params.serverId, row.id);
+    audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.GUILD_SCHEDULED_EVENT_CREATE, targetId: row.id, changes: [{ key: 'name', new: row.name }] });
     const [view] = await buildEventViews([row], user.id);
     return { event: view };
   }, { body: t.Record(t.String(), t.Any()) })
@@ -247,6 +251,7 @@ export const scheduledEventRoutes = new Elysia({ prefix: '/servers' })
     if (!updated) { set.status = 409; return { error: 'The event changed, try again' }; }
     emitEventGateway(to === 'canceled' ? 'DELETE' : 'UPDATE', updated);
     void publishEventsChanged(params.serverId, updated.id);
+    audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.GUILD_SCHEDULED_EVENT_UPDATE, targetId: updated.id, changes: scheduledEventChanges(row, updated) });
     if (to === 'active') void notifyEventStarted(updated, user.id);
     const [view] = await buildEventViews([updated], user.id);
     return { event: view };

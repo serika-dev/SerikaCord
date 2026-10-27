@@ -50,8 +50,10 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
       </P>
       <UL>
         <li>{gt("Op 4 (join voice) is answered with your bot's voice state and VOICE_SERVER_UPDATE with endpoint null, which libraries treat as \"no voice server available\". discord.js voice and discord.py VoiceClient joins then stop with a timeout instead of hanging.")}</li>
-        <li>{gt("There is a single voice region, serika. Stage speaker controls (suppress, request to speak) return 50024 because Serika has no stage channels yet.")}</li>
-        <li>{gt("Soundboard routes return empty lists.")}</li>
+        <li>{gt("There is a single voice region, serika. Speaker controls on another member's voice state (suppress) answer 50024; the bot's own voice state answers 10065 because the bot is never in voice.")}</li>
+        <li>{gt("Stage instances (topic and privacy of a live stage) work through /stage-instances, but no \"stage started\" notification is sent, so send_start_notification is only permission-checked.")}</li>
+        <li>{gt("The server soundboard is real: bots can list, create, edit and delete sounds. /soundboard-default-sounds is empty because Serika has no built-in sounds. send-soundboard-sound plays a sound to everyone in a voice channel without the bot being connected, which Discord requires.")}</li>
+        <li>{gt("Voice channel status (PUT /channels/:channel_id/voice-status) always needs Manage Channels, because the exception Discord makes for members connected to the channel can't apply to bots. The web client does not show the status yet.")}</li>
       </UL>
 
       <H2 id="presence">{gt("Presence")}</H2>
@@ -62,7 +64,9 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
       <H2 id="oauth2">{gt("OAuth2")}</H2>
       <UL>
         <li>{gt("Access tokens work only on the routes Discord allows them on (see OAuth2 -> Where access tokens work).")}</li>
-        <li>{gt("There is no OpenID Connect yet (/oauth2/userinfo and /oauth2/keys), no linked roles and no group DM creation (gdm.join).")}</li>
+        <li>{gt("OpenID Connect works: the openid scope adds an RS256 id_token to the token response, and /oauth2/userinfo and /oauth2/keys are served by SerikaCord.")}</li>
+        <li>{gt("Linked roles (role connection metadata and users' role connections) are stored and returned like Discord's, but Serika servers can't require them for roles yet.")}</li>
+        <li>{gt("gdm.join works for adding users to a group DM. The nick field is ignored because Serika group DMs have no per-member nicknames.")}</li>
         <li>{gt("client_credentials tokens act as the application's owner and only get identify and the applications.commands scopes (Discord allows more).")}</li>
       </UL>
 
@@ -76,6 +80,27 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
       <H2 id="monetization">{gt("Monetization")}</H2>
       <P>
         {gt("SerikaCord has no app payments. SKU, entitlement and subscription lists are always empty, single lookups answer 404 (10027 Unknown SKU, 10029 Unknown entitlement), and there are no entitlement events.")}
+      </P>
+
+      <H2 id="applications">{gt("Applications and interactions")}</H2>
+      <UL>
+        <li>{gt("Interaction callback types 10 (PREMIUM_REQUIRED, deprecated) and 12 (LAUNCH_ACTIVITY) are rejected with 50035: SerikaCord has no app monetization or Activities. Activity instance lookups always answer 404.")}</li>
+        <li>{gt("PATCH /applications/@me refuses event_webhooks_status 2 (enabled) with 50035, because SerikaCord does not deliver webhook events yet. The URL and event types are stored.")}</li>
+        <li>{gt("Scheduled events don't recur, so there are never scheduled event exceptions: creating one answers 50035 and the other exception routes answer 404.")}</li>
+        <li>{gt("Incident actions: invites_disabled_until pauses joining through invites; dms_disabled_until is stored and reported but not enforced.")}</li>
+        <li>{gt("Guild message search accepts slop but doesn't use it (every word must match, prefixes count), and offsets past 5,000 return an empty page.")}</li>
+        <li>{gt("Messages carry at most one sticker. shared_client_theme is accepted and ignored.")}</li>
+      </UL>
+
+      <H2 id="social-sdk">{gt("Lobbies and the Social SDK")}</H2>
+      <UL>
+        <li>{gt("Lobbies belong to one application. Members must be SerikaCord users who authorized your application; user calls take a Bearer token with the sdk.social_layer scope.")}</li>
+        <li>{gt("Lobby messages are text only: embeds, attachments, components, polls, stickers, replies and TTS are rejected with 50035. Lobby chat is kept for 72 hours.")}</li>
+        <li>{gt("A linked channel gets a copy of each lobby message, posted by your application's bot when it can send there. Messages sent in the linked channel are not relayed back into the lobby, and no lobby gateway events are sent.")}</li>
+        <li>{gt("SerikaCord has no provisional accounts. The partner-sdk token and unmerge routes validate the request (and your client credentials), then answer 530000.")}</li>
+      </UL>
+      <P>
+        {gt("See")}{" "}<Link2 href="/developers/docs/resources/lobby">{gt("Lobby")}</Link2>.
       </P>
 
       <H2 id="bridged-servers">{gt("Bridged servers")}</H2>
@@ -112,6 +137,7 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
 
       <H2 id="libraries">{gt("Library notes")}</H2>
       <Table headers={[gt("Library"), gt("Note")]} rows={[
+        ["serika.js", gt("The official SDK (npm @serikadev/serika.js). It targets SerikaCord by default, so no base URLs need changing.")],
         ["discord.py", gt("Set Route.BASE, DiscordWebSocket.DEFAULT_GATEWAY and Asset.BASE. Without DEFAULT_GATEWAY it connects to Discord's gateway with your token.")],
         ["discord.js", gt("Set rest.api and rest.cdn. The gateway URL comes from GET /gateway/bot.")],
         ["JDA, Serenity, DSharpPlus", gt("Not tested yet. They need Discord-style ids, the default for new applications.")],

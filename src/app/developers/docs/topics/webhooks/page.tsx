@@ -65,9 +65,10 @@ export default async function WebhooksDoc() {
   "avatar": "data:image/png;base64,..."
 }`}</CodeBlock>
       <Table headers={[gt("Parameter"), gt("Required"), gt("Description")]} rows={[
-        ["name", gt("Yes"), gt("1-80 character name for the webhook")],
-        ["avatar", gt("No"), gt("Base64 data URI for the webhook avatar")],
+        ["name", gt("Yes"), gt("1-80 character name for the webhook. May not contain clyde or discord, nor serika, system, staff, admin or moderator")],
+        ["avatar", gt("No"), gt("Image data as a data URI (PNG, JPEG, GIF or WebP), uploaded to SerikaCord's storage like Discord does. One of SerikaCord's own CDN URLs or null also works; other URLs are rejected")],
       ]} />
+      <P>{gt("A channel can have up to 15 webhooks; creating one more answers 30007.")}</P>
 
       <H3 id="execute">{gt("Execute a Webhook")}</H3>
       <Endpoint method="POST" path="/webhooks/{webhook.id}/{webhook.token}">
@@ -98,6 +99,8 @@ export default async function WebhooksDoc() {
         ["components", gt("No"), gt("Message components; only used with ?with_components=true. Application-owned webhooks may send buttons and selects, other webhooks link buttons and layout components")],
         ["flags", gt("No"), gt("SUPPRESS_EMBEDS, SUPPRESS_NOTIFICATIONS and IS_COMPONENTS_V2")],
         ["thread_name", gt("No"), gt("In a forum channel: create a post with this title")],
+        ["applied_tags", gt("No"), gt("With thread_name: up to 5 of the forum's tag ids, applied when the post is created (like Discord, they are not used when posting into an existing thread)")],
+        ["poll", gt("No"), gt("A Discord poll create request (question, answers, duration, allow_multiselect)")],
         ["files[n]", gt("No"), gt("Files as multipart/form-data, with the JSON body in payload_json")],
       ]} />
       <P>{gt("Optional query parameters:")}</P>
@@ -128,12 +131,82 @@ curl -X POST \\
         {gt("Delete a message sent by the webhook.")}
       </Endpoint>
 
+      <H2 id="slack-compatible">{gt("Slack-Compatible Webhooks")}</H2>
+      <Endpoint method="POST" path="/webhooks/{webhook.id}/{webhook.token}/slack">
+        {gt("Accepts a Slack incoming-webhook payload, so tools that only speak Slack can post to SerikaCord.")}
+      </Endpoint>
+      <Table headers={[gt("Field"), gt("Description")]} rows={[
+        ["text", gt("Message text. Slack mrkdwn is converted to markdown: links, bold, strikethrough and HTML entities. Special mentions such as here, channel and everyone become plain words and never ping")],
+        ["username", gt("Overrides the webhook's name for this message")],
+        ["icon_url", gt("Overrides the webhook's avatar (http or https URL)")],
+        ["attachments", gt("Each attachment becomes an embed (up to 10): color, author, title and link, text, fields, image, thumbnail, footer and ts. Attachment pretext is added to the message text")],
+      ]} />
+      <P>
+        {gt("Attachment colors take good, warning, danger or a hex color. The route answers 200 with the text ok, like Slack, or the message object with ?wait=true. ?thread_id posts into a thread. A form post with the JSON in a payload field works too. In a forum channel, pass ?thread_id; a Slack payload can't start a new post.")}
+      </P>
+      <CodeBlock lang="bash">{`curl -X POST \\
+  -H "Content-Type: application/json" \\
+  -d '{"text":"Deploy *finished* <https://ci.example.com/42|build 42>","attachments":[{"color":"good","title":"Production","text":"All checks passed"}]}' \\
+  "https://api.serika.chat/api/webhooks/WEBHOOK_ID/WEBHOOK_TOKEN/slack"`}</CodeBlock>
+
+      <H2 id="github-compatible">{gt("GitHub-Compatible Webhooks")}</H2>
+      <Endpoint method="POST" path="/webhooks/{webhook.id}/{webhook.token}/github">
+        {gt("Accepts GitHub webhook deliveries and posts them as embeds under the name GitHub. The event name is read from the X-GitHub-Event header.")}
+      </Endpoint>
+      <Table headers={[gt("Event"), gt("Posted for")]} rows={[
+        ["push", gt("New commits (up to 5 listed), or a force-push with no new commits")],
+        ["create, delete", gt("A branch or tag created or deleted")],
+        ["issues", gt("opened, closed, reopened")],
+        ["issue_comment", gt("created (on an issue or pull request)")],
+        ["pull_request", gt("opened, closed, merged, reopened")],
+        ["pull_request_review", gt("submitted (approved, changes requested, or commented)")],
+        ["pull_request_review_comment", gt("created")],
+        ["commit_comment", gt("Every comment")],
+        ["release", gt("published")],
+        ["star, watch", gt("A new star")],
+        ["fork", gt("A new fork")],
+        ["member", gt("added")],
+        ["public", gt("The repository was made public")],
+        ["discussion", gt("created, answered")],
+        ["discussion_comment", gt("created")],
+        ["check_run, check_suite", gt("completed, with the conclusion and branch")],
+      ]} />
+      <P>
+        {gt("Every other event or action, including GitHub's ping, is accepted with 204 and posts nothing, so GitHub's delivery log stays green. A wrong webhook id or token answers 404 (10015). Both application/json and form posts (JSON in the payload field) are accepted, and ?wait=true and ?thread_id work as on the normal execute route.")}
+      </P>
+      <P>
+        {gt("To set it up in GitHub, open the repository's Settings, then Webhooks, then Add webhook. Use the webhook URL with /github added as the Payload URL and application/json as the content type, then pick the events you want. The same can be done through GitHub's API:")}
+      </P>
+      <CodeBlock lang="bash">{`curl -X POST \\
+  -H "Authorization: Bearer GITHUB_TOKEN" \\
+  -H "Accept: application/vnd.github+json" \\
+  -d '{
+    "name": "web",
+    "active": true,
+    "events": ["push", "pull_request", "issues", "release"],
+    "config": {
+      "url": "https://api.serika.chat/api/webhooks/WEBHOOK_ID/WEBHOOK_TOKEN/github",
+      "content_type": "json"
+    }
+  }' \\
+  "https://api.github.com/repos/OWNER/REPO/hooks"
+
+# Send a test delivery yourself
+curl -X POST \\
+  -H "Content-Type: application/json" \\
+  -H "X-GitHub-Event: star" \\
+  -d '{"action":"created","repository":{"full_name":"owner/repo","html_url":"https://github.com/owner/repo"},"sender":{"login":"octocat"}}' \\
+  "https://api.serika.chat/api/webhooks/WEBHOOK_ID/WEBHOOK_TOKEN/github"`}</CodeBlock>
+      <Callout type="info" title={gt("Versioned and Unversioned URLs")}>
+        {gt("The Slack and GitHub routes work with and without the version prefix: /api/webhooks/ID/TOKEN/github and /api/v10/webhooks/ID/TOKEN/github are the same endpoint.")}
+      </Callout>
+
       <H2 id="managing-webhooks">{gt("Managing Webhooks")}</H2>
       <Endpoint method="GET" path="/channels/{channel.id}/webhooks">{gt("List webhooks in a channel (requires MANAGE_WEBHOOKS).")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/webhooks">{gt("List webhooks in a guild (requires MANAGE_WEBHOOKS).")}</Endpoint>
       <Endpoint method="GET" path="/webhooks/{webhook.id}">{gt("Get a webhook by ID (requires token for avatar).")}</Endpoint>
-      <Endpoint method="PATCH" path="/webhooks/{webhook.id}">{gt("Update a webhook (name, avatar, channel_id).")}</Endpoint>
-      <Endpoint method="PATCH" path="/webhooks/{webhook.id}/{webhook.token}">{gt("Update a webhook using its token (no auth header needed).")}</Endpoint>
+      <Endpoint method="PATCH" path="/webhooks/{webhook.id}">{gt("Update a webhook (name, avatar, channel_id). avatar takes image data, one of our CDN URLs, or null to remove it.")}</Endpoint>
+      <Endpoint method="PATCH" path="/webhooks/{webhook.id}/{webhook.token}">{gt("Update a webhook's name or avatar using its token (no auth header needed; channel_id needs a bot token).")}</Endpoint>
       <Endpoint method="DELETE" path="/webhooks/{webhook.id}">{gt("Delete a webhook (requires MANAGE_WEBHOOKS).")}</Endpoint>
       <Endpoint method="DELETE" path="/webhooks/{webhook.id}/{webhook.token}">{gt("Delete a webhook using its token (no auth header needed).")}</Endpoint>
 

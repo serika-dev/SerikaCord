@@ -49,7 +49,7 @@ const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /** Rows drawn as a one-line notice instead of a message bubble (calls, poll results, group events). */
 export function isStandaloneRow(message: Pick<ChatMessage, "type">): boolean {
-  return message.type === "call" || message.type === "thread_created" || message.type === "poll_result" || message.type === "e2ee_enabled" || message.type === "e2ee_disabled" || isGroupDmEventType(message.type);
+  return message.type === "call" || message.type === "thread_created" || message.type === "poll_result" || message.type === "channel_pinned_message" || message.type === "e2ee_enabled" || message.type === "e2ee_disabled" || isGroupDmEventType(message.type);
 }
 
 /**

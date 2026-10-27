@@ -1,4 +1,4 @@
-import { DocPage, P, H2, H3, UL, CodeBlock, Callout, Strong, InlineCode, Link2, Endpoint, Table } from "../../DocPage";
+import { DocPage, P, H2, CodeBlock, Callout, InlineCode, Endpoint, Table } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
 import { getGT } from "gt-next/server";
 
@@ -70,10 +70,16 @@ export default async function AuditLogDoc() {
         ["GUILD_SCHEDULED_EVENT_CREATE", "80"],
         ["GUILD_SCHEDULED_EVENT_UPDATE", "81"],
         ["GUILD_SCHEDULED_EVENT_DELETE", "82"],
+        ["STAGE_INSTANCE_CREATE", "83"],
+        ["STAGE_INSTANCE_UPDATE", "84"],
+        ["STAGE_INSTANCE_DELETE", "85"],
         ["THREAD_CREATE", "110"],
         ["THREAD_UPDATE", "111"],
         ["THREAD_DELETE", "112"],
         ["APPLICATION_COMMAND_PERMISSION_UPDATE", "121"],
+        ["SOUNDBOARD_SOUND_CREATE", "130"],
+        ["SOUNDBOARD_SOUND_UPDATE", "131"],
+        ["SOUNDBOARD_SOUND_DELETE", "132"],
         ["AUTO_MODERATION_RULE_CREATE", "140"],
         ["AUTO_MODERATION_RULE_UPDATE", "141"],
         ["AUTO_MODERATION_RULE_DELETE", "142"],

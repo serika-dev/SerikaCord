@@ -58,6 +58,7 @@ import {
   normalizeOnboardingConfig,
   rolesWithUnsafeChannelGrants,
   validateOnboardingSelection,
+  withBotOnboardingFields,
   type OnboardingConfig,
 } from '@/lib/servers/onboarding';
 import {
@@ -501,7 +502,8 @@ export const communityRoutes = new Elysia()
       return { error: 'Each question needs a title and at least one option', code: 'incomplete_question', questionIndex: incomplete[0] };
     }
     const config = normalizeOnboardingConfig(
-      { enabled: body.enabled ?? current.enabled, questions: sanitized.questions ?? current.questions, guide: sanitized.guide ?? current.guide },
+      // Option / default channels and mode are set by bots only: keep them.
+      withBotOnboardingFields({ enabled: body.enabled ?? current.enabled, questions: sanitized.questions ?? current.questions, guide: sanitized.guide ?? current.guide }, current),
       { channelIds, roleIds, emojis },
     );
     await saveOnboardingConfig(access.server.id, config);

@@ -108,6 +108,31 @@ function emitVoiceState(roomId: string, userId: string, participant: VoicePartic
     .catch(() => {});
 }
 
+/**
+ * Play a soundboard sound to everyone in a server voice channel, as `from`
+ * (bot API send-soundboard-sound; the web route below does the same for a
+ * member in the room). Returns how many participants it reached.
+ */
+export function playSoundboardInChannel(
+  channelId: string,
+  sound: { from: { id: string; name: string }; soundUrl: string; soundName: string; volume: number },
+): number {
+  const wanted = `channel-${channelId}`.toLowerCase();
+  for (const [roomId, room] of roomState) {
+    if (roomId.toLowerCase() !== wanted || room.size === 0) continue;
+    broadcastToRoom(roomId, {
+      type: 'voice:soundboard',
+      userId: sound.from.id,
+      username: sound.from.name,
+      soundUrl: sound.soundUrl,
+      soundName: sound.soundName,
+      volume: sound.volume,
+    });
+    return room.size;
+  }
+  return 0;
+}
+
 /** Participants of every server voice room on this instance's (synced) mirror. */
 export function channelRoomParticipants(): Array<{ channelId: string; participants: VoiceParticipant[] }> {
   const out: Array<{ channelId: string; participants: VoiceParticipant[] }> = [];
@@ -277,6 +302,10 @@ function evictFromRoom(roomId: string, userId: string) {
   // Last one out of a DM call: close its call message ("lasted 5 minutes" /
   // "missed call").
   if (empty) void onDmCallRoomEmpty(roomId);
+  // Last one out of a server voice channel: its status clears (Discord).
+  if (empty && roomId.startsWith('channel-')) {
+    void import('@/lib/botapi/voiceChannelStatus').then((m) => m.clearVoiceChannelStatus(roomId.slice('channel-'.length))).catch(() => {});
+  }
 }
 
 /**
@@ -1167,6 +1196,15 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       }
       // Server soundboard volume × this sound's own volume (CORD-31).
       volume = effectiveSoundPercent((server.settings as IServerSettings | undefined)?.soundboard?.volume, sound);
+      // Bots in the server: VOICE_CHANNEL_EFFECT_SEND (GUILD_VOICE_STATES).
+      const soundRef = sound as { id?: string; emoji?: string };
+      if (soundRef.id) {
+        const serverId = channel.serverId;
+        void import('@/lib/services/gatewayEvents').then(({ emitVoiceChannelEffectSend }) => emitVoiceChannelEffectSend({
+          channelId: channel.id, guildId: serverId, userId: user.id, soundId: soundRef.id!,
+          soundVolume: Math.max(0, Math.min(1, volume / 100)), emoji: soundRef.emoji ? { id: null, name: soundRef.emoji } : null,
+        })).catch(() => {});
+      }
     }
 
     broadcastToRoom(params.roomId, {

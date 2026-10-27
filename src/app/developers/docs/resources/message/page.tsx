@@ -56,6 +56,10 @@ export default async function MessageDoc() {
         [gt("ContextMenu Command"), "23"],
         [gt("Auto Moderation Action"), "24"],
       ]} />
+      <P>
+        {gt("Pinning a message posts a Channel Pinned Message (type 6) whose message_reference points at the pinned message. See")}{" "}
+        <Link2 href="/developers/docs/resources/channel#pinned-message-notice">{gt("Pinned Message Notice")}</Link2>.
+      </P>
 
       <H2 id="message-flags">{gt("Message Flags")}</H2>
       <Table headers={[gt("Flag"), gt("Value"), gt("Description")]} rows={[
@@ -86,10 +90,32 @@ export default async function MessageDoc() {
   "content": "Hello!",
   "tts": false,
   "embeds": [],
-  "components": [],
-  "reply_to_message_id": "1234567890",
+  "components": [
+    {
+      "type": 1,
+      "components": [
+        { "type": 2, "style": 1, "label": "Click me", "custom_id": "hello_click" }
+      ]
+    }
+  ],
+  "message_reference": { "message_id": "1234567890" },
   "allowed_mentions": { "parse": ["users"] }
 }`}</CodeBlock>
+      <Table headers={[gt("Field"), gt("Description")]} rows={[
+        ["content", gt("Message text, up to 2000 characters")],
+        ["embeds", gt("Up to 10 rich embeds")],
+        ["components", gt("Action rows with buttons or a select menu, or a Components V2 layout. Stored with the message and shown in the client")],
+        ["sticker_ids", gt("At most one sticker per message (a SerikaCord limit; Discord allows 3). Invalid or unusable stickers answer 50081")],
+        ["message_reference", gt("Reply (type 0, same channel) or forward (type 1, needs channel_id and nothing else in the message)")],
+        ["poll", gt("A Discord poll create request; needs Send Polls in servers")],
+        ["allowed_mentions", gt("Which mentions may ping")],
+        ["nonce / enforce_nonce", gt("With enforce_nonce, a retry with the same nonce returns the first message instead of a duplicate")],
+        ["files[n] / attachments", gt("Uploads as multipart/form-data, with the JSON body in payload_json")],
+        ["shared_client_theme", gt("Accepted and ignored; SerikaCord has no client themes to share")],
+      ]} />
+      <P>
+        {gt("Editing a message (PATCH) honours components too: send new ones to replace them, or null or an empty array to remove them. Only the message's author can change its components. sticker_ids is ignored on edit, as on Discord.")}
+      </P>
 
       <H2 id="components-v2">{gt("Components V2")}</H2>
       <P>

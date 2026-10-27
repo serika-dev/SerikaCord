@@ -6,6 +6,7 @@
  */
 import { allowedPrivilegedIntents, intentApplicationFlags, INTENT, toStoredIntents, APPLICATION_FLAGS } from '@/lib/gateway/intents';
 import { invalidFormBody, type DiscordError } from './errors';
+import { decodeImageDataUri, type DecodedImage } from './imageData';
 
 /** Discord's "_LIMITED" intent flags: the only flags an app may PATCH. */
 export const LIMITED_INTENT_FLAGS = {
@@ -41,6 +42,26 @@ export interface AppRow {
   createdAt?: Date | string | null;
 }
 
+/**
+ * Application fields kept outside the `applications` row
+ * (src/lib/services/applicationApiSettings.ts).
+ */
+export interface AppApiExtras {
+  roleConnectionsVerificationUrl?: string | null;
+  eventWebhooksUrl?: string | null;
+  eventWebhooksStatus?: number;
+  eventWebhooksTypes?: string[];
+  explicitContentFilter?: number;
+  maxParticipants?: number | null;
+}
+
+/** Discord's event webhook event types (the ones an app may subscribe to). */
+export const EVENT_WEBHOOK_TYPES: ReadonlySet<string> = new Set([
+  'APPLICATION_AUTHORIZED', 'APPLICATION_DEAUTHORIZED', 'ENTITLEMENT_CREATE', 'QUEST_USER_ENROLLMENT',
+  'LOBBY_MESSAGE_CREATE', 'LOBBY_MESSAGE_UPDATE', 'LOBBY_MESSAGE_DELETE',
+  'GAME_DIRECT_MESSAGE_CREATE', 'GAME_DIRECT_MESSAGE_UPDATE', 'GAME_DIRECT_MESSAGE_DELETE',
+]);
+
 /** Application `flags`: stored flags (minus intent bits) plus the enabled privileged intents. */
 export function applicationFlags(app: AppRow): number {
   return ((Number(app.flags) || 0) & ~ALL_INTENT_FLAGS) | intentApplicationFlags(allowedPrivilegedIntents(app));
@@ -58,9 +79,10 @@ export function installParamsOf(app: AppRow): { scopes: string[]; permissions: s
 /** Discord application object (GET /applications/@me, /oauth2/applications/@me). */
 export function toDiscordApplication(
   app: AppRow,
-  opts: { owner?: Record<string, unknown> | null; bot?: Record<string, unknown> | null; guildCount?: number },
+  opts: { owner?: Record<string, unknown> | null; bot?: Record<string, unknown> | null; guildCount?: number; extras?: AppApiExtras },
 ) {
   const install = installParamsOf(app);
+  const x = opts.extras ?? {};
   return {
     id: app.id,
     name: app.name,
@@ -87,10 +109,13 @@ export function toDiscordApplication(
     approximate_user_authorization_count: 0,
     redirect_uris: app.redirectUris ?? [],
     interactions_endpoint_url: app.interactionsEndpointUrl ?? null,
-    role_connections_verification_url: null,
-    event_webhooks_url: null,
-    event_webhooks_status: 1,
-    event_webhooks_types: [],
+    role_connections_verification_url: x.roleConnectionsVerificationUrl ?? null,
+    event_webhooks_url: x.eventWebhooksUrl ?? null,
+    event_webhooks_status: x.eventWebhooksStatus ?? 1,
+    event_webhooks_types: x.eventWebhooksTypes ?? [],
+    explicit_content_filter: x.explicitContentFilter ?? 0,
+    ...(x.maxParticipants !== undefined && x.maxParticipants !== null ? { max_participants: x.maxParticipants } : {}),
+    cover_image: app.coverImage ?? undefined,
     tags: app.tags ?? [],
     ...(install ? { install_params: install } : {}),
     integration_types_config: { '0': install ? { oauth2_install_params: install } : {} },
@@ -100,17 +125,42 @@ export function toDiscordApplication(
 
 const VALID_SCOPES = new Set(['bot', 'applications.commands', 'identify', 'email', 'guilds', 'guilds.join', 'guilds.members.read', 'connections', 'messages.read', 'webhook.incoming', 'applications.commands.permissions.update']);
 
+export type DecodedAppImage = Extract<DecodedImage, { ok: true }>;
+
+export interface ApplicationPatch {
+  ok: true;
+  /** Columns of the `applications` row. */
+  updates: Record<string, unknown>;
+  /** Must be verified with a signed PING before it is saved. */
+  interactionsEndpointUrl?: string | null;
+  /** Fields stored outside the row (src/lib/services/applicationApiSettings.ts). */
+  extras?: AppApiExtras;
+  /** New icon / cover image to upload (null clears is in `updates`). */
+  images?: { icon?: DecodedAppImage; coverImage?: DecodedAppImage };
+  /** `team_id` as sent; the caller compares it with the app's team. */
+  teamId?: string | null;
+}
+
+const isHttpUrl = (v: string, httpsOnly: boolean) => {
+  if (v.length > 2048 || !(httpsOnly ? /^https:\/\//i : /^https?:\/\//i).test(v)) return false;
+  try { return Boolean(new URL(v).hostname); } catch { return false; }
+};
+
 /**
- * Validate a PATCH /applications/@me body into model updates (Discord's
- * editable fields). `interactions_endpoint_url` is returned separately: the
- * caller must verify it with a signed PING before saving.
+ * Validate a PATCH /applications/@me body (Discord's editable fields) into
+ * row updates, side-table extras and images to upload. `interactions_endpoint_url`
+ * is returned separately: the caller must verify it with a signed PING before
+ * saving.
  */
 export function parseApplicationPatch(
   body: unknown,
-): { ok: true; updates: Record<string, unknown>; interactionsEndpointUrl?: string | null } | { ok: false; error: DiscordError } {
+  limits: { iconBytes?: number; coverBytes?: number } = {},
+): ApplicationPatch | { ok: false; error: DiscordError } {
   const b = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
   const errs: Array<{ path: string; code: string; message: string }> = [];
   const updates: Record<string, unknown> = {};
+  const extras: AppApiExtras = {};
+  const images: { icon?: DecodedAppImage; coverImage?: DecodedAppImage } = {};
   let interactionsEndpointUrl: string | null | undefined;
 
   if (b.description !== undefined) {
@@ -169,17 +219,73 @@ export function parseApplicationPatch(
       errs.push({ path: 'interactions_endpoint_url', code: 'URL_TYPE_INVALID_URL', message: 'Not a well formed https URL.' });
     } else interactionsEndpointUrl = v;
   }
-  for (const k of ['icon', 'cover_image'] as const) {
-    if (b[k] !== undefined && b[k] !== null) {
-      errs.push({ path: k, code: 'BASE_TYPE_BAD_TYPE', message: 'Change the image in the Developer Portal.' });
+  // Image data URIs (data:image/png;base64,...), uploaded by the caller.
+  for (const [k, col, max] of [['icon', 'icon', limits.iconBytes ?? 5 * 1024 * 1024], ['cover_image', 'coverImage', limits.coverBytes ?? 10 * 1024 * 1024]] as const) {
+    const v = b[k];
+    if (v === undefined) continue;
+    if (v === null || v === '') { updates[col] = null; continue; }
+    const img = decodeImageDataUri(v, max);
+    if (!img.ok) errs.push({ path: k, code: 'IMAGE_INVALID', message: img.message });
+    else images[col] = img;
+  }
+  if (b.role_connections_verification_url !== undefined) {
+    const v = b.role_connections_verification_url;
+    if (v === null || v === '') extras.roleConnectionsVerificationUrl = null;
+    else if (typeof v !== 'string' || !isHttpUrl(v, false)) errs.push({ path: 'role_connections_verification_url', code: 'URL_TYPE_INVALID_URL', message: 'Not a well formed URL.' });
+    else extras.roleConnectionsVerificationUrl = v;
+  }
+  if (b.event_webhooks_url !== undefined) {
+    const v = b.event_webhooks_url;
+    if (v === null || v === '') extras.eventWebhooksUrl = null;
+    else if (typeof v !== 'string' || !isHttpUrl(v, true)) errs.push({ path: 'event_webhooks_url', code: 'URL_TYPE_INVALID_URL', message: 'Not a well formed https URL.' });
+    else extras.eventWebhooksUrl = v;
+  }
+  if (b.event_webhooks_types !== undefined) {
+    const v = b.event_webhooks_types;
+    if (v === null) extras.eventWebhooksTypes = [];
+    else if (!Array.isArray(v)) errs.push({ path: 'event_webhooks_types', code: 'BASE_TYPE_BAD_TYPE', message: 'Must be an array.' });
+    else {
+      const bad = v.findIndex((t) => typeof t !== 'string' || !EVENT_WEBHOOK_TYPES.has(t));
+      if (bad >= 0) errs.push({ path: `event_webhooks_types.${bad}`, code: 'BASE_TYPE_CHOICES', message: `Value must be one of (${[...EVENT_WEBHOOK_TYPES].join(', ')}).` });
+      else extras.eventWebhooksTypes = [...new Set(v as string[])];
     }
   }
-  if (b.icon === null) updates.icon = null;
-  if (b.cover_image === null) updates.coverImage = null;
-  if (b.role_connections_verification_url !== undefined && b.role_connections_verification_url !== null) {
-    errs.push({ path: 'role_connections_verification_url', code: 'BASE_TYPE_BAD_TYPE', message: 'Linked roles are not supported.' });
+  if (b.event_webhooks_status !== undefined) {
+    // 1 DISABLED, 2 ENABLED, 3 DISABLED_BY_DISCORD (not settable). SerikaCord
+    // doesn't deliver webhook events yet, so enabling them is refused rather
+    // than silently accepted.
+    const v = b.event_webhooks_status;
+    if (v === 1) extras.eventWebhooksStatus = 1;
+    else if (v === 2) errs.push({ path: 'event_webhooks_status', code: 'APPLICATION_EVENT_WEBHOOKS_UNSUPPORTED', message: 'Webhook events are not available on SerikaCord yet.' });
+    else errs.push({ path: 'event_webhooks_status', code: 'BASE_TYPE_CHOICES', message: 'Value must be one of (1, 2).' });
+  }
+  if (b.explicit_content_filter !== undefined) {
+    const v = b.explicit_content_filter;
+    if (v === 0 || v === 1) extras.explicitContentFilter = v;
+    else errs.push({ path: 'explicit_content_filter', code: 'BASE_TYPE_CHOICES', message: 'Value must be one of (0, 1).' });
+  }
+  if (b.max_participants !== undefined) {
+    const v = b.max_participants;
+    if (v === null) extras.maxParticipants = null;
+    else if (typeof v !== 'number' || !Number.isInteger(v) || v < -1 || v > 1_000_000) errs.push({ path: 'max_participants', code: 'NUMBER_TYPE_COERCE', message: 'Value must be an integer of -1 or more.' });
+    else extras.maxParticipants = v;
+  }
+  if (b.type !== undefined && b.type !== null) {
+    errs.push({ path: 'type', code: 'BASE_TYPE_CHOICES', message: 'The application type cannot be changed.' });
+  }
+  let teamId: string | null | undefined;
+  if (b.team_id !== undefined) {
+    if (b.team_id === null || (typeof b.team_id === 'string' && b.team_id.length <= 64)) teamId = b.team_id as string | null;
+    else errs.push({ path: 'team_id', code: 'NUMBER_TYPE_COERCE', message: 'Value is not snowflake.' });
   }
 
   if (errs.length > 0) return { ok: false, error: invalidFormBody(errs) };
-  return { ok: true, updates, ...(interactionsEndpointUrl !== undefined ? { interactionsEndpointUrl } : {}) };
+  return {
+    ok: true,
+    updates,
+    ...(interactionsEndpointUrl !== undefined ? { interactionsEndpointUrl } : {}),
+    ...(Object.keys(extras).length > 0 ? { extras } : {}),
+    ...(Object.keys(images).length > 0 ? { images } : {}),
+    ...(teamId !== undefined ? { teamId } : {}),
+  };
 }

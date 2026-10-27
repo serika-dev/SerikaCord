@@ -26,6 +26,7 @@ import {
 export { webhookErrorMessage } from '@/lib/chat/webhook';
 import { cdnKeyOf } from '@/lib/botapi/cdn';
 import { decodeImageDataUri, type DecodedImage } from '@/lib/botapi/imageData';
+import { fromDiscordPollRequest, normalizePollInput, type StoredPoll } from '@/lib/chat/polls';
 
 export type WebhookRow = NonNullable<Awaited<ReturnType<typeof ChannelWebhook.findById>>>;
 export type WebhookResult = { status: number; body: unknown; headers?: Record<string, string> };
@@ -347,7 +348,15 @@ export async function executeWebhook(
   components = fin.components;
   const emb = resolveEmbeds(m, uploaded.attachments);
   if (!emb.ok) return apiFailure(emb);
-  if (isEmptyOutgoing({ ...m, content, components, embeds: emb.embeds }, uploaded.attachments.length)) {
+  // poll: Discord's poll create request, stored and run like bot polls.
+  let poll: StoredPoll | null = null;
+  if (m.rawPoll !== undefined && m.rawPoll !== null) {
+    const input = fromDiscordPollRequest(m.rawPoll);
+    const checked = input ? normalizePollInput(input) : { error: 'Invalid poll' };
+    if ('error' in checked) return { status: 400, body: formError(['poll'], FE.INVALID, checked.error) };
+    poll = checked.poll;
+  }
+  if (!poll && isEmptyOutgoing({ ...m, content, components, embeds: emb.embeds }, uploaded.attachments.length)) {
     return { status: 400, body: { code: 50006, message: 'Cannot send an empty message' } };
   }
 
@@ -388,6 +397,8 @@ export async function executeWebhook(
       attachments: uploaded.attachments,
       flags: m.flags,
       mentionedUserIds: m.allowedUserIds ?? [],
+      ...(poll ? { poll } : {}),
+      ...(m.tts ? { tts: true } : {}),
     },
   });
   if (isThread(channel)) {

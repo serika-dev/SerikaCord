@@ -32,6 +32,7 @@ export default async function OAuth2Doc() {
         ["guilds", gt("Get list of servers the user is a member of")],
         ["guilds.join", gt("Join a server on behalf of the user (requires guilds)")],
         ["guilds.members.read", gt("Read member info (roles, nicknames) in servers the user is in")],
+        ["gdm.join", gt("Let your bot add the user to a group DM it is in, or create a group DM with them")],
         ["messages.read", gt("Read messages in servers the user is in")],
         ["rpc", gt("Connect to SerikaCord via RPC (for desktop apps)")],
         ["rpc.notifications.read", gt("Read desktop notifications via RPC")],
@@ -54,6 +55,9 @@ export default async function OAuth2Doc() {
         ["profile.read", gt("Read the user's full profile (bio, widgets, game library)")],
         ["profile.write", gt("Update the user's profile (bio, widgets, game library)")],
         ["analytics.read", gt("Read analytics data for the user's servers")],
+        ["openid", gt("OpenID Connect: an id_token on the code exchange and access to /oauth2/userinfo")],
+        ["role_connections.write", gt("Read and update the user's role connection for your app (linked roles metadata)")],
+        ["sdk.social_layer", gt("Social SDK lobbies: create or join your app's lobbies, chat in them and link them to channels as the user")],
       ]} />
 
       <Callout type="info" title={gt("Scope hierarchy")}>
@@ -176,6 +180,52 @@ grant_type=client_credentials
         {gt("A client credentials token acts as the application's owner, so it is limited to identify, applications.commands, applications.commands.update and applications.commands.permissions.update, and there is no refresh token. Its usual use is deploying slash commands without a bot token.")}
       </Callout>
 
+      <H2 id="openid-connect">{gt("OpenID Connect")}</H2>
+      <P>
+        {gt("Add openid to the scopes of an authorization code flow to sign users in with OpenID Connect. You may also send a nonce parameter on the authorize URL (up to 256 printable ASCII characters, anything else is ignored); it is copied into the id_token.")}
+      </P>
+      <CodeBlock lang="text">{`https://api.serika.chat/api/oauth2/authorize?response_type=code&client_id=YOUR_CLIENT_ID&scope=openid%20identify%20email&redirect_uri=YOUR_REDIRECT_URI&state=RANDOM_STATE&nonce=RANDOM_NONCE`}</CodeBlock>
+      <P>{gt("When openid was granted, the token response also contains an id_token:")}</P>
+      <CodeBlock lang="json">{`{
+  "access_token": "YOUR_ACCESS_TOKEN",
+  "token_type": "Bearer",
+  "expires_in": 604800,
+  "refresh_token": "YOUR_REFRESH_TOKEN",
+  "scope": "openid identify email",
+  "id_token": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCIsImtpZCI6Ii4uLiJ9..."
+}`}</CodeBlock>
+      <P>{gt("The id_token is a JWT signed with RS256 that expires one week after it is issued. Its claims:")}</P>
+      <Table headers={[gt("Claim"), gt("Description")]} rows={[
+        ["iss", gt("The SerikaCord site origin (https://serika.chat on the hosted service)")],
+        ["sub", gt("The user's id, in the same id format your app uses everywhere else")],
+        ["aud", gt("Your client id")],
+        ["exp / iat / auth_time", gt("Expiry, issue time and the time the user consented, in seconds")],
+        ["at_hash", gt("Hash of the access token issued with it")],
+        ["nonce", gt("The nonce from the authorize request, when you sent one")],
+        ["preferred_username / nickname / picture / locale", gt("Basic profile (picture only when the user has an avatar)")],
+        ["email / email_verified", gt("Only when the email scope was granted")],
+      ]} />
+      <P>{gt("A refresh of an openid grant returns a new id_token as well (without a nonce). The implicit flow and client credentials tokens never carry one.")}</P>
+      <H3 id="userinfo">{gt("User info")}</H3>
+      <CodeBlock lang="bash">{`GET https://api.serika.chat/api/v10/oauth2/userinfo
+Authorization: Bearer YOUR_ACCESS_TOKEN`}</CodeBlock>
+      <CodeBlock lang="json">{`{
+  "sub": "1234567890",
+  "preferred_username": "seika",
+  "nickname": "Seika",
+  "locale": "en-US",
+  "picture": "https://cdn.serika.chat/...",
+  "email": "seika@example.com",
+  "email_verified": true
+}`}</CodeBlock>
+      <P>{gt("The token needs the openid scope (otherwise 403 with code 50026). email and email_verified are only included with the email scope.")}</P>
+      <H3 id="jwks">{gt("Signing keys")}</H3>
+      <CodeBlock lang="bash">GET https://api.serika.chat/api/v10/oauth2/keys</CodeBlock>
+      <P>{gt("Returns the JSON Web Key Set that verifies id_tokens. It needs no authentication and may be cached for an hour. Pick the key whose kid matches the token header, and fetch the set again when you see a kid you don't know.")}</P>
+      <Callout type="info" title={gt("No discovery document")}>
+        {gt("SerikaCord does not serve /.well-known/openid-configuration. Configure your OpenID Connect library with the authorize, token, userinfo and keys URLs on this page by hand.")}
+      </Callout>
+
       <H2 id="bearer-routes">{gt("Where access tokens work")}</H2>
       <P>{gt("Send the token as Authorization: Bearer YOUR_ACCESS_TOKEN. The Discord-compatible API accepts it only on these routes, and only with the listed scope; everything else needs a bot token.")}</P>
       <Table headers={[gt("Route"), gt("Scope")]} rows={[
@@ -186,8 +236,20 @@ grant_type=client_credentials
         ["GET /api/v10/oauth2/@me", gt("any")],
         ["GET/POST/PUT/PATCH/DELETE /api/v10/applications/{app.id}/commands…", gt("applications.commands.update (client credentials tokens only)")],
         ["PUT …/guilds/{guild.id}/commands/{command.id}/permissions", "applications.commands.permissions.update"],
+        ["PUT …/guilds/{guild.id}/commands/permissions", "applications.commands.permissions.update"],
         ["PUT /api/v10/guilds/{guild.id}/members/{user.id} (access_token in the body)", "guilds.join"],
+        ["PUT /api/v10/channels/{channel.id}/recipients/{user.id} (access_token in the body)", "gdm.join"],
+        ["POST /api/v10/users/@me/channels (access_tokens in the body)", "gdm.join"],
+        ["GET /api/v10/oauth2/userinfo", "openid"],
+        ["GET/PUT/DELETE /api/v10/users/@me/applications/{app.id}/role-connection", "role_connections.write"],
+        ["GET /api/v10/users/@me/applications/{app.id}/entitlements", "applications.entitlements"],
+        ["PUT /api/v10/lobbies, PATCH …/lobbies/{lobby.id}/channel-linking", "sdk.social_layer"],
+        ["DELETE …/lobbies/{lobby.id}/members/@me, POST …/members/@me/invites", "sdk.social_layer"],
+        ["GET/POST /api/v10/lobbies/{lobby.id}/messages", "sdk.social_layer"],
+        ["POST /api/v10/applications/{app.id}/attachment", gt("any (a token of that application)")],
       ]} />
+      <P>{gt("For guilds.join and gdm.join the request itself is made with your bot token; the user's access token goes in the body and must have been issued to your bot's own application. Your bot can only add recipients to a group DM it is in, and can create a group DM from up to 10 access tokens.")}</P>
+      <P>{gt("The lobby routes refuse client credentials tokens: a lobby member is always a real user. See")} <Link2 href="/developers/docs/resources/lobby">{gt("Lobby")}</Link2>.</P>
       <P>{gt("A missing scope answers 403 with code 50026; an unknown, expired or revoked token answers 401. The token endpoints also exist under /api/v10/oauth2/token and /api/v10/oauth2/token/revoke, and accept client credentials in the body or as HTTP Basic auth.")}</P>
       <Callout type="info" title={gt("Codes are single-use")}>
         {gt("An authorization code works once, for 10 minutes, and only with the redirect_uri it was issued for. Refresh tokens rotate: each refresh returns a new pair and the old refresh token stops working. Removing the app under User Settings -> Authorized Apps revokes its tokens.")}

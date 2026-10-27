@@ -11,7 +11,6 @@ import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, Server
 import { FormErrors } from '@/lib/botapi/formErrors';
 import { IS_COMPONENTS_V2, componentsPlainText, componentsV2Conflicts, isComponentsV2, parseStoredComponents, resolveAttachmentRefs, validateMessageComponents } from '@/lib/botapi/components';
 import { nanoid } from 'nanoid';
-import { BoundedMap } from '@/lib/utils/boundedMap';
 import { config } from '@/lib/config';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { removeServerBan, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
@@ -37,7 +36,7 @@ import { checkRateLimit, decryptFromStorage, encryptForStorage, getClientIP, isV
 import { botRequestBuckets, rateLimitedResponse, rateLimitHeaders } from '@/lib/security/botRateLimit';
 import { botIdBoundary } from '@/lib/botapi/boundary';
 import { invalidFormBody as invalidFormBodyAt, validationErrorBody } from '@/lib/botapi/errors';
-import { parseApplicationPatch, toDiscordApplication } from '@/lib/botapi/application';
+import { toDiscordApplication } from '@/lib/botapi/application';
 import { toDiscordChannel, toDiscordRole } from '@/lib/services/gatewayEvents';
 // Guild resources (WP4a): guild, channels, overwrites, roles, members, bans.
 import { toDiscordEmoji, toDiscordGuildBase, toDiscordGuildMember, toDiscordSticker, type MemberRowLike, type UserRowLike } from '@/lib/services/gatewayEvents';
@@ -84,13 +83,13 @@ function botAudit(
 
 // ─── Bot Auth Helper ───────────────────────────────────────
 
-type BotAuth = { app: IApplication; botUser: NonNullable<Awaited<ReturnType<typeof User.findById>>> };
+export type BotAuth = { app: IApplication; botUser: NonNullable<Awaited<ReturnType<typeof User.findById>>> };
 
 // One lookup per request: the rate-limit hook, the access guard and the route
 // all authenticate, and Elysia hands them the same headers object.
 const authMemo = new WeakMap<object, Promise<BotAuth | null>>();
 
-function authenticateBot(headers: Record<string, string | undefined>): Promise<BotAuth | null> {
+export function authenticateBot(headers: Record<string, string | undefined>): Promise<BotAuth | null> {
   const memo = authMemo.get(headers);
   if (memo) return memo;
   const p = (async () => {
@@ -123,10 +122,10 @@ function authenticateBot(headers: Record<string, string | undefined>): Promise<B
 // the application command routes (applications.commands.update /
 // applications.commands.permissions.update). Never on anything else.
 
-type BearerAuth = { grant: import('@/lib/services/oauth2Tokens').OAuthGrant; user: NonNullable<Awaited<ReturnType<typeof User.findById>>>; app: IApplication };
+export type BearerAuth = { grant: import('@/lib/services/oauth2Tokens').OAuthGrant; user: NonNullable<Awaited<ReturnType<typeof User.findById>>>; app: IApplication };
 const bearerMemo = new WeakMap<object, Promise<BearerAuth | null>>();
 
-function authenticateBearer(headers: Record<string, string | undefined>): Promise<BearerAuth | null> {
+export function authenticateBearer(headers: Record<string, string | undefined>): Promise<BearerAuth | null> {
   const memo = bearerMemo.get(headers);
   if (memo) return memo;
   const p = (async () => {
@@ -146,7 +145,7 @@ function authenticateBearer(headers: Record<string, string | undefined>): Promis
 }
 
 /** A Bearer caller with `scope`, or the Discord error to answer (401 no/invalid token, 403 missing scope). */
-async function requireBearerScope(headers: Record<string, string | undefined>, scope: string): Promise<{ ok: true; auth: BearerAuth } | { ok: false; status: number; body: { code: number; message: string } }> {
+export async function requireBearerScope(headers: Record<string, string | undefined>, scope: string): Promise<{ ok: true; auth: BearerAuth } | { ok: false; status: number; body: { code: number; message: string } }> {
   const auth = await authenticateBearer(headers);
   if (!auth) return { ok: false, status: 401, body: { code: 0, message: '401: Unauthorized' } };
   if (!auth.grant.scopes.includes(scope)) return { ok: false, status: 403, body: { code: 50026, message: 'Missing required OAuth2 scope' } };
@@ -154,7 +153,7 @@ async function requireBearerScope(headers: Record<string, string | undefined>, s
 }
 
 /** The user object an OAuth2 app sees (`email` only with the email scope). */
-function formatOAuthUser(user: Parameters<typeof formatUser>[0], scopes: readonly string[]) {
+export function formatOAuthUser(user: Parameters<typeof formatUser>[0], scopes: readonly string[]) {
   const out = { ...formatUser(user), locale: 'en-US' } as Record<string, unknown>;
   delete out.created_at;
   if (scopes.includes('email')) {
@@ -173,7 +172,7 @@ function formatOAuthUser(user: Parameters<typeof formatUser>[0], scopes: readonl
  * or (permissions writes) a user's token with
  * applications.commands.permissions.update. Returns the app.
  */
-async function authenticateCommandsCaller(
+export async function authenticateCommandsCaller(
   headers: Record<string, string | undefined>,
   mode: 'read' | 'write' | 'permissions',
 ): Promise<{ app: IApplication; bearer: BearerAuth | null } | null> {
@@ -193,7 +192,7 @@ async function authenticateCommandsCaller(
  * tokens): the app's bot must be in the guild, and permission writes need a
  * user who can manage the guild and its roles (Discord).
  */
-async function bearerGuildCommandsCheck(caller: { app: IApplication; bearer: BearerAuth | null }, guildId: string, mode: 'read' | 'write' | 'permissions'): Promise<{ status: number; body: ApiError } | null> {
+export async function bearerGuildCommandsCheck(caller: { app: IApplication; bearer: BearerAuth | null }, guildId: string, mode: 'read' | 'write' | 'permissions'): Promise<{ status: number; body: ApiError } | null> {
   if (!caller.bearer) return null;
   if (!isValidObjectId(guildId)) return { status: 404, body: { code: 10004, message: 'Unknown Guild' } };
   if (!caller.app.botId || !(await ServerMember.findOne({ serverId: guildId, userId: caller.app.botId }))) return { status: 403, body: MISSING_ACCESS };
@@ -219,7 +218,7 @@ const isThreadChannel = (c: { type?: string | null }) => c.type === 'public_thre
  * everything), then reduced while the bot is timed out. DMs and group DMs:
  * DM_BOT_PERMISSIONS when the bot is a recipient, nothing otherwise.
  */
-async function botChannelPermissions(botId: string, channel: IChannel): Promise<bigint> {
+export async function botChannelPermissions(botId: string, channel: IChannel): Promise<bigint> {
   if (!channel.serverId) {
     const inDm = ((channel.recipientIds || []) as string[]).some((r) => compareIds(r, botId));
     return inDm ? DM_BOT_PERMISSIONS : 0n;
@@ -456,8 +455,15 @@ async function resolveReactionEmoji(
   param: string,
   opts: { forAdd: boolean; channel?: IChannel; botId?: string; perms?: bigint },
 ): Promise<{ ok: true; emoji: StoredReaction['emoji'] } | { ok: false }> {
-  const parsed = parseReactionEmojiParam(param);
-  if (!parsed || parsed.kind === 'snowflake') return { ok: false };
+  let parsed = parseReactionEmojiParam(param);
+  // `name:<snowflake>`: the id boundary normally rewrote it already; resolve
+  // any it left (e.g. not cached yet) through the snowflake store.
+  if (parsed?.kind === 'snowflake') {
+    const { uuidsForSnowflakes } = await import('@/lib/botapi/snowflakeStore');
+    const hit = (await uuidsForSnowflakes([parsed.snowflakeId]).catch(() => null))?.map.get(parsed.snowflakeId);
+    parsed = hit ? { kind: 'custom', name: parsed.name, id: hit.uuid.toLowerCase(), animated: parsed.animated } : null;
+  }
+  if (!parsed) return { ok: false };
   if (parsed.kind === 'unicode') return { ok: true, emoji: { name: parsed.name } };
   if (!opts.forAdd) return { ok: true, emoji: { name: parsed.name, id: parsed.id, animated: parsed.animated } };
   const row = await ServerEmoji.findById(parsed.id).catch(() => null);
@@ -503,6 +509,11 @@ async function setBotPin(
   await publishConversation(c.channel, { type: 'pin_update', messageId: msg.id, pinned, updatedBy: auth.botUser.id }).catch(() => {});
   const { notifyPinsChanged } = await import('@/lib/services/botMessages');
   notifyPinsChanged(c.channel);
+  // Discord's "pinned a message" (type 6) system message.
+  if (pinned) {
+    const { postPinNotice } = await import('@/lib/botapi/pinNotice');
+    await postPinNotice(c.channel, auth.botUser, msg.id);
+  }
   if (c.channel.serverId) {
     audit({
       serverId: c.channel.serverId,
@@ -572,7 +583,7 @@ type BotGuildResult =
   | { ok: false; status: number; body: ApiError };
 
 const MISSING_PERMISSIONS: ApiError = { code: 50013, message: 'Missing Permissions' };
-const MISSING_ACCESS: ApiError = { code: 50001, message: 'Missing Access' };
+export const MISSING_ACCESS: ApiError = { code: 50001, message: 'Missing Access' };
 
 /** Load a server plus the bot's standing in it (member roles, top position). */
 async function loadBotGuild(serverId: string | null | undefined, botId: string): Promise<BotGuildResult> {
@@ -602,15 +613,15 @@ async function requireBotPerm(serverId: string | null | undefined, botId: string
  * is the app's id everywhere (READY, interactions, these routes); its client
  * id is accepted as an alias.
  */
-function ownsApp(auth: { app: { id: string; clientId?: string | null } }, appId: string): boolean {
+export function ownsApp(auth: { app: { id: string; clientId?: string | null } }, appId: string): boolean {
   if (!appId) return false;
   return compareIds(appId, auth.app.id) || (!!auth.app.clientId && appId === auth.app.clientId);
 }
 
-const UNKNOWN_COMMAND = { code: 10063, message: 'Unknown application command' };
+export const UNKNOWN_COMMAND = { code: 10063, message: 'Unknown application command' };
 
 /** Send a service result ({ status, body }) through Elysia's `set`. */
-function respond(set: { status?: number | string; headers: Record<string, string | number> }, r: { status: number; body: unknown; headers?: Record<string, string> }) {
+export function respond(set: { status?: number | string; headers: Record<string, string | number> }, r: { status: number; body: unknown; headers?: Record<string, string> }) {
   set.status = r.status;
   if (r.headers) Object.assign(set.headers, r.headers);
   return r.status === 204 ? '' : r.body;
@@ -656,7 +667,7 @@ async function internalBotRequest(
 
 // ─── Discord-compatible response formatters ────────────────
 
-function formatUser(user: any) {
+export function formatUser(user: any) {
   return {
     id: user.id,
     username: user.username,
@@ -766,10 +777,6 @@ async function afterGuildChange(serverId: string) {
   await cache.del(`server:${serverId}`).catch(() => {});
   await invalidateServerGate(serverId).catch(() => {});
 }
-
-/** widget.json is public: its counts are cached briefly per guild. */
-const WIDGET_COUNTS_TTL_MS = 60_000;
-const widgetCounts = new BoundedMap<string, { at: number; counts: { members: number; presences: number } }>(2000);
 
 /** GET /guilds/{id}/regions (same static list as /voice/regions). */
 const GUILD_VOICE_REGIONS = [
@@ -1355,48 +1362,19 @@ function formatInvite(invite: any) {
 }
 
 /** The bot's application as Discord returns it (owner, bot user, guild count). */
-async function discordApplication(app: IApplication, botUser: unknown) {
-  const [owner, guildCount] = await Promise.all([
+export async function discordApplication(app: IApplication, botUser: unknown) {
+  const { getAppApiExtras } = await import('@/lib/services/applicationApiSettings');
+  const [owner, guildCount, extras] = await Promise.all([
     app.ownerId ? User.findById(app.ownerId).catch(() => null) : Promise.resolve(null),
     ServerMember.countByUser(app.botId ?? '').catch(() => 0),
+    getAppApiExtras(app.id),
   ]);
   return toDiscordApplication(app, {
     owner: owner ? formatUser(owner) : null,
     bot: botUser ? formatUser(botUser) : null,
     guildCount,
+    extras,
   });
-}
-
-/** PATCH /applications/@me (and /applications/{own id}): Discord's editable fields. */
-async function patchOwnApplication(auth: BotAuth, body: unknown, set: { status?: number | string }) {
-  const parsed = parseApplicationPatch(body);
-  if (!parsed.ok) { set.status = 400; return parsed.error; }
-  const updates = { ...parsed.updates };
-  if (parsed.interactionsEndpointUrl !== undefined) {
-    const url = parsed.interactionsEndpointUrl;
-    if (url) {
-      // Same check as the portal: a signed PING must come back as a PONG.
-      // safeFetch re-checks the address on the call itself, follows no
-      // redirects and the reply is capped (src/lib/botapi/endpointVerify.ts).
-      const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
-      const provisioned = await ensureBotProvisioned(auth.app);
-      const { verifyInteractionsEndpointSafely } = await import('@/lib/botapi/endpointVerify');
-      const ok = await verifyInteractionsEndpointSafely({ url, privateKeyPem: provisioned.privateKeyPem, clientId: provisioned.clientId });
-      if (!ok) {
-        set.status = 400;
-        return invalidFormBodyAt([{ path: 'interactions_endpoint_url', code: 'APPLICATION_INTERACTION_ENDPOINT_URL_INVALID', message: 'The specified interactions endpoint url could not be verified.' }]);
-      }
-    }
-    updates.interactionsEndpointUrl = url;
-  }
-  const { Application } = await import('@/lib/models');
-  if (Object.keys(updates).length > 0) {
-    await Application.updateById(auth.app.id, updates);
-    const { invalidateBotTokenCache } = await import('@/lib/services/botTokens');
-    invalidateBotTokenCache();
-  }
-  const fresh = (await Application.findById(auth.app.id)) ?? auth.app;
-  return discordApplication(fresh, auth.botUser);
 }
 
 // ─── Voice / monetization helpers (WP7) ────────────────────
@@ -1538,11 +1516,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 .get('/gateway/bot', async ({ headers, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  return {
-    url: config.GATEWAY_URL,
-    shards: 1,
-    session_start_limit: { total: 1000, remaining: 1000, reset_after: 86400000, max_concurrency: 1 },
-  };
+  // Recommended shards (1 per 1000 guilds) and the real IDENTIFY budget left today.
+  const { gatewayBotInfo } = await import('@/lib/botapi/guildExtras');
+  return gatewayBotInfo(auth.botUser.id);
 })
 
 // ─── Users ─────────────────────────────────────────────────
@@ -1677,17 +1653,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
   return discordApplication(auth.app, auth.botUser);
 })
-.patch('/applications/@me', async ({ headers, body, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  return patchOwnApplication(auth, body, set);
-})
-.patch('/applications/:appId', async ({ headers, params, body, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-  return patchOwnApplication(auth, body, set);
-})
+// PATCH /applications/@me and /applications/:appId: src/lib/api/botApi/applications.ts
 
 // ─── Guilds ────────────────────────────────────────────────
 .get('/guilds/:guildId', async ({ headers, params, query, set }) => {
@@ -1872,7 +1838,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   await db.update(schema.servers)
     .set({ settings: sql`jsonb_set(coalesce(${schema.servers.settings}, '{}'::jsonb), '{widget}', coalesce(${schema.servers.settings}->'widget', '{}'::jsonb) || ${JSON.stringify(widgetPatch)}::jsonb)` })
     .where(eq(schema.servers.id, normalizeId(g.server.id)));
-  widgetCounts.delete(g.server.id);
+  void import('@/lib/botapi/guildWidget').then((m) => m.invalidateWidgetCache(g.server.id)).catch(() => {});
   await afterGuildChange(g.server.id);
   const changes = diffChanges(
     { widget_enabled: prev.enabled, widget_channel_id: prev.channelId },
@@ -1885,25 +1851,11 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   }
   return { enabled: widget.enabled, channel_id: widget.channelId ?? null };
 })
-// Public like Discord's, but only once the owner enabled the widget.
+// Public like Discord's, but only once the owner enabled the widget: public
+// voice channels + up to 100 online members (src/lib/botapi/guildWidget.ts).
 .get('/guilds/:guildId/widget.json', async ({ params, set }) => {
-  if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const server = await Server.findById(params.guildId);
-  if (!server) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  const widget = ((server.settings ?? {}) as IServerSettings).widget;
-  if (widget?.enabled !== true) { set.status = 403; return { code: 50004, message: 'Widget Disabled' }; }
-  const hit = widgetCounts.get(server.id);
-  const counts = hit && Date.now() - hit.at < WIDGET_COUNTS_TTL_MS ? hit.counts : await guildCounts(server.id);
-  if (!hit || hit.counts !== counts) widgetCounts.set(server.id, { at: Date.now(), counts });
-  const vanity = server.isPartnered && server.vanityUrlCode ? server.vanityUrlCode : null;
-  return {
-    id: server.id,
-    name: server.name,
-    instant_invite: vanity ? `${config.FRONTEND_URL || 'https://serika.chat'}/invite/${vanity}` : null,
-    channels: [],
-    members: [],
-    presence_count: counts.presences,
-  };
+  const { getWidgetJson } = await import('@/lib/botapi/guildWidget');
+  return respond(set, await getWidgetJson(params.guildId));
 })
 .get('/guilds/:guildId/channels', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -2137,7 +2089,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.channelId)) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
   const channel = await Channel.findById(params.channelId);
   if (!channel) { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  return formatChannel(channel);
+  // DMs: recipients as user objects (the bot itself left out), like Discord.
+  const { withRecipientUsers } = await import('@/lib/botapi/dmRecipients');
+  return (await withRecipientUsers([formatChannel(channel)], [channel], auth.botUser.id))[0];
 })
 .patch('/channels/:channelId', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
@@ -2334,13 +2288,25 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 })
 // Group DM recipients. Adding someone needs their OAuth2 access token with gdm.join (Discord);
 // removing needs the bot to own the group.
-.put('/channels/:channelId/recipients/:userId', async ({ headers, params, set }) => {
+.put('/channels/:channelId/recipients/:userId', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   const channel = isValidObjectId(params.channelId) ? await Channel.findById(params.channelId) : null;
   if (!channel || channel.type !== 'group_dm') { set.status = 404; return { code: 10003, message: 'Unknown Channel' }; }
-  set.status = 403;
-  return { code: 50025, message: 'Invalid OAuth2 access token' };
+  if (!isValidObjectId(params.userId)) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
+  // access_token: the user's OAuth2 token for this bot's app with gdm.join.
+  // nick: Serika group DMs have no per-member nicknames, so it is ignored.
+  const { access_token, nick } = (body ?? {}) as { access_token?: unknown; nick?: unknown };
+  void nick;
+  const { resolveGdmJoinGrant } = await import('@/lib/botapi/gdmJoin');
+  const grant = await resolveGdmJoinGrant(access_token, params.userId, auth.app.id);
+  if (!grant.ok) { set.status = grant.status; return grant.body; }
+  const { addGroupDmMemberByGrant } = await import('./groupDms');
+  const reply = await addGroupDmMemberByGrant(channel.id, auth.botUser as never, params.userId);
+  if (reply.status === 404) { set.status = 404; return reply.body.error === 'Unknown user' ? { code: 10013, message: 'Unknown User' } : { code: 10003, message: 'Unknown Channel' }; }
+  if (reply.status >= 400) { set.status = 400; return { code: 50035, message: String(reply.body.error ?? 'Invalid Form Body') }; }
+  set.status = 204;
+  return '';
 })
 .delete('/channels/:channelId/recipients/:userId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -2426,8 +2392,21 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
   // SEND_MESSAGES (SEND_MESSAGES_IN_THREADS in threads) after overwrites; a
   // timed-out bot can't send. DMs: only a DM the bot is in.
-  const c = await requireChannelAction(params.channelId, botId, 'send');
-  if (!c.ok) { set.status = c.status; return c.body; }
+  let guard = await requireChannelAction(params.channelId, botId, 'send');
+  // A new forum post's first message (POST /channels/{forum}/threads) needs
+  // SEND_MESSAGES (+ ATTACH_FILES) in the forum only, like Discord, not the
+  // *_IN_THREADS bits (src/lib/botapi/forumStarterGrant.ts).
+  let forumStarter = false;
+  if (!guard.ok && guard.status === 403) {
+    const { consumeForumStarter } = await import('@/lib/botapi/forumStarterGrant');
+    if (consumeForumStarter(params.channelId, botId)) {
+      const ch = await Channel.findById(params.channelId);
+      const perms = ch ? await botChannelPermissions(botId, ch) : 0n;
+      if (ch && isThreadChannel(ch) && botCan(perms, 'send', { isThread: false })) { guard = { ok: true, channel: ch, perms }; forumStarter = true; }
+    }
+  }
+  if (!guard.ok) { set.status = guard.status; return guard.body; }
+  const c = guard;
   const channel = c.channel;
   const isDm = isDmChannel(channel);
   const isThread = isThreadChannel(channel);
@@ -2441,8 +2420,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!parsedBody.ok) { set.status = 400; return { code: parsedBody.code, message: parsedBody.error }; }
   const {
     content, embeds, embed, tts, attachments: rawAttachments, allowed_mentions, sticker_ids, components, flags,
-    poll: pollRequest, nonce: rawNonce, enforce_nonce, message_reference,
-  } = parsedBody.payload as BotMessagePayload;
+    poll: pollRequest, nonce: rawNonce, enforce_nonce, message_reference, shared_client_theme,
+  } = parsedBody.payload as BotMessagePayload & { shared_client_theme?: unknown };
+  // shared_client_theme: a Discord client theme attached to a user's message; SerikaCord has no equivalent.
+  void shared_client_theme;
   // Components: v1 action rows, or v2 layouts with IS_COMPONENTS_V2 (then no
   // content / embeds / poll). See src/lib/botapi/components.ts.
 
@@ -2537,7 +2518,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     attachments = normalized.attachments;
   }
   const attachmentCount = parsedBody.files.length + attachments.length;
-  if (attachmentCount > 0 && !botCan(c.perms, 'attach', { isThread })) {
+  if (attachmentCount > 0 && !botCan(c.perms, 'attach', { isThread: isThread && !forumStarter })) {
     set.status = 403; return MISSING_PERMISSIONS;
   }
 
@@ -3289,6 +3270,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 // src/lib/services/appCommands.ts: POST upserts by name + type (201 / 200),
 // PUT diffs instead of delete + recreate so ids stay stable, validation errors
 // are 50035 trees. `:appId` is the application id (its client id also works).
+// POST/PATCH (global and guild) and the batch permissions PUT live in
+// src/lib/api/botApi/applications.ts.
 .get('/applications/:appId/commands', async ({ headers, params, set }) => {
   const auth = await authenticateCommandsCaller(headers, 'read');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
@@ -3303,13 +3286,6 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const { bulkOverwriteCommands } = await import('@/lib/services/appCommands');
   return respond(set, await bulkOverwriteCommands(auth.app.id, null, body));
 })
-.post('/applications/:appId/commands', async ({ headers, params, body, set }) => {
-  const auth = await authenticateCommandsCaller(headers, 'write');
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-  const { upsertCommand } = await import('@/lib/services/appCommands');
-  return respond(set, await upsertCommand(auth.app.id, null, body));
-})
 .get('/applications/:appId/commands/:commandId', async ({ headers, params, set }) => {
   const auth = await authenticateCommandsCaller(headers, 'read');
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
@@ -3317,14 +3293,6 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
   const { getCommand } = await import('@/lib/services/appCommands');
   return respond(set, await getCommand(auth.app.id, null, params.commandId));
-})
-.patch('/applications/:appId/commands/:commandId', async ({ headers, params, body, set }) => {
-  const auth = await authenticateCommandsCaller(headers, 'write');
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-  if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
-  const { patchCommand } = await import('@/lib/services/appCommands');
-  return respond(set, await patchCommand(auth.app.id, null, params.commandId, body));
 })
 .delete('/applications/:appId/commands/:commandId', async ({ headers, params, set }) => {
   const auth = await authenticateCommandsCaller(headers, 'write');
@@ -3352,15 +3320,6 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const { bulkOverwriteCommands } = await import('@/lib/services/appCommands');
   return respond(set, await bulkOverwriteCommands(auth.app.id, params.guildId, body));
 })
-.post('/applications/:appId/guilds/:guildId/commands', async ({ headers, params, body, set }) => {
-  const auth = await authenticateCommandsCaller(headers, 'write');
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'write');
-  if (gc) { set.status = gc.status; return gc.body; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-  const { upsertCommand } = await import('@/lib/services/appCommands');
-  return respond(set, await upsertCommand(auth.app.id, params.guildId, body));
-})
 // Permissions v2. Discord only lets a Bearer token with
 // applications.commands.permissions.update (of a user who can manage the
 // guild and its roles) write these; SerikaCord also lets the app's own bot.
@@ -3382,16 +3341,6 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
   const { getCommand } = await import('@/lib/services/appCommands');
   return respond(set, await getCommand(auth.app.id, params.guildId, params.commandId));
-})
-.patch('/applications/:appId/guilds/:guildId/commands/:commandId', async ({ headers, params, body, set }) => {
-  const auth = await authenticateCommandsCaller(headers, 'write');
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  const gc = await bearerGuildCommandsCheck(auth, params.guildId, 'write');
-  if (gc) { set.status = gc.status; return gc.body; }
-  if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-  if (!isValidObjectId(params.commandId)) { set.status = 404; return UNKNOWN_COMMAND; }
-  const { patchCommand } = await import('@/lib/services/appCommands');
-  return respond(set, await patchCommand(auth.app.id, params.guildId, params.commandId, body));
 })
 .delete('/applications/:appId/guilds/:guildId/commands/:commandId', async ({ headers, params, set }) => {
   const auth = await authenticateCommandsCaller(headers, 'write');
@@ -4151,8 +4100,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   // MANAGE_WEBHOOKS in the webhook's channel; moving it also needs it in the target channel (same guild).
   const c = await requireChannelAction(webhook.channelId, auth.botUser.id, 'manage_webhooks');
   if (!c.ok) { set.status = c.status === 403 ? 403 : 404; return c.status === 403 ? c.body : { code: 10015, message: 'Unknown Webhook' }; }
+  // name, avatar (image data URI uploaded to storage, one of our CDN URLs, or null) and channel_id.
+  const { name, avatar, channel_id } = (body ?? {}) as Record<string, unknown>;
   const { patchWebhook } = await import('@/lib/services/channelWebhooks');
-  const result = await patchWebhook(webhook, body, {
+  const result = await patchWebhook(webhook, { name, avatar, channel_id }, {
     allowChannel: async (channelId) => {
       const target = await requireChannelAction(channelId, auth.botUser.id, 'manage_webhooks');
       return target.ok && compareIds(target.channel.serverId ?? '', webhook.serverId ?? '') && target.channel.type !== 'category';
@@ -4195,6 +4146,16 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   const { wait, thread_id, with_components } = query as Record<string, string | undefined>;
+  // Every Discord field is handled by executeWebhook (lib/services/channelWebhooks
+  // + outgoingMessage): content, username, avatar_url, tts, embeds,
+  // allowed_mentions, components (with_components / app-owned), attachments
+  // + files[n] / payload_json, flags, thread_name + applied_tags (new forum
+  // post; Discord applies tags only when the post is created), poll.
+  const parsed = parseBotMessageBody(body);
+  if (parsed.ok) {
+    const { content, username, avatar_url, tts, embeds, allowed_mentions, components, attachments, flags, thread_name, applied_tags, poll } = parsed.payload as Record<string, unknown>;
+    void [content, username, avatar_url, tts, embeds, allowed_mentions, components, attachments, flags, thread_name, applied_tags, poll];
+  }
   return respond(set, await runWebhookTokenRoute(webhook, 'execute', { body, threadId: thread_id }, (b, threadId) =>
     executeWebhook(webhook, b, { wait, thread_id: threadId, with_components }, { ip: getClientIP(request) })));
 })
@@ -4211,11 +4172,15 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   return respond(set, await runWebhookTokenRoute(webhook, 'manage', {}, async () => ({ status: 200, body: serializeWebhook(webhook, { withToken: true }) })));
 })
-.patch('/webhooks/:webhookId/:webhookToken', async ({ params, body, set }) => {
+.patch('/webhooks/:webhookId/:webhookToken', async ({ params, body, request, set }) => {
   const { findWebhookByToken, patchWebhook, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-  return respond(set, await runWebhookTokenRoute(webhook, 'manage', { body }, (b) => patchWebhook(webhook, b)));
+  // name and avatar (image data URI uploaded to storage, one of our CDN URLs,
+  // or null); channel_id needs a bot token (patchWebhook answers 50035).
+  const { name, avatar } = (body ?? {}) as Record<string, unknown>;
+  void [name, avatar];
+  return respond(set, await runWebhookTokenRoute(webhook, 'manage', { body }, (b) => patchWebhook(webhook, b, { ip: getClientIP(request) })));
 })
 .delete('/webhooks/:webhookId/:webhookToken', async ({ params, set }) => {
   const { findWebhookByToken, deleteWebhook, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
@@ -4229,10 +4194,21 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!ix) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   return respond(set, await withAppIds(ix.applicationId, null, () => getInteractionMessage(ix, '@original')));
 })
-.patch('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, body, set }) => {
+.patch('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, body, query, set }) => {
   const { resolveInteractionWebhook, editInteractionMessage, withAppIds } = await import('@/lib/services/interactions');
   const ix = await resolveInteractionWebhook(params.webhookId, params.webhookToken);
   if (!ix) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  // content, embeds, allowed_mentions, components, attachments (+ files[n]),
+  // flags are applied by editInteractionMessage (lib/services/outgoingMessage).
+  // An interaction reply is never in a thread of its own and its components
+  // always count, so thread_id / with_components change nothing here.
+  const { thread_id, with_components } = query as Record<string, string | undefined>;
+  void [thread_id, with_components];
+  const parsed = parseBotMessageBody(body);
+  if (parsed.ok) {
+    const { content, embeds, allowed_mentions, components, attachments, flags, poll } = parsed.payload as Record<string, unknown>;
+    void [content, embeds, allowed_mentions, components, attachments, flags, poll];
+  }
   return respond(set, await withAppIds(ix.applicationId, body, (b) => editInteractionMessage(ix, '@original', b)));
 })
 .delete('/webhooks/:webhookId/:webhookToken/messages/@original', async ({ params, set }) => {
@@ -4258,6 +4234,15 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const { findWebhookByToken, editWebhookMessage, runWebhookTokenRoute } = await import('@/lib/services/channelWebhooks');
   const webhook = await findWebhookByToken(params.webhookId, params.webhookToken);
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+  // content, embeds, allowed_mentions, components, attachments (+ files[n]) and
+  // flags are applied by editWebhookMessage. `poll` can only be set when editing
+  // a deferred interaction response (Discord), never on a channel webhook's message.
+  const parsed = parseBotMessageBody(body);
+  if (parsed.ok) {
+    const { content, embeds, allowed_mentions, components, attachments, flags, poll } = parsed.payload as Record<string, unknown>;
+    void [content, embeds, allowed_mentions, components, attachments, flags];
+    if (poll !== undefined && poll !== null) { set.status = 400; return formError(['poll'], 'POLL_EDIT_UNSUPPORTED', 'A poll can only be added when editing a deferred interaction response.'); }
+  }
   const { thread_id, with_components } = query as Record<string, string | undefined>;
   return respond(set, await runWebhookTokenRoute(webhook, 'manage', { body, threadId: thread_id }, (b, threadId) =>
     editWebhookMessage(webhook, params.messageId, b, { thread_id: threadId, with_components }, { ip: getClientIP(request) })));
@@ -4380,31 +4365,33 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 })
 
 // ─── Stage instances ───────────────────────────────────────
-// Serika's stage channels have no stage instances (topic / live state) yet:
-// lookups answer Unknown Stage Instance, creation is not implemented.
-.post('/stage-instances', async ({ headers, set }) => {
+// A live stage channel's topic / privacy, one per stage channel; stage
+// moderators only (src/lib/botapi/guildStageInstances.ts).
+.post('/stage-instances', async ({ headers, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  set.status = 501;
-  return { code: 0, message: 'Stage instances are not supported yet' };
+  const { channel_id, topic, privacy_level, send_start_notification, guild_scheduled_event_id } = (body ?? {}) as Record<string, unknown>;
+  const { createStageInstanceForBot } = await import('@/lib/botapi/guildStageInstances');
+  return respond(set, await createStageInstanceForBot(auth.botUser.id, { channel_id, topic, privacy_level, send_start_notification, guild_scheduled_event_id }, headers));
 })
-.get('/stage-instances/:channelId', async ({ headers, set }) => {
+.get('/stage-instances/:channelId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  set.status = 404;
-  return { code: 10067, message: 'Unknown Stage Instance' };
+  const { getStageInstanceForBot } = await import('@/lib/botapi/guildStageInstances');
+  return respond(set, await getStageInstanceForBot(params.channelId));
 })
-.patch('/stage-instances/:channelId', async ({ headers, set }) => {
+.patch('/stage-instances/:channelId', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  set.status = 404;
-  return { code: 10067, message: 'Unknown Stage Instance' };
+  const { topic, privacy_level } = (body ?? {}) as Record<string, unknown>;
+  const { updateStageInstanceForBot } = await import('@/lib/botapi/guildStageInstances');
+  return respond(set, await updateStageInstanceForBot(params.channelId, auth.botUser.id, { topic, privacy_level }, headers));
 })
-.delete('/stage-instances/:channelId', async ({ headers, set }) => {
+.delete('/stage-instances/:channelId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  set.status = 404;
-  return { code: 10067, message: 'Unknown Stage Instance' };
+  const { deleteStageInstanceForBot } = await import('@/lib/botapi/guildStageInstances');
+  return respond(set, await deleteStageInstanceForBot(params.channelId, auth.botUser.id, headers));
 })
 
 // ─── Onboarding, welcome screen, templates, integrations (WP4b: src/lib/botapi/community.ts) ─
@@ -4499,7 +4486,16 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     channelId: params.channelId,
     body: { name, type, auto_archive_duration, rate_limit_per_user, invitable, applied_tags, message },
     headers,
-    sendStarter: (threadId, starter) => internalBotRequest(request, 'POST', `/channels/${threadId}/messages`, starter, parsedBody.files),
+    // A forum post needs SEND_MESSAGES in the forum, not SEND_MESSAGES_IN_THREADS (Discord): one-shot grant.
+    sendStarter: async (threadId, starter) => {
+      const { grantForumStarter, revokeForumStarter } = await import('@/lib/botapi/forumStarterGrant');
+      grantForumStarter(threadId, auth.botUser.id);
+      try {
+        return await internalBotRequest(request, 'POST', `/channels/${threadId}/messages`, starter, parsedBody.files);
+      } finally {
+        revokeForumStarter(threadId, auth.botUser.id);
+      }
+    },
   }));
 })
 .post('/channels/:channelId/messages/:messageId/threads', async ({ headers, params, body, set }) => {
@@ -4581,9 +4577,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 .get('/channels/:channelId/threads/search', async ({ headers, params, query, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  const { name, tag, tag_setting, archived, sort_by, sort_order, limit, offset } = query as Record<string, string | undefined>;
+  const { name, slop, min_id, max_id, tag, tag_setting, archived, sort_by, sort_order, limit, offset } = query as Record<string, string | undefined>;
   const { searchBotThreads } = await import('@/lib/botapi/threads');
-  return respond(set, await searchBotThreads(auth.botUser.id, params.channelId, { name, tag, tag_setting, archived, sort_by, sort_order, limit, offset }));
+  return respond(set, await searchBotThreads(auth.botUser.id, params.channelId, { name, slop, min_id, max_id, tag, tag_setting, archived, sort_by, sort_order, limit, offset }));
 })
 .get('/guilds/:guildId/threads/active', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -4600,20 +4596,45 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   // Filtered in SQL (type + recipient array containment); both keys are in the
   // Channel.find whitelist, so the filter can't be silently dropped.
   const dmChannels = await Channel.find({ type: { in: ['dm', 'group_dm'] }, recipientId: auth.botUser.id });
-  return dmChannels
-    .filter((c: IChannel) => ((c.recipientIds || []) as string[]).some((r) => compareIds(r, auth.botUser.id)))
-    .map(formatChannel);
+  const mine = dmChannels.filter((c: IChannel) => ((c.recipientIds || []) as string[]).some((r) => compareIds(r, auth.botUser.id)));
+  const { withRecipientUsers } = await import('@/lib/botapi/dmRecipients');
+  return withRecipientUsers(mine.map(formatChannel), mine, auth.botUser.id);
 })
 .post('/users/@me/channels', async ({ headers, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   const { recipient_id, access_tokens, nicks } = (body ?? {}) as { recipient_id?: string; access_tokens?: unknown; nicks?: unknown };
-  // Group DM create (access_tokens + nicks, the gdm.join scope): Discord's
-  // deprecated GameBridge flow. Serika has no gdm.join grant, so it is refused.
+  // Group DM create (access_tokens + nicks): every token must be a user's
+  // OAuth2 token for this bot's app with gdm.join (Discord, max 10). nicks is
+  // ignored (Serika group DMs have no per-member nicknames).
   if (access_tokens !== undefined || nicks !== undefined) {
-    set.status = 400;
-    return invalidFormBodyAt([{ path: 'access_tokens', code: 'GROUP_DM_CREATE_UNSUPPORTED', message: 'Bots cannot create group DMs on SerikaCord.' }]);
+    if (!Array.isArray(access_tokens) || access_tokens.length === 0) {
+      set.status = 400;
+      return invalidFormBodyAt([{ path: 'access_tokens', code: 'BASE_TYPE_REQUIRED', message: 'This field is required' }]);
+    }
+    if (access_tokens.length > 10) {
+      set.status = 400;
+      return invalidFormBodyAt([{ path: 'access_tokens', code: 'BASE_TYPE_MAX_LENGTH', message: 'Must be 10 or fewer in length.' }]);
+    }
+    const { resolveBearerToken } = await import('@/lib/services/oauth2Tokens');
+    const { checkGdmJoinGrant } = await import('@/lib/botapi/gdmJoin');
+    const userIds: string[] = [];
+    for (const raw of access_tokens) {
+      const token = typeof raw === 'string' ? raw.trim().replace(/^Bearer\s+/i, '') : '';
+      const g = token ? await resolveBearerToken(token).catch(() => null) : null;
+      const checked = checkGdmJoinGrant(g, g?.userId ?? '', auth.app.id);
+      if (!checked.ok) { set.status = checked.status; return checked.body; }
+      userIds.push(checked.userId);
+    }
+    const { createGroupDmByGrants } = await import('./groupDms');
+    const created = await createGroupDmByGrants(auth.botUser, userIds);
+    if (!created.ok) {
+      set.status = created.status;
+      return created.status === 429 ? { message: 'You are being rate limited.', retry_after: 1, global: false } : { code: 50035, message: created.error };
+    }
+    const { withRecipientUsers } = await import('@/lib/botapi/dmRecipients');
+    return (await withRecipientUsers([formatChannel(created.channel)], [created.channel], auth.botUser.id))[0];
   }
   if (!recipient_id || !isValidObjectId(recipient_id)) {
     set.status = 400;
@@ -4654,7 +4675,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       permissionOverwrites: [],
     });
   }
-  return formatChannel(dm);
+  const { withRecipientUsers } = await import('@/lib/botapi/dmRecipients');
+  return (await withRecipientUsers([formatChannel(dm)], [dm], auth.botUser.id))[0];
 })
 
 // ─── Leave Guild ───────────────────────────────────────────
@@ -4721,23 +4743,24 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 })
 
 // ─── Soundboard (WP7) ──────────────────────────────────────
-// Serika's soundboard sounds are URLs without Discord sound ids, so bots see
-// none (op 31 answers the same).
+// The server soundboard (servers.soundboard_sounds; src/lib/botapi/guildSoundboard.ts,
+// writes in botApi/guilds.ts). Serika has no built-in default sounds.
 .get('/soundboard-default-sounds', async ({ headers, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   return [];
 })
-.get('/guilds/:guildId/soundboard-sounds', async ({ headers, set }) => {
+.get('/guilds/:guildId/soundboard-sounds', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  return { items: [] };
+  const { listSoundsForBot } = await import('@/lib/botapi/guildSoundboard');
+  return respond(set, await listSoundsForBot(params.guildId, auth.botUser.id));
 })
-.get('/guilds/:guildId/soundboard-sounds/:soundId', async ({ headers, set }) => {
+.get('/guilds/:guildId/soundboard-sounds/:soundId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  set.status = 404;
-  return { code: 10097, message: 'Unknown sound' };
+  const { getSoundForBot } = await import('@/lib/botapi/guildSoundboard');
+  return respond(set, await getSoundForBot(params.guildId, params.soundId, auth.botUser.id));
 })
 
 // ─── Monetization (WP7 stubs) ──────────────────────────────

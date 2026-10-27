@@ -20,6 +20,7 @@ import { isSilentMessage } from '@/lib/chat/messageFlags';
 import { toDiscordMessage } from '@/lib/services/gatewayEvents';
 import { FLAG_EPHEMERAL, FLAG_LOADING } from '@/lib/services/outgoingMessage';
 import type { InteractionStore } from '@/lib/botapi/interactionState';
+import { buildPollView, type StoredPoll } from '@/lib/chat/polls';
 
 /** The "used /cmd" reference stored on messages (Discord message.interaction). */
 export interface InteractionRef {
@@ -42,6 +43,10 @@ export interface AppMessageContent {
   attachments: IncomingAttachment[];
   flags: number;
   mentionedUserIds: string[];
+  /** A Discord-style poll (webhook execute); stored on the message like bot polls. */
+  poll?: StoredPoll | null;
+  /** Read aloud (tts), when the sender may. */
+  tts?: boolean;
 }
 
 /** An ephemeral message as kept in the interaction store. */
@@ -161,6 +166,8 @@ function clientMessage(opts: {
     ...(opts.interaction ? { interaction: { id: opts.interaction.id, name: opts.interaction.name, user: opts.interaction.user } } : {}),
     ...(opts.ephemeral ? { ephemeral: true } : {}),
     ...(opts.webhookId ? { webhookId: opts.webhookId } : {}),
+    ...(opts.body.poll ? { poll: buildPollView(opts.body.poll, {}, 0, []) } : {}),
+    ...(opts.body.tts ? { tts: true } : {}),
   };
 }
 
@@ -253,8 +260,14 @@ export async function createAppMessage(opts: {
     interaction: interaction ?? null,
     ...(webhookAuthor ? { webhookAuthor } : {}),
     ...((flags & 4) !== 0 ? { suppressEmbeds: true } : {}),
+    ...(body.poll ? { poll: body.poll } : {}),
+    ...(body.tts ? { tts: true } : {}),
   });
   void Channel.updateById(opts.channel.id, { lastMessageId: row.id, updatedAt: new Date() }).catch(() => {});
+  if (body.poll) {
+    const { scheduleOpenPoll } = await import('@/lib/services/messageExtras');
+    void scheduleOpenPoll(row.id, body.poll.expiresAt);
+  }
   const message = clientMessage({ id: row.id, channel: opts.channel, author, authorId, body, interaction, createdAt: row.createdAt ?? new Date(), webhookId });
   await publishConversation(opts.channel, { type: 'message', message });
   if (!opts.loading) void signalAppMessage(opts.channel, row, author, body);

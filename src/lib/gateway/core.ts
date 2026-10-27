@@ -10,7 +10,7 @@
  * guild; HEARTBEAT/ACK; RESUME with a per-session replay buffer; op 3
  * presence (PRESENCE_UPDATE to bots with GUILD_PRESENCES); op 4 voice
  * (VOICE_SERVER_UPDATE endpoint null); op 8 -> GUILD_MEMBERS_CHUNK; op 31
- * soundboard (empty); op 7 RECONNECT on shutdown; Discord close codes
+ * -> SOUNDBOARD_SOUNDS (the server soundboard); op 7 RECONNECT on shutdown; Discord close codes
  * (./session.ts). Ids: payloads are built with internal UUIDs and translated
  * per connection for snowflake-format apps (src/lib/botapi/boundary.ts).
  */
@@ -802,7 +802,14 @@ export class GatewayHub {
     const translated = ((res.body ?? { guild_ids: ids }) as { guild_ids: string[] }).guild_ids;
     for (const g of translated) {
       const known = [...conn.data.guildIds].find((x) => x.toLowerCase() === g.toLowerCase());
-      if (known) await this.dispatchTo(conn, 'SOUNDBOARD_SOUNDS', { guild_id: known, soundboard_sounds: [] });
+      if (!known) continue;
+      let sounds: unknown[] = [];
+      try {
+        const [{ Server }, { guildSoundboardSounds }] = await Promise.all([import('@/lib/models'), import('@/lib/botapi/guildSoundboardRules')]);
+        const server = await Server.findById(known);
+        if (server) sounds = guildSoundboardSounds(server);
+      } catch { /* best-effort: answer with none */ }
+      await this.dispatchTo(conn, 'SOUNDBOARD_SOUNDS', { guild_id: known, soundboard_sounds: sounds });
     }
   }
 

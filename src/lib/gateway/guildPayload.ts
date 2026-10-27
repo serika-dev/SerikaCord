@@ -180,6 +180,14 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
       voiceStates = (await listGuildVoiceStates(sid)).filter((v) => canViewParent(byId.get(String(v.channel_id ?? '').toLowerCase()) ?? null));
     } catch { /* voice mirror unavailable (standalone gateway) */ }
   }
+  // Live stage instances in stage channels the bot can view; soundboard sounds.
+  let stageInstances: unknown[] = [];
+  try {
+    const { listGuildStageInstances } = await import('@/lib/botapi/guildStageInstances');
+    stageInstances = (await listGuildStageInstances(sid)).filter((si) => canViewParent(byId.get(si.channel_id.toLowerCase()) ?? null));
+  } catch { /* best-effort */ }
+  const { guildSoundboardSounds } = await import('@/lib/botapi/guildSoundboardRules');
+  const soundboardSounds = guildSoundboardSounds(server);
   let presences: unknown[] = [];
   if ((opts.intents & INTENT.GUILD_PRESENCES) !== 0 && users.size > 0) {
     try {
@@ -208,9 +216,9 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
     channels: guildChannels.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map((c) => toDiscordChannel(c)),
     threads,
     presences,
-    stage_instances: [],
+    stage_instances: stageInstances,
     guild_scheduled_events: events,
-    soundboard_sounds: [],
+    soundboard_sounds: soundboardSounds,
     roles: roles.map((r) => toDiscordRole(r, botRoles.get(r.id) ?? null)),
     emojis: emojis.map((e) => toDiscordEmoji(e)),
     stickers: stickers.map((s) => toDiscordSticker(s)),

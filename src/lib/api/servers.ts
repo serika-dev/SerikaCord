@@ -36,6 +36,7 @@ import { VERIFICATION_ACTIONS, VERIFICATION_MAX_MINUTES, normalizeVerificationOp
 import { normalizeOverwrites } from '@/lib/permissions/overwriteEditor';
 import { normalizeRoleIconInput, pickIconRole } from '@/lib/roles/roleIcon';
 import { parseSoundVolume } from '@/lib/servers/soundboardVolume';
+import { invitesPaused } from '@/lib/botapi/guildIncidentRules';
 // Bot gateway events for guild resources (GUILD_UPDATE, CHANNEL_*, GUILD_ROLE_*, GUILD_MEMBER_UPDATE, INVITE_*).
 import * as guildEvents from '@/lib/services/guildGatewayEvents';
 import { hasDiscoveryTag, isHexColor, isServerTagIcon, normalizeDiscoveryTags, normalizeServerGames, readDiscoveryTags, readServerGames, readServerTagConfig, validateServerTagText, validateTagEmoji } from '@/lib/servers/serverProfile';
@@ -1125,6 +1126,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     await cache.del(`server:safety:${server.id}`);
     await invalidateServerGate(server.id);
     void guildEvents.emitGuildUpdate(server.id);
+    if (settingsPayload.soundboard !== undefined) void import('@/lib/botapi/guildSoundboard').then((m) => m.emitSoundsUpdate(server)).catch(() => {});
     const settingsChanges = diffChanges(beforeSettings as Record<string, unknown>, server as Record<string, unknown>, GUILD_AUDIT_KEYS);
     if (settingsChanges.length > 0) {
       audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: settingsChanges, reason: auditReason(headers['x-audit-log-reason']) });
@@ -1599,6 +1601,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     await cache.del(`server:safety:${server.id}`);
     await invalidateServerGate(server.id);
     void guildEvents.emitGuildUpdate(server.id);
+    if ('soundboard.enabled' in changes) void import('@/lib/botapi/guildSoundboard').then((m) => m.emitSoundsUpdate(server)).catch(() => {});
     const bulkChanges = diffChanges(beforeBulk as Record<string, unknown>, server as Record<string, unknown>, GUILD_AUDIT_KEYS);
     if (bulkChanges.length > 0) {
       audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.GUILD_UPDATE, targetId: server.id, changes: bulkChanges, reason: auditReason(headers['x-audit-log-reason']) });
@@ -3879,6 +3882,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     {
       const added = sounds[sounds.length - 1] as { id?: string; name?: string };
       audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.SOUNDBOARD_SOUND_CREATE, targetId: added.id ?? null, changes: [{ key: 'name', new: added.name }] });
+      void import('@/lib/botapi/guildSoundboard').then((m) => m.emitSoundEvent('CREATE', server.id, added)).catch(() => {});
     }
 
     return {
@@ -3938,6 +3942,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       .map((k) => ({ key: k, old: prev[k], new: next[k] }));
     if (changes.length > 0) {
       audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.SOUNDBOARD_SOUND_UPDATE, targetId: next.id, changes });
+      void import('@/lib/botapi/guildSoundboard').then((m) => m.emitSoundEvent('UPDATE', server.id, next)).catch(() => {});
     }
     return { sound: next };
   }, {
@@ -3985,6 +3990,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const [removedSound] = sounds.splice(idx, 1) as Array<{ id?: string; name?: string }>;
     await Server.updateById(server.id, { soundboardSounds: sounds });
     audit({ serverId: server.id, userId: user.id, actionType: AuditLogEvent.SOUNDBOARD_SOUND_DELETE, targetId: removedSound?.id ?? params.soundId, changes: [{ key: 'name', old: removedSound?.name }] });
+    if (removedSound?.id) void import('@/lib/botapi/guildSoundboard').then((m) => m.emitSoundEvent('DELETE', server.id, removedSound)).catch(() => {});
 
     return { success: true };
   }, {
@@ -5798,14 +5804,25 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
     // already a member so the invite UI can offer "Open Server" instead of
     // pretending they still need to join.
     let isMember = false;
+    let hiddenByTargetList = false;
     try {
       const { user } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
       if (user) {
         const existing = await ServerMember.findOne({ serverId: resolved.serverId, userId: user.id });
         isMember = !!existing;
+        // Invites with target users (bot API /invites/{code}/target-users) are
+        // only visible to the users on the list.
+        if (!isMember && resolved.kind === 'invite') {
+          const { isInviteTargetAllowed } = await import('@/lib/services/inviteTargets');
+          hiddenByTargetList = !(await isInviteTargetAllowed(resolved.invite, user.id));
+        }
       }
     } catch {
       /* unauthenticated / bad token — treat as non-member */
+    }
+    if (hiddenByTargetList) {
+      set.status = 404;
+      return { error: 'Invite not found or expired' };
     }
 
     return {
@@ -5849,6 +5866,24 @@ export const inviteRoutes = new Elysia({ prefix: '/invites' })
     }
 
     const invite = resolved.kind === 'invite' ? resolved.invite : null;
+
+    // Invites with target users can only be accepted by the users on the list.
+    if (invite) {
+      const { isInviteTargetAllowed } = await import('@/lib/services/inviteTargets');
+      if (!(await isInviteTargetAllowed(invite, user.id))) {
+        set.status = 404;
+        return { error: 'Invite not found or expired' };
+      }
+    }
+
+    // Incident actions (bot API PUT /guilds/{id}/incident-actions): invites paused for now.
+    {
+      const target = await Server.findById(resolved.serverId);
+      if (target && invitesPaused(target.settings)) {
+        set.status = 403;
+        return { error: 'Invites to this server are paused right now' };
+      }
+    }
 
     const isBanned = await ServerBan.findOne({ serverId: resolved.serverId, userId: user.id });
     if (isBanned) {

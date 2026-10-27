@@ -11,6 +11,8 @@ export type IServerMemberApplication = typeof schema.serverMemberApplications.$i
  * plaintext rows pass through unchanged.
  */
 const FIELDS: FieldSpec = { json: ['answers'], text: ['rejectionReason'] };
+/** The encrypted columns, for callers that page with their own query (bot API join requests). */
+export const SERVER_MEMBER_APPLICATION_FIELDS = FIELDS;
 
 export const ServerMemberApplication = {
   table: schema.serverMemberApplications,

@@ -145,6 +145,74 @@ export async function removeGroupDmMember(
   return { status: 200, body: { success: true } };
 }
 
+/**
+ * Add `targetId` to a group as `actor` (a bot) on the strength of the
+ * target's own consent: an OAuth2 `gdm.join` grant to the bot's application
+ * (checked by the caller, src/lib/botapi/gdmJoin.ts) instead of friendship.
+ * The actor must be in the group; the usual size and E2EE rules apply.
+ * Status 200 = added, 204 = already a member.
+ */
+export async function addGroupDmMemberByGrant(
+  channelId: string,
+  actor: NonNullable<Awaited<ReturnType<typeof getAuth>>['user']>,
+  targetId: string,
+): Promise<{ status: number; body: Record<string, unknown> }> {
+  const target = await User.findById(targetId);
+  if (!target) return { status: 404, body: { error: 'Unknown user' } };
+  let added = false;
+  const result = await updateGroupLocked(channelId, (channel) => {
+    if (!isMember(channel, actor.id)) return { error: NOT_FOUND.error, status: 404 };
+    // Like Discord, an app only adds people (with their gdm.join grant) to
+    // groups it created; people's own groups keep the usual friendship rules.
+    if (!channel.ownerId || channel.ownerId !== actor.id) return { error: 'Missing Access', status: 403 };
+    if (isMember(channel, targetId)) return null;
+    if (channel.e2ee === true && !canJoinEncrypted(target)) {
+      return { error: "Bots can't be added to an end-to-end encrypted group", status: 400 };
+    }
+    const plan = planGroupAdd(channel.recipientIds, actor.id, [targetId], [targetId]);
+    if (!plan.ok) return { error: plan.error, status: 400 };
+    added = true;
+    return { recipientIds: plan.memberIds };
+  });
+  if ('error' in result) return { status: result.status, body: { error: result.error } };
+  if (!added) return { status: 204, body: {} };
+  await postGroupEvent(result.after, actor, 'recipient_add', {
+    target: { id: target.id, username: target.username, displayName: target.displayName, avatar: target.avatar },
+  });
+  await broadcastGroupUpdate(result.after);
+  return { status: 200, body: { success: true } };
+}
+
+/**
+ * Create a group owned by `actor` (a bot) with `userIds`, each of whom
+ * granted the bot's application `gdm.join` (checked by the caller). Never
+ * end-to-end encrypted (a bot is in it).
+ */
+export async function createGroupDmByGrants(
+  actor: { id: string },
+  userIds: string[],
+): Promise<{ ok: true; channel: GroupChannel } | { ok: false; status: number; error: string }> {
+  const limit = await checkRateLimit('groupDmCreate', actor.id);
+  if (!limit.success) return { ok: false, status: 429, error: 'You are creating groups too quickly' };
+  const others = [...new Map(userIds.map((id) => [id.toLowerCase(), id])).values()].filter((id) => id.toLowerCase() !== actor.id.toLowerCase());
+  if (others.length === 0) return { ok: false, status: 400, error: 'A group DM needs at least one other member' };
+  const memberIds = [actor.id, ...others];
+  const plan = planGroupAdd([actor.id], actor.id, others, others);
+  if (!plan.ok) return { ok: false, status: 400, error: plan.error };
+  const users = await User.find({ id: { in: memberIds } });
+  if (users.length !== memberIds.length) return { ok: false, status: 400, error: 'Some of those users no longer exist' };
+  const [channel] = await db.insert(schema.channels).values({
+    type: 'group_dm',
+    name: '',
+    recipientIds: plan.memberIds,
+    ownerId: actor.id,
+    position: 0,
+    e2ee: false,
+  }).returning();
+  await broadcastGroupUpdate(channel);
+  return { ok: true, channel };
+}
+
 export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
   .onBeforeHandle(rejectInvalidObjectIdParams)
   // Create a group DM with some friends.

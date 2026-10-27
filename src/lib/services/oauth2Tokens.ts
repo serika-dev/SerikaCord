@@ -255,6 +255,10 @@ interface StoredCode {
   redirectUri: string | null;
   /** PKCE S256 challenge bound to the code (the exchange must send its verifier). */
   codeChallenge?: string | null;
+  /** OpenID Connect `nonce` from the authorize request, echoed in the id_token. */
+  nonce?: string | null;
+  /** When the user consented (seconds), the id_token's auth_time. */
+  authTime?: number;
 }
 
 const codeKey = (code: string) => `oauth2:code:${hashSecret(code)}`;
@@ -284,6 +288,41 @@ async function consumeAuthorizationCode(code: string): Promise<StoredCode | null
 // ─── Token endpoint ───────────────────────────────────────────────────────────
 
 export interface OAuthResult { status: number; body: unknown }
+
+/**
+ * OpenID Connect: with the `openid` scope the token response also carries a
+ * signed `id_token` (RS256, key from src/lib/services/oidcKeys.ts, published
+ * at GET /oauth2/keys). `sub` is the user id in the app's id format. Without
+ * a signing key the response is returned unchanged.
+ */
+async function withIdToken(issued: IssuedToken, app: IApplication, userId: string, scopes: string[], extra: { nonce?: string | null; authTime?: number } = {}): Promise<IssuedToken & { id_token?: string }> {
+  if (!scopes.includes('openid')) return issued;
+  try {
+    const { getOidcSigningKey, oidcIssuer } = await import('@/lib/services/oidcKeys');
+    const key = await getOidcSigningKey();
+    if (!key) return issued;
+    const { User } = await import('@/lib/models');
+    const user = await User.findById(userId);
+    if (!user) return issued;
+    const { idTokenClaims, signJwtRS256 } = await import('@/lib/oauth/oidc');
+    let sub = user.id;
+    const { idFormatOf, toSnowflakes } = await import('@/lib/botapi/boundary');
+    if (idFormatOf(app) === 'snowflake') sub = (await toSnowflakes({ id: user.id })).id;
+    const claims = idTokenClaims({
+      issuer: oidcIssuer(),
+      clientId: app.clientId,
+      user: { ...user, id: sub },
+      scopes,
+      accessToken: issued.access_token,
+      nonce: extra.nonce ?? null,
+      authTime: extra.authTime,
+    });
+    return { ...issued, id_token: signJwtRS256(claims, key.privateKey, key.kid) };
+  } catch (err) {
+    console.error('[oauth2] id_token signing failed:', (err as Error)?.message ?? err);
+    return issued;
+  }
+}
 
 /** The application named by the request's client credentials, or null. */
 export async function authenticateClient(
@@ -331,7 +370,7 @@ export async function handleTokenRequest(
       return { status: 400, body: oauthError('invalid_scope') };
     }
     const issued = await mintToken({ applicationId: app.id, userId: stored.userId, scopes: stored.scopes, grantType: 'authorization_code', withRefresh: true });
-    return { status: 200, body: issued };
+    return { status: 200, body: await withIdToken(issued, app, stored.userId, stored.scopes, { nonce: stored.nonce, authTime: stored.authTime }) };
   }
 
   if (grantType === 'refresh_token') {
@@ -353,7 +392,7 @@ export async function handleTokenRequest(
     if (old.length === 0) return { status: 400, body: oauthError('invalid_grant', 'Invalid "refresh_token" in request.') };
     await bustBearerCache();
     const issued = await mintToken({ applicationId: app.id, userId: old[0].userId, scopes: old[0].scopes ?? [], grantType: 'refresh_token', withRefresh: true });
-    return { status: 200, body: issued };
+    return { status: 200, body: await withIdToken(issued, app, old[0].userId, old[0].scopes ?? []) };
   }
 
   // client_credentials: a token for the application's owner (Discord).

@@ -165,37 +165,26 @@ export default async function ReferenceDoc() {
 
       <H2 id="discord-compat">{gt("Discord Compatibility")}</H2>
       <Callout type="info" title={gt("Discord API Compatibility")}>
-        {gt("SerikaCord implements part of the Discord v10 bot API. The official")}{" "}<InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively.")}{" "}
-        {gt("Discord libraries are not drop-in yet: ids are UUIDs rather than numeric snowflakes, so discord.py and other libraries that parse ids as integers cannot connect, and discord.js only partly works.")}
+        {gt("SerikaCord implements the Discord v10 bot API: every non-deprecated route in Discord's API spec has a SerikaCord counterpart, and a few work differently. The official")}{" "}<InlineCode>serika.js</InlineCode> {gt("SDK (npm @serikadev/serika.js) handles everything natively.")}{" "}
+        {gt("New applications get Discord-style numeric ids, so discord.js and discord.py run unmodified once their base URLs point at SerikaCord.")}
       </Callout>
       <P>
-        {gt("The following Discord features are")}{" "}<Strong>{gt("implemented")}</Strong> {gt("in the SerikaCord bot API:")}
+        {gt("The")}{" "}<Link2 href="/developers/docs/topics/compatibility">{gt("compatibility table")}</Link2>{" "}{gt("lists the status of every route, gateway event and protocol feature, generated from the code. What works differently is explained in")}{" "}<Link2 href="/developers/docs/topics/differences">{gt("Differences from Discord")}</Link2>.
       </P>
       <UL>
-        <li>{gt("Bot authentication via token")}</li>
-        <li>{gt("User lookup")} (<InlineCode>/users/@me</InlineCode>, <InlineCode>/users/:id</InlineCode>)</li>
-        <li>{gt("Guild retrieval and management")}</li>
-        <li>{gt("Channel CRUD (create, read, update, delete)")}</li>
-        <li>{gt("Message send, edit, delete, bulk-delete, pin/unpin")}</li>
-        <li>{gt("Reactions (add, remove, list, clear)")}</li>
-        <li>{gt("Typing indicator")}</li>
-        <li>{gt("Guild roles CRUD")}</li>
-        <li>{gt("Guild member management (nick, roles, mute, deaf, timeout, kick)")}</li>
-        <li>{gt("Guild bans (add, remove, get)")}</li>
-        <li>{gt("Guild emojis CRUD")}</li>
-        <li>{gt("Guild stickers (read)")}</li>
-        <li>{gt("Guild webhooks (list, create)")}</li>
-        <li>{gt("Channel webhooks (list, create, get, delete)")}</li>
-        <li>{gt("Audit log retrieval")}</li>
-        <li>{gt("DM channels (list, create)")}</li>
-        <li>{gt("Leave guild")}</li>
-        <li>{gt("Application commands (global + guild, CRUD + bulk overwrite)")}</li>
-        <li>{gt("Interaction callback")}</li>
-        <li>{gt("Voice regions")}</li>
-        <li>{gt("Gateway WebSocket (HELLO, IDENTIFY, HEARTBEAT, RESUME, DISPATCH)")}</li>
-        <li>{gt("Gateway dispatch routing (MESSAGE_CREATE, GUILD_MEMBER_ADD, GUILD_CREATE, etc.)")}</li>
-        <li>{gt("Intent-based filtering")}</li>
-        <li>{gt("Redis-based cross-instance event fan-out")}</li>
+        <li>{gt("Users, DMs and group DMs (including gdm.join), current user guilds and connections")}</li>
+        <li>{gt("Guilds, channels, roles, members, bans, prune, onboarding, welcome screen, widget (JSON and image), templates, join requests, incident actions and guild message search")}</li>
+        <li>{gt("Messages, files, replies, forwards, polls, components, reactions, pins (with the pin system message), typing and crossposting")}</li>
+        <li>{gt("Threads, forums and thread search")}</li>
+        <li>{gt("Emojis, stickers, application emojis and soundboard sounds")}</li>
+        <li>{gt("Webhooks (channel, interaction followups, Slack- and GitHub-compatible execute)")}</li>
+        <li>{gt("Audit log, auto moderation, scheduled events and stage instances")}</li>
+        <li>{gt("Applications, application commands and their permissions, interactions, linked roles metadata")}</li>
+        <li>{gt("OAuth2 including client credentials, OpenID Connect, and bot install")}</li>
+        <li>{gt("Lobbies, invite target users, and partner-sdk routes (which answer 530000: no provisional accounts)")}</li>
+        <li>{gt("Voice regions, voice states, voice channel status and send-soundboard-sound")}</li>
+        <li>{gt("Monetization routes (SKUs, entitlements, subscriptions) return empty lists")}</li>
+        <li>{gt("Gateway: zlib-stream, resume with replay, sharding, presence, op 8 and op 31, intents, Discord close codes and rate limits")}</li>
       </UL>
     </DocPage>
   );

@@ -5,6 +5,7 @@
  * Discord channel flags Serika stores. Used by src/lib/botapi/threads.ts;
  * tested in tests/bot-threads.test.ts.
  */
+import { DEFAULT_SLOP, matchThreadName, parseSlop, relevanceScore, searchWords } from './threadSearchMatch';
 import { FormErrors, type DiscordFormError } from './formErrors';
 import { AUTO_ARCHIVE_DURATIONS, MAX_THREAD_NAME_LENGTH, type AutoArchiveDuration } from '@/lib/chat/threads';
 
@@ -394,15 +395,24 @@ export interface ThreadSearchPlan {
   tags: string[];
   matchAll: boolean;
   archived: boolean | null;
-  sortBy: 'last_message_time' | 'archive_time' | 'creation_time';
+  sortBy: 'last_message_time' | 'archive_time' | 'creation_time' | 'relevance';
   ascending: boolean;
+  /** Most words allowed between matched title words (Discord `slop`, default 2). */
+  slop: number;
+  /** Creation-time bounds from `min_id` / `max_id` (ms, inclusive). */
+  minMs?: number;
+  maxMs?: number;
 }
 
-/** Query -> plan: name (words, case-insensitive), tag (comma list), tag_setting, archived, sort_by, sort_order. */
-export function threadSearchPlan(q: Record<string, string | undefined>): ThreadSearchPlan {
-  const words = (q.name ?? '').toLowerCase().split(/\s+/).map((w) => w.trim()).filter(Boolean).slice(0, 10);
+/**
+ * Query -> plan: name (words, case-insensitive prefix match within `slop`),
+ * tag (comma list), tag_setting, archived, sort_by (incl. relevance),
+ * sort_order. `min_id` / `max_id` are resolved by the caller (minMs / maxMs).
+ */
+export function threadSearchPlan(q: Record<string, string | undefined>, bounds: { minMs?: number; maxMs?: number } = {}): ThreadSearchPlan {
+  const words = searchWords((q.name ?? '').slice(0, 100)).slice(0, 10);
   const tags = (q.tag ?? '').split(',').map((t) => t.trim().toLowerCase()).filter(Boolean).slice(0, 20);
-  const sortBy = q.sort_by === 'archive_time' || q.sort_by === 'creation_time' ? q.sort_by : 'last_message_time';
+  const sortBy = q.sort_by === 'archive_time' || q.sort_by === 'creation_time' || q.sort_by === 'relevance' ? q.sort_by : 'last_message_time';
   return {
     words,
     tags,
@@ -410,6 +420,9 @@ export function threadSearchPlan(q: Record<string, string | undefined>): ThreadS
     archived: q.archived === 'true' ? true : q.archived === 'false' ? false : null,
     sortBy,
     ascending: q.sort_order === 'asc',
+    slop: parseSlop(q.slop) ?? DEFAULT_SLOP,
+    ...(bounds.minMs !== undefined ? { minMs: bounds.minMs } : {}),
+    ...(bounds.maxMs !== undefined ? { maxMs: bounds.maxMs } : {}),
   };
 }
 
@@ -420,19 +433,28 @@ export interface SearchableThread extends ThreadListRow {
 }
 
 export function filterAndSortThreads<T extends SearchableThread>(rows: T[], plan: ThreadSearchPlan): T[] {
-  const key = (r: T) => (plan.sortBy === 'creation_time' ? ms(r.createdAt) : plan.sortBy === 'archive_time' ? (ms(r.archiveTimestamp) || ms(r.createdAt)) : (ms(r.updatedAt) || ms(r.createdAt)));
-  return rows
-    .filter((r) => {
-      if (plan.archived !== null && Boolean(r.archived) !== plan.archived) return false;
-      const name = (r.name ?? '').toLowerCase();
-      if (plan.words.some((w) => !name.includes(w))) return false;
-      if (plan.tags.length) {
-        const own = new Set((r.appliedTags ?? []).map((t) => t.toLowerCase()));
-        return plan.matchAll ? plan.tags.every((t) => own.has(t)) : plan.tags.some((t) => own.has(t));
-      }
-      return true;
-    })
-    .sort((a, b) => (plan.ascending ? key(a) - key(b) : key(b) - key(a)) || (a.id < b.id ? -1 : 1));
+  const activity = (r: T) => ms(r.updatedAt) || ms(r.createdAt);
+  const key = (r: T) => (plan.sortBy === 'creation_time' ? ms(r.createdAt) : plan.sortBy === 'archive_time' ? (ms(r.archiveTimestamp) || ms(r.createdAt)) : activity(r));
+  const scores = new Map<T, number>();
+  const kept = rows.filter((r) => {
+    if (plan.archived !== null && Boolean(r.archived) !== plan.archived) return false;
+    const created = ms(r.createdAt);
+    if (plan.minMs !== undefined && created < plan.minMs) return false;
+    if (plan.maxMs !== undefined && created > plan.maxMs) return false;
+    const match = matchThreadName(r.name, plan.words, plan.slop);
+    if (!match) return false;
+    if (plan.tags.length) {
+      const own = new Set((r.appliedTags ?? []).map((t) => t.toLowerCase()));
+      if (!(plan.matchAll ? plan.tags.every((t) => own.has(t)) : plan.tags.some((t) => own.has(t)))) return false;
+    }
+    scores.set(r, relevanceScore(match));
+    return true;
+  });
+  if (plan.sortBy === 'relevance') {
+    // Best match first (sort_order flips it), then the most recently active.
+    return kept.sort((a, b) => (plan.ascending ? scores.get(a)! - scores.get(b)! : scores.get(b)! - scores.get(a)!) || activity(b) - activity(a) || (a.id < b.id ? -1 : 1));
+  }
+  return kept.sort((a, b) => (plan.ascending ? key(a) - key(b) : key(b) - key(a)) || (a.id < b.id ? -1 : 1));
 }
 
 /**

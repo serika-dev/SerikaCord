@@ -26,7 +26,7 @@ export default async function IntroDoc() {
       description={gt("Build bots, apps, and integrations on SerikaCord, whose bot API follows Discord v10. If you have built a Discord bot, most concepts carry over.")}
     >
       <Callout type="info" title={gt("Discord API Compatibility")}>
-        {gt("SerikaCord follows Discord v10 for REST routes, gateway opcodes, OAuth2 flows and data structures, for the parts it implements. The official")} <InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively.")} {gt("Discord libraries are not drop-in yet: ids are UUIDs rather than numeric snowflakes, so discord.py and other libraries that parse ids as integers cannot connect, and discord.js only partly works.")}
+        {gt("SerikaCord follows Discord v10 for REST routes, gateway opcodes, OAuth2 flows and data structures: every non-deprecated route in Discord's API spec has a SerikaCord counterpart. The official")} <InlineCode>serika.js</InlineCode> {gt("SDK handles everything natively.")} {gt("New applications get Discord-style numeric ids, so discord.js and discord.py run unmodified once their REST, gateway and CDN base URLs point at SerikaCord. See Differences from Discord and the compatibility table for what behaves differently.")}
       </Callout>
 
       <H2 id="start-here">{gt("Start here")}</H2>
@@ -92,12 +92,13 @@ OAuth2   https://api.serika.chat/api/oauth2/authorize`}</CodeBlock>
       <P>
         {gt("SerikaCord is a self-hosted, Discord-compatible chat platform. It implements the Discord v10 bot API — REST routes, Gateway WebSocket protocol, OAuth2 flows, and data structures — so that any bot built for Discord can be pointed at SerikaCord by changing two URLs:")}
       </P>
-      <CodeBlock lang="javascript">{`// serika.js — zero config needed, baseURL is built in
+      <CodeBlock lang="javascript">{`// serika.js (npm @serikadev/serika.js) — zero config needed, baseURL is built in
 import { SerikaClient, Intents } from "@serikadev/serika.js";
 
-const client = new SerikaClient({ token: process.env.BOT_TOKEN! });
-const gw = await client.connectGateway({
+const client = new SerikaClient({ token: process.env.BOT_TOKEN });
+const gateway = await client.connectGateway({
   intents: Intents.GUILDS | Intents.GUILD_MESSAGES,
+  waitForReady: true,
 });`}</CodeBlock>
       <P>
         {gt("The server runs a single-process architecture: a Next.js web app and the bot Gateway share the same port. The REST API is served by an")}{" "}<InlineCode>Elysia</InlineCode> {gt("router under")}{" "}
@@ -109,19 +110,17 @@ const gw = await client.connectGateway({
       <H2 id="features">{gt("Supported features")}</H2>
       <P>{gt("The SerikaCord bot API implements the following Discord v10 features:")}</P>
       <UL>
-        <li>{gt("Bot authentication via token")}</li>
-        <li>{gt("User, Guild, Channel, Message, Role, Member CRUD")}</li>
-        <li>{gt("Reactions, pins, typing indicators")}</li>
-        <li>{gt("Bans, kicks, timeouts, member management")}</li>
-        <li>{gt("Guild emojis and stickers (read)")}</li>
-        <li>{gt("Webhooks (create, list, get, delete)")}</li>
-        <li>{gt("Audit log retrieval")}</li>
-        <li>{gt("DM channels (list, create)")}</li>
-        <li>{gt("Application commands (global + guild, CRUD + bulk overwrite)")}</li>
-        <li>{gt("Interaction callback")}</li>
-        <li>{gt("Voice regions")}</li>
-        <li>{gt("Gateway WebSocket (HELLO, IDENTIFY, HEARTBEAT, RESUME, DISPATCH)")}</li>
-        <li>{gt("Intent-based event filtering and guild-scoped dispatch routing")}</li>
+        <li>{gt("Bot tokens and OAuth2 (authorization code, client credentials, refresh tokens, bot install, OpenID Connect, gdm.join, guilds.join)")}</li>
+        <li>{gt("Users, guilds, channels, roles, members, bans, prune, onboarding, welcome screen, widget, templates, join requests and incident actions")}</li>
+        <li>{gt("Messages with files, replies, forwards, polls, components v1 and v2, reactions, pins, typing and guild message search")}</li>
+        <li>{gt("Threads and forums, including forum posts, tags and thread search")}</li>
+        <li>{gt("Emojis, stickers, application emojis and the server soundboard")}</li>
+        <li>{gt("Webhooks, including Slack- and GitHub-compatible execute")}</li>
+        <li>{gt("Audit log, auto moderation and scheduled events")}</li>
+        <li>{gt("Application commands, interactions (gateway or Ed25519-signed HTTP), autocomplete, modals and context menus")}</li>
+        <li>{gt("Voice states, stage instances and voice channel status (bots can't send or receive audio)")}</li>
+        <li>{gt("Linked roles metadata, lobbies and invite target users")}</li>
+        <li>{gt("Gateway: zlib-stream compression, resume with replay, sharding, presence, op 8 member chunks, intents and Discord's close codes and rate limits")}</li>
         <li>{gt("Redis-based cross-instance event fan-out for multi-server deployments")}</li>
       </UL>
     </DocPage>

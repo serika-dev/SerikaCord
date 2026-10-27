@@ -946,6 +946,36 @@ export const appCommandPermissions = pgTable('app_command_permissions', {
   appGuildIdx: index('app_command_permissions_app_guild_idx').on(t.applicationId, t.guildId),
 }));
 
+// Discord application fields the `applications` row has no column for
+// (PATCH /applications/@me) plus the linked-roles metadata records. A side
+// table so no `applications` select depends on it. Created on first use by
+// ensureApplicationApiSchema() (drizzle/manual_application_api_settings.sql).
+export const applicationApiSettings = pgTable('application_api_settings', {
+  applicationId: uuid('application_id').primaryKey(),
+  roleConnectionsVerificationUrl: text('role_connections_verification_url'),
+  roleConnectionMetadata: jsonb('role_connection_metadata'),
+  eventWebhooksUrl: text('event_webhooks_url'),
+  eventWebhooksStatus: smallint('event_webhooks_status').default(1),
+  eventWebhooksTypes: text('event_webhooks_types').array(),
+  explicitContentFilter: smallint('explicit_content_filter').default(0),
+  maxParticipants: integer('max_participants'),
+  updatedAt: timestamp('updated_at').defaultNow(),
+});
+
+// A user's linked-roles connection to an application (PUT
+// /users/@me/applications/{id}/role-connection, role_connections.write).
+export const applicationRoleConnections = pgTable('application_role_connections', {
+  applicationId: uuid('application_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  platformName: text('platform_name'),
+  platformUsername: text('platform_username'),
+  metadata: jsonb('metadata').notNull().default({}),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.applicationId, t.userId] }),
+  userIdx: index('application_role_connections_user_idx').on(t.userId),
+}));
+
 export const richPresence = pgTable('rich_presence', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   userId: uuid('user_id').notNull(),
@@ -1025,6 +1055,76 @@ export const userGames = pgTable('user_games', {
 
 export type UserGameRow = typeof userGames.$inferSelect;
 export type UserGameInsert = typeof userGames.$inferInsert;
+
+// ─── Social SDK lobbies + invite target users (Discord parity) ─────────────
+// Created lazily by ensureSocialParitySchema() (src/lib/services/socialParitySchema.ts),
+// mirrors drizzle/manual_social_parity.sql. App-scoped: only the owning
+// application's bot (or its users' sdk.social_layer tokens) can reach a lobby.
+export const lobbies = pgTable('lobbies', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  applicationId: uuid('application_id').notNull(),
+  // sha256(application id + secret) for PUT /lobbies; null for API-created lobbies.
+  secretHash: text('secret_hash'),
+  metadata: jsonb('metadata'),
+  flags: integer('flags').notNull().default(0),
+  idleTimeoutSeconds: integer('idle_timeout_seconds').notNull().default(300),
+  linkedChannelId: uuid('linked_channel_id'),
+  linkedById: uuid('linked_by_id'),
+  lastActivityAt: timestamp('last_activity_at').defaultNow(),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  appIdx: index('lobbies_application_id_idx').on(t.applicationId),
+  appSecretUnique: uniqueIndex('lobbies_application_id_secret_hash_unique').on(t.applicationId, t.secretHash),
+  linkedChannelUnique: uniqueIndex('lobbies_linked_channel_id_unique').on(t.linkedChannelId),
+}));
+
+export const lobbyMembers = pgTable('lobby_members', {
+  lobbyId: uuid('lobby_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  metadata: jsonb('metadata'),
+  flags: integer('flags').notNull().default(0),
+  additionalName: text('additional_name'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.lobbyId, t.userId] }),
+  userIdx: index('lobby_members_user_id_idx').on(t.userId),
+}));
+
+// Lobby chat: content encrypted at rest like messages.content; kept 72 hours.
+export const lobbyMessages = pgTable('lobby_messages', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  lobbyId: uuid('lobby_id').notNull(),
+  applicationId: uuid('application_id').notNull(),
+  authorId: uuid('author_id').notNull(),
+  content: text('content').notNull().default(''),
+  flags: integer('flags').notNull().default(0),
+  additionalName: text('additional_name'),
+  moderationMetadata: jsonb('moderation_metadata'),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  lobbyCreatedIdx: index('lobby_messages_lobby_id_created_at_idx').on(t.lobbyId, t.createdAt),
+}));
+
+// App-scoped moderation metadata on DM messages (PUT /partner-sdk/dms/.../moderation-metadata).
+export const appMessageModeration = pgTable('app_message_moderation', {
+  applicationId: uuid('application_id').notNull(),
+  messageId: uuid('message_id').notNull(),
+  metadata: jsonb('metadata').notNull(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.applicationId, t.messageId] }),
+}));
+
+// Users allowed to see and accept an invite (empty = anyone). invites.metadata
+// .target_users = { count, updated_at } marks invites that have a list.
+export const inviteTargetUsers = pgTable('invite_target_users', {
+  inviteId: uuid('invite_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  createdAt: timestamp('created_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.inviteId, t.userId] }),
+}));
 
 // Application-authored widget definition (Discord "widget config"): the surface
 // designs + field bindings. One published config per application.
@@ -1226,6 +1326,25 @@ export const serverScheduledEventUsers = pgTable('server_scheduled_event_users',
 }, (t) => ({
   pk: primaryKey({ columns: [t.eventId, t.userId] }),
   userIdx: index('server_scheduled_event_users_user_idx').on(t.userId),
+}));
+
+// Live stage channels' stage instances (Discord bot API: topic + privacy, one
+// per stage channel). Created on first use by ensureStageInstanceSchema()
+// (src/lib/botapi/guildStageInstances.ts; drizzle/manual_stage_instances.sql).
+export const stageInstances = pgTable('stage_instances', {
+  id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
+  serverId: uuid('server_id').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  topic: text('topic').notNull(),
+  privacyLevel: integer('privacy_level').notNull().default(2),
+  discoverableDisabled: boolean('discoverable_disabled').notNull().default(true),
+  guildScheduledEventId: uuid('guild_scheduled_event_id'),
+  creatorId: uuid('creator_id'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  channelUnique: uniqueIndex('stage_instances_channel_id_unique').on(t.channelId),
+  serverIdx: index('stage_instances_server_id_idx').on(t.serverId),
 }));
 
 // Announcement channel follows: published messages from source_channel_id are

@@ -7,6 +7,14 @@
 ## Unreleased
 
 ### Features
+- **Discord API compatibility: 95.6% of routes** — nearly every Discord API v10 route now works for bots (up from 71%), and none are missing. The compatibility page and developer docs are fully updated.
+- **Bot message search, join requests and raid tools** — bots can search a server's messages with Discord's filters (only channels they can read), approve or reject member applications, read the Server Guide, and pause invites during a raid.
+- **Soundboard, stage and voice channel status for bots** — bots can create, edit and play soundboard sounds, run stage instances, and set a voice channel's status.
+- **Slack- and GitHub-compatible webhooks** — add /slack or /github to a webhook URL to post Slack payloads or GitHub events (pushes, issues, pull requests, releases, stars) as embeds. Webhooks can also post polls.
+- **"Pinned a message" notices** — when a bot pins a message, a notice appears in the channel that jumps to it.
+- **Linked roles and OpenID Connect** — apps can define role connection metadata and save users' role connections, and "Sign in with SerikaCord" can return a signed id_token with /oauth2/userinfo and /oauth2/keys.
+- **Social SDK lobbies and targeted invites** — apps can run lobbies (members, chat, a linked channel) and limit an invite to specific people.
+- **More for bots** — update the application (icon, cover, linked-roles URL) through the API, batch command permissions, add people to a bot's group DMs with gdm.join, real thread join times, better thread search, the public widget lists online members and has a widget.png, and /gateway/bot recommends a shard count.
 - **Bots in bridged servers** — messages relayed in from Discord tell bots where they came from (`bridged_from`), and bots can look up which channels are bridged (`GET /guilds/{id}/bridge`), so a bot running on both Discord and SerikaCord answers each message once.
 - **Official SerikaCord apps** — apps made by the SerikaCord team now carry an Official badge ("Made by SerikaCord") on /bots, in App Discovery, on the "Add to Server" permission screen and on the bot's profile, and always show the verified check. The bot library has a new "Made by SerikaCord" section and an Official filter.
 - **Better bot profiles** — a bot's profile card now says whether it is a verified or official app, with an "Add to Server" button for public bots and a link to its page in the bot library.
@@ -17,6 +25,7 @@
 - **Developer portal home and Applications** — a cleaner home with your apps, stats, quick links and what's new; the Applications page gets search by name, bot or ID, sorting, grid and list views, and creating an app opens it straight away.
 
 ### Bug Fixes
+- **Threads match Discord** — a thread started from a message now has the same id as that message, as on Discord, so bot libraries find a message's thread.
 - **Bot embed images** — pictures in bot and webhook embeds keep their own shape instead of being cropped into a wide strip (portrait art shows in full, like on Discord), thumbnails aren't cropped, and embeds are only as wide as their content.
 - **Bot commands with the same name as a built-in** — picking a bot's /roll (or any bot command that shares a name with a built-in or another bot) from the command list now runs that bot's command instead of the built-in one.
 - **App pictures in the developer portal** — apps without their own icon show their bot's avatar on the portal home, and server counts there are live.
@@ -26,6 +35,7 @@
 ### Performance
 
 ### Security
+- **Safer bot uploads and lobby invites** — activity uploads only accept the app's own bot token, lobby invites re-check that the inviter can still create invites in that channel, and apps can only add people to group DMs they created.
 - **Fewer secrets on the page** — the developer portal's app list no longer sends client secrets or bot tokens; each app's own page still shows them.
 
 ### Removed

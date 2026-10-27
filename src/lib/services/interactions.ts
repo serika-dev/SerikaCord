@@ -310,7 +310,7 @@ async function applyCallback(
   const store = interactionStore();
   const type = input.payload.type;
   const pre = checkInitialCallback(state, type, false);
-  if (!pre.ok) return { status: pre.status, body: { code: pre.code, message: pre.message } };
+  if (!pre.ok) return { status: pre.status, body: { code: pre.code, message: pre.message, ...(pre.errors ? { errors: pre.errors } : {}) } };
   const cbType = type as number;
 
   // Validate before claiming, so a malformed body doesn't burn the acknowledgement.

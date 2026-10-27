@@ -44,14 +44,17 @@ export default async function WebhookResourceDoc() {
       <Endpoint method="DELETE" path="/webhooks/{webhook.id}/{webhook.token}">{gt("Delete webhook with token.")}</Endpoint>
       <Endpoint method="POST" path="/webhooks/{webhook.id}/{webhook.token}">{gt("Execute webhook.")}</Endpoint>
       <Endpoint method="POST" path="/webhooks/{webhook.id}/{webhook.token}?wait=true">{gt("Execute webhook and wait for message.")}</Endpoint>
+      <Endpoint method="POST" path="/webhooks/{webhook.id}/{webhook.token}/slack">{gt("Execute with a Slack-compatible payload.")}</Endpoint>
+      <Endpoint method="POST" path="/webhooks/{webhook.id}/{webhook.token}/github">{gt("Execute with a GitHub webhook delivery.")}</Endpoint>
       <Endpoint method="PATCH" path="/webhooks/{webhook.id}/{webhook.token}/messages/{message.id}">{gt("Edit webhook message.")}</Endpoint>
       <Endpoint method="DELETE" path="/webhooks/{webhook.id}/{webhook.token}/messages/{message.id}">{gt("Delete webhook message.")}</Endpoint>
 
       <H2 id="create-params">{gt("Create Parameters")}</H2>
       <Table headers={[gt("Field"), gt("Type"), gt("Description")]} rows={[
-        ["name", "string", gt("1-80 characters")],
-        ["avatar", "data URI", gt("Base64 avatar image (optional)")],
+        ["name", "string", gt("1-80 characters. May not contain clyde or discord (as on Discord), nor serika, system, staff, admin or moderator")],
+        ["avatar", "?image data", gt("Optional. A data URI (PNG, JPEG, GIF or WebP, up to 5 MB) that is uploaded to SerikaCord's storage, like Discord's image data. One of SerikaCord's own CDN URLs is also accepted; other URLs are rejected")],
       ]} />
+      <P>{gt("Modify takes the same name and avatar rules, and avatar null removes the avatar. A channel can have up to 15 webhooks (30007 past that). The Slack and GitHub routes are described in the")}{" "}<Link2 href="/developers/docs/topics/webhooks#slack-compatible">{gt("Webhooks topic")}</Link2>.</P>
 
       <Callout type="warning" title={gt("Token Security")}>
         {gt("The webhook token is only returned on creation and when fetching with the token. If lost, the webhook must be recreated.")}

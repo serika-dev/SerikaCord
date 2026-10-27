@@ -49,6 +49,10 @@ export const SF_KIND = {
   sku: 16,
   integration: 17,
   tag: 18,
+  soundboardSound: 19,
+  stageInstance: 20,
+  joinRequest: 21,
+  lobby: 22,
 } as const;
 
 /** Most new mapping rows one payload may create. */
@@ -313,6 +317,32 @@ async function originsOf(
         UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 15, NULL, NULL, false FROM server_audit_logs WHERE id = ANY(${pgArray(rest)}::uuid[])
       `)));
     } catch { /* optional tables */ }
+  }
+  const rest2 = need.filter((u) => !out.has(u) || out.get(u)!.kind === SF_KIND.unknown);
+  if (rest2.length > 0) {
+    // Join requests (member applications) and stage instances (bot API parity);
+    // stage_instances is created on first use, so it may not exist yet.
+    try {
+      take(rowsOf(await db.execute(sql`
+        SELECT id::text AS id, (extract(epoch FROM created_at) * 1000)::bigint::text AS created_ms, 21 AS kind, NULL::text AS client_id, NULL::uuid AS server_id, false AS is_default FROM server_member_applications WHERE id = ANY(${pgArray(rest2)}::uuid[])
+      `)));
+    } catch { /* best-effort */ }
+    try {
+      take(rowsOf(await db.execute(sql`
+        SELECT id::text AS id, (extract(epoch FROM created_at) * 1000)::bigint::text AS created_ms, 20 AS kind, NULL::text AS client_id, NULL::uuid AS server_id, false AS is_default FROM stage_instances WHERE id = ANY(${pgArray(rest2)}::uuid[])
+      `)));
+    } catch { /* table not created yet */ }
+  }
+  const rest3 = need.filter((u) => !out.has(u) || out.get(u)!.kind === SF_KIND.unknown);
+  if (rest3.length > 0) {
+    // Social SDK lobbies and their messages (src/lib/services/lobbies.ts);
+    // created on first use, so they may not exist yet.
+    try {
+      take(rowsOf(await db.execute(sql`
+        SELECT id::text AS id, (extract(epoch FROM created_at) * 1000)::bigint::text AS created_ms, 22 AS kind, NULL::text AS client_id, NULL::uuid AS server_id, false AS is_default FROM lobbies WHERE id = ANY(${pgArray(rest3)}::uuid[])
+        UNION ALL SELECT id::text, (extract(epoch FROM created_at) * 1000)::bigint::text, 4, NULL, NULL, false FROM lobby_messages WHERE id = ANY(${pgArray(rest3)}::uuid[])
+      `)));
+    } catch { /* tables not created yet */ }
   }
   for (const u of uuids) if (!out.has(u)) out.set(u, { ts: Date.now(), kind: SF_KIND.unknown });
   return out;

@@ -49,6 +49,14 @@ export default async function SocialSdkOverviewDoc() {
         <li><InlineCode>sdk.widgets.write</InlineCode> — {gt("push widget user-data")}</li>
       </UL>
 
+      <H2 id="discord-compatible">{gt("Discord-compatible lobbies")}</H2>
+      <P>
+        {gt("Games built for Discord's Social SDK can also use lobbies on the Discord-compatible API under")} <InlineCode>/api/v10</InlineCode>: {gt("create lobbies with your bot token, let players join and chat with an access token carrying the")} <InlineCode>sdk.social_layer</InlineCode> {gt("scope, and link a lobby to a server text channel. There is no Social SDK client or gateway, so lobby events are not pushed; poll the REST routes. See")} <Link2 href="/developers/docs/resources/lobby">{gt("Lobby")}</Link2>.
+      </P>
+      <P>
+        {gt("Provisional accounts are not available: every SerikaCord user has a real Serika account, so the partner-sdk token routes always answer 530000. See the")} <Link2 href="/developers/docs/social-sdk/api-reference#partner-sdk">{gt("API Reference")}</Link2>.
+      </P>
+
       <P>
         {gt("Enable the Social SDK on your application from the")} <Link2 href="/developers/applications">{gt("Developer Portal")}</Link2> {gt("under the app's Social SDK tab, then head to")} <Strong>{gt("API Reference")}</Strong>.
       </P>

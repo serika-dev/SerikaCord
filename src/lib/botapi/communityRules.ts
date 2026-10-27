@@ -44,7 +44,7 @@ export function toDiscordOnboarding(guildId: string, cfg: OnboardingConfig) {
           id: numericOnboardingId(o.id),
           title: o.title,
           description: o.description || null,
-          channel_ids: [],
+          channel_ids: o.channelIds ?? [],
           role_ids: o.roleIds,
           emoji,
           emoji_id: emoji?.id ?? null,
@@ -53,16 +53,18 @@ export function toDiscordOnboarding(guildId: string, cfg: OnboardingConfig) {
         };
       }),
     })),
-    default_channel_ids: [],
+    default_channel_ids: cfg.defaultChannelIds ?? [],
     enabled: cfg.enabled,
-    mode: 0,
+    mode: cfg.mode ?? 0,
   };
 }
 
 /**
  * PUT /guilds/{id}/onboarding body -> Serika config input (for
  * normalizeOnboardingConfig). The Server Guide part is kept from `current`.
- * Option channels and default channels have no Serika counterpart and are ignored.
+ * Option channels, default channels and mode are stored as given (Serika shows
+ * every channel anyway, so they don't change access); omitted default
+ * channels / mode keep the current value.
  */
 export function fromDiscordOnboarding(body: unknown, current: OnboardingConfig, clean: (s: string) => string = (s) => s): Record<string, unknown> {
   const b = (body && typeof body === 'object' && !Array.isArray(body) ? body : {}) as Record<string, unknown>;
@@ -98,12 +100,15 @@ export function fromDiscordOnboarding(body: unknown, current: OnboardingConfig, 
               description: text(or.description),
               emoji,
               roleIds: Array.isArray(or.role_ids) ? or.role_ids.filter((r) => typeof r === 'string') : [],
+              channelIds: Array.isArray(or.channel_ids) ? or.channel_ids.filter((c) => typeof c === 'string') : [],
             };
           }),
         };
       })
       : current.questions,
     guide: current.guide,
+    defaultChannelIds: Array.isArray(b.default_channel_ids) ? b.default_channel_ids.filter((c) => typeof c === 'string') : current.defaultChannelIds,
+    mode: b.mode === 0 || b.mode === 1 ? b.mode : current.mode,
   };
 }
 

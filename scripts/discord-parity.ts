@@ -604,6 +604,78 @@ function usedBody(handler: string): Set<string> {
   return s;
 }
 
+/** `function name(` / `const name = (async) (` definitions under src/lib, built once. */
+let fnIndex: Map<string, Array<{ file: string; idx: number }>> | null = null;
+function functionIndex() {
+  if (fnIndex) return fnIndex;
+  fnIndex = new Map();
+  for (const f of walk(join(ROOT, 'src/lib'))) {
+    const src = stripComments(read(f));
+    for (const m of src.matchAll(/(?:^|\n)\s*(?:export\s+)?(?:async\s+)?function\s+(\w+)\s*(?:<[^>(]*>)?\s*\(|(?:^|\n)\s*(?:export\s+)?const\s+(\w+)\s*=\s*(?:async\s*)?\(/g)) {
+      const name = m[1] ?? m[2];
+      const list = fnIndex.get(name) ?? [];
+      list.push({ file: f, idx: m.index! + m[0].length - 1 });
+      fnIndex.set(name, list);
+    }
+  }
+  return fnIndex;
+}
+
+/** Text of the function whose parameter list opens at `paren` (up to the end of its body). */
+function functionText(src: string, paren: number): string {
+  const close = matchBrace(src, paren);
+  // The body is the first `{` that ends a line (return types like `Promise<{ a: 1 }>` stay on one line).
+  const rest = src.slice(close);
+  const m = /\{\s*\n|=>\s*\{/.exec(rest);
+  if (!m) return src.slice(paren, close + 1);
+  const open = close + m.index + m[0].indexOf('{');
+  return src.slice(paren, matchBrace(src, open) + 1);
+}
+
+/**
+ * Text of the functions a route handler hands its whole `body` / `query` to
+ * (e.g. `handleInteractionCallback(id, token, body)`), plus the functions
+ * those call in the same file: thin handlers delegate parsing to services,
+ * and the fields they read are only visible there.
+ */
+function forwardedText(handler: string, what: 'body' | 'query'): string {
+  const idx = functionIndex();
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const arg = new RegExp(`\\b${what}\\b`);
+  for (const m of handler.matchAll(/\b(\w+)\s*\(/g)) {
+    const name = m[1];
+    if (seen.has(name) || !idx.has(name)) continue;
+    const open = m.index! + m[0].length - 1;
+    if (!arg.test(handler.slice(open, matchBrace(handler, open) + 1))) continue;
+    seen.add(name);
+    for (const def of idx.get(name)!.slice(0, 2)) {
+      const src = stripComments(read(def.file));
+      const text = functionText(src, def.idx);
+      out.push(text);
+      // One level deeper, same file only (local helpers like applyCallback).
+      for (const c of text.matchAll(/\b(\w+)\s*\(/g)) {
+        if (seen.has(c[1])) continue;
+        const local = idx.get(c[1])?.find((d) => d.file === def.file);
+        if (!local) continue;
+        seen.add(c[1]);
+        out.push(functionText(src, local.idx));
+      }
+    }
+  }
+  return out.join('\n');
+}
+
+/** Does delegated code read `field` (`x.field`, `x?.field`, `x['field']`, or destructure it)? */
+function readsField(text: string, field: string): boolean {
+  if (!text) return false;
+  if (new RegExp(`\\??\\.${field}\\b|\\[['"]${field}['"]\\]`).test(text)) return true;
+  for (const m of text.matchAll(/(?:const|let)\s*\{([^}]*)\}\s*=/g)) {
+    if (m[1].split(',').some((k) => k.split(':')[0].trim() === field)) return true;
+  }
+  return false;
+}
+
 // ─── Areas / work packages ──────────────────────────────────
 
 const WPS: Record<string, string> = {
@@ -652,40 +724,39 @@ function areaOf(path: string) {
  * Remove an entry when it is fixed; the report then counts the route as implemented.
  */
 const KNOWN_GAPS: Record<string, string[]> = {
-  'POST /channels/{channel_id}/messages': [
-    'components are not stored or rendered yet (message components work package)',
-    'sticker_ids: one sticker per message (Serika limit); shared_client_theme ignored',
-  ],
-  'PATCH /channels/{channel_id}/messages/{message_id}': ['components ignored (message components work package)'],
-  'PUT /channels/{channel_id}/messages/pins/{message_id}': ['no system "pinned a message" (type 6) message is posted'],
-  'PUT /channels/{channel_id}/pins/{message_id}': ['deprecated route; no system "pinned a message" (type 6) message is posted'],
-  'PUT /channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me': ['custom emoji ids must be Serika ids until the snowflake layer resolves `name:<snowflake>` path segments'],
-  'GET /channels/{channel_id}': ['DM recipients are bare ids'],
-  'PUT /channels/{channel_id}/recipients/{user_id}': ['needs an OAuth2 gdm.join access token, which SerikaCord does not issue yet: 403 50025'],
-  'GET /guilds/{guild_id}/widget.json': ['channels and members lists are empty; instant_invite only for partnered vanity links'],
-  'GET /guilds/{guild_id}/audit-logs': ['application_commands / guild_scheduled_events arrays stay empty (Serika logs neither change)'],
+  'POST /channels/{channel_id}/messages': ['sticker_ids: one sticker per message (Serika limit); shared_client_theme ignored'],
+  'PUT /channels/{channel_id}/recipients/{user_id}': ['nick is ignored (Serika group DMs have no per-member nicknames)'],
+  'PUT /channels/{channel_id}/voice-status': ['MANAGE_CHANNELS always required (bots never join voice); status not shown in the web client'],
+  'POST /channels/{channel_id}/send-soundboard-sound': ['the bot need not be connected to voice (bots cannot join SerikaCord voice); plays for everyone in the channel'],
   // WP5 threads + forums
-  'POST /channels/{channel_id}/threads': ['forum posts send their first message through POST /channels/{id}/messages, so the bot also needs SEND_MESSAGES_IN_THREADS'],
-  'POST /channels/{channel_id}/messages/{message_id}/threads': ['the thread gets its own id (Discord reuses the starter message id)'],
-  'GET /channels/{channel_id}/thread-members': ['join_timestamp is the thread creation time (no per-member timestamp or flags)'],
-  'GET /channels/{channel_id}/threads/search': ['slop and min_id / max_id ignored; relevance sorts by last activity'],
+  'GET /channels/{channel_id}/thread-members': ['flags always 0; join_timestamp falls back to the thread creation for members who joined before join times were recorded'],
   // WP4b guild features
-  'PUT /guilds/{guild_id}/onboarding': ['option channel_ids, default_channel_ids and mode are ignored (Serika options only grant roles)'],
-  'POST /stage-instances': ['stage instances are not supported yet: 501'],
-  'GET /stage-instances/{channel_id}': ['stage instances are not supported yet: always 10067 Unknown Stage Instance'],
-  'PATCH /stage-instances/{channel_id}': ['stage instances are not supported yet: always 10067 Unknown Stage Instance'],
-  'DELETE /stage-instances/{channel_id}': ['stage instances are not supported yet: always 10067 Unknown Stage Instance'],
-  'GET /gateway/bot': ['always 1 shard; session_start_limit is static'],
+  'GET /guilds/{guild_id}/messages/search': ['slop ignored; offsets past 5000 return an empty page'],
+  'PUT /guilds/{guild_id}/incident-actions': ['dms_disabled_until is stored and reported but not enforced; invites_disabled_until pauses invite joins'],
+  'POST /guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions': ['Serika scheduled events do not recur: no exceptions exist'],
+  'PATCH /guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}': ['Serika scheduled events do not recur: no exceptions exist'],
+  'DELETE /guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}': ['Serika scheduled events do not recur: no exceptions exist'],
+  'GET /guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/{guild_scheduled_event_exception_id}/users': ['Serika scheduled events do not recur: no exceptions exist'],
+  // WP3 interactions
   'POST /interactions/{interaction_id}/{interaction_token}/callback': [
-    'callback types 10 (premium) and 12 (launch activity) are rejected with 50035',
+    'callback types 10 (PREMIUM_REQUIRED, deprecated) and 12 (LAUNCH_ACTIVITY) are rejected with 50035: SerikaCord has no app monetization or Activities',
   ],
-  'POST /webhooks/{webhook_id}/{webhook_token}': [
-    'applied_tags only used with thread_name; poll is ignored',
-  ],
-  'PATCH /webhooks/{webhook_id}': ['avatar takes an https URL, not image data'],
-  'PATCH /webhooks/{webhook_id}/{webhook_token}': ['avatar takes an https URL, not image data'],
+  // WP6 applications
+  'PATCH /applications/@me': ['event_webhooks_status 2 (enabled) is refused: SerikaCord does not deliver webhook events'],
+  'PATCH /applications/{application_id}': ['event_webhooks_status 2 (enabled) is refused: SerikaCord does not deliver webhook events'],
   'PATCH /users/@me': ['username follows Serika handle rules (2-32 of a-z 0-9 _ .), not Discord display names'],
-  'GET /guilds/{guild_id}/soundboard-sounds': ['always empty: Serika soundboard sounds have no Discord sound ids'],
+  // WP7 Social SDK
+  'POST /lobbies/{lobby_id}/messages': [
+    'text only: embeds/attachments/components/poll/sticker_ids/message_reference/tts rejected with 50035',
+    'linked-channel copy is posted by the app bot, only when it can send there',
+    'no Social SDK gateway events',
+  ],
+  'PATCH /lobbies/{lobby_id}/channel-linking': ['messages sent in the linked channel are not relayed back into the lobby'],
+  'POST /partner-sdk/token': ['SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000'],
+  'POST /partner-sdk/token/bot': ['SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000'],
+  'POST /partner-sdk/provisional-accounts/unmerge': ['SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000'],
+  'POST /partner-sdk/provisional-accounts/unmerge/bot': ['SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000'],
+  'PUT /partner-sdk/dms/{user_id_1}/{user_id_2}/messages/{message_id}/moderation-metadata': ['stored app-scoped; no client consumes it'],
 };
 
 /** Events that are emitted, but only from some of the places that should emit them. */
@@ -726,6 +797,7 @@ const FEATURES: Feature[] = [
   { id: 'gw.dm_tracking', wp: 'WP1', title: 'DMs opened after IDENTIFY are tracked (CHANNEL_CREATE for DMs)', files: [...GW, 'src/lib/services/gatewayEvents.ts'], re: /dmChannelIds\.add/ },
   { id: 'gw.guild_leave', wp: 'WP1', title: 'Leaving/kicked/banned guilds are dropped from the session (GUILD_DELETE)', files: GW, re: /guildIds\.delete/ },
   { id: 'gw.ratelimit', wp: 'WP1', title: 'Gateway send rate limit (120 / 60 s) with close 4008', files: GW, re: /4008/ },
+  { id: 'gw.identify_limit', wp: 'WP1', title: 'IDENTIFY budget: 1 per 5 s per bot (op 9) and 1000 per day (close 4008), reported by GET /gateway/bot', files: [...GW, 'src/lib/security/botRateLimit.ts'], re: /gatewayIdentifyDaily/ },
   { id: 'gw.4003', wp: 'WP1', title: 'Payload before IDENTIFY closes with 4003', files: GW, re: /4003/ },
   { id: 'gw.4005', wp: 'WP1', title: 'Second IDENTIFY closes with 4005', files: GW, re: /4005/ },
   { id: 'gw.4001', wp: 'WP1', title: 'Unknown opcode closes with 4001', files: GW, re: /4001/ },
@@ -739,8 +811,10 @@ const FEATURES: Feature[] = [
   { id: 'msg.embed_limits', wp: 'WP2', title: 'Embed validation + limits (10 embeds, 6000 chars, field limits)', files: [...BOTAPI, 'src/lib/chat/'], re: /validateEmbeds|EMBED_TOTAL_LIMIT|6000/ },
   { id: 'msg.pagination', wp: 'WP2', title: 'GET messages honours before/after/around', files: BOTAPI, re: /query\??\.(before|around)/ },
   { id: 'msg.edit_event', wp: 'WP2', title: 'MESSAGE_UPDATE emitted on edits (any surface)', files: ['src/lib/', 'server.ts'], re: /emitMessageUpdate\(/, exclude: ['src/lib/services/gatewayEvents.ts'] },
+  { id: 'msg.pin_notice', wp: 'WP2', title: 'Pinning posts a CHANNEL_PINNED_MESSAGE (type 6) system message', files: BOTAPI, re: /postPinNotice\(/ },
   { id: 'msg.stickers', wp: 'WP2', title: 'sticker_ids on create / sticker_items in responses', files: [...BOTAPI, 'src/lib/chat/discordMessage.ts'], re: /sticker_items/ },
-  { id: 'ix.signed_http', wp: 'WP3', title: 'Ed25519-signed HTTP interactions endpoint (+ PING verification)', files: ['src/lib/services/interactions.ts'], re: /X-Signature-Ed25519/ },
+  // interactions.ts delivers through postSignedToEndpoint (src/lib/botapi/endpointVerify.ts), which signs the request.
+  { id: 'ix.signed_http', wp: 'WP3', title: 'Ed25519-signed HTTP interactions endpoint (+ PING verification)', files: ['src/lib/services/interactions.ts', 'src/lib/botapi/endpointVerify.ts'], re: /X-Signature-Ed25519/ },
   { id: 'ix.cb_deferred', wp: 'WP3', title: 'Callback 5 DEFERRED_CHANNEL_MESSAGE shows "thinking…" and is completed by @original edit', files: ['src/lib/services/interactions.ts', 'src/lib/botapi/interactionState.ts', ...BOTAPI], re: /case\s+(5|CB_DEFERRED_CHANNEL_MESSAGE|CallbackType\.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE)\b|===\s*(5|CB_DEFERRED_CHANNEL_MESSAGE)\b/ },
   { id: 'ix.cb_update', wp: 'WP3', title: 'Callbacks 6/7 DEFERRED_UPDATE_MESSAGE / UPDATE_MESSAGE', files: ['src/lib/services/interactions.ts', 'src/lib/botapi/interactionState.ts', ...BOTAPI], re: /===\s*(6|7|CB_DEFERRED_UPDATE_MESSAGE|CB_UPDATE_MESSAGE)\b|case\s+(6|7|CB_DEFERRED_UPDATE_MESSAGE|CB_UPDATE_MESSAGE|CallbackType\.UPDATE_MESSAGE|CallbackType\.DEFERRED_UPDATE_MESSAGE)\b/ },
   { id: 'ix.cb_autocomplete', wp: 'WP3', title: 'Callback 8 APPLICATION_COMMAND_AUTOCOMPLETE_RESULT', files: ['src/lib/services/interactions.ts', ...BOTAPI], re: /AUTOCOMPLETE_RESULT|===\s*8\b|case\s+8\b/ },
@@ -759,6 +833,7 @@ const FEATURES: Feature[] = [
   { id: 'wh.wait', wp: 'WP6', title: 'Webhook execute ?wait=true returns the message', files: [...BOTAPI, 'src/lib/api/index.ts', 'src/lib/services/channelWebhooks.ts'], re: /query\??\.wait|wait\s*===\s*['"]true/ },
   { id: 'wh.thread', wp: 'WP6', title: 'Webhook execute thread_id / thread_name (forum posts)', files: [...BOTAPI, 'src/lib/api/index.ts', 'src/lib/services/channelWebhooks.ts'], re: /thread_name/ },
   { id: 'oauth.bot_install', wp: 'WP6', title: 'OAuth2 bot install (scope=bot&permissions=…) creates the managed role and sends GUILD_CREATE', files: ['src/lib/api/developers.ts'], re: /emitGuildCreate\(/ },
+  { id: 'oauth.oidc', wp: 'WP6', title: 'OpenID Connect: RS256 id_token from POST /oauth2/token with the openid scope (+ /oauth2/userinfo, /oauth2/keys)', files: ['src/lib/api/developers.ts', 'src/lib/services/oauth2Tokens.ts'], re: /id_token/ },
   { id: 'oauth.client_credentials', wp: 'WP6', title: 'client_credentials grant', files: ['src/lib/api/developers.ts', 'src/lib/services/oauth2Tokens.ts'], re: /client_credentials/ },
   { id: 'app.intent_flags', wp: 'WP6', title: 'Application flags expose GATEWAY_* intent approvals (1<<12…1<<19) and gate privileged intents', files: [...BOTAPI, 'src/lib/api/developers.ts', 'src/lib/gateway/'], re: /GATEWAY_MESSAGE_CONTENT|GATEWAY_GUILD_MEMBERS/ },
   { id: 'voice.gateway', wp: 'WP7', title: 'Voice gateway for bots (VOICE_SERVER_UPDATE + voice WS v8 / UDP RTP Opus / DAVE)', files: ['src/lib/', 'server.ts'], re: /aead_(aes256_gcm|xchacha20_poly1305)_rtpsize/, exclude: ['src/lib/discord/', 'src/lib/constants/'] },
@@ -802,8 +877,10 @@ function analyze(cache: Cache) {
       where = { file: exact.file, line: exact.line, path: exact.fullPath };
       const q = usedQuery(exact.handler);
       const b = usedBody(exact.handler);
-      query = { spec: op.query, used: op.query.filter((x) => q.has(x)) };
-      body = { spec: op.body, used: op.body.filter((x) => b.has(x)) };
+      const qFwd = op.query.some((x) => !q.has(x)) ? forwardedText(exact.handler, 'query') : '';
+      const bFwd = op.body.some((x) => !b.has(x)) ? forwardedText(exact.handler, 'body') : '';
+      query = { spec: op.query, used: op.query.filter((x) => q.has(x) || readsField(qFwd, x)) };
+      body = { spec: op.body, used: op.body.filter((x) => b.has(x) || readsField(bFwd, x)) };
       const gaps = KNOWN_GAPS[`${op.method} ${op.path}`];
       if (gaps) { status = 'partial'; notes.push(...gaps); }
       if (op.body.length >= 3 && body.used.length / op.body.length < 0.4) {
@@ -841,6 +918,10 @@ function analyze(cache: Cache) {
       auth: op.auth, area: area.id, wp: area.wp, status, serika: where, notes, query, body, multipart: op.multipart, response: op.response,
     };
   });
+
+  // A KNOWN_GAPS key that matches no spec operation is a typo or a renamed path: say so.
+  const specKeys = new Set(cache.rest.map((o) => `${o.method} ${o.path}`));
+  for (const k of Object.keys(KNOWN_GAPS)) if (!specKeys.has(k)) console.warn(`KNOWN_GAPS: no spec operation "${k}"`);
 
   // Serika v10 routes with no Discord counterpart.
   const discordT = new Set(cache.rest.map((o) => `${o.method} ${tmpl(o.path)}`));

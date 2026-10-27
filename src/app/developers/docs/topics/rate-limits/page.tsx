@@ -36,6 +36,7 @@ export default async function RateLimitsDoc() {
         [gt("Reactions (add / remove)"), "4 / 1s", gt("bot and channel")],
         ["DELETE /channels/:id/messages/:id", "5 / 1s", gt("bot and channel")],
         [gt("Other writes (POST, PUT, PATCH, DELETE)"), "30 / 10s", gt("bot, route and channel or server")],
+        ["GET /guilds/:id/messages/search", "40 / 60s", gt("bot (the same budget as search in the app)")],
       ]} />
       <P>
         {gt("Discord-style limits on the bot API are new and may be tuned; always read the headers instead of hard-coding these numbers.")}
@@ -54,6 +55,9 @@ export default async function RateLimitsDoc() {
       <P>
         {gt("Requests without a valid bot token (for example OAuth2 Bearer tokens, or a malformed Authorization header) share a per-IP limit of 1,200 requests per minute. Over it the API answers 429 with a Retry-After header and an error and retryAfter field in the body.")}
       </P>
+      <P>
+        {gt("Lobby writes made with a user's Bearer token (sdk.social_layer) count against budgets keyed by that user: 50 requests per second, 30 writes per 10 seconds and 5 lobby messages per 5 seconds, with the same headers and 429 body as bot requests. POST /oauth2/token, token revocation and the client-credential partner-sdk routes allow 30 requests per minute per IP.")}
+      </P>
 
       <H2 id="webhooks">{gt("Webhook execution")}</H2>
       <P>
@@ -63,7 +67,12 @@ export default async function RateLimitsDoc() {
         [gt("Bot token (Authorization: Bot ...)"), gt("See Limits above"), "Retry-After + { message, retry_after, global }"],
         [gt("Other API requests, per IP"), "1,200 / 60s", "Retry-After + { error, retryAfter }"],
         [gt("Webhook execution, per webhook"), "30 / 10s", "Retry-After + { error, retry_after }"],
+        [gt("Other webhook token routes (get, edit, delete, message edits), per webhook"), "30 / 10s", "Retry-After"],
+        [gt("Interaction token routes (callback, followups, @original), per interaction"), "5 / 2s", "Retry-After"],
       ]} />
+      <P>
+        {gt("The Slack- and GitHub-compatible execute routes count against the same per-webhook execution limit.")}
+      </P>
 
       <H2 id="handling">{gt("Handling 429s")}</H2>
       <UL>
@@ -86,7 +95,11 @@ export default async function RateLimitsDoc() {
 
       <H2 id="gateway">{gt("Gateway")}</H2>
       <P>
-        {gt("The gateway does not enforce a send rate or an identify rate yet, and GET /gateway/bot returns a fixed session_start_limit. A connection that misses heartbeats is closed with code")}{" "}<InlineCode>4009</InlineCode>{". "}
+        {gt("The gateway enforces Discord's limits. A connection may send 120 payloads per 60 seconds; the next one closes it with code")}{" "}<InlineCode>4008</InlineCode>{". "}
+        {gt("Each bot may IDENTIFY once every 5 seconds (a faster IDENTIFY is answered with op 9, Invalid Session) and 1,000 times per 24 hours (past that the connection closes with 4008). GET /gateway/bot reports what is left in session_start_limit. A full member list through op 8 is allowed once per guild every 30 seconds per session; an earlier request gets a RATE_LIMITED dispatch with retry_after.")}
+      </P>
+      <P>
+        {gt("A connection that misses heartbeats is closed with code")}{" "}<InlineCode>4009</InlineCode>{". "}
         {gt("Requesting a privileged intent that is not enabled for your application closes the connection with code")}{" "}<InlineCode>4014</InlineCode>{". "}
         <Link2 href="/developers/docs/topics/gateway">{gt("Gateway")}</Link2>
       </P>
