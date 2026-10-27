@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- **Verification wait times stick** — the minimum account age and member age in Server Settings → Safety no longer jump back to 5 minutes after you reload.
 
 ### Performance
 

@@ -934,6 +934,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           verificationLevel: (server.settings as IServerSettings | undefined)?.moderation?.verificationLevel || server.verificationLevel,
           explicitContentFilter: (server.settings as IServerSettings | undefined)?.moderation?.explicitContentFilter || server.explicitContentFilter,
           require2FA: (server.settings as IServerSettings | undefined)?.moderation?.require2FA || false,
+          // Saved through the bulk route; without it here every reload fell
+          // back to the defaults (account age 5 min).
+          verification: normalizeVerificationOptions((server.settings as IServerSettings | undefined)?.moderation?.verification),
         },
         safety: (server.settings as IServerSettings | undefined)?.safety || { raidProtection: false, antiSpam: true, mentionSpamLimit: 5 },
         integrations: {
