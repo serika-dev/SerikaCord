@@ -21,6 +21,7 @@ import {
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { VERSION_LABEL } from "@/lib/version";
+import { StatusBadge } from "@/components/user/StatusBadge";
 
 interface DrawerItem {
     icon: React.ElementType;
@@ -135,13 +136,6 @@ export function MobileDrawer({
         },
     ];
 
-    const statusColors: Record<string, string> = {
-        online: "#23A559",
-        idle: "#F0B232",
-        dnd: "#EF4444",
-        offline: "#80848e",
-    };
-
     return (
         <>
             {/* Overlay */}
@@ -180,10 +174,7 @@ export function MobileDrawer({
                                         {(user?.displayName || user?.username || "U").charAt(0).toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
-                                <div
-                                    className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-[3px] border-[var(--bg-card)]"
-                                    style={{ backgroundColor: statusColors[user?.status || "online"] }}
-                                />
+                                <StatusBadge status={user?.status === "offline" ? "invisible" : user?.status || "online"} size={12} ring={3} ringColor="var(--bg-card)" className="absolute -bottom-0.5 -right-0.5" />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="font-bold text-[var(--text-primary)] truncate">

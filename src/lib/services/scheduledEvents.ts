@@ -11,10 +11,13 @@ import { and, eq, inArray, isNotNull, isNull, lte, or, sql } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { Channel, User } from '@/lib/models';
 import { processShared } from '@/lib/realtime/processShared';
+import { BoundedMap } from '@/lib/utils/boundedMap';
+import { pickServerActiveEvent, type RailEventCandidate, type ServerActiveEvent } from '@/lib/chat/serverEventBadge';
 import {
   DEFAULT_ACTIVE_MS,
   DISCORD_ENTITY_TYPE,
   DISCORD_EVENT_STATUS,
+  STARTING_SOON_MS,
   startNotifyRecipients,
   type EventEntityType,
   type EventStatus,
@@ -180,9 +183,111 @@ export function toDiscordEvent(r: ScheduledEventRow, userCount?: number) {
   };
 }
 
+// ─── Server rail badge (/@me/servers `activeEvent`) ─────────────────────────
+// One indexed query for every server the viewer is in that isn't cached:
+// live events plus scheduled ones starting within the "soon" window. Rows are
+// cached per server for a short TTL (process-wide, dropped on any change by
+// publishEventsChanged), then filtered per viewer by channel visibility, the
+// same rule as the events list (visibleRows in api/scheduledEvents.ts).
+type RailRow = RailEventCandidate & { serverId: string; channelId: string | null; entityType: string };
+
+const RAIL_CACHE_TTL_MS = 20_000;
+const RAIL_ACCESS_TTL_MS = 60_000;
+const railEventCache = processShared('scheduledEvents:railCache', () => new BoundedMap<string, { at: number; rows: RailRow[] }>(20_000));
+const railAccessCache = processShared('scheduledEvents:railAccess', () => new BoundedMap<string, { at: number; ok: boolean }>(20_000));
+let railFailureLogged = false;
+
+async function railCandidates(serverIds: string[], now: number): Promise<RailRow[]> {
+  const out: RailRow[] = [];
+  const missing: string[] = [];
+  for (const id of serverIds) {
+    const hit = railEventCache.get(id.toLowerCase());
+    if (hit && now - hit.at < RAIL_CACHE_TTL_MS) out.push(...hit.rows);
+    else missing.push(id);
+  }
+  if (missing.length === 0) return out;
+  const ev = schema.serverScheduledEvents;
+  const horizon = new Date(now + STARTING_SOON_MS);
+  const rows = await db
+    .select({
+      id: ev.id,
+      serverId: ev.serverId,
+      name: ev.name,
+      status: ev.status,
+      startAt: ev.startAt,
+      channelId: ev.channelId,
+      entityType: ev.entityType,
+    })
+    .from(ev)
+    .where(and(
+      inArray(ev.serverId, missing),
+      or(eq(ev.status, 'active'), and(eq(ev.status, 'scheduled'), lte(ev.startAt, horizon))),
+    ));
+  const byServer = new Map<string, RailRow[]>(missing.map((id) => [id.toLowerCase(), []]));
+  for (const r of rows) {
+    const key = String(r.serverId).toLowerCase();
+    const row: RailRow = { ...r, serverId: key, channelId: r.channelId ?? null };
+    const list = byServer.get(key);
+    if (list) list.push(row);
+    else byServer.set(key, [row]);
+    out.push(row);
+  }
+  for (const [key, list] of byServer) railEventCache.set(key, { at: now, rows: list });
+  return out;
+}
+
+async function canSeeEventChannel(userId: string, channelId: string, now: number): Promise<boolean> {
+  const key = `${userId.toLowerCase()}:${channelId.toLowerCase()}`;
+  const hit = railAccessCache.get(key);
+  if (hit && now - hit.at < RAIL_ACCESS_TTL_MS) return hit.ok;
+  const { checkChannelAccess } = await import('@/lib/api/channels');
+  const res = await checkChannelAccess(userId, channelId, { lean: true }).catch(() => ({ hasAccess: false }));
+  const ok = Boolean(res.hasAccess);
+  railAccessCache.set(key, { at: now, ok });
+  return ok;
+}
+
+/**
+ * Per server (lower-case id): the live event, else the next one starting
+ * within the hour, that this user can see. Servers without one are absent.
+ * Never throws (no table yet / DB hiccup: no badges).
+ */
+export async function activeEventsForServers(userId: string, serverIds: string[]): Promise<Map<string, ServerActiveEvent>> {
+  const result = new Map<string, ServerActiveEvent>();
+  if (serverIds.length === 0) return result;
+  try {
+    const now = Date.now();
+    const rows = await railCandidates(serverIds, now);
+    if (rows.length === 0) return result;
+    const gated = [...new Set(rows.filter((r) => r.channelId && r.entityType !== 'external').map((r) => r.channelId as string))];
+    const allowed = new Map<string, boolean>();
+    await Promise.all(gated.map(async (id) => { allowed.set(id, await canSeeEventChannel(userId, id, now)); }));
+    const byServer = new Map<string, RailRow[]>();
+    for (const r of rows) {
+      if (r.channelId && r.entityType !== 'external' && !allowed.get(r.channelId)) continue;
+      const list = byServer.get(r.serverId);
+      if (list) list.push(r);
+      else byServer.set(r.serverId, [r]);
+    }
+    for (const [serverId, list] of byServer) {
+      const pick = pickServerActiveEvent(list, now);
+      if (pick) result.set(serverId, pick);
+    }
+  } catch (err) {
+    // Polled every ~25s per client: log the first failure, not every poll.
+    if (!railFailureLogged) {
+      railFailureLogged = true;
+      console.error('[events] rail summary failed:', (err as Error)?.message ?? err);
+    }
+  }
+  return result;
+}
+
 // ─── Live updates ─────────────────────────────────────────────────────────────
 /** Tell every connected member of the server to refresh its events. */
 export async function publishEventsChanged(serverId: string, eventId: string): Promise<void> {
+  // This instance's rail summary is stale now (others expire within the TTL).
+  railEventCache.delete(serverId.toLowerCase());
   try {
     const { fanoutToUsers } = await import('@/lib/api/activity');
     await fanoutToUsers({ serverId }, { type: 'scheduled_event_update', serverId, eventId });

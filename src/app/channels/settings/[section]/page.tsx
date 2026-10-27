@@ -30,6 +30,8 @@ import { StreamerModeSettings } from "@/components/settings/StreamerModeSettings
 import { useStreamerHides } from "@/hooks/useStreamerMode";
 import { maskEmail } from "@/lib/streamer/streamerMode";
 import dynamic from "next/dynamic";
+import { StatusIcon } from "@/components/user/StatusBadge";
+import { statusLabelInvisible } from "@/lib/statusLabels";
 // End-to-end encryption settings (own chunk).
 const E2eeSettingsPanel = dynamic(() => import("@/components/e2ee/E2eeSettingsPanel"), { ssr: false });
 
@@ -415,14 +417,15 @@ export default function MobileSettingsSectionPage() {
                 toast.error(gt("Failed to update status"));
               }
             }}
-            className={`w-full p-4 rounded-xl border text-left capitalize ${user?.status === status ? "bg-[var(--bg-active)] border-[var(--app-accent)] text-[var(--text-primary)]" : "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"}`}
+            className={`w-full p-4 rounded-xl border text-left flex items-center gap-3 ${user?.status === status ? "bg-[var(--bg-active)] border-[var(--app-accent)] text-[var(--text-primary)]" : "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)]"}`}
           >
-            {status}
+            <StatusIcon status={status === "offline" ? "invisible" : status} size={14} />
+            {statusLabelInvisible(status, gt)}
           </button>
         ))}
       </div>
     );
-  }, [section, user?.status, updateUser]);
+  }, [section, user?.status, updateUser, gt]);
 
   if (isLoading) {
     return (
@@ -975,10 +978,10 @@ export default function MobileSettingsSectionPage() {
                   </label>
                   <div className="grid grid-cols-2 gap-2">
                     {[
-                      { value: "online", label: gt("Online"), color: "#23A559" },
-                      { value: "idle", label: gt("Idle"), color: "#F0B232" },
-                      { value: "dnd", label: gt("Do Not Disturb"), color: "#EF4444" },
-                      { value: "offline", label: gt("Invisible"), color: "#888888" },
+                      { value: "online", label: gt("Online"), badge: "online" },
+                      { value: "idle", label: gt("Idle"), badge: "idle" },
+                      { value: "dnd", label: gt("Do Not Disturb"), badge: "dnd" },
+                      { value: "offline", label: gt("Invisible"), badge: "invisible" },
                     ].map((opt) => (
                       <button
                         key={opt.value}
@@ -991,7 +994,7 @@ export default function MobileSettingsSectionPage() {
                             : "bg-[var(--bg-app)] text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)]"
                         )}
                       >
-                        <span className="w-2.5 h-2.5 rounded-full shrink-0" style={{ backgroundColor: opt.color }} />
+                        <StatusIcon status={opt.badge} size={12} />
                         {opt.label}
                       </button>
                     ))}

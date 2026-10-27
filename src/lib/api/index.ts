@@ -18,6 +18,7 @@ import { RichPresence, type IRichPresence } from '@/lib/models/RichPresence';
 import { ActivityHistory } from '@/lib/models/ActivityHistory';
 import { authRoutes } from './auth';
 import { serverRoutes, inviteRoutes, partnerRoutes, computeOnlineCounts } from './servers';
+import type { ServerActiveEvent } from '@/lib/chat/serverEventBadge';
 import { discordBridgeRoutes } from './discordBridge';
 import { channelRoutes } from './channels';
 import { serverWebhookRoutes } from './serverWebhooks';
@@ -1030,7 +1031,15 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const servers = serverIds.length > 0 ? await Server.find({ id: { in: serverIds } }) : [];
     const serverMap = new Map(servers.map(s => [s.id, s]));
 
-    const onlineCounts = await computeOnlineCounts(servers.map((s) => s.id)).catch(() => new Map<string, number>());
+    const liveIds = servers.map((s) => s.id);
+    // Rail event badge: one query for live / starting-within-the-hour events
+    // across all these servers, cached per server (services/scheduledEvents).
+    const [onlineCounts, activeEvents] = await Promise.all([
+      computeOnlineCounts(liveIds).catch(() => new Map<string, number>()),
+      import('@/lib/services/scheduledEvents')
+        .then(({ activeEventsForServers }) => activeEventsForServers(user.id, liveIds))
+        .catch(() => new Map<string, ServerActiveEvent>()),
+    ]);
     const result = await Promise.all(memberships
       .filter(m => serverMap.has(m.serverId))
       .map(async (m) => {
@@ -1059,6 +1068,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
           theme: readServerTheme(server.settings),
           // Enabled server tag, for the "display a server tag" picker (CORD-53).
           serverTag: readServerTagConfig((server.settings as Record<string, unknown> | null)?.serverTag, config.CDN_URL),
+          // Live event, or the next one starting within the hour (rail badge).
+          activeEvent: activeEvents.get(String(server.id).toLowerCase()) ?? null,
           joinedAt: m.joinedAt,
           roles: m.roles,
           nickname: m.nickname,

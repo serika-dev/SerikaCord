@@ -7,9 +7,9 @@
  * list and the Apply to Join / rules screening question fields.
  */
 
-import type { CSSProperties, ReactNode } from "react";
+import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
 import { useGT, useLocale } from "gt-next";
-import { BadgeCheck } from "lucide-react";
+import { BadgeCheck, Hash, Megaphone, MessageSquare, Mic, Volume2 } from "lucide-react";
 import { ConnectionIcon, getConnectionHref } from "@/components/user/ConnectionIcon";
 import type { ApplicationQuestionView, ServerConnectionView } from "@/hooks/useServerOnboarding";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
@@ -174,6 +174,32 @@ export function EmojiOrIcon({ emoji, fallback, className }: { emoji: string | nu
     return <span className={cn("leading-none", className)} aria-hidden>{value}</span>;
   }
   return <>{fallback}</>;
+}
+
+/** Arrow keys / Home / End move between the option cards of a question
+ * (each card carries `data-option`). */
+export function onOptionKeyDown(e: KeyboardEvent<HTMLDivElement>) {
+  if (!["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft", "Home", "End"].includes(e.key)) return;
+  const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("[data-option]"));
+  const index = items.indexOf(document.activeElement as HTMLButtonElement);
+  if (index < 0 || items.length === 0) return;
+  e.preventDefault();
+  let next = index;
+  if (e.key === "Home") next = 0;
+  else if (e.key === "End") next = items.length - 1;
+  else if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (index + 1) % items.length;
+  else next = (index - 1 + items.length) % items.length;
+  items[next]?.focus();
+}
+
+/** The sidebar icon of a channel type (text, voice, stage, announcement, forum). */
+export function ChannelGlyph({ type, className }: { type?: string; className?: string }) {
+  const cls = cn("w-4 h-4 shrink-0", className);
+  if (type === "voice") return <Volume2 className={cls} />;
+  if (type === "stage") return <Mic className={cls} />;
+  if (type === "announcement") return <Megaphone className={cls} />;
+  if (type === "forum") return <MessageSquare className={cls} />;
+  return <Hash className={cls} />;
 }
 
 /** Numbered server rules. */

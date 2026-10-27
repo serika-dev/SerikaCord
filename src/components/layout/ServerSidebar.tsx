@@ -21,6 +21,7 @@ import {
 import {
   Plus, Compass, MessageSquare, Check, BellOff, Bell, Copy, LogOut,
   FolderPlus, FolderMinus, Folder as FolderIcon, Pencil, Users, UserPlus, Download,
+  CalendarDays, Radio,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { motion } from "framer-motion";
@@ -38,6 +39,8 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { dmChannelApiBase, dmChannelHref, isDmChannelOpen } from "@/lib/chat/groupDm";
 import { groupDisplayName } from "@/lib/chat/dmCall";
 import { GroupDmIcon } from "@/components/dm/GroupDmIcon";
+import { eventBadgeState, type EventBadgeState } from "@/lib/chat/serverEventBadge";
+import { RailEventBadge, useRailEventClock } from "@/components/layout/RailEventBadge";
 
 interface ServerSidebarProps {
   onCreateServer: () => void;
@@ -64,11 +67,12 @@ interface DMChannel {
 }
 
 const DM_POLL_INTERVAL = 30_000;
+
 export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarProps) {
   const gt = useGT();
   const confirmDialog = useConfirm();
   const router = useRouter();
-  const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer } = useServer();
+  const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer, fetchServers } = useServer();
   const { isServerUnread, markServerRead: markServerUnreadRead, getServerMentionCount, unreadChannels } = useUnread();
   // One source for every badge (rail, sidebar, inbox, tab title): the unread
   // engine, which honours per-server/channel notification settings.
@@ -102,6 +106,9 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   }, [uniqueServers]);
 
   const liveIds = useMemo(() => uniqueServers.map((s) => s.id), [uniqueServers]);
+
+  // Event badges: /@me/servers carries each server's live / starting-soon event.
+  const now = useRailEventClock(uniqueServers, fetchServers);
   const {
     entries, folders, reorder, createFolder, addToFolder, removeFromFolder,
     renameFolder, recolorFolder, moveServer, folderColors,
@@ -337,6 +344,8 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
     const hasUnread = !muted && isServerUnread(server.id);
     const isActive = currentServer?.id === server.id;
     const folderOfServer = folders.find((f) => f.serverIds.includes(server.id));
+    const eventBadge = eventBadgeState(server.activeEvent, now);
+    const showMention = hasMention && !isActive;
 
     return (
       <div
@@ -395,9 +404,16 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                   )}
                 />
               )}
-              {hasMention && !isActive && (
+              {showMention && (
                 <span className="absolute bottom-0 right-0 min-w-[18px] h-[18px] px-1 flex items-center justify-center rounded-full bg-[var(--app-accent)] border-[3px] border-[var(--app-bg)] text-[10px] font-bold text-white leading-none">
                   {mentionCount > 99 ? "99+" : mentionCount}
+                </span>
+              )}
+              {eventBadge && (
+                <span className="sr-only">
+                  {eventBadge.kind === "live"
+                    ? gt("Event happening now: {name}", { name: eventBadge.name })
+                    : gt("Event starts in {minutes} min: {name}", { minutes: eventBadge.minutes, name: eventBadge.name })}
                 </span>
               )}
             </motion.button>
@@ -414,7 +430,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
               <div className="flex items-center gap-3 mt-0.5">
                 {server.onlineCount !== undefined && server.onlineCount > 0 && (
                   <span className="flex items-center gap-1 text-xs text-[var(--text-muted)]">
-                    <span className="w-2 h-2 rounded-full bg-[#23A55A]" />
+                    <span className="w-2 h-2 rounded-full bg-[var(--status-online)]" />
                     {server.onlineCount.toLocaleString()} {gt("Online")}
                   </span>
                 )}
@@ -425,9 +441,27 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                   </span>
                 )}
               </div>
+              {eventBadge && (
+                <div className="mt-1 flex min-w-0 items-start gap-1.5 border-t border-[var(--border-subtle)] pt-1.5 text-xs">
+                  {eventBadge.kind === "live" ? (
+                    <Radio className="mt-px h-3.5 w-3.5 shrink-0 text-[var(--event-live)]" />
+                  ) : (
+                    <CalendarDays className="mt-px h-3.5 w-3.5 shrink-0 text-[var(--text-muted)]" />
+                  )}
+                  <span className="min-w-0">
+                    <span className={cn("block font-semibold", eventBadge.kind === "live" ? "text-[var(--event-live)]" : "text-[var(--text-secondary)]")}>
+                      {eventBadge.kind === "live"
+                        ? gt("Happening now")
+                        : gt("Starts in {minutes} min", { minutes: eventBadge.minutes })}
+                    </span>
+                    <span className="block truncate text-[var(--text-primary)]">{eventBadge.name}</span>
+                  </span>
+                </div>
+              )}
             </div>
           </TooltipContent>
         </Tooltip>
+        {eventBadge && <RailEventBadge state={eventBadge} left={showMention} />}
 
         <DropdownMenu
           open={menuServerId === server.id}
@@ -524,6 +558,14 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
       .filter((s): s is Server => Boolean(s));
     const isOpen = openFolders.has(folder.id);
     const folderMentions = folderServers.reduce((sum, s) => sum + mentionsFor(s.id), 0);
+    // A closed folder shows the live badge when any server inside has a live event.
+    let folderLive: EventBadgeState = null;
+    if (!isOpen) {
+      for (const s of folderServers) {
+        const b = eventBadgeState(s.activeEvent, now);
+        if (b?.kind === "live") { folderLive = b; break; }
+      }
+    }
     const menuOpen = menuFolderId === folder.id;
     const setMenuOpen = (o: boolean) => setMenuFolderId(o ? folder.id : null);
 
@@ -569,6 +611,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
               {folder.name}
             </TooltipContent>
           </Tooltip>
+          {folderLive && <RailEventBadge state={folderLive} left={folderMentions > 0} />}
 
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
             <DropdownMenuTrigger asChild>

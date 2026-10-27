@@ -31,6 +31,8 @@ interface Server {
   theme?: ServerTheme | null;
   /** Enabled server tag (CORD-53); null when the server has none. */
   serverTag?: import("@/lib/servers/serverProfile").ServerTagConfig | null;
+  /** Live event, or the next one starting within the hour (rail badge). */
+  activeEvent?: import("@/lib/chat/serverEventBadge").ServerActiveEvent | null;
 }
 
 type ChannelType =

@@ -12,6 +12,7 @@ import { isImageLikeUrl, isGifUrl } from "@/lib/chat/media";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { StatusBadge } from "@/components/user/StatusBadge";
 
 interface WidgetCategory {
   id: string;
@@ -104,13 +105,6 @@ function formatTime(iso: string, locale: string): string {
   const sameYear = d.getFullYear() === now.getFullYear();
   return `${d.toLocaleDateString(locale, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) })} · ${time}`;
 }
-
-const STATUS_DOT: Record<string, string> = {
-  online: "#23A559",
-  idle: "#F0B232",
-  dnd: "#EF4444",
-  offline: "#80848E",
-};
 
 /** Placeholder shaped like the loaded widget, so nothing jumps when data lands. */
 function WidgetPageSkeleton({ label }: { label: string }) {
@@ -564,11 +558,7 @@ export default function WidgetPage() {
                         {(m.displayName || m.username).charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <span
-                      aria-hidden
-                      className="absolute -bottom-0.5 -right-0.5 size-2.5 rounded-full border-2 border-[var(--app-surface)]"
-                      style={{ backgroundColor: STATUS_DOT[m.status] ?? STATUS_DOT.offline }}
-                    />
+                    <StatusBadge status={m.status} size={8} ring={2} ringColor="var(--app-surface)" corner />
                   </span>
                   <span className="text-[13px] text-[var(--app-muted)] truncate">{m.displayName || m.username}</span>
                 </li>

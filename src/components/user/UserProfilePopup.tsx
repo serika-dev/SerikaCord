@@ -18,10 +18,6 @@ import {
 import {
   ChevronRight,
   Pencil,
-  Circle,
-  Moon,
-  MinusCircle,
-  EyeOff,
   Copy,
   Users,
   Check,
@@ -43,6 +39,7 @@ import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { CustomStatusLine } from "@/components/user/CustomStatus";
 import { hasCustomStatus } from "@/lib/social/customStatus";
+import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 
 // Only opened from the "Switch Accounts" row; keep it out of the sidebar bundle.
 const SwitchAccountsDialog = dynamic(() => import("@/components/dialogs/SwitchAccountsDialog").then((m) => m.SwitchAccountsDialog), { ssr: false });
@@ -53,11 +50,13 @@ interface UserProfilePopupProps {
   onOpenSettings?: () => void;
 }
 
+// "offline" is the picker's Invisible (see lib/presenceChoice); `badge` is the
+// shape StatusBadge draws for it.
 const statusOptions = [
-  { value: "online", label: "Online", icon: Circle, color: "#23A55A" },
-  { value: "idle", label: "Idle", icon: Moon, color: "#F0B232" },
-  { value: "dnd", label: "Do Not Disturb", icon: MinusCircle, color: "#F23F43" },
-  { value: "offline", label: "Invisible", icon: EyeOff, color: "#80848E" },
+  { value: "online", badge: "online" },
+  { value: "idle", badge: "idle" },
+  { value: "dnd", badge: "dnd" },
+  { value: "offline", badge: "invisible" },
 ] as const;
 
 type StatusValue = typeof statusOptions[number]['value'];
@@ -169,9 +168,12 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                 {user.displayName?.charAt(0).toUpperCase() || "?"}
               </AvatarFallback>
             </Avatar>
-            <div
-              className={cn("absolute rounded-full border-[3px] border-[var(--border-subtle)]", isMobile ? "bottom-1 right-1 w-7 h-7" : "bottom-0.5 right-0.5 w-5 h-5")}
-              style={{ backgroundColor: currentStatusOption.color }}
+            <StatusBadge
+              status={currentStatusOption.badge}
+              size={isMobile ? 20 : 14}
+              ring={isMobile ? 4 : 3}
+              ringColor="var(--border-subtle)"
+              className={cn("absolute", isMobile ? "bottom-1 right-1" : "bottom-0.5 right-0.5")}
             />
           </div>
         </div>
@@ -281,14 +283,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                   className="w-full flex items-center justify-between px-3 py-2 rounded hover:bg-[var(--bg-hover)] transition-colors"
                 >
                   <div className="flex items-center gap-3">
-                    <div
-                      className="w-4 h-4 rounded-full flex items-center justify-center"
-                      style={{ backgroundColor: currentStatusOption.color }}
-                    >
-                      {currentStatusOption.value === "dnd" && (
-                        <div className="w-2 h-0.5 bg-[var(--bg-card)] rounded" />
-                      )}
-                    </div>
+                    <StatusIcon status={currentStatusOption.badge} size={16} />
                     <span className="text-sm text-[var(--text-primary)]">{statusLabelInvisible(currentStatus, gt)}</span>
                   </div>
                   <ChevronRight className={cn(
@@ -309,10 +304,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
                     className="w-full flex items-center justify-between px-3 py-2 hover:bg-[var(--bg-hover)] transition-colors"
                   >
                     <div className="flex items-center gap-2">
-                      <div
-                        className="w-3 h-3 rounded-full"
-                        style={{ backgroundColor: status.color }}
-                      />
+                      <StatusIcon status={status.badge} size={12} />
                       <span className="text-sm text-[var(--text-primary)]">{statusLabelInvisible(status.value, gt)}</span>
                     </div>
                     {currentStatus === status.value && (

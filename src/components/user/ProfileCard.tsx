@@ -42,6 +42,7 @@ import { BadgeCheck, ExternalLink } from "lucide-react";
 import { useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
 import { RoleIcon } from "@/components/chat/RoleIcon";
+import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 
 export interface ProfileCardUser {
   id: string;
@@ -100,20 +101,6 @@ export interface ProfileCardUser {
     };
   } | null;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  online: "#23A559",
-  idle: "#F0B232",
-  dnd: "#EF4444",
-  offline: "#555555",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  online: "Online",
-  idle: "Idle",
-  dnd: "Do Not Disturb",
-  offline: "Offline",
-};
 
 interface ProfileCardProps {
   user: ProfileCardUser;
@@ -388,11 +375,7 @@ export function ProfileCard({
                 {displayName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <div
-              className="absolute bottom-1 right-1 w-6 h-6 rounded-full border-[4px] border-[#0c0c10]"
-              style={{ backgroundColor: STATUS_COLORS[status] }}
-              title={statusLabel(status, gt)}
-            />
+            <StatusBadge status={status} size={16} ring={4} ringColor="#0c0c10" className="absolute bottom-1 right-1" />
           </div>
         </div>
 
@@ -476,10 +459,7 @@ export function ProfileCard({
             </div>
           )}
           <div className="flex items-center gap-1.5 mt-1.5">
-            <span
-              className="w-2 h-2 rounded-full shrink-0"
-              style={{ backgroundColor: STATUS_COLORS[status] }}
-            />
+            <StatusIcon status={status} size={10} />
             <span className="text-xs text-[#9a9aad]">{statusLabel(status, gt)}</span>
           </div>
           {user.showTimezone && user.timezone && localTime && (

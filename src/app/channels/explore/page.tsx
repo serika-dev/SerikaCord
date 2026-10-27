@@ -276,7 +276,7 @@ function ServerCard({
           {/* Stats row */}
           <div className="flex items-center gap-4 mt-3 text-xs text-[var(--text-muted)]">
             <span className="flex items-center gap-1.5">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#23A55A]" />
+              <span className="w-1.5 h-1.5 rounded-full bg-[var(--status-online)]" />
               {formatMemberCount(server.onlineCount || 0)} {gt("Online")}
             </span>
             <span className="flex items-center gap-1">

@@ -12,6 +12,8 @@ export interface MemberViewRow {
   nickname?: string | null;
   joinedAt?: string | null;
   createdAt?: string | null;
+  /** What the members API calls the account creation date. */
+  accountCreatedAt?: string | null;
   roles: ReadonlyArray<{ id: string }>;
 }
 
@@ -19,6 +21,11 @@ function time(value: string | null | undefined): number {
   if (!value) return 0;
   const t = Date.parse(value);
   return Number.isFinite(t) ? t : 0;
+}
+
+/** Account creation time (either field name). */
+function created(m: MemberViewRow): number {
+  return time(m.createdAt ?? m.accountCreatedAt);
 }
 
 function label(m: MemberViewRow): string {
@@ -43,8 +50,8 @@ export function filterAndSortMembers<T extends MemberViewRow>(
       case 'joined_asc': return time(a.joinedAt) - time(b.joinedAt) || byName(a, b);
       case 'name_asc': return byName(a, b);
       case 'name_desc': return byName(b, a);
-      case 'created_desc': return time(b.createdAt) - time(a.createdAt) || byName(a, b);
-      case 'created_asc': return time(a.createdAt) - time(b.createdAt) || byName(a, b);
+      case 'created_desc': return created(b) - created(a) || byName(a, b);
+      case 'created_asc': return created(a) - created(b) || byName(a, b);
       case 'joined_desc':
       default: return time(b.joinedAt) - time(a.joinedAt) || byName(a, b);
     }

@@ -35,6 +35,7 @@ import { ServerTagSelect } from "@/components/user/profileEditor/ServerTagSelect
 import { useProfileMediaUpload } from "@/components/user/profileEditor/useProfileMediaUpload";
 import { useSelfProfileSave } from "@/components/user/profileEditor/useSelfProfileSave";
 import { overlaySelfProfile, readEditorOpen, resolveSelfTag, writeEditorOpen } from "@/components/user/profileEditor/selfProfile";
+import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 
 // Own-profile editing: the side panel and the full status dialog are their
 // own chunks, loaded only when you open them on your own profile.
@@ -61,20 +62,6 @@ interface FullProfileDialogProps {
   /** When provided and the viewer can moderate, shows a Mod View button. */
   onOpenModView?: () => void;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  online: "#23A559",
-  idle: "#F0B232",
-  dnd: "#EF4444",
-  offline: "#555555",
-};
-
-const STATUS_LABELS: Record<string, string> = {
-  online: "Online",
-  idle: "Idle",
-  dnd: "Do Not Disturb",
-  offline: "Offline",
-};
 
 type TabId = "board" | "activity" | "friends" | "servers";
 
@@ -470,11 +457,7 @@ export function FullProfileDialog({
                       <span className="px-2 text-center">{gt("Change Avatar")}</span>
                     </button>
                   )}
-                  <div
-                    className="absolute bottom-1 right-1 z-20 w-6 h-6 rounded-full border-[4px] border-[#0c0c10]"
-                    style={{ backgroundColor: STATUS_COLORS[status] }}
-                    title={statusLabel(status, gt)}
-                  />
+                  <StatusBadge status={status} size={16} ring={4} ringColor="#0c0c10" className="absolute bottom-1 right-1 z-20" />
                   {/* Custom status: a thought bubble rising from the avatar */}
                   {(isSelf || hasCustomStatus(view.customStatus, view.customization)) && (
                     <div className="absolute left-[86px] top-0 z-30 w-max max-w-[244px] max-md:max-w-[min(320px,calc(100vw-130px))]">
@@ -639,7 +622,7 @@ export function FullProfileDialog({
                   <div className="text-xs text-[#9a9aad] mt-0.5">{view.pronouns}</div>
                 )}
                 <div className="flex items-center gap-1.5 mt-1.5">
-                  <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: STATUS_COLORS[status] }} />
+                  <StatusIcon status={status} size={10} />
                   <span className="text-xs text-[#9a9aad]">{statusLabel(status, gt)}</span>
                 </div>
                 {view.showTimezone && view.timezone && localTime && (

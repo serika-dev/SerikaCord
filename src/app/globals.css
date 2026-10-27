@@ -131,6 +131,17 @@
   --bg-primary: var(--bg-app);
   --bg-secondary: var(--bg-card);
   --app-elev-2: 0 12px 40px rgba(0, 0, 0, 0.35);
+
+  /* Presence colours (Discord's), drawn by components/user/StatusBadge. The
+     same in every theme so a status reads the same everywhere. */
+  --status-online: #23a55a;
+  --status-idle: #f0b232;
+  --status-dnd: #f23f43;
+  --status-offline: #80848e;
+  --status-streaming: #593695;
+  --status-glyph: #ffffff;
+  /* Live / starting-soon event badge on server rail icons. */
+  --event-live: #23a55a;
 }
 
 .dark {

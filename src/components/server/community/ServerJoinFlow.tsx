@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { T, useGT } from "gt-next";
 import {
   ArrowLeft,
@@ -8,14 +8,10 @@ import {
   ChevronRight,
   CircleCheck,
   CircleX,
-  Hash,
   Hourglass,
-  Megaphone,
-  MessageSquare,
   ScrollText,
   Signpost,
   Sparkles,
-  Volume2,
   X,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -26,7 +22,9 @@ import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { cdnImage, cn } from "@/lib/utils";
 import {
   ApplicationQuestionFields,
+  ChannelGlyph,
   EmojiOrIcon,
+  onOptionKeyDown,
   RulesList,
   ServerBannerArt,
   ServerIconTile,
@@ -61,29 +59,6 @@ export interface ServerJoinFlowProps {
   onFinish?: () => void;
   /** The visible step changed (the page mirrors it in the URL so a refresh resumes there). */
   onStepChange?: (step: OnboardingFlowStep, questionIndex: number) => void;
-}
-
-function ChannelGlyph({ type, className }: { type?: string; className?: string }) {
-  const cls = cn("w-4 h-4 shrink-0", className);
-  if (type === "voice" || type === "stage") return <Volume2 className={cls} />;
-  if (type === "announcement") return <Megaphone className={cls} />;
-  if (type === "forum") return <MessageSquare className={cls} />;
-  return <Hash className={cls} />;
-}
-
-/** Arrow keys / Home / End move between the option cards of a question. */
-function onOptionKeyDown(e: KeyboardEvent<HTMLDivElement>) {
-  if (!["ArrowDown", "ArrowRight", "ArrowUp", "ArrowLeft", "Home", "End"].includes(e.key)) return;
-  const items = Array.from(e.currentTarget.querySelectorAll<HTMLButtonElement>("[data-option]"));
-  const index = items.indexOf(document.activeElement as HTMLButtonElement);
-  if (index < 0 || items.length === 0) return;
-  e.preventDefault();
-  let next = index;
-  if (e.key === "Home") next = 0;
-  else if (e.key === "End") next = items.length - 1;
-  else if (e.key === "ArrowDown" || e.key === "ArrowRight") next = (index + 1) % items.length;
-  else next = (index - 1 + items.length) % items.length;
-  items[next]?.focus();
 }
 
 /**

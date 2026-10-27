@@ -7,17 +7,10 @@ import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { useFocusMode } from "@/hooks/useFocusMode";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 import { MobileSheet, SheetGroup } from "./MobileSheet";
+import { StatusIcon } from "@/components/user/StatusBadge";
 
 type Presence = "online" | "idle" | "dnd" | "offline";
 const PRESENCES: Presence[] = ["online", "idle", "dnd", "offline"];
-
-/** Presence dot colours (status semantics, the same in every theme). */
-export const PRESENCE_DOT: Record<Presence, string> = {
-  online: "bg-green-500",
-  idle: "bg-yellow-500",
-  dnd: "bg-red-500",
-  offline: "bg-gray-500",
-};
 
 /**
  * Discord's "Change Online Status" sheet from the You tab: pick a presence in
@@ -51,7 +44,7 @@ export function MobileStatusSheet({ onClose, onCustomStatus }: { onClose: () => 
             }}
             className="flex min-h-12 w-full touch-manipulation items-center gap-3 px-4 py-2.5 text-left active:bg-[var(--bg-hover)]"
           >
-            <span className={`h-3 w-3 shrink-0 rounded-full ${PRESENCE_DOT[p]}`} />
+            <StatusIcon status={p === "offline" ? "invisible" : p} size={14} />
             <span className="min-w-0 flex-1">
               <span className="block text-[15px] font-medium text-[var(--text-primary)]">{statusLabelInvisible(p, gt)}</span>
               {descriptions[p] ? (

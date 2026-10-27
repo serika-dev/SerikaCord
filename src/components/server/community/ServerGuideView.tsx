@@ -33,7 +33,6 @@ import {
   ServerStats,
   useEstablishedLabel,
 } from "./serverProfileBits";
-import { onboardingHref } from "./joinFlowPlan";
 import { useServerOptional } from "@/contexts/ServerContext";
 
 export interface ServerGuideViewProps {
@@ -43,7 +42,7 @@ export interface ServerGuideViewProps {
   preview?: boolean;
   /** Open a channel (defaults to routing to it; preview: no-op unless given). */
   onNavigate?: (channelId: string) => void;
-  /** "Pick your roles" to-do; defaults to opening the join flow page at the questions. */
+  /** "Pick your roles" to-do; defaults to opening Channels & Roles. */
   onOpenQuestions?: () => void;
 }
 
@@ -106,7 +105,8 @@ export function ServerGuideView({ serverId, data, preview = false, onNavigate, o
       navigate(todo.channelId);
     } else if (todo.kind === "roles") {
       if (onOpenQuestions) onOpenQuestions();
-      else if (!preview && data.onboarding?.questions.length) router.push(onboardingHref(serverId, "questions"));
+      // Discord sends "Pick your roles" to Channels & Roles.
+      else if (!preview && data.onboarding?.questions.length) router.push(`/channels/${serverId}/customize`);
     } else if (todo.kind === "profile" && !preview) {
       window.dispatchEvent(new CustomEvent("openUserSettings", { detail: { tab: "profiles" } }));
     }

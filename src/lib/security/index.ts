@@ -156,8 +156,9 @@ export const rateLimiters_config = {
   faviconFetch: { points: 30, duration: 60 },
   // Rules screening submissions with manual approval, per member per server
   screeningSubmit: { points: 5, duration: 600 },
-  // Onboarding picks (each rewrite touches roles + the audit log)
-  onboardingResponse: { points: 10, duration: 600 },
+  // Onboarding picks (each rewrite touches roles + the audit log). Channels &
+  // Roles saves on click (debounced client-side), so allow a few dozen.
+  onboardingResponse: { points: 30, duration: 600 },
   // Account Standing appeals, per user
   appeal: { points: 5, duration: 86400 },
   // End-to-end encryption (per user): public key lookups (opening DMs, calls),

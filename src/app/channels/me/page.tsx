@@ -33,6 +33,7 @@ import { useRouter } from "next/navigation";
 import { SwipeableRow } from "@/components/ui/swipe-actions";
 import { T, useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
+import { StatusBadge } from "@/components/user/StatusBadge";
 import { Loader } from "@/components/ui/Loader";
 import { toast } from "sonner";
 import { GameActivityCard } from "@/components/user/GameActivityCard";
@@ -78,20 +79,6 @@ interface ActiveFriend {
     activities: GameActivity[];
   };
 }
-
-const statusColors = {
-  online: "#23A559",
-  idle: "#F0B232",
-  dnd: "#EF4444",
-  offline: "#80848e",
-};
-
-const statusLabels = {
-  online: "Online",
-  idle: "Idle",
-  dnd: "Do Not Disturb",
-  offline: "Offline",
-} as const;
 
 export default function DirectMessagesPage() {
   const gt = useGT();
@@ -813,7 +800,7 @@ export default function DirectMessagesPage() {
                             ]}
                           >
                             {idx > 0 && <div className="mx-4 h-px bg-[var(--border-subtle)]" />}
-                            <div onContextMenu={(e) => openUserMenu(e, friend)} onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${friend.id}`); }} className="group flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--bg-hover)] cursor-pointer transition-colors rounded-lg mx-1">
+                            <div onContextMenu={(e) => openUserMenu(e, friend)} onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${friend.id}`); }} className="group flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--bg-hover)] hover:[--status-ring:color-mix(in_srgb,var(--app-surface-alt)_70%,var(--bg-app))] cursor-pointer transition-colors rounded-lg mx-1">
                               <button
                                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
                                 onClick={() => startDM(friend.id)}
@@ -826,10 +813,7 @@ export default function DirectMessagesPage() {
                                       {(friend.displayName || friend.username).charAt(0).toUpperCase()}
                                     </AvatarFallback>
                                   </Avatar>
-                                  <div
-                                    className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-app)]"
-                                    style={{ backgroundColor: statusColors[friend.status] }}
-                                  />
+                                  <StatusBadge status={friend.status} size={12} ring={3} ringColor="var(--status-ring, var(--bg-app))" corner />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1.5">
@@ -1055,10 +1039,7 @@ function ActiveFriendCard({ entry, onMessage }: { entry: ActiveFriend; onMessage
                 {displayName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <div
-              className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-card)]"
-              style={{ backgroundColor: statusColors[friend.status] }}
-            />
+            <StatusBadge status={friend.status} size={12} ring={3} ringColor="var(--bg-card)" corner />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">
@@ -1068,7 +1049,7 @@ function ActiveFriendCard({ entry, onMessage }: { entry: ActiveFriend; onMessage
               {friend.isPremium && <Crown className="w-3.5 h-3.5 text-[var(--app-accent)] shrink-0" />}
             </div>
             <p className="text-xs text-[var(--text-muted)] truncate">
-              {friend.status !== "offline" && friend.customStatus ? friend.customStatus : statusLabels[friend.status]}
+              {friend.status !== "offline" && friend.customStatus ? friend.customStatus : statusLabel(friend.status, gt)}
             </p>
           </div>
         </button>

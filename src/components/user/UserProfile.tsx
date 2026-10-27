@@ -40,6 +40,7 @@ import { useCurrentTime } from "@/hooks/useCurrentTime";
 import { useGT } from "gt-next";
 import { CustomStatusLine } from "@/components/user/CustomStatus";
 import { hasCustomStatus } from "@/lib/social/customStatus";
+import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 
 interface UserProfileProps {
   user: {
@@ -82,20 +83,6 @@ interface UserProfileProps {
   variant?: 'popup' | 'modal';
   isCurrentUser?: boolean;
 }
-
-const statusColors = {
-  online: '#23A559',
-  idle: '#F0B232',
-  dnd: '#EF4444',
-  offline: '#80848e',
-};
-
-const statusLabels = {
-  online: 'Online',
-  idle: 'Idle',
-  dnd: 'Do Not Disturb',
-  offline: 'Offline',
-};
 
 export function UserProfile({ user, isOpen, onClose, variant = 'popup', isCurrentUser = false }: UserProfileProps) {
   const [copiedId, setCopiedId] = useState(false);
@@ -235,12 +222,12 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
             </Avatar>
             
             {/* Status indicator */}
-            <div 
-              className={cn(
-                "absolute bottom-1 right-1 rounded-full border-4 border-[#232428]",
-                expanded ? "w-7 h-7" : "w-6 h-6"
-              )}
-              style={{ backgroundColor: statusColors[user.status || 'offline'] }}
+            <StatusBadge
+              status={user.status}
+              size={expanded ? 20 : 16}
+              ring={4}
+              ringColor="#232428"
+              className="absolute bottom-1 right-1"
             />
           </div>
 
@@ -370,7 +357,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
           {/* Custom Status */}
           {hasCustomStatus(user.customStatus, user.customization) && (
             <div className="flex items-center gap-2 mt-3 text-sm text-[#b5bac1]">
-              <span className="w-2 h-2 rounded-full" style={{ backgroundColor: statusColors[user.status || 'offline'] }} />
+              <StatusIcon status={user.status} size={10} />
               <CustomStatusLine text={user.customStatus} customization={user.customization} emojiClassName="w-4 h-4" renderText={(t) => <MarkdownRenderer content={t} />} />
             </div>
           )}

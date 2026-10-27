@@ -16,6 +16,7 @@ import { RoleIcon, type RoleIconData } from "@/components/chat/RoleIcon";
 import { T, useGT } from "gt-next";
 import { useUserContextMenu } from "@/components/user/UserContextMenu";
 import { CustomStatusLine } from "@/components/user/CustomStatus";
+import { StatusBadge } from "@/components/user/StatusBadge";
 import { hasCustomStatus } from "@/lib/social/customStatus";
 
 
@@ -249,7 +250,7 @@ function MemberItemImpl({ member, serverId }: MemberItemProps) {
       >
       <button
         className={cn(
-          "relative overflow-hidden px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] transition-colors group",
+          "relative overflow-hidden px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] hover:[--status-ring:var(--app-surface)] transition-colors group",
           isOffline && "opacity-50"
         )}
         style={{ width: "calc(100% - 16px)", touchAction: "pan-y" }}
@@ -268,15 +269,7 @@ function MemberItemImpl({ member, serverId }: MemberItemProps) {
               {(member.displayName || member.username || "?").charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <div
-            className={cn(
-              "absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-[2.5px] border-[var(--app-bg)]",
-              member.status === "online" && "bg-[#23A559]",
-              member.status === "idle" && "bg-[#F0B232]",
-              member.status === "dnd" && "bg-[#EF4444]",
-              member.status === "offline" && "bg-[#555555]"
-            )}
-          />
+          <StatusBadge status={member.status} size={10} ring={3} ringColor="var(--status-ring, var(--app-bg))" corner />
         </div>
         <div className="relative flex-1 min-w-0 text-left">
           {(() => {

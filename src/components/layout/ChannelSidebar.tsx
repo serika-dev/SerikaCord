@@ -85,6 +85,8 @@ import { toast } from "sonner";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { ServerEventsEntry } from "@/components/events/ServerEventsEntry";
 import { ServerGuideEntry } from "@/components/server/community/ServerGuideEntry";
+import { ServerPageEntries } from "@/components/server/community/ServerPageEntries";
+import { StatusBadge } from "@/components/user/StatusBadge";
 
 const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
@@ -1227,13 +1229,6 @@ export function ChannelSidebar({
     },
   });
 
-  const statusColors: Record<string, string> = {
-    online: "#23A559",
-    idle: "#F0B232",
-    dnd: "#EF4444",
-    offline: "#555555",
-  };
-
   // While navigating DM→server the ServerContext hasn't loaded `currentServer`
   // yet. Without this guard the DM list flashes for a frame. If the URL points
   // at a real server, show a channel-sidebar skeleton instead of that flash.
@@ -1330,8 +1325,8 @@ export function ChannelSidebar({
                       className={cn(
                         "group relative flex items-center gap-2 px-2 py-[5px] rounded-md press-feedback transition-colors min-w-0",
                         isActive
-                          ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
-                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)]",
+                          ? "bg-[var(--bg-active)] text-[var(--text-primary)] [--status-ring:color-mix(in_srgb,var(--app-accent)_18%,var(--bg-sidebar))]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)] hover:[--status-ring:var(--bg-sidebar-elevated)]",
                         !isActive && unread && "text-[var(--text-primary)] font-semibold",
                         !isActive && isChannelMuted(channel.id) && "opacity-50"
                       )}
@@ -1357,10 +1352,7 @@ export function ChannelSidebar({
                             {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
-                        <div
-                          className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-[var(--bg-sidebar)]"
-                          style={{ backgroundColor: statusColors[recipient.status] || statusColors.offline }}
-                        />
+                        <StatusBadge status={recipient.status} size={10} ring={3} ringColor="var(--status-ring, var(--bg-sidebar))" corner />
                       </div>
                       )}
                       {isGroup || !recipient ? (
@@ -1708,6 +1700,7 @@ export function ChannelSidebar({
 
       <ServerGuideEntry key={`guide:${currentServer.id}`} serverId={currentServer.id} />
       <ServerEventsEntry key={currentServer.id} serverId={currentServer.id} />
+      <ServerPageEntries key={`pages:${currentServer.id}`} serverId={currentServer.id} />
 
       {/* Channel List */}
       <ScrollArea className="flex-1 min-h-0">
@@ -2049,15 +2042,7 @@ export function UserPanel({ user }: UserPanelProps) {
                 {user?.displayName?.charAt(0).toUpperCase() || "?"}
               </AvatarFallback>
             </Avatar>
-            <div
-              className={cn(
-                "absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[var(--bg-sidebar)]",
-                user?.status === "online" && "bg-[#23A559]",
-                user?.status === "idle" && "bg-[#F0B232]",
-                user?.status === "dnd" && "bg-[#EF4444]",
-                (!user?.status || user?.status === "offline") && "bg-[#555555]"
-              )}
-            />
+            <StatusBadge status={user?.status === "offline" ? "invisible" : user?.status} size={10} ring={3} ringColor="var(--bg-sidebar)" corner />
           </div>
           <div className="relative flex-1 min-w-0 text-left">
             <div className={cn("text-sm font-bold truncate", getDisplayNameStyleClasses(user?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(user?.customization?.displayNameStyle)}>

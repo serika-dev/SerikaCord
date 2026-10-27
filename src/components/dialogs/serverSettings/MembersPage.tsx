@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useDeferredValue, useMemo, useState } from "react";
-import { ChevronLeft, ChevronRight, Clock, Crown, Plus, Users, X } from "lucide-react";
+import { Clock, Crown, Plus, Users, X } from "lucide-react";
 import { useGT, useLocale } from "gt-next";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -24,9 +24,10 @@ import { filterAndSortMembers, type MemberSort } from "@/lib/servers/memberView"
 import type { UserActionKind } from "@/lib/social/userActions";
 import { cn, cdnImage } from "@/lib/utils";
 import { formatShortDate } from "./formatDate";
+import { MembersPager, MEMBERS_PAGE_SIZE } from "./MembersPager";
 import type { Role, ServerMember } from "./types";
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = MEMBERS_PAGE_SIZE;
 
 const selectClass =
   "h-9 rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)] px-2 text-sm text-[var(--text-primary)] outline-none focus:border-[var(--app-accent)]";
@@ -364,40 +365,7 @@ export const MembersPage = memo(function MembersPage({
               />
             ))}
           </div>
-          {pageCount > 1 && (
-            <div className="flex items-center justify-between gap-3 border-t border-[var(--border-subtle)] px-4 py-2.5">
-              <p className="text-xs text-[var(--text-muted)]">
-                {gt("Showing {from}–{to} of {count}", {
-                  from: safePage * PAGE_SIZE + 1,
-                  to: Math.min(visibleMembers.length, (safePage + 1) * PAGE_SIZE),
-                  count: visibleMembers.length,
-                })}
-              </p>
-              <div className="flex items-center gap-1">
-                <SettingsButton
-                  size="sm"
-                  variant="ghost"
-                  disabled={safePage === 0}
-                  onClick={() => setPage(safePage - 1)}
-                  aria-label={gt("Previous page")}
-                >
-                  <ChevronLeft />
-                </SettingsButton>
-                <span className="min-w-[56px] text-center text-xs tabular-nums text-[var(--text-secondary)]">
-                  {safePage + 1} / {pageCount}
-                </span>
-                <SettingsButton
-                  size="sm"
-                  variant="ghost"
-                  disabled={safePage >= pageCount - 1}
-                  onClick={() => setPage(safePage + 1)}
-                  aria-label={gt("Next page")}
-                >
-                  <ChevronRight />
-                </SettingsButton>
-              </div>
-            </div>
-          )}
+          <MembersPager page={safePage} pageCount={pageCount} total={visibleMembers.length} onPage={setPage} />
         </div>
       )}
     </div>

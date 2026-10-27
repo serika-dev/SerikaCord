@@ -125,7 +125,7 @@ function CardBody({ tag, onDone }: { tag: ResolvedServerTag; onDone: () => void 
             <>
               {onlineCount !== undefined && onlineCount > 0 && (
                 <span className="flex items-center gap-1.5">
-                  <span className="size-2 rounded-full bg-[#23A559]" aria-hidden />
+                  <span className="size-2 rounded-full bg-[var(--status-online)]" aria-hidden />
                   {gt("{count} Online", { count: onlineCount.toLocaleString() })}
                 </span>
               )}

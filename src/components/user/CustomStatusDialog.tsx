@@ -20,6 +20,7 @@ import {
 } from "@/lib/social/customStatus";
 import { toClientStatus, type ClientStatus } from "@/lib/presenceChoice";
 import { statusLabelInvisible } from "@/lib/statusLabels";
+import { StatusIcon } from "@/components/user/StatusBadge";
 
 interface PickerEmoji {
   id: string;
@@ -179,7 +180,12 @@ export function CustomStatusDialog({ open, onOpenChange }: { open: boolean; onOp
               </SelectTrigger>
               <SelectContent>
                 {presenceOptions.map((p) => (
-                  <SelectItem key={p} value={p}>{statusLabelInvisible(p, gt)}</SelectItem>
+                  <SelectItem key={p} value={p}>
+                    <span className="flex items-center gap-2">
+                      <StatusIcon status={p === "offline" ? "invisible" : p} size={12} />
+                      {statusLabelInvisible(p, gt)}
+                    </span>
+                  </SelectItem>
                 ))}
               </SelectContent>
             </Select>

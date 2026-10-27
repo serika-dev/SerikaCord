@@ -26,6 +26,7 @@ import { previewEncryptedMessage, type EncryptedPreviewInput } from "@/lib/e2ee/
 import { getRelationships } from "@/lib/social/relationshipsStore";
 import { isBlockedAuthor } from "@/lib/chat/blocked";
 import { useResilientStream } from "@/hooks/useStreamRevive";
+import { StatusBadge } from "@/components/user/StatusBadge";
 
 const MobileDmSheet = dynamic(() => import("@/components/mobile/MobileDmSheet").then((m) => m.MobileDmSheet), { ssr: false });
 
@@ -363,13 +364,6 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   }, [fetchMessages, isRefreshing]);
   const { pullDistance, pullHandlers } = usePullToRefresh(scrollContainerRef, handleRefresh);
 
-  const statusColors: Record<string, string> = {
-    online: "#22c55e",
-    idle: "#eab308",
-    dnd: "#ef4444",
-    offline: "#6b7280",
-  };
-
   const handleMessageClick = (message: Message) => {
     if (rowPress.wasLongPress()) return;
     router.push(message.href);
@@ -508,10 +502,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                       <Star className="w-3 h-3 text-white fill-white" />
                     </div>
                   )}
-                  <div
-                    className="absolute bottom-0 right-0 w-4 h-4 rounded-full border-[3px] border-[var(--bg-app)]"
-                    style={{ backgroundColor: statusColors[message.status || "offline"] }}
-                  />
+                  <StatusBadge status={message.status} size={12} ring={3} ringColor="var(--bg-app)" className="absolute bottom-0 right-0" />
                 </div>
                 <span className="text-xs font-medium text-[var(--text-muted)] truncate max-w-[72px] group-hover:text-[var(--text-primary)] transition-colors">
                   {message.name.split(" ")[0]}
@@ -610,10 +601,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                     )}
                     {/* Status indicator */}
                     {message.type !== "group" && (
-                    <div
-                      className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full ring-[3px] ring-[var(--bg-app)]"
-                      style={{ backgroundColor: statusColors[message.status || "offline"] }}
-                    />
+                    <StatusBadge status={message.status} size={12} ring={3} ringColor="var(--bg-app)" corner />
                     )}
                   </div>
                   

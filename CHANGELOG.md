@@ -20,6 +20,9 @@
 - **Inactive channel settings** — set the inactive (AFK) channel and timeout in Server Settings → Overview.
 - **Gradient app themes** — give the whole app a Discord-style gradient: pick one of 32 colour themes (deep and soft), make your own (2–3 colours and an angle), or keep the solid look, under Settings → Appearance → App Theme. Off until you choose one.
 - **Server themes are gradients** — server admins can give their server its own gradient and accent colour; members see it while they are in the server unless they turned off "Use server themes". Servers that only set the old background tint now show a matching gradient.
+- **Channels & Roles** — servers with onboarding questions get a Channels & Roles page under the server name: change your answers anytime (roles update right away), see how your profile looks, and browse every channel by category.
+- **Members page for moderators** — moderators get a Members page under the server name: search and sort recent members, see when they joined the server and SerikaCord, their roles, new-account and timeout flags, and open profiles or moderation actions from the list.
+- **Live event badge on server icons** — servers with an event happening now show a green live badge in the server list (a calendar badge when one starts within the hour), and the tooltip says which event and when.
 
 ### Changes
 - **Nicer settings** — both settings windows have a grouped sidebar with search (it also finds settings like "dark mode" and jumps to them), tidier rows, sticky page titles, an ESC close button and smooth page transitions.
@@ -27,6 +30,7 @@
 - **Smoother app** — menus, dialogs, tooltips and buttons animate quickly and consistently, tooltips have arrows, and animations switch off when reduced motion is on.
 - **Settings look like Discord** — every User and Server Settings page has clean grouped cards; Devices, Authorized Apps, Connections, Members, Invites and Bans are proper lists with actions on hover; roles open in an editor with Display, Permissions, Links and Manage Members tabs; Integrations is an overview of cards; keybinds show as keycaps.
 - **Server Guide redesign** — a Discord-style guide: the owner welcome as a highlighted message, a Get Started checklist, and a sidebar with the server card, resources and connections.
+- **Discord-style status badges** — online, idle (a moon), Do Not Disturb and offline have clear, distinct shapes cut out of the avatar, the same everywhere: member list, DMs, friends, profiles, the status menu and mobile.
 
 ### Bug Fixes
 - **Syncing a linked Discord server** — no longer fails with "That Discord server is already linked to another server".
@@ -42,6 +46,7 @@
 - **Active Now on every Friends tab** — the Active Now panel also shows on Pending, Blocked and Add Friend.
 - **DM unread dots clear when read** — a DM or group DM in the server list no longer keeps its unread dot after you read it in the DM list, from a notification or on another device, and new DMs show up there right away.
 - **Settings over a custom background** — the full-screen settings pages no longer let the app show through behind them.
+- **Member sort** — sorting Server Settings → Members by account creation date now works.
 
 ### Changes
 - **Reorder everything on your Board** — every widget (game sections, Serika Wishlist lists, app widgets, Connections and Recent activity) has up/down arrows, and the order you pick is the one everyone sees. Works with the keyboard and on phones. Visitors no longer see an empty Recent activity box.

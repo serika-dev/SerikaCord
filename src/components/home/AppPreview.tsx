@@ -62,10 +62,9 @@ import {
 } from "lucide-react";
 import { getNameplatePreset } from "@/lib/constants/nameplates";
 import { cn } from "@/lib/utils";
+import { StatusBadge } from "@/components/user/StatusBadge";
 
 type Gt = Awaited<ReturnType<typeof getGT>>;
-
-const ONLINE = "#23A559";
 
 function stagger(i: number): CSSProperties {
   return { "--i": i } as CSSProperties;
@@ -211,7 +210,7 @@ export function UserPanel({ name, nameplate }: { name: string; nameplate?: strin
       <div className="relative z-10 flex items-center gap-2 flex-1 min-w-0 p-1 rounded">
         <div className="relative shrink-0">
           <Av name={name} className="w-8 h-8" fallbackClassName="text-sm" />
-          <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 rounded-full border-[3px] border-[var(--bg-sidebar)]" style={{ background: ONLINE }} />
+          <StatusBadge status="online" size={10} ring={3} ringColor="var(--bg-sidebar)" corner decorative />
         </div>
         <div className="relative flex-1 min-w-0 text-left">
           <div className="text-sm font-bold truncate text-[var(--text-primary)]">{name}</div>
@@ -513,7 +512,7 @@ export function MemberRow({
         )}
         <div className="relative flex-shrink-0">
           <Av name={name} className="w-8 h-8" fallbackClassName="bg-[#8B5CF6] text-white text-xs" />
-          <div className="absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-[2.5px] border-[var(--app-bg)]" style={{ background: ONLINE }} />
+          <StatusBadge status="online" size={10} ring={3} ringColor="var(--app-bg)" corner decorative />
         </div>
         <div className="relative flex-1 min-w-0 text-left">
           <div className="flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]" style={roleColor ? { color: roleColor } : undefined}>
@@ -609,7 +608,7 @@ export async function DmPreview() {
             </span>
             <div className="relative flex-shrink-0">
               <Av name="Aya" className="w-8 h-8" fallbackClassName="text-sm" />
-              <div className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-app)]" style={{ backgroundColor: ONLINE }} />
+              <StatusBadge status="online" size={10} ring={3} ringColor="var(--bg-app)" corner decorative />
             </div>
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-semibold text-[var(--text-primary)] truncate self-center">Aya</span>

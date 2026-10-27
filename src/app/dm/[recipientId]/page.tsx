@@ -54,6 +54,7 @@ import { E2eeConversationBanner } from "@/components/e2ee/E2eeConversationBanner
 import { E2eeConversationLock } from "@/components/e2ee/E2eeConversationLock";
 import { useE2ee } from "@/hooks/useE2ee";
 import { e2eeGateFor } from "@/lib/e2ee/client/state";
+import { StatusBadge } from "@/components/user/StatusBadge";
 
 // Shown instead of the conversation until this account has a PIN / this device has keys.
 const E2eePinGate = dynamic(() => import("@/components/e2ee/E2eePinGate").then((m) => m.E2eePinGate), { ssr: false });
@@ -61,13 +62,6 @@ const E2eePinGate = dynamic(() => import("@/components/e2ee/E2eePinGate").then((
 const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
 
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
-
-const statusColors = {
-  online: "#23A559",
-  idle: "#F0B232",
-  dnd: "#EF4444",
-  offline: "#80848e",
-};
 
 interface Recipient extends MessageAuthor {
   customStatus?: string;
@@ -633,10 +627,7 @@ export default function DMConversationPage() {
                   {(recipientName || "?").charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <div
-                className="absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-[var(--bg-app)]"
-                style={{ backgroundColor: statusColors[recipient?.status || "offline"] }}
-              />
+              <StatusBadge status={recipient?.status} size={10} ring={3} ringColor="var(--bg-app)" corner />
             </div>
 
             <div className="flex items-center gap-2 min-w-0">

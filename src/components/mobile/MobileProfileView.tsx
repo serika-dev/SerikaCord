@@ -42,16 +42,10 @@ import { VERSION_LABEL } from "@/lib/version";
 import { KeyRound } from "lucide-react";
 import { useE2ee } from "@/hooks/useE2ee";
 import { statusLabelInvisible } from "@/lib/statusLabels";
+import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 
 const MobileStatusSheet = dynamic(() => import("./MobileStatusSheet").then((m) => m.MobileStatusSheet), { ssr: false });
 const CustomStatusDialog = dynamic(() => import("@/components/user/CustomStatusDialog").then((m) => m.CustomStatusDialog), { ssr: false });
-
-const STATUS_COLORS: Record<string, string> = {
-  online: "#23A559",
-  idle: "#F0B232",
-  dnd: "#EF4444",
-  offline: "#80848E",
-};
 
 interface SettingsItem {
   icon: React.ElementType;
@@ -169,10 +163,12 @@ export function MobileProfileView() {
                     {displayName.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <span
-                  className="absolute bottom-1.5 right-1.5 w-6 h-6 rounded-full border-4 border-[var(--bg-app)]"
-                  style={{ backgroundColor: STATUS_COLORS[status] }}
-                  title={statusLabelInvisible(status, gt)}
+                <StatusBadge
+                  status={status === "offline" ? "invisible" : status}
+                  size={16}
+                  ring={4}
+                  ringColor="var(--bg-app)"
+                  className="absolute bottom-1.5 right-1.5"
                 />
               </div>
 
@@ -206,7 +202,7 @@ export function MobileProfileView() {
                 aria-expanded={showStatusSheet}
                 className="mt-3 flex w-fit min-h-11 max-w-full touch-manipulation items-center gap-2 px-3 py-2 rounded-full bg-[var(--bg-card)]/80 backdrop-blur-sm border border-[var(--border-subtle)] transition-transform duration-200 ease-out active:scale-[0.98] motion-reduce:transition-none motion-reduce:active:scale-100 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--app-accent)]"
               >
-                <span className="w-2.5 h-2.5 shrink-0 rounded-full" style={{ backgroundColor: STATUS_COLORS[status] }} />
+                <StatusIcon status={status === "offline" ? "invisible" : status} size={12} />
                 <span className="text-sm font-semibold text-[var(--text-primary)]">{statusLabelInvisible(status, gt)}</span>
                 <ChevronRight className="w-3.5 h-3.5 shrink-0 text-[var(--text-muted)]" />
               </button>

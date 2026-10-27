@@ -34,6 +34,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { patchRelationship, refreshRelationships, useRelationships } from "@/lib/social/relationshipsStore";
 import { hasMentionTarget, openUserAction, requestMention, type UserActionTarget } from "@/lib/social/userActions";
+import { channelIdFromSegment } from "@/lib/servers/serverPages";
 import { cn } from "@/lib/utils";
 
 export interface ContextMenuUser {
@@ -108,7 +109,7 @@ export function UserMenuItems({
   // App user commands run in the channel that's open (/channels/{server}/{channel}).
   const pathname = usePathname();
   const pathMatch = /^\/channels\/([^/]+)\/([^/?#]+)/.exec(pathname ?? "");
-  const appChannelId = serverId && pathMatch && norm(pathMatch[1]) === norm(serverId) ? pathMatch[2] : null;
+  const appChannelId = serverId && pathMatch && norm(pathMatch[1]) === norm(serverId) ? channelIdFromSegment(pathMatch[2]) : null;
   const { userCommands } = useAppCommands(appChannelId);
   const inServer = Boolean(serverId) && !user.isDiscord && (member !== null || !serverMembers);
   const targetIsOwner = Boolean(member?.isOwner);
@@ -564,6 +565,11 @@ export function useUserContextMenu(serverId?: string | null) {
     setState({ x: event.clientX, y: event.clientY, user });
   }, []);
 
+  /** Open it at a point, e.g. under a "⋯" button (works for keyboard clicks too). */
+  const openUserMenuAt = useCallback((x: number, y: number, user: ContextMenuUser) => {
+    setState({ x, y, user });
+  }, []);
+
   const close = useCallback(() => setState(null), []);
 
   useEffect(() => {
@@ -619,5 +625,5 @@ export function useUserContextMenu(serverId?: string | null) {
       )
     : null;
 
-  return { openUserMenu, userMenu };
+  return { openUserMenu, openUserMenuAt, userMenu };
 }

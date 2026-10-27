@@ -14,6 +14,8 @@ import { useServerMutes } from "@/hooks/useServerMutes";
 import { useIsClient } from "@/hooks/useIsClient";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { useLongPress } from "./useLongPress";
+import { RailEventBadge, useRailEventClock } from "@/components/layout/RailEventBadge";
+import { eventBadgeState } from "@/lib/chat/serverEventBadge";
 
 const MobileServerSheet = dynamic(() => import("./MobileServerSheet").then((m) => m.MobileServerSheet), { ssr: false });
 
@@ -49,7 +51,8 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
   const router = useRouter();
   const gt = useGT();
   const isClient = useIsClient();
-  const { servers, currentServer, setCurrentServer, setCurrentChannel, prefetchServer } = useServer();
+  const { servers, currentServer, setCurrentServer, setCurrentChannel, prefetchServer, fetchServers } = useServer();
+  const now = useRailEventClock(servers, fetchServers);
   // Same unread/mention sources as the desktop ServerSidebar.
   // DM unreads badge the bottom nav's Messages tab, not Home: on phones Home
   // opens Friends (CORD-63).
@@ -116,6 +119,7 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
             const mentionCount = getServerMentionCount(server.id);
             const hasUnread = !muted && isServerUnread(server.id);
             const isActive = currentServer?.id === server.id;
+            const eventBadge = eventBadgeState(server.activeEvent, now);
 
             return (
               <div key={server.id} className="relative">
@@ -125,7 +129,13 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
                   {...serverPress.bind(server)}
                   onClick={() => handleServerClick(server)}
                   onTouchStartCapture={() => prefetchServer(server.id)}
-                  aria-label={server.name}
+                  aria-label={
+                    eventBadge?.kind === "live"
+                      ? gt("{server}, event happening now: {name}", { server: server.name, name: eventBadge.name })
+                      : eventBadge
+                        ? gt("{server}, event starts in {minutes} min: {name}", { server: server.name, minutes: eventBadge.minutes, name: eventBadge.name })
+                        : server.name
+                  }
                   aria-current={isActive ? "page" : undefined}
                   className={cn(
                     "relative block h-12 w-12 touch-manipulation select-none transition-all duration-200 active:scale-95",
@@ -165,6 +175,7 @@ export function MobileServerList({ onServerSelect, onCreateServer }: MobileServe
                       {mentionCount > 99 ? "99+" : mentionCount}
                     </span>
                   )}
+                  {eventBadge && <RailEventBadge state={eventBadge} left={mentionCount > 0} ringColor="var(--bg-sidebar)" />}
                 </button>
               </div>
             );

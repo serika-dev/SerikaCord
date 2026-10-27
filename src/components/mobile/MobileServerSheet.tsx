@@ -96,7 +96,7 @@ export function MobileServerSheet({ server, onClose }: { server: SheetServer; on
           <div className="mt-0.5 flex items-center gap-3 text-xs text-[var(--text-muted)]">
             {typeof server.onlineCount === "number" && (
               <span className="flex items-center gap-1">
-                <span className="h-2 w-2 rounded-full bg-green-500" />
+                <span className="h-2 w-2 rounded-full bg-[var(--status-online)]" />
                 {gt("{count} Online", { count: server.onlineCount })}
               </span>
             )}

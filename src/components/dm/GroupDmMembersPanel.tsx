@@ -9,13 +9,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cn, cdnImage } from "@/lib/utils";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import type { GroupMember } from "@/lib/chat/groupDmClient";
-
-const STATUS_COLOR: Record<string, string> = {
-  online: "var(--status-online, #23A559)",
-  idle: "var(--status-idle, #F0B232)",
-  dnd: "var(--status-dnd, #EF4444)",
-  offline: "var(--status-offline, #80848e)",
-};
+import { StatusBadge } from "@/components/user/StatusBadge";
 
 /**
  * The right-hand member list of a group DM: "Members — N", the owner's crown,
@@ -83,7 +77,7 @@ export function GroupDmMembersPanel({
                 setMenu({ x: e.clientX, y: e.clientY, member: m });
               }}
               className={cn(
-                "group flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--bg-sidebar-elevated)]",
+                "group flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--bg-sidebar-elevated)] hover:[--status-ring:var(--bg-sidebar-elevated)]",
                 offline && "opacity-50 hover:opacity-100",
               )}
               title={isMe ? name : gt("Message {name}", { name })}
@@ -95,10 +89,7 @@ export function GroupDmMembersPanel({
                     {name.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <span
-                  className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full border-2 border-[var(--bg-sidebar)]"
-                  style={{ backgroundColor: STATUS_COLOR[m.status || "offline"] || STATUS_COLOR.offline }}
-                />
+                <StatusBadge status={m.status} size={10} ring={3} ringColor="var(--status-ring, var(--bg-sidebar))" corner />
               </div>
               <span className="flex min-w-0 flex-1 items-center gap-1">
                 <span
