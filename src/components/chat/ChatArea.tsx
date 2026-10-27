@@ -1067,7 +1067,11 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       // Slash command param autocomplete: `/command args...`
       // Detect when the user has typed a full command name followed by a space
       // and is now filling in parameters.
-      const paramMatch = beforeCursor.match(/^\/(\S+)(\s+.*)$/);
+      // A bot command picked from the palette owns its option hints, even when
+      // a built-in has the same name (Roxy's /roll vs the dice /roll).
+      const picked = pickedAppCommandRef.current;
+      const pickedApp = picked && pickedCommandStillTyped(beforeCursor, picked.fullName) ? picked : null;
+      const paramMatch = pickedApp ? null : beforeCursor.match(/^\/(\S+)(\s+.*)$/);
       if (paramMatch) {
         const ctx = parseCommandContext(beforeCursor);
         if (ctx && ctx.param) {
@@ -1185,7 +1189,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
 
       // App (bot) command parameter autocomplete: `/amq start ...`
       if (appLeaves.length > 0 && beforeCursor.startsWith("/") && /\s/.test(beforeCursor)) {
-        const appCtx = parseAppCommandContext(beforeCursor, appLeaves);
+        const leavesForHint = pickedApp ? appLeaves.filter((l) => l.application.id === pickedApp.applicationId) : appLeaves;
+        const appCtx = parseAppCommandContext(beforeCursor, leavesForHint);
         if (appCtx) {
           const { leaf, option, currentArg, valueMode, remaining } = appCtx;
           const cmdName = leaf.fullName;
