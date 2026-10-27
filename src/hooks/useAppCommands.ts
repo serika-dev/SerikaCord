@@ -56,9 +56,12 @@ export function useAppCommands(channelId: string | null | undefined): {
  */
 export function useAppCommandRunner(channelId: string | null | undefined, leaves: AppLeafCommand[]) {
   const gt = useGT();
-  return useCallback(async (text: string): Promise<boolean> => {
-    if (!channelId || leaves.length === 0 || !text.startsWith("/")) return false;
-    const outcome = await invokeAppCommandText(text, channelId, leaves);
+  return useCallback(async (text: string, opts?: { applicationId?: string }): Promise<boolean> => {
+    // A command picked from the palette runs on that app only, even when
+    // another app (or a built-in) has the same name.
+    const pool = opts?.applicationId ? leaves.filter((l) => l.application.id === opts.applicationId) : leaves;
+    if (!channelId || pool.length === 0 || !text.startsWith("/")) return false;
+    const outcome = await invokeAppCommandText(text, channelId, pool);
     if (outcome.status === "not_command") return false;
     if (outcome.status === "error") {
       const option = outcome.option ?? "";

@@ -66,6 +66,7 @@ import { decodeHtmlEntities, formatMessageTimestamp } from "@/lib/chat/messages"
 import { quoteSearchValue } from "@/lib/chat/searchQuery";
 import { useMessageSearch, type SearchHit, type SearchHitChannel } from "@/hooks/useMessageSearch";
 import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
+import { pickedCommandStillTyped } from "@/lib/chat/commandPick";
 import {
   getCommandSuggestions,
   parseCommandContext,
@@ -377,6 +378,9 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   const appCommands = useAppCommands(currentChannel?.id);
   const appLeaves = appCommands.leaves;
   const runAppCommand = useAppCommandRunner(currentChannel?.id, appLeaves);
+  // The bot command last picked from the palette. A bot command and a built-in
+  // (or two bots) can share a name; the one the user picked wins on send.
+  const pickedAppCommandRef = useRef<{ fullName: string; applicationId: string } | null>(null);
   const autocompleteReqRef = useRef(0);
   const autocompleteTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -913,6 +917,17 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     const composer = messageBarRef.current?.getComposer();
     const rawContent = composer?.getText() ?? "";
     const trimmed = rawContent.trim();
+
+    // A bot command picked from the palette runs before a same-named built-in.
+    const picked = pickedAppCommandRef.current;
+    pickedAppCommandRef.current = null;
+    if (picked && pickedCommandStillTyped(trimmed, picked.fullName)) {
+      if (await runAppCommand(trimmed, { applicationId: picked.applicationId })) {
+        composer?.clear();
+        chat.resetTyping();
+        return;
+      }
+    }
 
     // Intercept slash commands
     if (trimmed.startsWith("/")) {
@@ -1564,10 +1579,14 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         });
       } else if (suggestion.kind === "command") {
         // Replace /query with /command + space
+        pickedAppCommandRef.current = null;
         composer.replaceRange(0, activeRange.end, `/${suggestion.label} `);
       } else if (suggestion.kind === "app-command") {
         // Replace /query with the full command path + space (options follow).
-        composer.replaceRange(0, activeRange.end, `/${suggestion.fullName || suggestion.label} `);
+        const fullName = suggestion.fullName || suggestion.label;
+        const applicationId = suggestion.id.split(":")[0];
+        pickedAppCommandRef.current = applicationId ? { fullName, applicationId } : null;
+        composer.replaceRange(0, activeRange.end, `/${fullName} `);
       } else if (suggestion.kind === "app-option") {
         // Picking an option name inserts `name:` so the value picker opens next.
         if (suggestion.id === "__app-option-hint__") {
