@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 import { Check, Copy, Hash, Megaphone, MessagesSquare, Signpost, ListChecks, Users, Volume2 } from "lucide-react";
 import { useChatGt } from "./ChatGtContext";
 import { useServerOptional } from "@/contexts/ServerContext";
+import { useAuth } from "@/contexts/AuthContext";
 import { useRouter } from "next/navigation";
 import { useGT } from "gt-next";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
@@ -227,9 +228,16 @@ const DiscordTimestamp = memo(function DiscordTimestamp({
 interface MentionedChannel { id: string; name: string; type?: string; serverId?: string | null }
 
 // Channels mentioned from outside the open server (or in DMs), looked up once
-// per id: the channel route only answers for channels you can see.
+// per id: the channel route only answers for channels you can see. The answer
+// depends on who is signed in, so the cache belongs to one account and is
+// dropped when the account changes (logout, account switch).
 const mentionedChannelCache = new Map<string, Promise<MentionedChannel | null>>();
-function lookupMentionedChannel(id: string): Promise<MentionedChannel | null> {
+let mentionedChannelCacheOwner: string | null = null;
+function lookupMentionedChannel(id: string, viewerId: string): Promise<MentionedChannel | null> {
+  if (mentionedChannelCacheOwner !== viewerId) {
+    mentionedChannelCache.clear();
+    mentionedChannelCacheOwner = viewerId;
+  }
   let hit = mentionedChannelCache.get(id);
   if (!hit) {
     hit = fetch(`/api/channels/${encodeURIComponent(id)}`)
@@ -265,6 +273,7 @@ const ChannelMention = memo(function ChannelMention({ channelId }: { channelId: 
   const server = useServerOptional();
   const channels = server?.channels;
   const currentServer = server?.currentServer;
+  const viewerId = useAuth().user?.id ?? null;
 
   const local = useMemo<MentionedChannel | null>(() => {
     const ch = channels?.find((c) => c.id === channelId);
@@ -274,11 +283,11 @@ const ChannelMention = memo(function ChannelMention({ channelId }: { channelId: 
   // Not in the open server (another server, a DM): ask the API once.
   const [remote, setRemote] = useState<MentionedChannel | null | undefined>(undefined);
   useEffect(() => {
-    if (local || !UUID_ID.test(channelId) || !server) return;
+    if (local || !UUID_ID.test(channelId) || !server || !viewerId) return;
     let alive = true;
-    void lookupMentionedChannel(channelId).then((c) => { if (alive) setRemote(c); });
+    void lookupMentionedChannel(channelId, viewerId).then((c) => { if (alive) setRemote(c); });
     return () => { alive = false; };
-  }, [local, channelId, server]);
+  }, [local, channelId, server, viewerId]);
 
   const channel = local ?? remote ?? null;
   const target = channel?.serverId ? `/channels/${channel.serverId}/${channel.id}` : null;

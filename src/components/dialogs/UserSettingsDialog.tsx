@@ -132,6 +132,7 @@ const AdminStaffPanel = dynamic(() => import("@/components/settings/AdminStaffPa
 const AdminChangelogsPanel = dynamic(() => import("@/components/settings/AdminChangelogsPanel").then((module) => module.AdminChangelogsPanel));
 const AccountStanding = dynamic(() => import("@/components/safety/AccountStanding").then((module) => module.AccountStanding));
 const AdminTrustSafetyPanel = dynamic(() => import("@/components/settings/AdminTrustSafetyPanel"));
+const AdminAppsPanel = dynamic(() => import("@/components/settings/AdminAppsPanel"));
 
 /** Every IANA zone, computed once (the Profiles page rendered ~400 options from scratch on every keystroke). */
 let timeZonesCache: string[] | null = null;
@@ -162,6 +163,7 @@ const ADMIN_TAB_PERMISSIONS: Record<string, StaffPermission[]> = {
   "admin-stats": ["stats.view"],
   "admin-bug-reports": ["reports.manage"],
   "admin-trust-safety": ["safety.review", "reports.review"],
+  "admin-apps": ["apps.manage"],
 };
 
 /* Shared form styling for the Profiles / admin forms (Discord: uppercase field labels, 40px inputs). */
@@ -288,7 +290,8 @@ type SettingsTab =
   | "admin-stats"
   | "bug-reports"
   | "admin-bug-reports"
-  | "admin-trust-safety";
+  | "admin-trust-safety"
+  | "admin-apps";
 
 
 export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSettingsDialogProps) {
@@ -1697,6 +1700,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         items: [
           { id: "admin-stats" as SettingsTab, label: gt("Statistics"), icon: BarChart3 },
           { id: "admin-servers" as SettingsTab, label: gt("Server Management"), icon: Database },
+          { id: "admin-apps" as SettingsTab, label: gt("Apps & Bots"), icon: Bot },
           { id: "admin-announcements" as SettingsTab, label: gt("Announcements"), icon: Megaphone },
           { id: "admin-changelogs" as SettingsTab, label: gt("Changelog Popups"), icon: FileText },
           { id: "admin-settings" as SettingsTab, label: gt("Platform Settings"), icon: Settings },
@@ -3540,6 +3544,11 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
               {/* Admin — Trust & Safety */}
               <MountWhenOpened open={activeTab === "admin-trust-safety" && canOpenAdminTab(activeTab)}>
                 {activeTab === "admin-trust-safety" && canOpenAdminTab(activeTab) && <AdminTrustSafetyPanel key={user?.id} />}
+              </MountWhenOpened>
+
+              {/* Admin — Apps & Bots (verification queue, App Directory moderation) */}
+              <MountWhenOpened open={activeTab === "admin-apps" && canOpenAdminTab(activeTab)}>
+                {activeTab === "admin-apps" && canOpenAdminTab(activeTab) && <AdminAppsPanel key={user?.id} />}
               </MountWhenOpened>
         </SettingsContent>
       </div>

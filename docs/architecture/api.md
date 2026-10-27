@@ -27,7 +27,8 @@ when Next runs alone.
 | `/api/admin` | `admin.ts`, `staff.ts` | staff panel and delegated role management; `/access` returns the current account's effective capabilities |
 | `/api/changelogs`, `/api/admin/changelogs` | `changelogs.ts` | authenticated release history/read receipts and staff draft/publish controls |
 | `/api/experiments`, `/api/instance` | `experiments.ts` | feature flags, instance info |
-| `/api/developers`, `/api/oauth2` | `developers.ts` | developer portal (apps, bots, commands), OAuth2 for third-party apps |
+| `/api/developers`, `/api/oauth2` | `developers.ts` | developer portal (apps, bots, commands, App Directory listing `/applications/:id/directory` + `/cover`, verification apply), OAuth2 for third-party apps |
+| `/api/apps`, `/api/admin/apps` | `appDirectory.ts` | public App Directory (`/apps/directory`, `/apps/directory/:appId`, logged out, `appDirectory` per-IP limit), apps installed in a server (`/apps/installed`, members), staff verification queue and directory moderation (`apps.manage`); rules in `src/lib/appDirectory/`, data in `services/appDirectory.ts` |
 | `/api/v10/*` | `botApi.ts` | Discord-v10-compatible bot REST API |
 | `/api/v1/*` | `social-sdk.ts` | Social SDK: rich presence, widgets, game library |
 | `/api/mcp`, `/api/docs/mcp`, `/api/v10/mcp` | `mcp.ts` | read-only MCP server over the developer docs |
@@ -134,6 +135,8 @@ Limiters (`rateLimiters_config`):
 | `friendRequest` | 20 / day |
 | `admin` | 60 / min |
 | `bugReport` | 5 / 10 min |
+| `appDirectory` | 120 / min per IP (public App Directory reads) |
+| `appDirectoryEdit` | 30 / 10 min per user (listing edits, verification applications) |
 
 On a hit, return 429 with `{ error, retryAfter }`. Add a new limiter to
 `rateLimiters_config` rather than inventing one inline. Client IP comes from

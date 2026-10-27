@@ -18,12 +18,14 @@ export async function HomeHeader({ variant = "home", current }: { variant?: "hom
           { label: gt("Features"), href: "#features" },
           { label: gt("Privacy"), href: "#privacy" },
           { label: gt("Apps"), href: "#apps" },
+          { label: gt("Bots"), href: "/bots" },
           { label: gt("Developers"), href: "/developers" },
           { label: gt("Compare"), href: "/compare" },
         ]
       : [
           { label: gt("Features"), href: "/#features" },
           { label: gt("Apps"), href: "/#apps" },
+          { label: gt("Bots"), href: "/bots" },
           { label: gt("Developers"), href: "/developers" },
           { label: gt("Compare"), href: "/compare" },
           { label: gt("Tier list"), href: "/compare/tier-list" },

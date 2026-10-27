@@ -82,6 +82,8 @@ function AuthorizeForm() {
   // PKCE (RFC 7636): passed through to the server, which binds it to the code.
   const codeChallenge = searchParams.get("code_challenge") || "";
   const codeChallengeMethod = searchParams.get("code_challenge_method") || "";
+  // Preselects a server (App Discovery "Add to Server"); only used when the user can manage it.
+  const preferredGuildId = searchParams.get("guild_id") || "";
 
   // Component States
   const [currentUser, setCurrentUser] = useState<any>(null);
@@ -150,7 +152,8 @@ function AuthorizeForm() {
             });
             setGuilds(eligible);
             if (eligible.length > 0) {
-              setSelectedGuildId(eligible[0].id);
+              const preferred = eligible.find((g) => g.id === preferredGuildId);
+              setSelectedGuildId(preferred ? preferred.id : eligible[0].id);
             }
           }
         }
@@ -162,7 +165,7 @@ function AuthorizeForm() {
     };
 
     loadData();
-  }, [clientId, scopeParam, redirectUri, permissionsParam, router]);
+  }, [clientId, scopeParam, redirectUri, permissionsParam, preferredGuildId, router]);
 
   const handlePermissionToggle = (bit: bigint) => {
     setBotPermissions((prev) => {
@@ -280,9 +283,19 @@ function AuthorizeForm() {
           <p className="text-[#888888] text-sm mb-6">
             {gt("You can now close this window or return to your app.")}
           </p>
-          <Button onClick={() => window.close()} className="w-full bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold">
-            {gt("Close Window")}
-          </Button>
+          {window.opener ? (
+            <Button onClick={() => window.close()} className="w-full bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold">
+              {gt("Close Window")}
+            </Button>
+          ) : (
+            // Opened in the same tab (App Discovery, /bots): go back into the app.
+            <Button
+              onClick={() => router.push(selectedGuildId ? `/channels/${selectedGuildId}` : "/channels/me")}
+              className="w-full bg-[#8B5CF6] hover:bg-[#7C3AED] text-white font-semibold"
+            >
+              {selectedGuildId ? gt("Go to Server") : gt("Open SerikaCord")}
+            </Button>
+          )}
         </div>
       </div>
     );

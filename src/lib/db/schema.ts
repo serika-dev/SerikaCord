@@ -812,6 +812,23 @@ export const applications = pgTable('applications', {
   // ids) or NULL (legacy UUIDs). Added at boot by ensureApiSnowflakeSchema()
   // (drizzle/manual_api_snowflakes.sql).
   apiIdFormat: text('api_id_format'),
+  // App Directory (/bots, App Discovery) and verification review. Added at
+  // boot by ensureAppDirectorySchema() (drizzle/manual_app_directory.sql).
+  // directory_listed: the owner's opt-in; NULL = never chosen (verified apps
+  // count as listed, the old behaviour). See src/lib/appDirectory/listing.ts.
+  directoryListed: boolean('directory_listed'),
+  directoryListedAt: timestamp('directory_listed_at'),
+  directoryLongDescription: text('directory_long_description'),
+  directoryCategories: text('directory_categories').array(),
+  directoryWebsite: text('directory_website'),
+  directorySupportUrl: text('directory_support_url'),
+  directoryFeatured: boolean('directory_featured').default(false),
+  directoryDelisted: boolean('directory_delisted').default(false),
+  directoryDelistedReason: text('directory_delisted_reason'),
+  verificationRequestedAt: timestamp('verification_requested_at'),
+  verificationReviewedAt: timestamp('verification_reviewed_at'),
+  verificationReviewedBy: uuid('verification_reviewed_by'),
+  verificationNote: text('verification_note'),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({

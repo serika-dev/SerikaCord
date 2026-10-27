@@ -7,10 +7,15 @@
 ## Unreleased
 
 ### Features
+- **Bot library at /bots** — browse and search bots by category, see staff picks, popular and new bots, and open a page per bot with its description, commands, links and an Add to Server button. Works without signing in.
+- **App Discovery works again** — Server Settings → App Discovery lists the bots in the App Directory with categories, shows which apps are already in your server, and Add to Server opens the permission screen with your server already selected.
+- **List your bot in the App Directory** — the developer portal's App Directory Page has a listing switch, short and long (Markdown) descriptions, categories, tags, a cover image and support, website, terms and privacy links, plus the listing status and your verification progress.
+- **Apps & Bots staff tools** — staff with the new "Manage apps and bots" permission can approve or reject verification requests with a reason, revoke verification, feature bots as staff picks and delist or relist them; every action is in the activity log.
 
 ### Changes
 
 ### Bug Fixes
+- **Bot verification progress** — the developer portal now shows how many servers your bot is really in (it always showed 0), so the Apply for Verification button appears once you reach 100.
 - **Verification wait times stick** — the minimum account age and member age in Server Settings → Safety no longer jump back to 5 minutes after you reload.
 - **Webhook and bridged profiles** — webhooks, Discord-bridged users and system accounts show a simple card without Message, Add Friend, Add Role, Mod View or View Full Profile, and replies to webhook posts show the webhook's name.
 - **Channel and server-page links** — <id:members>, <id:guide>, <id:customize> and <id:browse> in messages open the server's Members, Server Guide and Channels & Roles pages; channel mentions work in DMs and across servers, show the channel type, and Discord channel mentions in bridged messages link to the bridged channel.
@@ -19,6 +24,7 @@
 ### Performance
 
 ### Security
+- **Private bots stay private** — a bot with Public Bot turned off can only be added to servers by its owner or team.
 
 ### Removed
 

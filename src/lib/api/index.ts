@@ -45,6 +45,7 @@ import { experimentRoutes, instanceRoutes } from './experiments';
 import { voiceRoutes } from './voice';
 import { gifRoutes } from './gifs';
 import { developerRoutes, oauth2Routes } from './developers';
+import { appDirectoryRoutes, adminAppRoutes } from './appDirectory';
 import { botApiRoutes } from './botApi';
 import { validationErrorBody } from '@/lib/botapi/errors';
 import { socialSdkRoutes } from './social-sdk';
@@ -4473,6 +4474,8 @@ export const api = new Elysia({ prefix: '/api' })
   .use(instanceRoutes)
   .use(developerRoutes)
   .use(oauth2Routes)
+  .use(appDirectoryRoutes)
+  .use(adminAppRoutes)
   .use(igdbRoutes)
   .use(gameLibraryRoutes)
   .use(socialSdkRoutes)
@@ -4528,6 +4531,11 @@ export async function initializeAPI() {
     // when it can't be completed.
     const { ensureApiSnowflakeSchema } = await import('@/lib/botapi/snowflakeStore');
     await ensureApiSnowflakeSchema();
+    // App Directory + verification review columns on applications (read by
+    // every application query). Idempotent, skipped when present; throws
+    // when it can't be completed.
+    const { ensureAppDirectorySchema } = await import('@/lib/services/appDirectorySchema');
+    await ensureAppDirectorySchema();
     // OAuth2 grants: oauth2_tokens + authorized_apps.application_id (read by
     // every authorized_apps query). Idempotent, skipped when present; throws
     // when it can't be completed.

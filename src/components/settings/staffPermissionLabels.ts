@@ -23,6 +23,7 @@ export function useStaffPermissionGroups(): { name: string; permissions: { id: S
     { name: gt("Platform and operations"), permissions: [
       { id: "servers.view", name: gt("View servers"), description: gt("Search servers and inspect their details.") },
       { id: "servers.manage", name: gt("Manage servers"), description: gt("Change discovery and partnership, transfer ownership, and delete servers.") },
+      { id: "apps.manage", name: gt("Manage apps and bots"), description: gt("Review bot verification applications, feature apps in the App Directory, and delist or relist them.") },
       { id: "settings.manage", name: gt("Manage platform settings"), description: gt("Configure registration, maintenance, global banners, and upload rules.") },
       { id: "experiments.manage", name: gt("Manage experiments"), description: gt("Configure feature flags, experiments, and their audiences.") },
       { id: "instances.manage", name: gt("Manage instances"), description: gt("Approve and revoke connected instances.") },

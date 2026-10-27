@@ -221,12 +221,12 @@ export default function InformationPage() {
           <textarea
             value={description}
             onChange={(e) => setDescription(e.target.value)}
-            maxLength={400}
+            maxLength={200}
             rows={4}
             className="w-full bg-[#111] border border-white/[0.08] rounded-lg px-4 py-2.5 text-sm text-white focus:outline-none focus:border-[#8B5CF6]/50 resize-none transition-colors"
             placeholder={gt("Describe what your application does...")}
           />
-          <p className="text-[11px] text-[#555] mt-1.5">{description.length}/400</p>
+          <p className="text-[11px] text-[#555] mt-1.5">{description.length}/200</p>
         </div>
       </div>
 

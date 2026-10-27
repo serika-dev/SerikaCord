@@ -8,6 +8,11 @@ import { checkRateLimit, getClientIP } from '@/lib/security';
 import { adjustServerMemberCount } from '@/lib/services/serverMembership';
 import { resolveRedirectUri, appendQuery, parsePermissionsParam, clampBotPermissions, permissionNumberingOf } from '@/lib/oauth/authorize';
 import { allowedPrivilegedIntents, INTENT, toStoredIntents } from '@/lib/gateway/intents';
+import {
+  directoryState, isAppCategory, isOwnerListed, listingProblems, validateGeneralAppPatch, validateListingPatch,
+  verificationRequirements, verificationCooldownEndsAt, VERIFICATION_SERVER_THRESHOLD,
+} from '@/lib/appDirectory/listing';
+import { APP_ASSET_CATEGORY, isOwnedAppAssetUrl, isOwnedBotImageUrl, type AppAssetKind } from '@/lib/appDirectory/assets';
 
 const VALID_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
 
@@ -91,6 +96,83 @@ async function requireAppAccess(
   }
   if (!hasAccess) { set.status = 403; return { error: { error: 'You do not have access to this application' } }; }
   return { app, user };
+}
+
+/**
+ * Upload an application icon / cover under the app's own key prefix
+ * (`app-icons/<appId>/`, `app-covers/<appId>/`), then delete the previous
+ * file only when its URL provably is one of this app's own uploads on our
+ * CDN (src/lib/appDirectory/assets.ts). Legacy keys and any other URL are
+ * never deleted, so a stored URL can't be used to delete someone else's media.
+ */
+async function uploadAppAsset(app: { id: string; icon?: string | null; coverImage?: string | null }, kind: AppAssetKind, file: File, uploaderId: string, ip: string) {
+  const previous = kind === 'icon' ? app.icon : app.coverImage;
+  const result = await storage.uploadFromFormData(file, APP_ASSET_CATEGORY[kind], {
+    keyScope: app.id.toLowerCase(),
+    scanUserId: uploaderId,
+    ip,
+  });
+  if (previous && previous !== result.url && isOwnedAppAssetUrl(previous, config.CDN_URL, kind, app.id)) {
+    try { await storage.deleteByUrl(previous); } catch { /* best-effort cleanup */ }
+  }
+  return result;
+}
+
+/** Owner, or a team owner / admin / developer (same rule as PATCH /applications/:id). */
+async function canManageApp(app: { ownerId: string; teamId?: string | null }, userId: string): Promise<boolean> {
+  if (app.ownerId === userId) return true;
+  if (!app.teamId) return false;
+  const team = await DeveloperTeam.findById(app.teamId);
+  const member = (team?.members as ITeamMember[] | undefined)?.find((m) => m.userId === userId);
+  return Boolean(member && (member.role === 'owner' || member.role === 'admin' || member.role === 'developer'));
+}
+
+function activeCooldown(ends: Date | null): Date | null {
+  return ends && ends.getTime() > Date.now() ? ends : null;
+}
+
+/** The developer portal's Directory page: listing fields, status and verification progress. */
+function directoryView(app: IApplication | null, serverCount: number) {
+  if (!app) return null;
+  const categories = (app.directoryCategories ?? []).filter(isAppCategory);
+  return {
+    listing: {
+      name: app.name,
+      listed: isOwnerListed(app),
+      shortDescription: app.description ?? '',
+      longDescription: app.directoryLongDescription ?? '',
+      categories,
+      tags: app.tags ?? [],
+      website: app.directoryWebsite ?? null,
+      supportUrl: app.directorySupportUrl ?? null,
+      termsOfServiceUrl: app.termsOfServiceUrl ?? null,
+      privacyPolicyUrl: app.privacyPolicyUrl ?? null,
+      coverImage: app.coverImage ?? null,
+      icon: app.icon ?? null,
+    },
+    status: {
+      state: directoryState(app),
+      problems: listingProblems({ ...app, shortDescription: app.description, categories }),
+      delistedReason: app.directoryDelisted ? (app.directoryDelistedReason ?? null) : null,
+      featured: !!app.directoryFeatured && !app.directoryDelisted,
+      listedAt: app.directoryListedAt ?? null,
+      hasBot: !!app.botId,
+      botPublic: app.botPublic !== false,
+      publicPath: `/bots/${app.id}`,
+    },
+    verification: {
+      status: app.verificationStatus ?? 'none',
+      verified: !!app.verified,
+      serverCount,
+      threshold: VERIFICATION_SERVER_THRESHOLD,
+      requirements: verificationRequirements(app, serverCount),
+      note: app.verificationNote ?? null,
+      requestedAt: app.verificationRequestedAt ?? null,
+      reviewedAt: app.verificationReviewedAt ?? null,
+      // Rejected apps wait 7 days before applying again.
+      reapplyAfter: activeCooldown(verificationCooldownEndsAt(app)),
+    },
+  };
 }
 
 /** Outbound webhook URLs must be plain http(s): no javascript:, file:, data: and so on. */
@@ -294,6 +376,10 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const webhookCount = webhooks.length;
 
   const sanitized = sanitizeApp(app, await appSecretsFor(app, user.id));
+  // applications.server_count is never maintained: count the bot's servers live
+  // (the verification card read the stale 0 and never offered "Apply").
+  const { countBotServers } = await import('@/lib/services/appDirectory');
+  if (sanitized) sanitized.serverCount = await countBotServers(app.botId);
   let botAvatar: string | null = null;
   let botUsername: string | null = null;
   if (app.botId) {
@@ -345,6 +431,11 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     if (stored === null) { set.status = 400; return { error: 'gatewayIntents must be a non-negative integer' }; }
     updateData.gatewayIntents = stored;
   }
+  // These values are public in the App Directory (/bots): same limits as the
+  // directory PATCH (src/lib/appDirectory/listing.ts).
+  const general = validateGeneralAppPatch(updateData);
+  if (!general.ok) { set.status = 400; return { error: general.error }; }
+  Object.assign(updateData, general.patch);
   if (updateData.apiIdFormat !== undefined) {
     // 'snowflake' = Discord-style numeric ids; 'uuid' (stored as NULL) = legacy ids.
     if (updateData.apiIdFormat !== 'snowflake' && updateData.apiIdFormat !== 'uuid') {
@@ -354,6 +445,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   }
 
   await Application.updateById(app.id, updateData);
+  // Name, description, icon or public flag may show in the App Directory.
+  void import('@/lib/services/appDirectory').then((m) => m.invalidateAppDirectory()).catch(() => {});
   if (updateData.apiIdFormat !== undefined) {
     // The bot API reads the format from the cached token lookup: drop it.
     const { invalidateBotTokenCache } = await import('@/lib/services/botTokens');
@@ -526,12 +619,22 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   if (app.verificationStatus === 'pending') {
     return { verificationStatus: 'pending' };
   }
-  const { ServerMember } = await import('@/lib/models');
-  const serverCount = app.botId ? (await ServerMember.find({ userId: app.botId })).length : 0;
-  if (serverCount < 100) {
-    set.status = 400; return { error: 'Your bot must be in at least 100 servers to apply' };
+  if (!(await checkRateLimit('appDirectoryEdit', user.id)).success) { set.status = 429; return { error: 'Too many requests. Try again later.' }; }
+  const cooldownEnds = verificationCooldownEndsAt(app);
+  if (cooldownEnds && cooldownEnds.getTime() > Date.now()) {
+    set.status = 400;
+    return { error: `Your last request was not approved. You can apply again after ${cooldownEnds.toISOString().slice(0, 10)}.`, retryAfter: cooldownEnds.toISOString() };
   }
-  await Application.updateById(app.id, { verificationStatus: 'pending' });
+  if (!app.botId) {
+    set.status = 400; return { error: 'Enable the bot before applying for verification' };
+  }
+  const { countBotServers } = await import('@/lib/services/appDirectory');
+  const serverCount = await countBotServers(app.botId);
+  if (serverCount < VERIFICATION_SERVER_THRESHOLD) {
+    set.status = 400; return { error: `Your bot must be in at least ${VERIFICATION_SERVER_THRESHOLD} servers to apply` };
+  }
+  // Staff review it in Settings → Admin → Apps & Bots (/api/admin/apps).
+  await Application.updateById(app.id, { verificationStatus: 'pending', verificationRequestedAt: new Date(), verificationNote: null });
   return { verificationStatus: 'pending' };
 })
 
@@ -1013,50 +1116,108 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 })
 
 // ─── Application Directory ─────────────────────────────────
+// The owner's App Directory listing (/bots, App Discovery) and verification
+// progress. Rules: src/lib/appDirectory/listing.ts. Staff moderation lives in
+// src/lib/api/appDirectory.ts (/api/admin/apps, apps.manage).
 
 .get('/applications/:id/directory', async ({ headers, cookie, params, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
-
-  if (!params.id) { set.status = 404; return { error: 'Application not found' }; }
-  const app = await Application.findById(params.id);
-  if (!app) { set.status = 404; return { error: 'Application not found' }; }
-  if (app.ownerId !== user.id && !(app.teamId && await isTeamMember(app.teamId, user.id))) {
-    set.status = 403; return { error: 'Forbidden' };
-  }
-
-  return {
-    listed: app.verified ?? false,
-    categories: app.tags ?? [],
-    summary: app.description ?? '',
-    description: app.description ?? '',
-    icon: app.icon ?? null,
-    screenshots: [],
-    website: null,
-    support_url: null,
-    privacy_policy_url: null,
-    terms_of_service_url: null,
-  };
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { app, user } = access;
+  const { countBotServers } = await import('@/lib/services/appDirectory');
+  const serverCount = await countBotServers(app.botId);
+  return { ...directoryView(app, serverCount), canEdit: await canManageApp(app, user.id) };
 })
 
 .patch('/applications/:id/directory', async ({ headers, cookie, params, body, set }) => {
-  const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-  if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { app, user } = access;
+  if (!(await canManageApp(app, user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
+  if (!(await checkRateLimit('appDirectoryEdit', user.id)).success) { set.status = 429; return { error: 'Too many changes. Try again later.' }; }
 
-  if (!params.id) { set.status = 404; return { error: 'Application not found' }; }
-  const app = await Application.findById(params.id);
-  if (!app) { set.status = 404; return { error: 'Application not found' }; }
-  if (app.ownerId !== user.id) {
-    set.status = 403; return { error: 'Forbidden' };
+  // Older clients sent { summary } for the short description.
+  const raw = (body && typeof body === 'object' ? { ...(body as Record<string, unknown>) } : body) as Record<string, unknown>;
+  if (raw && raw.summary !== undefined && raw.shortDescription === undefined) raw.shortDescription = raw.summary;
+  const parsed = validateListingPatch(raw);
+  if (!parsed.ok) { set.status = 400; return { error: parsed.error }; }
+  const patch = parsed.patch;
+
+  const wasListed = isOwnerListed(app);
+  const merged = {
+    botId: app.botId,
+    botPublic: app.botPublic,
+    shortDescription: patch.shortDescription ?? app.description,
+    categories: patch.categories ?? app.directoryCategories ?? [],
+  };
+  const willBeListed = patch.listed ?? wasListed;
+  if (willBeListed) {
+    const problems = listingProblems(merged).filter((p) => patch.listed === true || p === 'missing_description' || p === 'missing_category');
+    if (problems.length > 0) {
+      set.status = 400;
+      return { error: 'Complete the listing before publishing it', problems };
+    }
   }
 
-  const patch = body as Record<string, unknown>;
-  const updateData: Record<string, any> = {};
-  if (patch.categories !== undefined) updateData.tags = patch.categories;
-  if (patch.summary !== undefined) updateData.description = patch.summary;
-  await Application.updateById(app.id, updateData);
+  const update: Record<string, unknown> = {};
+  if (patch.listed !== undefined) {
+    update.directoryListed = patch.listed;
+    if (patch.listed && !wasListed) update.directoryListedAt = new Date();
+  }
+  if (patch.shortDescription !== undefined) update.description = patch.shortDescription;
+  if (patch.longDescription !== undefined) update.directoryLongDescription = patch.longDescription;
+  if (patch.categories !== undefined) update.directoryCategories = patch.categories;
+  if (patch.tags !== undefined) update.tags = patch.tags;
+  if (patch.website !== undefined) update.directoryWebsite = patch.website;
+  if (patch.supportUrl !== undefined) update.directorySupportUrl = patch.supportUrl;
+  if (patch.termsOfServiceUrl !== undefined) update.termsOfServiceUrl = patch.termsOfServiceUrl;
+  if (patch.privacyPolicyUrl !== undefined) update.privacyPolicyUrl = patch.privacyPolicyUrl;
+  if (patch.coverImage === null) update.coverImage = null;
+  if (Object.keys(update).length > 0) {
+    update.updatedAt = new Date();
+    await Application.updateById(app.id, update);
+  }
 
-  return { success: true };
+  const { countBotServers, invalidateAppDirectory } = await import('@/lib/services/appDirectory');
+  invalidateAppDirectory();
+  const updated = await Application.findById(app.id);
+  return { ...directoryView(updated, await countBotServers(updated?.botId)), canEdit: true };
+})
+
+// Upload the App Directory cover image (shown on /bots/:id).
+.post('/applications/:id/cover', async ({ headers, cookie, params, body, request, set }) => {
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { app, user } = access;
+  if (!(await canManageApp(app, user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
+
+  const rateLimit = await checkRateLimit('upload', `${user.id}:${getClientIP(request)}`);
+  if (!rateLimit.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter }; }
+
+  const { file } = body as { file?: File };
+  if (!file) { set.status = 400; return { error: 'No file provided' }; }
+  if (!VALID_IMAGE_TYPES.has(file.type)) {
+    set.status = 400;
+    return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
+  }
+  if (file.size > config.MAX_BANNER_SIZE) {
+    set.status = 400;
+    return { error: `File too large. Maximum size is ${config.MAX_BANNER_SIZE / 1024 / 1024}MB.` };
+  }
+
+  try {
+    const result = await uploadAppAsset(app, 'cover', file, user.id, getClientIP(request));
+    await Application.updateById(app.id, { coverImage: result.url, updatedAt: new Date() });
+    const { invalidateAppDirectory } = await import('@/lib/services/appDirectory');
+    invalidateAppDirectory();
+    return { success: true, url: result.url };
+  } catch (error: unknown) {
+    console.error('App cover upload error:', error);
+    set.status = 500;
+    return { error: 'Failed to upload cover image' };
+  }
+}, {
+  body: t.Object({ file: t.File() }),
 })
 
 // ─── Get Individual App Emoji ──────────────────────────────
@@ -1225,15 +1386,17 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   try {
     const current = kind === 'banner' ? botUser.banner : botUser.avatar;
-    if (current && current.includes(config.B2_BUCKET_NAME)) {
-      try { await storage.deleteByUrl(current); } catch { /* best-effort cleanup */ }
-    }
     const result = await storage.uploadFromFormData(file, kind === 'banner' ? 'banners' : 'avatars', {
       userId: botUser.id,
       // The developer uploading is accountable, not the bot.
       scanUserId: user.id,
     });
     await User.updateById(botUser.id, kind === 'banner' ? { banner: result.url } : { avatar: result.url });
+    // Only delete the old image once the new one is saved, and only when it
+    // provably lives under this bot's own prefix on our CDN.
+    if (current && current !== result.url && isOwnedBotImageUrl(current, config.CDN_URL, kind, botUser.id)) {
+      try { await storage.deleteByUrl(current); } catch { /* best-effort cleanup */ }
+    }
     return { success: true, url: result.url };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : `Failed to upload ${kind}`;
@@ -1270,11 +1433,9 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   }
 
   try {
-    if (app.icon && app.icon.includes(config.B2_BUCKET_NAME)) {
-      try { await storage.deleteByUrl(app.icon); } catch { /* best-effort cleanup */ }
-    }
-    const result = await storage.uploadFromFormData(file, 'app-icons', { userId: user.id });
+    const result = await uploadAppAsset(app, 'icon', file, user.id, ip);
     await Application.updateById(app.id, { icon: result.url });
+    void import('@/lib/services/appDirectory').then((m) => m.invalidateAppDirectory()).catch(() => {});
     return { success: true, url: result.url };
   } catch (error: unknown) {
     const message = error instanceof Error ? error.message : 'Failed to upload icon';
@@ -1332,6 +1493,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     await WidgetConfig.deleteByApplication(params.id);
     return { success: true };
   })
+  // Old App Discovery URL: now the App Directory (listed apps only, public fields only).
+  .get('/discoverable-apps', ({ query, request, set }) => discoverableAppsAlias(query as Record<string, unknown>, request, set))
   // ─── 1:1 list alias (List Application Widget Configs) ──────────────────────
   .get('/applications/:id/widget-configs', async ({ headers, cookie, params, set }) => {
     const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
@@ -1348,6 +1511,15 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
       updated_at: config.updatedAt ?? null,
     }] : [] };
   });
+
+/** Legacy discoverable-apps response ({ apps }) backed by the App Directory. */
+async function discoverableAppsAlias(query: Record<string, unknown>, request: Request, set: { status?: number | string }) {
+  if (!(await checkRateLimit('appDirectory', getClientIP(request))).success) { set.status = 429; return { error: 'Too many requests' }; }
+  const search = typeof query.search === 'string' ? query.search.slice(0, 100) : '';
+  const { listDirectoryApps } = await import('@/lib/services/appDirectory');
+  const page = await listDirectoryApps({ search, limit: 48 });
+  return { apps: page.items };
+}
 
 /**
  * GET /oauth2/authorize for API callers (JSON: the app, scopes and validated
@@ -1512,6 +1684,14 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
       return { error: 'invalid_redirect_uri', message: 'redirect_uri is not registered for this application' };
     }
     const redirectUri = redirect.uri;
+
+    // Like Discord: a private bot (Public Bot off) can only be added by its
+    // owner or team. Checked before anything is recorded.
+    if (requestedScopes.includes('bot') && app.botPublic === false && app.ownerId !== user.id
+      && !(app.teamId && await isTeamMember(app.teamId, user.id))) {
+      set.status = 403;
+      return { error: 'This bot is private. Only its owner can add it to a server.' };
+    }
 
     // Rows carry the app id; legacy rows (no id yet) are matched by name once.
     const byName = await AuthorizedApp.findOne({ userId: user.id, name: app.name });
@@ -1692,26 +1872,6 @@ export const oauth2Routes = new Elysia({ prefix: '/oauth2' })
     return { success: true, botAdded };
   })
 
-  // ─── App Discovery (public bot listing) ────────────────────
-  .get('/discoverable-apps', async ({ query, set }) => {
-    const { db, schema } = await import('@/lib/db/postgres');
-    const { eq, and, ilike, or, sql } = await import('drizzle-orm');
-    const conditions = [eq(schema.applications.botPublic, true)];
-    if (query.search) {
-      conditions.push(ilike(schema.applications.name, `%${query.search}%`));
-    }
-    const rows = await db.select({
-      id: schema.applications.id,
-      name: schema.applications.name,
-      description: schema.applications.description,
-      icon: schema.applications.icon,
-      botId: schema.applications.botId,
-      tags: schema.applications.tags,
-      ownerId: schema.applications.ownerId,
-    })
-      .from(schema.applications)
-      .where(and(...conditions))
-      .limit(50);
-
-    return { apps: rows };
-  });
+  // Old App Discovery URL (it was mounted here by mistake, so the UI's
+  // /api/developers/discoverable-apps call 404'd). Kept as an alias.
+  .get('/discoverable-apps', ({ query, request, set }) => discoverableAppsAlias(query as Record<string, unknown>, request, set));

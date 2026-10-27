@@ -76,6 +76,10 @@ export const rateLimiters_config = {
   oauthToken: { points: 30, duration: 60 },
   // OAuth2 consent approvals (each issues a code / token), per user.
   oauthAuthorize: { points: 30, duration: 600 },
+  // Public App Directory reads (/api/apps/directory*), per IP.
+  appDirectory: { points: 120, duration: 60 },
+  // Owner App Directory edits, cover uploads and verification applications, per user.
+  appDirectoryEdit: { points: 30, duration: 600 },
   // Bot profile edits (PATCH /users/@me): Discord allows 2 username changes
   // per hour; avatar / banner changes get a slightly larger budget.
   botUsernameChange: { points: 2, duration: 3600 },

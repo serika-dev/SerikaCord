@@ -53,6 +53,7 @@ export async function HomeFooter() {
     {
       title: gt("Developers"),
       links: [
+        { label: gt("Bot library"), href: "/bots" },
         { label: gt("Developer portal"), href: "/developers" },
         { label: gt("API docs"), href: "/developers/docs/intro" },
         { label: gt("Source code"), href: GITHUB_URL, external: true },

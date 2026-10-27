@@ -79,6 +79,7 @@ function RoleEditor({ role, access, onSaved, onDeleted }: {
     { name: gt("Trust & Safety"), permissions: ["users.view", "reports.review", "safety.review", "logs.view"] },
     { name: gt("Release editor"), permissions: ["changelog.manage"] },
     { name: gt("Release publisher"), permissions: ["changelog.manage", "changelog.publish"] },
+    { name: gt("App reviewer"), permissions: ["apps.manage", "logs.view"] },
   ];
 
   const save = async () => {

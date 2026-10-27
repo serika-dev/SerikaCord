@@ -31,6 +31,14 @@ restrictions and suspensions from a report also need `safety.review`. Staff
 with only `reports.review` see the Reports tab alone. The Moderator preset
 includes `reports.review`; the Trust & Safety preset adds `safety.review`.
 
+Apps & Bots (bot verification queue, App Directory staff picks and
+delisting) needs `apps.manage`; the App reviewer preset grants it with
+`logs.view`. Approving verification sets `applications.verified` and
+recalculates the owner's Verified Bot Developer badge; rejecting, revoking and
+delisting require a reason the developer sees in the developer portal. Actions
+are logged as `update_settings` with `targetId` `application:<id>` and an
+`op` (`app_verification_approve`, `app_delist`, ...).
+
 Custom managers need `staff.manage`. They may only create/edit roles and
 assign members whose permissions are within their own access. They cannot
 edit roles assigned to themselves, change their own assignments, or manage

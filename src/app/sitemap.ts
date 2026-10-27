@@ -20,6 +20,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     { path: "/", priority: 1.0, changeFrequency: "daily", lastModified: now },
     { path: "/download", priority: 0.9, changeFrequency: "weekly", lastModified: now },
     { path: "/channels/explore", priority: 0.9, changeFrequency: "daily", lastModified: now },
+    { path: "/bots", priority: 0.8, changeFrequency: "daily", lastModified: now },
 
     // Auth pages
     { path: "/login", priority: 0.7, changeFrequency: "monthly", lastModified: now },
@@ -131,5 +132,22 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     // If DB fails, just return static entries
   }
 
-  return [...staticEntries, ...serverEntries];
+  // Bot library: every listed app's public page (src/lib/services/appDirectory.ts).
+  const botEntries: MetadataRoute.Sitemap = [];
+  try {
+    const { getListedApps } = await import("@/lib/services/appDirectory");
+    const apps = await getListedApps();
+    for (const app of apps.slice(0, 1000)) {
+      botEntries.push({
+        url: `${BASE_URL}/bots/${app.id}`,
+        lastModified: app.listedAtMs ? new Date(app.listedAtMs) : now,
+        changeFrequency: "weekly",
+        priority: 0.6,
+      });
+    }
+  } catch {
+    // If DB fails, skip bot pages
+  }
+
+  return [...staticEntries, ...serverEntries, ...botEntries];
 }

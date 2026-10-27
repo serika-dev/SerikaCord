@@ -40,6 +40,7 @@ export type UploadCategory =
   | 'stickers'
   | 'audio'
   | 'app-icons'
+  | 'app-covers'
   | 'group-icons'
   | 'event-covers'
   | 'webhook-avatars'
@@ -72,6 +73,12 @@ interface UploadOptions {
    * (it also shapes the storage key, e.g. server icons are keyed by server).
    */
   scanUserId?: string;
+  /**
+   * Owning object id that replaces the server/channel/user segments of the
+   * key: `<category>/<keyScope>/<file>` (application icons and covers are
+   * keyed by application, src/lib/appDirectory/assets.ts).
+   */
+  keyScope?: string;
 }
 
 // Validate file type based on category
@@ -86,6 +93,8 @@ function validateFileType(category: UploadCategory, contentType: string): boolea
     'group-icons': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'webhook-avatars': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'event-covers': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    'app-icons': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
+    'app-covers': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     'server-banners': ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     backgrounds: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     nameplates: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
@@ -111,6 +120,7 @@ function getMaxSize(category: UploadCategory): number {
     stickers: 20 * 1024 * 1024, // 20MB
     audio: 20 * 1024 * 1024, // 20MB
     'app-icons': config.MAX_AVATAR_SIZE,
+    'app-covers': config.MAX_BANNER_SIZE,
     'group-icons': config.MAX_AVATAR_SIZE,
     'webhook-avatars': config.MAX_AVATAR_SIZE,
     'event-covers': config.MAX_BANNER_SIZE,
@@ -131,10 +141,14 @@ function generateSecureFilename(originalFilename: string, category: UploadCatego
 
 // Generate storage key
 function generateKey(options: UploadOptions, filename: string): string {
-  const { category, userId, serverId, channelId } = options;
+  const { category, userId, serverId, channelId, keyScope } = options;
   
   const parts: string[] = [category];
   
+  if (keyScope) {
+    parts.push(keyScope, filename);
+    return parts.join('/');
+  }
   if (serverId) parts.push(serverId);
   if (channelId) parts.push(channelId);
   if (userId) parts.push(userId);
@@ -405,7 +419,7 @@ export class StorageService {
   async uploadFromFormData(
     file: File,
     category: UploadCategory,
-    options: { userId?: string; serverId?: string; channelId?: string; scanChannelId?: string; contentType?: string; ip?: string; scanUserId?: string } = {}
+    options: { userId?: string; serverId?: string; channelId?: string; scanChannelId?: string; contentType?: string; ip?: string; scanUserId?: string; keyScope?: string } = {}
   ): Promise<UploadResult> {
     const buffer = Buffer.from(await file.arrayBuffer());
     
