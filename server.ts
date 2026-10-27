@@ -305,7 +305,35 @@ function versionWebhookRequest(req: Request): Request {
   return new Request(url, req);
 }
 
+// Webhook token routes are authorised by the token in the URL, never by a
+// cookie, so — like Discord — any website may call them (Serika Hooks,
+// Discohook-style tools). They get `Access-Control-Allow-Origin: *` without
+// credentials; the cookie-auth API keeps its ALLOWED_ORIGINS list.
+const WEBHOOK_TOKEN_ROUTE = /^\/api(?:\/v\d+)?\/webhooks\/[^/]+\/[^/]+(?:\/.*)?$/;
+const WEBHOOK_CORS_HEADERS: Record<string, string> = {
+  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Methods': 'GET, POST, PATCH, DELETE, OPTIONS',
+  'Access-Control-Allow-Headers': 'Content-Type, X-Audit-Log-Reason',
+  'Access-Control-Expose-Headers': 'Retry-After, X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-RateLimit-Reset-After, X-RateLimit-Bucket',
+  'Access-Control-Max-Age': '86400',
+};
+
+function withWebhookCors(res: Response): Response {
+  const headers = new Headers(res.headers);
+  headers.delete('Access-Control-Allow-Credentials');
+  for (const [k, v] of Object.entries(WEBHOOK_CORS_HEADERS)) headers.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
 async function handleApiRequest(req: Request): Promise<Response> {
+  if (WEBHOOK_TOKEN_ROUTE.test(new URL(req.url).pathname)) {
+    if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: WEBHOOK_CORS_HEADERS });
+    return withWebhookCors(await handleApiRequestInner(req));
+  }
+  return handleApiRequestInner(req);
+}
+
+async function handleApiRequestInner(req: Request): Promise<Response> {
   try {
     return await api.handle(versionWebhookRequest(req));
   } catch (err) {
