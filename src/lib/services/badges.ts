@@ -81,6 +81,18 @@ async function computeAutoBadges(userId: string): Promise<BadgeId[]> {
     earned.push('verified_bot_developer');
   }
 
+  // Official SerikaCord App — the bot user of an app staff marked official
+  // (applications.official). Only bot users are checked.
+  if (user.isBot) {
+    const [officialRow] = await db
+      .select({ count: sql<number>`count(*)::int` })
+      .from(schema.applications)
+      .where(and(eq(schema.applications.botId, userId), eq(schema.applications.official, true)));
+    if ((officialRow?.count ?? 0) > 0) {
+      earned.push('official_app');
+    }
+  }
+
   return earned;
 }
 

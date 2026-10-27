@@ -8,10 +8,16 @@
 
 ### Features
 - **Bots in bridged servers** — messages relayed in from Discord tell bots where they came from (`bridged_from`), and bots can look up which channels are bridged (`GET /guilds/{id}/bridge`), so a bot running on both Discord and SerikaCord answers each message once.
+- **Official SerikaCord apps** — apps made by the SerikaCord team now carry an Official badge ("Made by SerikaCord") on /bots, in App Discovery, on the "Add to Server" permission screen and on the bot's profile, and always show the verified check. The bot library has a new "Made by SerikaCord" section and an Official filter.
+- **Better bot profiles** — a bot's profile card now says whether it is a verified or official app, with an "Add to Server" button for public bots and a link to its page in the bot library.
+- **Bot pages show more at a glance** — each /bots page has a summary card with the server count, verification status and creation date.
+- **Staff bot tools** — staff can find any app (listed or not, by name, username or ID), verify any bot directly whatever its server count, mark apps as official, feature, delist and fix a listing's description, categories and tags. Every action asks for confirmation and is written to the activity log.
 
 ### Changes
 
 ### Bug Fixes
+- **Message links from bots** — Discord-style links like serika.chat/channels/server/channel/message, which bots build, now open the right message.
+- **Verified bots now show their check** — approving a bot's verification didn't add the check to its BOT tag in chat, member lists and profiles. Verified bots (including ones verified before this fix) now show it.
 
 ### Performance
 

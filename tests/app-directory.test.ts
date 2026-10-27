@@ -1,10 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import {
   APP_CATEGORIES, appCategoryLabel, buildInstallUrl, cleanStaffReason, directoryState, isAppCategory,
-  isDirectoryPageVisible, isDirectoryVisible, isOwnerListed, isSafeHttpUrl, listingProblems,
-  safeHttpUrlOrNull, validateGeneralAppPatch, validateListingPatch, verificationCooldownEndsAt,
-  verificationRequirements, VERIFICATION_REAPPLY_COOLDOWN_MS, VERIFICATION_SERVER_THRESHOLD,
+  isDirectoryPageVisible, isDirectoryVisible, isOwnerListed, isSafeHttpUrl, isStaffVerificationAction, listingProblems,
+  planStaffVerification, safeHttpUrlOrNull, showsVerified, staffAppChips, validateGeneralAppPatch, validateListingPatch,
+  validateStaffListingPatch, verificationCooldownEndsAt, verificationRequirements, LISTING_LIMITS,
+  VERIFICATION_REAPPLY_COOLDOWN_MS, VERIFICATION_SERVER_THRESHOLD,
 } from "@/lib/appDirectory/listing";
+import { hasOfficialAppBadge, isVerifiedBotUser, OFFICIAL_APP_BADGE } from "@/lib/appDirectory/official";
+import { AUTOMATIC_BADGE_IDS, BUILTIN_BADGE_IDS, DEFAULT_BADGES } from "@/lib/constants/badges";
 import { appAssetPrefix, isOwnedAppAssetUrl, isOwnedBotImageUrl } from "@/lib/appDirectory/assets";
 import {
   clampLimit, compareKeys, decodeCursor, encodeCursor, isDirectorySort, matchesSearch, pageDirectory,
@@ -379,5 +382,120 @@ describe("bot avatar/banner delete guard", () => {
       expect(isOwnedBotImageUrl(url, CDN, kind, BOT)).toBe(false);
     }
     expect(isOwnedBotImageUrl(`${CDN}/avatars/not-a-uuid/AbCdEf123_-xyz9.png`, CDN, "avatar", "not-a-uuid")).toBe(false);
+  });
+});
+
+describe("official apps", () => {
+  test("official apps always show as verified", () => {
+    expect(showsVerified({ verified: false, official: true })).toBe(true);
+    expect(showsVerified({ verified: true, official: false })).toBe(true);
+    expect(showsVerified({ verified: false, official: false })).toBe(false);
+    expect(showsVerified({ verified: null, official: null })).toBe(false);
+    expect(showsVerified({})).toBe(false);
+  });
+
+  test("the official badge is a built-in, automatic badge", () => {
+    expect(BUILTIN_BADGE_IDS as readonly string[]).toContain(OFFICIAL_APP_BADGE);
+    expect(AUTOMATIC_BADGE_IDS as readonly string[]).toContain(OFFICIAL_APP_BADGE);
+    expect(DEFAULT_BADGES.find((b) => b.id === OFFICIAL_APP_BADGE)?.hidden).toBe(false);
+  });
+
+  test("the BOT tag check follows is_verified or the official badge", () => {
+    expect(hasOfficialAppBadge(["official_app"])).toBe(true);
+    expect(hasOfficialAppBadge(["staff"])).toBe(false);
+    expect(hasOfficialAppBadge(null)).toBe(false);
+    expect(isVerifiedBotUser({ isVerified: true })).toBe(true);
+    expect(isVerifiedBotUser({ isVerified: false, badges: ["official_app"] })).toBe(true);
+    expect(isVerifiedBotUser({ isVerified: false, badges: ["verified_bot_developer"] })).toBe(false);
+    expect(isVerifiedBotUser({})).toBe(false);
+  });
+
+  test("the directory can show only official apps", () => {
+    const apps = [entry("a", { official: true }), entry("b"), entry("c", { official: false }), entry("d", { official: true })];
+    expect(pageDirectory(apps, { officialOnly: true, sort: "name" }).items.map((a) => a.id)).toEqual(["a", "d"]);
+    expect(pageDirectory(apps, { sort: "name" }).total).toBe(4);
+  });
+});
+
+describe("staff verification", () => {
+  test("known actions only", () => {
+    for (const a of ["approve", "reject", "revoke", "verify"]) expect(isStaffVerificationAction(a)).toBe(true);
+    for (const a of ["grant", "", null, 1, "VERIFY"]) expect(isStaffVerificationAction(a)).toBe(false);
+  });
+
+  test("verify works on any unverified app, with or without a request or note", () => {
+    for (const verificationStatus of ["none", "pending", "rejected", "approved", null]) {
+      const plan = planStaffVerification({ verified: false, verificationStatus }, "verify", null);
+      expect(plan).toEqual({ ok: true, verified: true, verificationStatus: "approved" });
+    }
+    expect(planStaffVerification({ verified: false }, "verify", "checked by staff").ok).toBe(true);
+  });
+
+  test("verify refuses an app that is already verified", () => {
+    expect(planStaffVerification({ verified: true, verificationStatus: "approved" }, "verify", null)).toEqual({
+      ok: false, httpStatus: 409, error: "Application is already verified",
+    });
+  });
+
+  test("approve needs a pending or rejected request", () => {
+    expect(planStaffVerification({ verificationStatus: "pending" }, "approve", null).ok).toBe(true);
+    expect(planStaffVerification({ verificationStatus: "rejected" }, "approve", null).ok).toBe(true);
+    const none = planStaffVerification({ verificationStatus: "none" }, "approve", null);
+    expect(none.ok).toBe(false);
+    if (!none.ok) expect(none.httpStatus).toBe(409);
+  });
+
+  test("reject needs a pending request and a reason", () => {
+    expect(planStaffVerification({ verificationStatus: "pending" }, "reject", null)).toEqual({ ok: false, httpStatus: 400, error: "A reason is required" });
+    expect(planStaffVerification({ verificationStatus: "pending" }, "reject", "no")).toEqual({ ok: true, verified: false, verificationStatus: "rejected" });
+    expect(planStaffVerification({ verificationStatus: "rejected" }, "reject", "no").ok).toBe(false);
+  });
+
+  test("revoke needs a verified app and a reason", () => {
+    expect(planStaffVerification({ verified: true }, "revoke", null).ok).toBe(false);
+    expect(planStaffVerification({ verified: false }, "revoke", "why")).toEqual({ ok: false, httpStatus: 400, error: "Application is not verified" });
+    expect(planStaffVerification({ verified: true, verificationStatus: "approved" }, "revoke", "why")).toEqual({ ok: true, verified: false, verificationStatus: "none" });
+  });
+});
+
+describe("staff status chips", () => {
+  test("a listed, verified, official staff pick", () => {
+    expect(staffAppChips({ botId: BOT, botPublic: true, verified: true, official: true, directoryListed: true, directoryFeatured: true }))
+      .toEqual(["official", "verified", "listed", "featured"]);
+  });
+
+  test("private, delisted and botless apps", () => {
+    expect(staffAppChips({ botId: BOT, botPublic: false, directoryListed: true })).toEqual(["private"]);
+    expect(staffAppChips({ botId: BOT, directoryListed: true, directoryDelisted: true, directoryFeatured: true })).toEqual(["delisted"]);
+    expect(staffAppChips({ botId: null, verificationStatus: "pending" })).toEqual(["pending", "no_bot"]);
+  });
+
+  test("official does not list an app on its own", () => {
+    expect(staffAppChips({ botId: BOT, official: true, directoryListed: null })).toEqual(["official"]);
+  });
+});
+
+describe("staff listing fixes", () => {
+  test("only description, categories and tags are taken", () => {
+    const r = validateStaffListingPatch({ shortDescription: "  Fixed  ", categories: ["music", "music"], tags: ["a", "A", " b "], listed: true, website: "https://x.example" });
+    expect(r).toEqual({ ok: true, patch: { shortDescription: "Fixed", categories: ["music"], tags: ["a", "b"] } });
+  });
+
+  test("owner limits apply", () => {
+    expect(validateStaffListingPatch({ categories: ["music", "fun", "art", "games"] }).ok).toBe(false);
+    expect(validateStaffListingPatch({ categories: ["not-a-category"] }).ok).toBe(false);
+    expect(validateStaffListingPatch({ tags: Array.from({ length: LISTING_LIMITS.tags + 1 }, (_, i) => `t${i}`) }).ok).toBe(false);
+    expect(validateStaffListingPatch({ shortDescription: "x".repeat(LISTING_LIMITS.shortDescription + 1) }).ok).toBe(false);
+  });
+
+  test("an empty or foreign body is refused", () => {
+    expect(validateStaffListingPatch({})).toEqual({ ok: false, error: "Nothing to update" });
+    expect(validateStaffListingPatch({ name: "x" })).toEqual({ ok: false, error: "Nothing to update" });
+    expect(validateStaffListingPatch(null).ok).toBe(false);
+    expect(validateStaffListingPatch([]).ok).toBe(false);
+  });
+
+  test("clearing categories and tags is allowed", () => {
+    expect(validateStaffListingPatch({ categories: [], tags: [] })).toEqual({ ok: true, patch: { categories: [], tags: [] } });
   });
 });

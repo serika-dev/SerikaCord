@@ -155,6 +155,82 @@ export function verificationRequirements(app: { botId?: string | null }, serverC
   ];
 }
 
+// ─── Official apps and staff verification ────────────────────────────────────
+
+/**
+ * Official apps ("Made by SerikaCord", applications.official, staff-only)
+ * always display as verified. The database keeps the two flags separate, so
+ * revoking verification of an official app leaves its check in place until
+ * the official flag is removed too.
+ */
+export function showsVerified(app: { verified?: boolean | null; official?: boolean | null }): boolean {
+  return app.verified === true || app.official === true;
+}
+
+export const STAFF_VERIFICATION_ACTIONS = ['approve', 'reject', 'revoke', 'verify'] as const;
+export type StaffVerificationAction = typeof STAFF_VERIFICATION_ACTIONS[number];
+
+export function isStaffVerificationAction(value: unknown): value is StaffVerificationAction {
+  return typeof value === 'string' && (STAFF_VERIFICATION_ACTIONS as readonly string[]).includes(value);
+}
+
+export type StaffVerificationPlan =
+  | { ok: true; verified: boolean; verificationStatus: 'approved' | 'rejected' | 'none' }
+  | { ok: false; httpStatus: 400 | 409; error: string };
+
+/**
+ * What a staff verification action does to an app (POST
+ * /api/admin/apps/:id/verification):
+ *   approve: a pending (or previously rejected) request becomes verified;
+ *   reject:  a pending request is turned down (reason required);
+ *   revoke:  a verified app loses verification (reason required);
+ *   verify:  staff verify any app directly, with no request and no server
+ *            threshold, public or private (note optional).
+ */
+export function planStaffVerification(
+  app: { verified?: boolean | null; verificationStatus?: string | null },
+  action: StaffVerificationAction,
+  reason: string | null,
+): StaffVerificationPlan {
+  if ((action === 'reject' || action === 'revoke') && !reason) return { ok: false, httpStatus: 400, error: 'A reason is required' };
+  const status = app.verificationStatus ?? 'none';
+  switch (action) {
+    case 'verify':
+      if (app.verified) return { ok: false, httpStatus: 409, error: 'Application is already verified' };
+      return { ok: true, verified: true, verificationStatus: 'approved' };
+    case 'approve':
+      if (status !== 'pending' && status !== 'rejected') return { ok: false, httpStatus: 409, error: 'This application has no pending verification request' };
+      return { ok: true, verified: true, verificationStatus: 'approved' };
+    case 'reject':
+      if (status !== 'pending') return { ok: false, httpStatus: 409, error: 'This application has no pending verification request' };
+      return { ok: true, verified: false, verificationStatus: 'rejected' };
+    case 'revoke':
+    default:
+      if (!app.verified) return { ok: false, httpStatus: 400, error: 'Application is not verified' };
+      return { ok: true, verified: false, verificationStatus: 'none' };
+  }
+}
+
+export type StaffAppChip = 'official' | 'verified' | 'pending' | 'listed' | 'featured' | 'delisted' | 'private' | 'no_bot';
+
+/** Status chips for one app in the staff tools, in display order. */
+export function staffAppChips(app: ListingFlags & {
+  official?: boolean | null;
+  directoryFeatured?: boolean | null;
+  verificationStatus?: string | null;
+}): StaffAppChip[] {
+  const chips: StaffAppChip[] = [];
+  if (app.official) chips.push('official');
+  if (app.verified) chips.push('verified');
+  if (app.verificationStatus === 'pending') chips.push('pending');
+  if (isDirectoryVisible(app)) chips.push('listed');
+  if (app.directoryFeatured && !app.directoryDelisted) chips.push('featured');
+  if (app.directoryDelisted) chips.push('delisted');
+  if (!app.botId) chips.push('no_bot');
+  else if (app.botPublic === false) chips.push('private');
+  return chips;
+}
+
 // ─── Input validation ────────────────────────────────────────────────────────
 
 // Control characters (except tab and newline) are stripped from free text.
@@ -325,6 +401,36 @@ export function cleanStaffReason(value: unknown, max: number): string | null {
   if (typeof value !== 'string') return null;
   const v = cleanText(value, max);
   return v || null;
+}
+
+export interface StaffListingPatch {
+  shortDescription?: string;
+  categories?: AppCategory[];
+  tags?: string[];
+}
+
+export type StaffListingPatchResult = { ok: true; patch: StaffListingPatch } | { ok: false; error: string };
+
+/**
+ * Staff fixes to a bad listing (POST /api/admin/apps/:id/listing): the short
+ * description, categories and tags, with the owner's rules and limits.
+ * Every other key is ignored; at least one field must be present.
+ */
+export function validateStaffListingPatch(body: unknown): StaffListingPatchResult {
+  if (!body || typeof body !== 'object' || Array.isArray(body)) return { ok: false, error: 'Invalid body' };
+  const b = body as Record<string, unknown>;
+  const picked: Record<string, unknown> = {};
+  for (const key of ['shortDescription', 'categories', 'tags'] as const) {
+    if (b[key] !== undefined) picked[key] = b[key];
+  }
+  if (Object.keys(picked).length === 0) return { ok: false, error: 'Nothing to update' };
+  const r = validateListingPatch(picked);
+  if (!r.ok) return r;
+  const patch: StaffListingPatch = {};
+  if (r.patch.shortDescription !== undefined) patch.shortDescription = r.patch.shortDescription;
+  if (r.patch.categories !== undefined) patch.categories = r.patch.categories;
+  if (r.patch.tags !== undefined) patch.tags = r.patch.tags;
+  return { ok: true, patch };
 }
 
 // ─── Install links ───────────────────────────────────────────────────────────

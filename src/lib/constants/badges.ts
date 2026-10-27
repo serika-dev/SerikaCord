@@ -24,6 +24,7 @@ export const BUILTIN_BADGE_IDS = [
   'bug_hunter_gold',
   'server_owner',
   'active_developer',
+  'official_app',
 ] as const;
 
 export type BuiltinBadgeId = (typeof BUILTIN_BADGE_IDS)[number];
@@ -56,6 +57,10 @@ export const DEFAULT_BADGES: readonly (BadgeDefinition & { id: BuiltinBadgeId })
   { id: 'verified_bot_developer', name: 'Verified Bot Developer', description: 'Developer of a verified bot', icon: 'Bot', iconUrl: null, color: '#8B5CF6', priority: 70, automatic: true, hidden: false },
   { id: 'bug_hunter_gold', name: 'Bug Hunter (Gold)', description: 'Elite bug hunter', icon: 'Bug', iconUrl: null, color: '#FFD700', priority: 66, automatic: false, hidden: false },
   { id: 'bug_hunter', name: 'Bug Hunter', description: 'Found and reported critical bugs', icon: 'Bug', iconUrl: null, color: '#7C3AED', priority: 65, automatic: false, hidden: false },
+
+  // Bot users of official apps (applications.official, set by staff in
+  // Settings → Admin → Apps & Bots). See src/lib/appDirectory/official.ts.
+  { id: 'official_app', name: 'Official SerikaCord App', description: 'Made by SerikaCord', icon: 'BadgeCheck', iconUrl: null, color: '#8B5CF6', priority: 95, automatic: true, hidden: false },
 
   // Server & developer
   { id: 'active_developer', name: 'Active Developer', description: 'Active application developer', icon: 'Code', iconUrl: null, color: '#8B5CF6', priority: 55, automatic: true, hidden: false },

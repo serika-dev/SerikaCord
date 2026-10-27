@@ -1,6 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { getGT } from "gt-next/server";
+import { BadgeCheck } from "lucide-react";
 import { HomeHeader } from "@/components/home/HomeHeader";
 import { HomeFooter } from "@/components/home/HomeFooter";
 import { homeDisplayFont } from "@/components/home/displayFont";
@@ -36,6 +37,8 @@ export async function BotsShell({ hero, children }: { hero: ReactNode; children:
 export function appCardLabels(app: PublicDirectoryApp, gt: Gt, locale: string): AppCardLabels {
   return {
     verified: gt("Verified app"),
+    official: gt("Official"),
+    officialHint: gt("Made by SerikaCord"),
     noDescription: gt("No description yet."),
     servers: app.serverCount === 1 ? gt("1 server") : gt("{count} servers", { count: formatCount(app.serverCount, locale) }),
     categories: app.categories.map((c) => appCategoryLabel(c, gt)),
@@ -70,17 +73,18 @@ export function BotSection({ id, title, intro, more, children }: { id: string; t
 }
 
 /** Builds a /bots URL keeping only the filters that are set. */
-export function botsHref(params: { q?: string | null; category?: string | null; sort?: string | null }): string {
+export function botsHref(params: { q?: string | null; category?: string | null; official?: boolean; sort?: string | null }): string {
   const sp = new URLSearchParams();
   if (params.q) sp.set("q", params.q);
   if (params.category) sp.set("category", params.category);
+  if (params.official) sp.set("official", "1");
   if (params.sort) sp.set("sort", params.sort);
   const qs = sp.toString();
   return qs ? `/bots?${qs}` : "/bots";
 }
 
 /** Search box + category chips for the hero (plain GET form: works without JavaScript). */
-export async function BotsSearch({ q, category }: { q: string; category: string | null }) {
+export async function BotsSearch({ q, category, official = false }: { q: string; category: string | null; official?: boolean }) {
   const gt = await getGT();
   return (
     <div className="mt-6 sm:mt-8">
@@ -96,13 +100,25 @@ export async function BotsSearch({ q, category }: { q: string; category: string 
           className="h-12 min-w-0 flex-1 rounded-full border border-white/15 bg-white/[0.06] px-5 text-[0.97rem] text-[var(--hm-ink)] outline-none placeholder:text-[var(--hm-faint)] focus:border-[var(--brand-violet-light)]"
         />
         {category && <input type="hidden" name="category" value={category} />}
+        {official && <input type="hidden" name="official" value="1" />}
         <button type="submit" className="hm-btn hm-btn-primary hm-btn-compact shrink-0">{gt("Search")}</button>
       </form>
       <nav aria-label={gt("Categories")} className="-mx-4 mt-5 overflow-x-auto px-4 [scrollbar-width:none] sm:mx-0 sm:px-0">
         <ul className="flex w-max gap-2 sm:w-auto sm:flex-wrap">
           <li>
-            <Link href={botsHref({ q })} aria-current={!category ? "page" : undefined} className={chipClass(!category)}>
+            <Link href={botsHref({ q })} aria-current={!category && !official ? "page" : undefined} className={chipClass(!category && !official)}>
               {gt("All")}
+            </Link>
+          </li>
+          <li>
+            <Link
+              href={botsHref({ q, official: true })}
+              aria-current={official && !category ? "page" : undefined}
+              title={gt("Made by SerikaCord")}
+              className={chipClass(official && !category)}
+            >
+              <BadgeCheck className="me-1.5 h-4 w-4" aria-hidden />
+              {gt("Official")}
             </Link>
           </li>
           {APP_CATEGORIES.map((c) => (

@@ -18,11 +18,17 @@ export interface AppCardData {
   categories: string[];
   tags: string[];
   verified: boolean;
+  /** Made by SerikaCord (official apps also report verified). */
+  official?: boolean;
   serverCount: number;
 }
 
 export interface AppCardLabels {
   verified: string;
+  /** Short pill text for official apps, e.g. "Official". */
+  official?: string;
+  /** Tooltip for the official pill, e.g. "Made by SerikaCord". */
+  officialHint?: string;
   noDescription: string;
   /** e.g. "1.2K servers" for this app. */
   servers: string;
@@ -59,6 +65,22 @@ export function VerifiedMark({ label, className }: { label: string; className?: 
   );
 }
 
+/** "Official" pill for apps made by SerikaCord; `hint` is the tooltip. */
+export function OfficialPill({ label, hint, className }: { label: string; hint?: string; className?: string }) {
+  return (
+    <span
+      title={hint || label}
+      className={cn(
+        "inline-flex shrink-0 items-center rounded-full bg-[var(--app-accent)] px-1.5 py-0.5 text-[10px] font-bold uppercase leading-none tracking-wide text-[var(--text-on-accent)]",
+        className,
+      )}
+    >
+      {label}
+      {hint && <span className="sr-only">: {hint}</span>}
+    </span>
+  );
+}
+
 export function AppDirectoryCard({
   app,
   labels,
@@ -82,6 +104,7 @@ export function AppDirectoryCard({
           <div className="flex items-center gap-1.5">
             <h3 className="truncate text-[0.95rem] font-semibold text-[var(--app-text)]">{app.name}</h3>
             {app.verified && <VerifiedMark label={labels.verified} />}
+            {app.official && labels.official && <OfficialPill label={labels.official} hint={labels.officialHint} />}
           </div>
           <p className="mt-0.5 flex items-center gap-1 text-xs text-[var(--app-muted)]">
             <Server className="h-3 w-3 shrink-0" aria-hidden />

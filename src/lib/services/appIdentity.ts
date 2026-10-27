@@ -1,6 +1,8 @@
 import * as crypto from 'crypto';
 import { Application, User } from '@/lib/models';
 import type { IApplication } from '@/lib/models/Application';
+import { showsVerified } from '@/lib/appDirectory/listing';
+import { OFFICIAL_APP_BADGE } from '@/lib/appDirectory/official';
 
 /**
  * Generate an Ed25519 keypair for an application. The public key (raw, hex) is
@@ -79,9 +81,10 @@ export async function ensureBotProvisioned(app: IApplication) {
       avatar: defaultAvatar,
       bio: (app.description || '').slice(0, 190),
       isBot: true,
-      isVerified: app.verified ?? false,
+      // BOT tag check: verified or official app (src/lib/appDirectory/listing.ts).
+      isVerified: showsVerified(app),
       status: 'online',
-      badges: app.verified ? ['verified_bot'] : [],
+      badges: app.official ? [OFFICIAL_APP_BADGE] : [],
     });
     updates.botId = botUser.id;
   } else {

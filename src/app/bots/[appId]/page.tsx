@@ -2,11 +2,11 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { cache } from "react";
-import { ExternalLink, FileText, Globe, LifeBuoy, Lock, Plus, Server, Shield, SquareSlash } from "lucide-react";
+import { BadgeCheck, CalendarDays, ExternalLink, FileText, Globe, LifeBuoy, Lock, Plus, Server, Shield, SquareSlash, Star } from "lucide-react";
 import { getGT, getLocale } from "gt-next/server";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
-import { AppIcon, VerifiedMark, formatCount } from "@/components/apps/AppDirectoryCard";
+import { AppIcon, OfficialPill, VerifiedMark, formatCount } from "@/components/apps/AppDirectoryCard";
 import { appCategoryLabel } from "@/lib/appDirectory/listing";
 import { getDirectoryAppCached } from "@/lib/services/appDirectory";
 import { cdnImage } from "@/lib/utils";
@@ -92,11 +92,16 @@ export default async function BotPage({ params }: { params: Params }) {
             <div className="flex items-center gap-2">
               <h1 className="hm-display truncate text-[1.75rem] font-bold leading-tight sm:text-[2.4rem]">{app.name}</h1>
               {app.verified && <VerifiedMark label={gt("Verified app")} className="[&_svg]:h-6 [&_svg]:w-6" />}
+              {app.official && <OfficialPill label={gt("Official")} hint={gt("Made by SerikaCord")} className="text-[11px]" />}
             </div>
             <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-[var(--hm-body)]">
               <span className="inline-flex items-center gap-1"><Server className="h-4 w-4" aria-hidden />{servers}</span>
-              {app.verified && <span>{gt("Verified")}</span>}
-              {app.featured && <span>{gt("Staff pick")}</span>}
+              {app.official ? (
+                <span className="inline-flex items-center gap-1"><BadgeCheck className="h-4 w-4" aria-hidden />{gt("Made by SerikaCord")}</span>
+              ) : app.verified ? (
+                <span className="inline-flex items-center gap-1"><BadgeCheck className="h-4 w-4" aria-hidden />{gt("Verified")}</span>
+              ) : null}
+              {app.featured && <span className="inline-flex items-center gap-1"><Star className="h-4 w-4" aria-hidden />{gt("Staff pick")}</span>}
             </p>
           </div>
         </div>
@@ -182,6 +187,28 @@ export default async function BotPage({ params }: { params: Params }) {
 
         <aside className="space-y-4">
           <div className="rounded-2xl border border-[var(--hm-line)] bg-[var(--hm-surface)] p-5">
+            <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-[var(--hm-faint)]">{gt("At a glance")}</h2>
+            <dl className="space-y-2.5 text-sm">
+              <div className="flex items-center justify-between gap-3">
+                <dt className="inline-flex items-center gap-2 text-[var(--hm-body)]"><Server className="h-4 w-4 shrink-0 text-[var(--hm-faint)]" aria-hidden />{gt("Servers")}</dt>
+                <dd className="font-semibold text-[var(--hm-ink)]">{formatCount(app.serverCount, locale)}</dd>
+              </div>
+              <div className="flex items-center justify-between gap-3">
+                <dt className="inline-flex items-center gap-2 text-[var(--hm-body)]"><BadgeCheck className="h-4 w-4 shrink-0 text-[var(--hm-faint)]" aria-hidden />{gt("Status")}</dt>
+                <dd className="text-end font-semibold text-[var(--hm-ink)]">
+                  {app.official ? gt("Official app") : app.verified ? gt("Verified app") : gt("Community app")}
+                </dd>
+              </div>
+              {app.createdAt && (
+                <div className="flex items-center justify-between gap-3">
+                  <dt className="inline-flex items-center gap-2 text-[var(--hm-body)]"><CalendarDays className="h-4 w-4 shrink-0 text-[var(--hm-faint)]" aria-hidden />{gt("Created")}</dt>
+                  <dd className="font-semibold text-[var(--hm-ink)]">{new Date(app.createdAt).toLocaleDateString(locale, { year: "numeric", month: "short", day: "numeric" })}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+
+          <div className="rounded-2xl border border-[var(--hm-line)] bg-[var(--hm-surface)] p-5">
             <h2 className="mb-3 text-xs font-bold uppercase tracking-wide text-[var(--hm-faint)]">{gt("Categories")}</h2>
             {categories.length > 0 ? (
               <ul className="flex flex-wrap gap-2">
@@ -224,7 +251,9 @@ export default async function BotPage({ params }: { params: Params }) {
           )}
 
           <p className="px-1 text-xs leading-relaxed text-[var(--hm-faint)]">
-            {gt("Bots are made by independent developers, not by SerikaCord. Check the permissions a bot asks for before adding it.")}
+            {app.official
+              ? gt("This is an official app, made and run by the SerikaCord team. Check the permissions it asks for before adding it.")
+              : gt("Bots are made by independent developers, not by SerikaCord. Check the permissions a bot asks for before adding it.")}
           </p>
         </aside>
       </div>

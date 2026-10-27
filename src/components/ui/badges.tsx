@@ -58,6 +58,7 @@ export function badgeLabel(
     case 'serikacord_developer': return { name: gt('SerikaCord Developer'), description: gt('Core developer of SerikaCord') };
     case 'serikacord_contributor': return { name: gt('SerikaCord Contributor'), description: gt('Contributed to SerikaCord') };
     case 'serikacord_tester': return { name: gt('SerikaCord Tester'), description: gt('Helped test SerikaCord') };
+    case 'official_app': return { name: gt('Official SerikaCord App'), description: gt('Made by SerikaCord') };
     default: return { name: badge.name, description: badge.description };
   }
 }

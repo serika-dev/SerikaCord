@@ -9,7 +9,7 @@ import { SettingsEmptyState } from "@/components/settings/blocks/SettingsEmptySt
 import { SettingsSearchInput } from "@/components/settings/blocks/SettingsSearchInput";
 import { SettingsToolbar } from "@/components/settings/blocks/SettingsToolbar";
 import { Skeleton } from "@/components/ui/skeleton";
-import { AppDirectoryCard, AppIcon, VerifiedMark, formatCount, type AppCardData } from "@/components/apps/AppDirectoryCard";
+import { AppDirectoryCard, AppIcon, OfficialPill, VerifiedMark, formatCount, type AppCardData } from "@/components/apps/AppDirectoryCard";
 import { APP_CATEGORIES, appCategoryLabel } from "@/lib/appDirectory/listing";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,7 @@ interface InstalledApp {
   icon: string | null;
   shortDescription: string;
   verified: boolean;
+  official?: boolean;
   listed: boolean;
 }
 
@@ -161,6 +162,7 @@ export const AppDiscoveryPage = memo(function AppDiscoveryPage({ serverId }: { s
                   <div className="flex items-center gap-1">
                     <span className="truncate text-sm font-semibold text-[var(--text-primary)]">{app.name}</span>
                     {app.verified && <VerifiedMark label={gt("Verified app")} className="[&_svg]:h-3.5 [&_svg]:w-3.5" />}
+                    {app.official && <OfficialPill label={gt("Official")} hint={gt("Made by SerikaCord")} />}
                   </div>
                   {app.listed ? (
                     <a href={`/bots/${app.id}`} target="_blank" rel="noopener noreferrer" className="text-xs text-[var(--app-accent)] hover:underline">
@@ -233,6 +235,8 @@ export const AppDiscoveryPage = memo(function AppDiscoveryPage({ serverId }: { s
                     app={app}
                     labels={{
                       verified: gt("Verified app"),
+                      official: gt("Official"),
+                      officialHint: gt("Made by SerikaCord"),
                       noDescription: gt("No description yet."),
                       servers: app.serverCount === 1 ? gt("1 server") : gt("{count} servers", { count: formatCount(app.serverCount, locale) }),
                       categories: app.categories.map((c) => appCategoryLabel(c, gt)),

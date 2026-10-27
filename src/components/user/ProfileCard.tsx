@@ -43,6 +43,8 @@ import { useGT } from "gt-next";
 import { statusLabel } from "@/lib/statusLabels";
 import { RoleIcon } from "@/components/chat/RoleIcon";
 import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
+import { isVerifiedBotUser } from "@/lib/appDirectory/official";
+import { BotAppProfileSection } from "@/components/apps/BotAppProfileSection";
 
 export interface ProfileCardUser {
   id: string;
@@ -447,11 +449,11 @@ export function ProfileCard({
             {user.isBot && !user.isSystem && (
               <span className={cn(
                 "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase",
-                user.isVerified
+                isVerifiedBotUser(user)
                   ? "bg-[#5865F2] text-white"
                   : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
               )}>
-                {user.isVerified && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
+                {isVerifiedBotUser(user) && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
                 {gt("Bot")}
               </span>
             )}
@@ -493,6 +495,9 @@ export function ProfileCard({
             <BadgeList badges={badges.map((b) => b.id) as UIBadgeId[]} size="sm" maxDisplay={badges.length} expandable={false} />
           </div>
         )}
+
+        {/* The app behind a bot: verified/official, Add to Server, /bots page */}
+        {user.isBot && !limited && user.id && <BotAppProfileSection botUserId={user.id} />}
 
         {/* Activity cards: show only one at a time, with serika.moe first */}
         {moeActivity ? (

@@ -27,6 +27,8 @@ export interface DirectoryEntry {
   categories: string[];
   tags: string[];
   verified: boolean;
+  /** Made by SerikaCord (staff-only flag); optional for older callers. */
+  official?: boolean;
   featured: boolean;
   serverCount: number;
   /** When the app was listed (falls back to creation), ms since epoch. */
@@ -130,6 +132,8 @@ export interface DirectoryQuery {
   cursor?: SortKey | null;
   limit?: number;
   featuredOnly?: boolean;
+  /** Only official ("Made by SerikaCord") apps. */
+  officialOnly?: boolean;
 }
 
 export interface DirectoryPage<T extends DirectoryEntry> {
@@ -150,7 +154,7 @@ export function pageDirectory<T extends DirectoryEntry>(entries: readonly T[], q
   const terms = searchTerms(query.search);
   const category = query.category && isAppCategory(query.category) ? query.category : null;
   const filtered = entries
-    .filter((a) => (!category || a.categories.includes(category)) && (!query.featuredOnly || a.featured) && matchesSearch(a, terms))
+    .filter((a) => (!category || a.categories.includes(category)) && (!query.featuredOnly || a.featured) && (!query.officialOnly || a.official === true) && matchesSearch(a, terms))
     .map((a) => ({ a, k: sortKey(a, sort) }))
     .sort((x, y) => compareKeys(x.k, y.k));
   const cursor = query.cursor ?? null;

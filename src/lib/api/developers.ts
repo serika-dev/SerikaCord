@@ -9,7 +9,7 @@ import { adjustServerMemberCount } from '@/lib/services/serverMembership';
 import { resolveRedirectUri, appendQuery, parsePermissionsParam, clampBotPermissions, permissionNumberingOf } from '@/lib/oauth/authorize';
 import { allowedPrivilegedIntents, INTENT, toStoredIntents } from '@/lib/gateway/intents';
 import {
-  directoryState, isAppCategory, isOwnerListed, listingProblems, validateGeneralAppPatch, validateListingPatch,
+  directoryState, isAppCategory, isOwnerListed, listingProblems, showsVerified, validateGeneralAppPatch, validateListingPatch,
   verificationRequirements, verificationCooldownEndsAt, VERIFICATION_SERVER_THRESHOLD,
 } from '@/lib/appDirectory/listing';
 import { APP_ASSET_CATEGORY, isOwnedAppAssetUrl, isOwnedBotImageUrl, type AppAssetKind } from '@/lib/appDirectory/assets';
@@ -1572,6 +1572,9 @@ export async function oauthAuthorizeInfo(
       name: app.name,
       icon: app.icon || null,
       description: app.description,
+      // Official apps ("Made by SerikaCord") always show as verified.
+      verified: showsVerified(app),
+      official: app.official === true,
     },
     scopes,
     redirect_uri: redirect.uri,

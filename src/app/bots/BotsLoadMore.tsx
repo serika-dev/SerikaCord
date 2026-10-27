@@ -10,6 +10,8 @@ interface Props {
   initialCursor: string | null;
   search: string;
   category: string | null;
+  /** Only official ("Made by SerikaCord") apps. */
+  official?: boolean;
   sort: string;
 }
 
@@ -18,7 +20,7 @@ interface Props {
  * API under the server-rendered first page. Loads automatically when the
  * sentinel scrolls into view; the button is the fallback (and keyboard path).
  */
-export function BotsLoadMore({ initialCursor, search, category, sort }: Props) {
+export function BotsLoadMore({ initialCursor, search, category, official = false, sort }: Props) {
   const gt = useGT();
   const locale = useLocale();
   const [apps, setApps] = useState<AppCardData[]>([]);
@@ -37,6 +39,7 @@ export function BotsLoadMore({ initialCursor, search, category, sort }: Props) {
       const sp = new URLSearchParams({ cursor, sort });
       if (search) sp.set("search", search);
       if (category) sp.set("category", category);
+      if (official) sp.set("official", "true");
       const res = await fetch(`/api/apps/directory?${sp.toString()}`);
       if (!res.ok) throw new Error(String(res.status));
       const data = (await res.json()) as { apps: AppCardData[]; nextCursor: string | null };
@@ -51,7 +54,7 @@ export function BotsLoadMore({ initialCursor, search, category, sort }: Props) {
       busy.current = false;
       setLoading(false);
     }
-  }, [cursor, search, category, sort]);
+  }, [cursor, search, category, official, sort]);
 
   useEffect(() => {
     const el = sentinel.current;
@@ -74,6 +77,8 @@ export function BotsLoadMore({ initialCursor, search, category, sort }: Props) {
                 href={`/bots/${app.id}`}
                 labels={{
                   verified: gt("Verified app"),
+                  official: gt("Official"),
+                  officialHint: gt("Made by SerikaCord"),
                   noDescription: gt("No description yet."),
                   servers: app.serverCount === 1 ? gt("1 server") : gt("{count} servers", { count: formatCount(app.serverCount, locale) }),
                   categories: app.categories.map((c) => appCategoryLabel(c, gt)),

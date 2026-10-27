@@ -26,12 +26,21 @@ function readParams(sp: Record<string, string | string[] | undefined>) {
   const category: AppCategory | null = isAppCategory(rawCategory) ? rawCategory : null;
   const rawSort = first(sp.sort);
   const sort: DirectorySort = isDirectorySort(rawSort) ? rawSort : "popular";
-  return { q, category, sort, explicitSort: isDirectorySort(rawSort) };
+  const official = first(sp.official) === "1";
+  return { q, category, sort, official, explicitSort: isDirectorySort(rawSort) };
 }
 
 export async function generateMetadata({ searchParams }: { searchParams: SearchParams }): Promise<Metadata> {
-  const { q, category } = readParams(await searchParams);
+  const { q, category, official } = readParams(await searchParams);
   const gt = await getGT();
+  if (official && !category) {
+    return buildMetadata({
+      title: gt("Official SerikaCord bots"),
+      description: gt("Bots and apps made by the SerikaCord team. Add them to any server you manage."),
+      path: "/bots?official=1",
+      noIndex: !!q,
+    });
+  }
   if (category) {
     const label = appCategoryLabel(category, gt);
     return buildMetadata({
@@ -51,7 +60,7 @@ export async function generateMetadata({ searchParams }: { searchParams: SearchP
 }
 
 export default async function BotsPage({ searchParams }: { searchParams: SearchParams }) {
-  const { q, category, sort, explicitSort } = readParams(await searchParams);
+  const { q, category, sort, official, explicitSort } = readParams(await searchParams);
   const gt = await getGT();
   const locale = await getLocale();
 
@@ -64,19 +73,23 @@ export default async function BotsPage({ searchParams }: { searchParams: SearchP
     loadFailed = true;
   }
 
-  const filtered = !!q || !!category || explicitSort;
-  const page = pageDirectory(all, { search: q, category, sort });
+  const filtered = !!q || !!category || official || explicitSort;
+  const page = pageDirectory(all, { search: q, category, sort, officialOnly: official });
 
   const hero = (
     <header className="max-w-3xl">
       <p className="hm-label mb-2 sm:mb-3">{gt("Bot library")}</p>
       <h1 className="hm-display hm-h1 hm-h1-page">
-        {category ? gt("{category} bots", { category: appCategoryLabel(category, gt) }) : gt("Find the right bot for your server")}
+        {category
+          ? gt("{category} bots", { category: appCategoryLabel(category, gt) })
+          : official
+            ? gt("Made by SerikaCord")
+            : gt("Find the right bot for your server")}
       </h1>
       <p className="hm-lede mt-3 sm:mt-5">
         {gt("Moderation, music, games, utilities and more, made by the SerikaCord developer community. Pick one and add it to a server you manage.")}
       </p>
-      <BotsSearch q={q} category={category} />
+      <BotsSearch q={q} category={category} official={official} />
     </header>
   );
 
@@ -118,7 +131,7 @@ export default async function BotsPage({ searchParams }: { searchParams: SearchP
             {sorts.map((s) => (
               <Link
                 key={s.id}
-                href={botsHref({ q, category, sort: s.id })}
+                href={botsHref({ q, category, official, sort: s.id })}
                 aria-current={sort === s.id ? "page" : undefined}
                 className={cn(
                   "rounded-full px-3 py-1.5 text-sm transition-colors",
@@ -140,14 +153,15 @@ export default async function BotsPage({ searchParams }: { searchParams: SearchP
         ) : (
           <>
             <BotGrid apps={page.items} gt={gt} locale={locale} />
-            <BotsLoadMore key={`${q}|${category ?? ""}|${sort}`} initialCursor={page.nextCursor} search={q} category={category} sort={sort} />
+            <BotsLoadMore key={`${q}|${category ?? ""}|${official ? "o" : ""}|${sort}`} initialCursor={page.nextCursor} search={q} category={category} official={official} sort={sort} />
           </>
         )}
       </BotsShell>
     );
   }
 
-  // Landing: staff picks, popular, new, categories, then everything.
+  // Landing: made by SerikaCord, staff picks, popular, new, categories, then everything.
+  const officialPage = pageDirectory(all, { officialOnly: true, sort: "popular", limit: 6 });
   const featured = pageDirectory(all, { featuredOnly: true, limit: 6 }).items;
   const popular = pageDirectory(all, { sort: "popular", limit: 6 }).items;
   const fresh = pageDirectory(all, { sort: "new", limit: 6 }).items;
@@ -162,6 +176,16 @@ export default async function BotsPage({ searchParams }: { searchParams: SearchP
 
   return (
     <BotsShell hero={hero}>
+      {officialPage.items.length > 0 && (
+        <BotSection
+          id="official"
+          title={gt("Made by SerikaCord")}
+          intro={gt("Official apps built and run by the SerikaCord team.")}
+          more={officialPage.total > officialPage.items.length ? seeAll("/bots?official=1") : undefined}
+        >
+          <BotGrid apps={officialPage.items} gt={gt} locale={locale} />
+        </BotSection>
+      )}
       {featured.length > 0 && (
         <BotSection id="featured" title={gt("Staff picks")} intro={gt("Bots the SerikaCord team recommends.")}>
           <BotGrid apps={featured} gt={gt} locale={locale} />
@@ -194,7 +218,7 @@ export default async function BotsPage({ searchParams }: { searchParams: SearchP
       )}
       <BotSection id="all" title={gt("All bots")} intro={gt("Every listed bot, A to Z.")}>
         <BotGrid apps={allByName.items} gt={gt} locale={locale} />
-        <BotsLoadMore key="all" initialCursor={allByName.nextCursor} search="" category={null} sort="name" />
+        <BotsLoadMore key="all" initialCursor={allByName.nextCursor} search="" category={null} official={false} sort="name" />
       </BotSection>
     </BotsShell>
   );

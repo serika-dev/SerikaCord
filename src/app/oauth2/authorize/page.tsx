@@ -3,7 +3,7 @@
 import { useState, useEffect, Suspense } from "react";
 import { cdnImage } from "@/lib/utils";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Shield, Check, Server, Info, AlertTriangle, Bot } from "lucide-react";
+import { Shield, Check, Server, Info, AlertTriangle, Bot, BadgeCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
@@ -25,6 +25,10 @@ interface ApplicationData {
     name: string;
     icon: string | null;
     description: string | null;
+    /** Verified, or official (official apps always count as verified). */
+    verified?: boolean;
+    /** Made by SerikaCord. */
+    official?: boolean;
   };
   scopes: string[];
   redirect_uri: string | null;
@@ -326,12 +330,26 @@ function AuthorizeForm() {
               )}
             </div>
             <div>
-              <h1 className="text-xl font-bold text-white flex items-center gap-1.5">
+              <h1 className="text-xl font-bold text-white flex flex-wrap items-center gap-1.5">
                 {appData?.application.name}
+                {appData?.application.verified && (
+                  <span title={gt("Verified app")} className="inline-flex text-[#8B5CF6]">
+                    <BadgeCheck className="w-5 h-5" aria-hidden />
+                    <span className="sr-only">{gt("Verified app")}</span>
+                  </span>
+                )}
                 <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#8B5CF6]/10 text-[#8B5CF6] border border-[#8B5CF6]/20">
                   {gt("APP")}
                 </span>
+                {appData?.application.official && (
+                  <span title={gt("Made by SerikaCord")} className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[#8B5CF6] text-white">
+                    {gt("Official")}
+                  </span>
+                )}
               </h1>
+              {appData?.application.official && (
+                <p className="text-xs font-semibold text-[#a78bfa] mt-0.5">{gt("Made by SerikaCord")}</p>
+              )}
               <p className="text-xs text-[#888888] mt-1 font-medium max-w-[320px] line-clamp-2">
                 {appData?.application.description || gt("No description provided.")}
               </p>

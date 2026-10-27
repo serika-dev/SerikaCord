@@ -16,6 +16,8 @@ const STAFF_RANKS: BadgeId[] = [
   "staff",
   "admin",
   "moderator",
+  // Not a staff rank: the bot of an official app (made by SerikaCord staff).
+  "official_app",
 ];
 
 export function StaffPill({ badges, className }: StaffPillProps) {

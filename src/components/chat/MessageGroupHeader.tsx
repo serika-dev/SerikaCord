@@ -17,6 +17,7 @@ import { useUserContextMenu } from "@/components/user/UserContextMenu";
 import type { CSSProperties } from 'react';
 import type { MessageAuthor } from "@/lib/chat/types";
 import { RoleIcon, type RoleIconData } from "@/components/chat/RoleIcon";
+import { isVerifiedBotUser } from "@/lib/appDirectory/official";
 
 interface GroupAvatarProps {
   author: MessageAuthor;
@@ -138,11 +139,11 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
             {author.isBot && !author.isSystem && !author.isDiscord && (
               <span className={cn(
                 "inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left",
-                author.isVerified 
+                isVerifiedBotUser(author)
                   ? "bg-[#5865F2] text-white" 
                   : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
               )}>
-                {author.isVerified && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
+                {isVerifiedBotUser(author) && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
                 {gt("Bot")}
               </span>
             )}
@@ -162,11 +163,11 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
           {author.isBot && !author.isSystem && !author.isDiscord && (
             <span className={cn(
               "inline-flex items-center gap-0.5 px-1 py-0.5 text-[9px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase scale-90 origin-left",
-              author.isVerified 
+              isVerifiedBotUser(author)
                 ? "bg-[#5865F2] text-white" 
                 : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
             )}>
-              {author.isVerified && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
+              {isVerifiedBotUser(author) && <Check className="w-2.5 h-2.5 shrink-0 stroke-[3px]" />}
               {author.isWebhook ? gt("Webhook") : gt("Bot")}
             </span>
           )}

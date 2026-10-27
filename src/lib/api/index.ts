@@ -4534,8 +4534,11 @@ export async function initializeAPI() {
     // App Directory + verification review columns on applications (read by
     // every application query). Idempotent, skipped when present; throws
     // when it can't be completed.
-    const { ensureAppDirectorySchema } = await import('@/lib/services/appDirectorySchema');
+    const { ensureAppDirectorySchema, backfillVerifiedBotUsers } = await import('@/lib/services/appDirectorySchema');
     await ensureAppDirectorySchema();
+    // Bot users of verified/official apps get users.is_verified (the BOT tag
+    // check). Only ever sets true, bots only; background, never throws.
+    void backfillVerifiedBotUsers();
     // OAuth2 grants: oauth2_tokens + authorized_apps.application_id (read by
     // every authorized_apps query). Idempotent, skipped when present; throws
     // when it can't be completed.

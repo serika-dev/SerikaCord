@@ -41,6 +41,7 @@ import { useGT } from "gt-next";
 import { CustomStatusLine } from "@/components/user/CustomStatus";
 import { hasCustomStatus } from "@/lib/social/customStatus";
 import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
+import { isVerifiedBotUser } from "@/lib/appDirectory/official";
 
 interface UserProfileProps {
   user: {
@@ -328,11 +329,11 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                 {user.isBot && (
                   <span className={cn(
                     "inline-flex items-center gap-0.5 px-1.5 py-0.5 text-[10px] font-bold rounded leading-none shrink-0 tracking-wide select-none uppercase",
-                    user.isVerified 
+                    isVerifiedBotUser(user)
                       ? "bg-[#5865F2] text-white" 
                       : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]"
                   )}>
-                    {user.isVerified && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
+                    {isVerifiedBotUser(user) && <Check className="w-3 h-3 shrink-0 stroke-[3px]" />}
                     {gt('Bot')}
                   </span>
                 )}

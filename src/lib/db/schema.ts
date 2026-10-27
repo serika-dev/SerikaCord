@@ -834,6 +834,11 @@ export const applications = pgTable('applications', {
   verificationReviewedAt: timestamp('verification_reviewed_at'),
   verificationReviewedBy: uuid('verification_reviewed_by'),
   verificationNote: text('verification_note'),
+  // "Made by SerikaCord": staff-only flag (Settings → Admin → Apps & Bots).
+  // Displays as verified everywhere and gives the bot user the automatic
+  // official_app badge. Added at boot by ensureAppDirectorySchema()
+  // (drizzle/manual_app_official.sql).
+  official: boolean('official').default(false),
   createdAt: timestamp('created_at').defaultNow(),
   updatedAt: timestamp('updated_at').defaultNow(),
 }, (t) => ({
