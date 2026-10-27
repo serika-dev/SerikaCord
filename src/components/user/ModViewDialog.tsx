@@ -178,7 +178,7 @@ export function ModViewDialog({ user, serverId, open, onOpenChange }: ModViewDia
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md p-0 overflow-hidden bg-[var(--app-bg)] border border-[var(--app-border)]">
+      <DialogContent className="max-w-md p-0 overflow-hidden bg-[var(--app-bg-solid)] border border-[var(--app-border)]">
         <DialogTitle className="sr-only">{gt("Mod View")}</DialogTitle>
 
         {/* Header */}

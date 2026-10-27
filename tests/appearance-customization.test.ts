@@ -324,6 +324,9 @@ describe("gradient app themes", () => {
     expect(alpha(o["--bg-sidebar"])).toBeGreaterThan(alpha(o["--app-bg"]));
     expect(alpha(o["--bg-card"])).toBeGreaterThanOrEqual(0.9);
     expect(o["--tooltip-bg"]).toMatch(/^#[0-9a-f]{6}$/);
+    // Overlays (Mod View, dialogs, menus) get an opaque copy of --app-bg.
+    expect(o["--app-bg-solid"]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(computeSurfaceOverrides({ theme: "light", translucent: true })!["--app-bg-solid"]).toBe("#f4f7fc");
     expect(computeSurfaceOverrides({ theme: "light", gradient: renderThemeGradient(DEFAULT_THEME_GRADIENT, "light") })!["--tooltip-bg"]).toBe("#ffffff");
     // A background image wins over the gradient (old translucent alphas).
     expect(computeSurfaceOverrides({ theme: "light", translucent: true, gradient: rendered })!["--app-bg"]).toBe("rgba(244, 247, 252, 0.55)");

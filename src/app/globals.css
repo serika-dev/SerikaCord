@@ -95,6 +95,10 @@
 
   /* App-level visual tokens */
   --app-bg: #05060a;
+  /* Always-opaque app background for overlays (dialogs, menus). Gradient and
+     translucent themes make --app-bg see-through; the theme then sets this to
+     the same colour without alpha (lib/appearance/customization.ts). */
+  --app-bg-solid: var(--app-bg);
   --app-surface: #0c0f17;
   --app-surface-alt: #131a28;
   --app-border: #1e2637;
@@ -1558,4 +1562,13 @@ html.rtl .text-right-rtl {
   .sw-card {
     transition: none;
   }
+}
+
+/* Overlays painted with --app-bg (Mod View and other dialogs, menus, pickers)
+   stay opaque when a gradient or translucent theme makes --app-bg see-through. */
+[role="dialog"].bg-\[var\(--app-bg\)\],
+[role="alertdialog"].bg-\[var\(--app-bg\)\],
+[role="menu"].bg-\[var\(--app-bg\)\],
+[role="listbox"].bg-\[var\(--app-bg\)\] {
+  background-color: var(--app-bg-solid);
 }

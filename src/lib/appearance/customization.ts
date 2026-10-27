@@ -491,7 +491,7 @@ const SURFACE_VARS: Record<SurfaceKey, string[]> = {
 };
 
 /** CSS custom properties ThemeContext may set inline for surfaces. */
-export const SURFACE_OVERRIDE_VARS: readonly string[] = [...Object.values(SURFACE_VARS).flat(), "--tooltip-bg"];
+export const SURFACE_OVERRIDE_VARS: readonly string[] = [...Object.values(SURFACE_VARS).flat(), "--tooltip-bg", "--app-bg-solid"];
 
 function withAlpha(hex: string, alpha: number): string {
   const [r, g, b] = hexToRgb(hex);
@@ -532,7 +532,9 @@ export function computeSurfaceOverrides(opts: {
     for (const cssVar of SURFACE_VARS[key]) out[cssVar] = value;
   }
   // Tooltips mix --app-bg with black; keep them solid when it goes see-through.
+  // Overlays (dialogs, menus) use the same colour without alpha.
   if (alphas) {
+    out["--app-bg-solid"] = tint ? mixHex(base.bg, tint, amount) : base.bg;
     out["--tooltip-bg"] = light ? "#ffffff" : mixHex(tint ? mixHex(base.bg, tint, amount) : base.bg, "#000000", 0.3);
   }
   return out;
