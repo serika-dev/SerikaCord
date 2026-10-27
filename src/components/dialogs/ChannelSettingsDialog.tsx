@@ -977,7 +977,7 @@ export function ChannelSettingsDialog({
         <DialogContent
           showCloseButton={false}
           aria-describedby={undefined}
-          className="!max-w-none !w-screen !h-dvh !rounded-none p-0 gap-0 bg-[var(--bg-app)] border-none overflow-hidden !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed flex"
+          className="theme-backdrop !max-w-none !w-screen !h-dvh !rounded-none p-0 gap-0 bg-[var(--bg-app)] border-none overflow-hidden !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed flex"
         >
           {!mobileNav.page ? (
             <MobileSettingsScreen
@@ -1027,7 +1027,7 @@ export function ChannelSettingsDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent
         showCloseButton={false}
-        className="!max-w-none !w-screen !h-screen !rounded-none p-0 bg-[var(--bg-app)] border-none overflow-hidden flex !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed"
+        className="theme-backdrop !max-w-none !w-screen !h-screen !rounded-none p-0 bg-[var(--bg-app)] border-none overflow-hidden flex !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed"
         onPointerDownOutside={(e) => e.preventDefault()}
       >
         {/* Sidebar Navigation */}
