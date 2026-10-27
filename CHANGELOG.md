@@ -14,14 +14,17 @@
 - **Staff bot tools** — staff can find any app (listed or not, by name, username or ID), verify any bot directly whatever its server count, mark apps as official, feature, delist and fix a listing's description, categories and tags. Every action asks for confirmation and is written to the activity log.
 
 ### Changes
+- **Developer portal home and Applications** — a cleaner home with your apps, stats, quick links and what's new; the Applications page gets search by name, bot or ID, sorting, grid and list views, and creating an app opens it straight away.
 
 ### Bug Fixes
+- **App pictures in the developer portal** — apps without their own icon show their bot's avatar on the portal home, and server counts there are live.
 - **Message links from bots** — Discord-style links like serika.chat/channels/server/channel/message, which bots build, now open the right message.
 - **Verified bots now show their check** — approving a bot's verification didn't add the check to its BOT tag in chat, member lists and profiles. Verified bots (including ones verified before this fix) now show it.
 
 ### Performance
 
 ### Security
+- **Fewer secrets on the page** — the developer portal's app list no longer sends client secrets or bot tokens; each app's own page still shows them.
 
 ### Removed
 

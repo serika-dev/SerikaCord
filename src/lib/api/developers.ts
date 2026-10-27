@@ -301,10 +301,22 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const botUsers = botIds.length > 0 ? await User.find({ id: { in: botIds }, isBot: true }) : [];
   const botAvatarMap = new Map(botUsers.map((u: any) => [u.id, { avatar: u.avatar, username: u.username }]));
 
-  const enriched = apps.map((a: any) => {
-    const sanitized = sanitizeApp(a, ALL_SECRETS); // Application.find({ ownerId: user.id })
+  // The list never carries secrets (client secret, bot token): the app's own
+  // pages fetch those when they need them. Server counts are live (the stored
+  // server_count column is not kept up to date).
+  const { countBotServers } = await import('@/lib/services/appDirectory');
+  const serverCounts = await Promise.all(apps.map((a: any) => countBotServers(a.botId).catch(() => a.serverCount ?? 0)));
+  const enriched = apps.map((a: any, i: number) => {
+    const sanitized = sanitizeApp(a, NO_SECRETS);
     const botInfo = a.botId ? botAvatarMap.get(a.botId) : null;
-    return { ...sanitized, botAvatar: botInfo?.avatar ?? null, botUsername: botInfo?.username ?? null };
+    return {
+      ...sanitized,
+      serverCount: serverCounts[i],
+      official: a.official === true,
+      directoryListed: a.directoryListed ?? null,
+      botAvatar: botInfo?.avatar ?? null,
+      botUsername: botInfo?.username ?? null,
+    };
   });
   return { applications: enriched };
 })
