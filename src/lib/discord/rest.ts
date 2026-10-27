@@ -71,6 +71,27 @@ export async function discordBot<T>(
   return { ok: false, status: 429, data: null };
 }
 
+/**
+ * One GET made with somebody else's bot token (proving ownership of a Discord
+ * bot, src/lib/services/applicationDiscordLink.ts). No retries, short
+ * timeout, and the token never leaves this call: it is not logged and not
+ * kept. status 0 = Discord could not be reached.
+ */
+export async function discordGetWithToken<T>(token: string, path: string, timeoutMs = 8_000): Promise<{ status: number; data: T | null }> {
+  try {
+    const res = await fetch(`${DISCORD_API}${path}`, {
+      method: 'GET',
+      headers: { Authorization: `Bot ${token}` },
+      signal: AbortSignal.timeout(timeoutMs),
+      redirect: 'error',
+    });
+    const data = res.status === 204 ? null : ((await res.json().catch(() => null)) as T | null);
+    return { status: res.status, data };
+  } catch {
+    return { status: 0, data: null };
+  }
+}
+
 function cached<V>(map: BoundedMap<string, { at: number; value: V }>, key: string, ttlMs: number): V | undefined {
   const hit = map.get(key);
   if (hit && Date.now() - hit.at < ttlMs) return hit.value;

@@ -72,6 +72,8 @@ export const rateLimiters_config = {
   interactionApp: { points: 50, duration: 1 },
   // Saving an interactions endpoint sends a signed PING, per user.
   interactionsEndpointVerify: { points: 10, duration: 600 },
+  // Linking a Discord bot to an application (each attempt calls Discord), per application.
+  discordBotLink: { points: 5, duration: 3600 },
   // OAuth2 token + revoke endpoints, per IP (client secrets are guessed here).
   oauthToken: { points: 30, duration: 60 },
   // OAuth2 consent approvals (each issues a code / token), per user.

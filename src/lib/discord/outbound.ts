@@ -243,6 +243,10 @@ export async function replicateToDiscord(action: 'create' | 'edit' | 'delete', c
       const serikaMsg = message.id ? await Message.findById(message.id) : null;
       const discordMsgId = serikaMsg?.discordMessageId;
       if (!discordMsgId) return;
+      // A message relayed in from Discord points at the Discord original,
+      // which the webhook did not post and cannot delete (e.g. a linked bot
+      // deleting its relayed copy through the bot API).
+      if ((serikaMsg?.bridgeOrigin as { platform?: unknown } | null | undefined)?.platform === 'discord') return;
       const res = await fetch(`${webhookUrl}/messages/${discordMsgId}`, { method: 'DELETE', signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS) }).catch(() => null);
       // 404 Unknown Message just means it is already gone on Discord.
       if (res && !res.ok && res.status !== 404) noteWebhookFailure(server.id, channel.id, res.status);

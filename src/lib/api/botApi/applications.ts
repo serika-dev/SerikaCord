@@ -168,6 +168,40 @@ export const applicationsBotRoutes = new Elysia()
   }, set, getClientIP(request));
 })
 
+// ─── Linked Discord bot (Serika extension) ─────────────────
+// Proof of ownership: the body carries the Discord bot's token once; we ask
+// Discord which bot it is and keep only its ids (never the token). The
+// Discord bridge then relays that bot's messages as this app's bot user.
+// src/lib/services/applicationDiscordLink.ts, src/lib/discord/botLink.ts.
+.get('/applications/@me/discord-link', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return UNAUTHORIZED; }
+  const { getDiscordLink } = await import('@/lib/services/applicationDiscordLink');
+  const { NOT_LINKED } = await import('@/lib/discord/botLink');
+  const link = await getDiscordLink(auth.app.id);
+  if (!link) { set.status = 404; return NOT_LINKED; }
+  return link;
+})
+.put('/applications/@me/discord-link', async ({ headers, body, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return UNAUTHORIZED; }
+  const { parseDiscordLinkBody } = await import('@/lib/discord/botLink');
+  const parsed = parseDiscordLinkBody(body);
+  if (!parsed.ok) { set.status = 400; return parsed.error; }
+  const { linkDiscordBotWithToken } = await import('@/lib/services/applicationDiscordLink');
+  const result = await linkDiscordBotWithToken(auth.app.id, parsed.token);
+  if (!result.ok) { set.status = result.status; return result.body; }
+  return result.link;
+})
+.delete('/applications/@me/discord-link', async ({ headers, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return UNAUTHORIZED; }
+  const { removeDiscordLink } = await import('@/lib/services/applicationDiscordLink');
+  await removeDiscordLink(auth.app.id);
+  set.status = 204;
+  return '';
+})
+
 // ─── Application command writes (WP3) ──────────────────────
 // Validation (50035 trees) is src/lib/botapi/commands.ts validateCommand;
 // storage is src/lib/services/appCommands.ts. A non-object body goes through

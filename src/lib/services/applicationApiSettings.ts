@@ -1,9 +1,11 @@
 /**
  * Storage for the Discord application fields `applications` has no column for
  * (role_connections_verification_url, event_webhooks_*, explicit_content_filter,
- * max_participants), the linked-roles metadata records and users' role
- * connections. Two side tables, created on first use (additive, idempotent,
- * mirrors drizzle/manual_application_api_settings.sql). Nothing that selects
+ * max_participants), the linked-roles metadata records, users' role
+ * connections and the app's linked Discord bot (applicationDiscordLink.ts).
+ * Two side tables, created on first use (additive, idempotent, mirrors
+ * drizzle/manual_application_api_settings.sql and
+ * manual_application_discord_link.sql). Nothing that selects
  * from `applications` depends on them, so a missing table never breaks login
  * or GET /applications/@me: reads fall back to defaults.
  */
@@ -24,6 +26,7 @@ export function ensureApplicationApiSchema(): Promise<void> {
         application_api_settings: [
           'application_id', 'role_connections_verification_url', 'role_connection_metadata', 'event_webhooks_url',
           'event_webhooks_status', 'event_webhooks_types', 'explicit_content_filter', 'max_participants', 'updated_at',
+          'discord_bot_user_id', 'discord_application_id', 'discord_linked_at',
         ],
         application_role_connections: ['application_id', 'user_id', 'platform_name', 'platform_username', 'metadata', 'updated_at'],
       },
@@ -50,6 +53,11 @@ export function ensureApplicationApiSchema(): Promise<void> {
         PRIMARY KEY (application_id, user_id)
       )`,
       sql`CREATE INDEX IF NOT EXISTS application_role_connections_user_idx ON application_role_connections (user_id)`,
+      // The app's linked Discord bot (drizzle/manual_application_discord_link.sql).
+      sql`ALTER TABLE application_api_settings ADD COLUMN IF NOT EXISTS discord_bot_user_id text`,
+      sql`ALTER TABLE application_api_settings ADD COLUMN IF NOT EXISTS discord_application_id text`,
+      sql`ALTER TABLE application_api_settings ADD COLUMN IF NOT EXISTS discord_linked_at timestamp`,
+      sql`CREATE UNIQUE INDEX IF NOT EXISTS application_api_settings_discord_bot_user_id_unique ON application_api_settings (discord_bot_user_id)`,
     ]),
     { attempts: 3 },
   ).catch((err) => {

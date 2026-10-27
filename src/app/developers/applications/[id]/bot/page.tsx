@@ -8,6 +8,7 @@ import { Copy, Check, RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon, Upl
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { DiscordLinkCard } from "./DiscordLinkCard";
 
 const INTENTS = [
   { name: "Presence Intent", desc: "Receive presence updates for users.", bit: 1 << 8 },
@@ -629,6 +630,9 @@ export default function BotPage() {
           </div>
         </div>
       )}
+
+      {/* Linked Discord bot (bridged servers) */}
+      {hasBot && hasBotUser && <DiscordLinkCard appId={appId} />}
     </div>
   );
 }

@@ -960,7 +960,16 @@ export const applicationApiSettings = pgTable('application_api_settings', {
   explicitContentFilter: smallint('explicit_content_filter').default(0),
   maxParticipants: integer('max_participants'),
   updatedAt: timestamp('updated_at').defaultNow(),
-});
+  // Serika extension: the Discord bot this app proved it owns (PUT
+  // /applications/@me/discord-link). The bridge relays that Discord bot's
+  // messages as this app's bot user. One app per Discord bot (unique).
+  // drizzle/manual_application_discord_link.sql.
+  discordBotUserId: text('discord_bot_user_id'),
+  discordApplicationId: text('discord_application_id'),
+  discordLinkedAt: timestamp('discord_linked_at'),
+}, (t) => ({
+  discordBotUnique: uniqueIndex('application_api_settings_discord_bot_user_id_unique').on(t.discordBotUserId),
+}));
 
 // A user's linked-roles connection to an application (PUT
 // /users/@me/applications/{id}/role-connection, role_connections.write).

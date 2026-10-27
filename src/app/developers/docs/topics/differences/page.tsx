@@ -108,10 +108,37 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
         {gt("A server can be bridged to a Discord server: messages posted on Discord are relayed into the linked SerikaCord channel, and the other way round. If your bot runs on both platforms and is in both servers, it sees a Discord user's message twice, once on each side. Two SerikaCord extensions let it handle each message once.")}
       </P>
       <UL>
-        <li>{gt("A message relayed in from Discord carries a bridged_from object with the Discord guild, channel and message ids and the Discord author's id. The author may be a bridged Discord account or, for people who linked their accounts, their SerikaCord user. Skip these when your Discord copy is in that server.")}</li>
+        <li>{gt("A message relayed in from Discord carries a bridged_from object with the Discord guild, channel and message ids and the Discord author's id. The author may be a bridged Discord account, the SerikaCord user of someone who linked their accounts, or your own bot when you linked your Discord bot (see below). Skip these when your Discord copy is in that server.")}</li>
         <li><InlineCode>{"GET /guilds/{guild.id}/bridge"}</InlineCode>{" "}{gt("lists the bridged channels your bot can see: the SerikaCord channel id, the Discord channel id, and whether each direction is on. Use it to share state between the two copies of a channel.")}</li>
         <li>{gt("Only messages from people cross the bridge. Your bot's own messages and interaction responses stay on the platform they were sent on; Discord bot messages are relayed into SerikaCord unless the server turned that off.")}</li>
+        <li>{gt("Link your Discord bot to your SerikaCord application to have its relayed messages posted as your SerikaCord bot (its avatar, BOT tag and badges) instead of a Discord copy. This applies in bridged channels your SerikaCord bot is a member of and can see; elsewhere they stay Discord copies. The relayed message still carries bridged_from, and your bot receives it like any other message, with its own user id as the author.")}</li>
       </UL>
+
+      <H2 id="discord-link">{gt("Linking your Discord bot")}</H2>
+      <P>
+        {gt("Prove that you own the Discord bot by sending its Discord token once. SerikaCord asks Discord which bot the token belongs to and stores only the Discord bot's user id and application id; the token itself is never stored or logged. You can also do this from Developer Portal -> your app -> Bot -> Linked Discord bot.")}
+      </P>
+      <UL>
+        <li><InlineCode>PUT /applications/@me/discord-link</InlineCode>{" "}{gt("with a JSON body containing discord_bot_token links the bot and answers 200 with the link. A missing or malformed token, or one Discord rejects or that is not a bot's, answers 400 with code 50035. 5 attempts per application per hour (429 beyond); 502 when Discord could not be reached.")}</li>
+        <li><InlineCode>GET /applications/@me/discord-link</InlineCode>{" "}{gt("returns the link, or 404 with code 10002 (Unknown Application) when no Discord bot is linked.")}</li>
+        <li><InlineCode>DELETE /applications/@me/discord-link</InlineCode>{" "}{gt("unlinks it (204).")}</li>
+        <li>{gt("A Discord bot can be linked to one SerikaCord application at a time. Linking it to another application with a valid token moves the link. Changes reach the bridge within a minute.")}</li>
+      </UL>
+      <CodeBlock lang="json">{`// PUT /applications/@me/discord-link
+{ "discord_bot_token": "<your Discord bot token>" }
+
+// 200 (PUT and GET)
+{
+  "discord_bot_user_id": "1310000000000000000",
+  "discord_application_id": "1310000000000000000",
+  "linked_at": "2026-10-27T12:00:00.000Z"
+}
+
+// 400
+{ "code": 50035, "message": "Invalid Discord bot token" }
+
+// 404 (GET, nothing linked)
+{ "code": 10002, "message": "Unknown Application" }`}</CodeBlock>
       <CodeBlock lang="json">{`// MESSAGE_CREATE (relayed from Discord)
 "bridged_from": {
   "platform": "discord",

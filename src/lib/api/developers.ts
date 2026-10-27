@@ -605,6 +605,45 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   body: t.Object({ url: t.Optional(t.Union([t.String(), t.Null()])) }),
 })
 
+// Linked Discord bot (same service as PUT /api/v10/applications/@me/discord-link).
+// Team members can see it; owners and team owners / admins / developers can
+// change it. The pasted Discord token is checked with Discord and dropped.
+.get('/applications/:id/discord-link', async ({ headers, cookie, params, set }) => {
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { getDiscordLink, discordBotUsername } = await import('@/lib/services/applicationDiscordLink');
+  const link = await getDiscordLink(access.app.id);
+  if (!link) return { link: null };
+  const username = await discordBotUsername(link.discord_bot_user_id).catch(() => null);
+  return { link: { ...link, discord_username: username } };
+})
+.put('/applications/:id/discord-link', async ({ headers, cookie, params, body, set }) => {
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You cannot change this application' }; }
+  const { parseDiscordLinkBody } = await import('@/lib/discord/botLink');
+  const parsed = parseDiscordLinkBody(body);
+  if (!parsed.ok) { set.status = 400; return { error: 'That is not a Discord bot token' }; }
+  const { linkDiscordBotWithToken, rememberDiscordBotUsername } = await import('@/lib/services/applicationDiscordLink');
+  const result = await linkDiscordBotWithToken(access.app.id, parsed.token);
+  if (!result.ok) {
+    set.status = result.status;
+    if (result.status === 429) return { error: 'Too many attempts. Try again later.' };
+    if (result.status === 400) return { error: 'Discord did not accept that bot token' };
+    return { error: 'Could not reach Discord. Try again later.' };
+  }
+  rememberDiscordBotUsername(result.link.discord_bot_user_id, result.discordUsername);
+  return { link: { ...result.link, discord_username: result.discordUsername } };
+})
+.delete('/applications/:id/discord-link', async ({ headers, cookie, params, set }) => {
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You cannot change this application' }; }
+  const { removeDiscordLink } = await import('@/lib/services/applicationDiscordLink');
+  await removeDiscordLink(access.app.id);
+  return { link: null };
+})
+
 // Reset client secret
 .post('/applications/:id/oauth2/reset-secret', async ({ headers, cookie, params, set }) => {
   const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);

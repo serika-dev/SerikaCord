@@ -4,6 +4,7 @@ import { applyAffixes, isInboundActive } from './bridgeConfig';
 import { listActiveBridges, resolveGuildBridge } from './bridgeStore';
 import { recordBotHeartbeat, recordBridgeSuccess } from './bridgeHealth';
 import { componentsToText, isComponentsV2, type MessageComponent } from '@/lib/botapi/components';
+import { canRelayAsLinkedBot, linkedBotWebAuthor } from './botLink';
 
 const BOT_ID = process.env.SERIKA_DISCORD_ID || '1524469730256355421';
 const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://serika.chat').replace(/\/$/, '');
@@ -980,7 +981,28 @@ export async function startDiscordBot() {
             // The map is server data: never write into a channel of another server.
             if (!chan || String(chan.serverId).toLowerCase() !== String(server.id).toLowerCase()) return;
 
-            const serikaUser = await getOrCreateDiscordUser(d.author);
+            // A Discord bot linked to a SerikaCord application (proven with its
+            // token, src/lib/services/applicationDiscordLink.ts) whose bot user
+            // is in this server and sees this channel posts as that real bot
+            // account instead of a bridged Discord copy. Bots need no consent.
+            const linkedBot = canRelayAsLinkedBot(d.author)
+              ? await import('@/lib/services/applicationDiscordLink')
+                .then(({ resolveLinkedBotAuthor }) => resolveLinkedBotAuthor(d.author.id, serikaChannelId))
+                .catch(() => null)
+              : null;
+
+            const serikaUser = linkedBot
+              ? {
+                  id: linkedBot.id,
+                  username: linkedBot.username,
+                  displayName: linkedBot.displayName,
+                  avatar: linkedBot.avatar,
+                  isBot: true,
+                  isLinked: true,
+                  consentStatus: 'granted' as ConsentStatus,
+                  discordId: d.author.id as string,
+                }
+              : await getOrCreateDiscordUser(d.author);
             const isLinkedAccount = serikaUser.isLinked;
 
             // Consent gate: never store or forward messages from a Discord user
@@ -1037,16 +1059,18 @@ export async function startDiscordBot() {
               id: msg.id,
               content,
               authorId: serikaUser.id,
-              author: {
-                id: serikaUser.id,
-                username: serikaUser.username,
-                displayName: serikaUser.displayName,
-                avatar: serikaUser.avatar,
-                status: 'online',
-                isBot: serikaUser.isBot,
-                isSystem: false,
-                isDiscord: !isLinkedAccount,
-              },
+              author: linkedBot
+                ? linkedBotWebAuthor(linkedBot)
+                : {
+                    id: serikaUser.id,
+                    username: serikaUser.username,
+                    displayName: serikaUser.displayName,
+                    avatar: serikaUser.avatar,
+                    status: 'online',
+                    isBot: serikaUser.isBot,
+                    isSystem: false,
+                    isDiscord: !isLinkedAccount,
+                  },
               channelId: serikaChannelId,
               serverId: server.id,
               createdAt: msg.createdAt ? new Date(msg.createdAt).toISOString() : new Date().toISOString(),
