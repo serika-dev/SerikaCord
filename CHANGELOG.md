@@ -7,6 +7,7 @@
 ## Unreleased
 
 ### Features
+- **Bots in bridged servers** — messages relayed in from Discord tell bots where they came from (`bridged_from`), and bots can look up which channels are bridged (`GET /guilds/{id}/bridge`), so a bot running on both Discord and SerikaCord answers each message once.
 
 ### Changes
 

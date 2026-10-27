@@ -1911,6 +1911,34 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     .filter((c) => !isThreadChannel(c) && !isDmChannel(c));
   return channels.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(formatChannel);
 })
+// Serika extension: which of this guild's channels the Discord bridge links,
+// so a bot that runs on both platforms can tell its two copies of a bridged
+// channel apart (messages relayed in also carry `bridged_from`). Only links
+// to channels the bot can see; ids are Serika channel ids + Discord ids.
+.get('/guilds/:guildId/bridge', async ({ headers, params, set }) => {
+  const auth = await authenticateBot(headers);
+  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
+  const server = await Server.findById(params.guildId);
+  if (!server) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  const { normalizeBridge, resolveLinkOptions, isInboundActive, isOutboundActive } = await import('@/lib/discord/bridgeConfig');
+  const bridge = normalizeBridge((server as { integrations?: unknown }).integrations);
+  if (!bridge.enabled || !bridge.guildId) return { platform: 'discord', enabled: false, guild_id: null, links: [] };
+  const { checkChannelAccess } = await import('@/lib/api/channels');
+  const links = [];
+  for (const link of bridge.links) {
+    const { hasAccess } = await checkChannelAccess(auth.botUser.id, link.serikaChannelId).catch(() => ({ hasAccess: false }));
+    if (!hasAccess) continue;
+    const options = resolveLinkOptions(bridge.defaults, link.overrides);
+    links.push({
+      channel_id: link.serikaChannelId,
+      discord_channel_id: link.discordChannelId,
+      inbound: isInboundActive(options),
+      outbound: isOutboundActive(options),
+      include_bots: options.includeBots !== false,
+    });
+  }
+  return { platform: 'discord', enabled: true, guild_id: bridge.guildId, links };
+})
 .patch('/guilds/:guildId/channels', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }

@@ -52,6 +52,8 @@ export interface MessageRowLike {
   call?: unknown;
   /** Webhook execute username / avatar_url override ({ username, avatar }). */
   webhookAuthor?: unknown;
+  /** Discord bridge origin of a relayed message (see bridgedFrom). */
+  bridgeOrigin?: unknown;
 }
 
 export interface UserLike {
@@ -273,6 +275,38 @@ export function discordMessageType(m: Pick<MessageRowLike, 'type' | 'interaction
   return MESSAGE_TYPE_NUMBERS[t] ?? 0;
 }
 
+const DISCORD_ID = /^\d{15,21}$/;
+
+/**
+ * Serika extension `bridged_from` for a message the Discord bridge relayed
+ * in: where it was posted on Discord. A bot that runs on both platforms
+ * skips these (it already saw the original). The ids are Discord's, never
+ * translated. Null for anything else or a malformed stored value.
+ */
+export function bridgedFrom(origin: unknown): {
+  platform: 'discord';
+  guild_id: string | null;
+  channel_id: string;
+  message_id: string;
+  author: { id: string; bot: boolean };
+} | null {
+  if (!origin || typeof origin !== 'object') return null;
+  const o = origin as Record<string, unknown>;
+  if (o.platform !== 'discord') return null;
+  const str = (v: unknown) => (typeof v === 'string' && DISCORD_ID.test(v) ? v : null);
+  const channelId = str(o.channelId);
+  const messageId = str(o.messageId);
+  const authorId = str(o.authorId);
+  if (!channelId || !messageId || !authorId) return null;
+  return {
+    platform: 'discord',
+    guild_id: str(o.guildId),
+    channel_id: channelId,
+    message_id: messageId,
+    author: { id: authorId, bot: o.authorBot === true },
+  };
+}
+
 export function serializeMessage(m: MessageRowLike, ctx: SerializeContext = {}) {
   const users = ctx.users ?? new Map<string, UserLike>();
   const authorUser = users.get(lower(m.authorId));
@@ -365,6 +399,7 @@ export function serializeMessage(m: MessageRowLike, ctx: SerializeContext = {}) 
       ? { id: interaction.id, type: interaction.type, name: interaction.name, user: interaction.user }
       : undefined,
     components: Array.isArray(m.components) && !encrypted ? m.components : [],
+    bridged_from: bridgedFrom(m.bridgeOrigin) ?? undefined,
     sticker_items: encrypted ? undefined : stickerItems(m.sticker),
     position: typeof ctx.position === 'number' ? ctx.position : undefined,
     poll: storedPoll

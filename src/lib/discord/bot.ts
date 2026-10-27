@@ -1021,6 +1021,14 @@ export async function startDiscordBot() {
               embeds,
               referencedMessageId: reply?.referencedMessageId ?? null,
               discordMessageId: d.id,
+              bridgeOrigin: {
+                platform: 'discord',
+                guildId: d.guild_id ?? null,
+                channelId: d.channel_id,
+                messageId: d.id,
+                authorId: d.author?.id ?? null,
+                authorBot: Boolean(d.author?.bot),
+              },
             });
 
             await Channel.updateById(serikaChannelId, { lastMessageId: msg.id, updatedAt: new Date() });

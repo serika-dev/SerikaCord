@@ -52,6 +52,7 @@ export function ensureMessageExtrasSchema(): Promise<void> {
           await tx.execute(sql`SET LOCAL lock_timeout = '3s'`);
           await tx.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS "poll" jsonb`);
           await tx.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS "message_snapshot" jsonb`);
+          await tx.execute(sql`ALTER TABLE messages ADD COLUMN IF NOT EXISTS "bridge_origin" jsonb`);
         });
         await db.transaction(async (tx) => {
           await tx.execute(sql`SET LOCAL lock_timeout = '3s'`);

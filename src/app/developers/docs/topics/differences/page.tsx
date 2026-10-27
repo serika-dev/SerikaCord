@@ -78,6 +78,38 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
         {gt("SerikaCord has no app payments. SKU, entitlement and subscription lists are always empty, single lookups answer 404 (10027 Unknown SKU, 10029 Unknown entitlement), and there are no entitlement events.")}
       </P>
 
+      <H2 id="bridged-servers">{gt("Bridged servers")}</H2>
+      <P>
+        {gt("A server can be bridged to a Discord server: messages posted on Discord are relayed into the linked SerikaCord channel, and the other way round. If your bot runs on both platforms and is in both servers, it sees a Discord user's message twice, once on each side. Two SerikaCord extensions let it handle each message once.")}
+      </P>
+      <UL>
+        <li>{gt("A message relayed in from Discord carries a bridged_from object with the Discord guild, channel and message ids and the Discord author's id. The author may be a bridged Discord account or, for people who linked their accounts, their SerikaCord user. Skip these when your Discord copy is in that server.")}</li>
+        <li><InlineCode>{"GET /guilds/{guild.id}/bridge"}</InlineCode>{" "}{gt("lists the bridged channels your bot can see: the SerikaCord channel id, the Discord channel id, and whether each direction is on. Use it to share state between the two copies of a channel.")}</li>
+        <li>{gt("Only messages from people cross the bridge. Your bot's own messages and interaction responses stay on the platform they were sent on; Discord bot messages are relayed into SerikaCord unless the server turned that off.")}</li>
+      </UL>
+      <CodeBlock lang="json">{`// MESSAGE_CREATE (relayed from Discord)
+"bridged_from": {
+  "platform": "discord",
+  "guild_id": "1100000000000000001",
+  "channel_id": "1100000000000000002",
+  "message_id": "1100000000000000003",
+  "author": { "id": "1100000000000000004", "bot": false }
+}
+
+// GET /guilds/{guild.id}/bridge
+{
+  "platform": "discord",
+  "enabled": true,
+  "guild_id": "1100000000000000001",
+  "links": [
+    { "channel_id": "1464...", "discord_channel_id": "1100000000000000002",
+      "inbound": true, "outbound": true, "include_bots": true }
+  ]
+}`}</CodeBlock>
+      <P>
+        {gt("discord.js drops fields it does not know, so read bridged_from from the raw gateway packet (client.on('raw')) and look it up by message id.")}
+      </P>
+
       <H2 id="libraries">{gt("Library notes")}</H2>
       <Table headers={[gt("Library"), gt("Note")]} rows={[
         ["discord.py", gt("Set Route.BASE, DiscordWebSocket.DEFAULT_GATEWAY and Asset.BASE. Without DEFAULT_GATEWAY it connects to Discord's gateway with your token.")],

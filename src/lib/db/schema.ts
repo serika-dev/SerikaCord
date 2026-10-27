@@ -258,6 +258,11 @@ export const messages = pgTable('messages', {
   deletedAt: timestamp('deleted_at'),
   interaction: jsonb('interaction'),
   discordMessageId: text('discord_message_id'),
+  // Where a message relayed in by the Discord bridge came from
+  // ({ platform, guildId, channelId, messageId, authorId, authorBot }); null for
+  // everything else. Bots see it as `bridged_from`. Added at boot by
+  // ensureMessageExtrasSchema() (drizzle/manual_message_bridge_origin.sql).
+  bridgeOrigin: jsonb('bridge_origin'),
   suppressEmbeds: boolean('suppress_embeds').default(false),
   // Call metadata for type 'call' (CallMessageData in lib/voice/callMessage).
   // Added at boot by ensureCallMessageSchema().
