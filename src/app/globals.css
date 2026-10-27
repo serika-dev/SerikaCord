@@ -852,11 +852,23 @@ html.native-app body {
   font-size: 0.875rem;
 }
 .chat-cselect:disabled { opacity: 0.5; cursor: not-allowed; }
+/* Components v2 container (17): rounded card, accent bar only with accent_color (like Discord). */
 .chat-ccontainer {
-  border-left: 4px solid var(--chat-ccontainer-accent, var(--app-border));
+  width: 100%;
+  max-width: min(100%, 36rem);
+  border: 1px solid var(--app-border);
   border-radius: 0.5rem;
   background: var(--app-surface-alt);
   padding: 0.75rem 1rem;
+}
+.chat-ccontainer[data-accent] {
+  border-left: 4px solid var(--chat-ccontainer-accent);
+  padding-left: calc(1rem - 3px);
+}
+/* Components v2 media gallery (12): Discord-sized grid inside the chat column. */
+.chat-cgallery {
+  width: 100%;
+  max-width: min(100%, 32.5rem);
 }
 
 /* ─── Messages that ping you (mention, @everyone, reply ping) ─── */

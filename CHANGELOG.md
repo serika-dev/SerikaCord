@@ -24,6 +24,7 @@
 - **Members page for moderators** — moderators get a Members page under the server name: search and sort recent members, see when they joined the server and SerikaCord, their roles, new-account and timeout flags, and open profiles or moderation actions from the list.
 - **Live event badge on server icons** — servers with an event happening now show a green live badge in the server list (a calendar badge when one starts within the hour), and the tooltip says which event and when.
 - **Forum settings** — set post guidelines, tags (including moderator-only tags), required tags, and the default sort order and layout for each forum.
+- **Discord Components V2 layouts** — bot and webhook messages can be cards with accent colours, sections with thumbnails, image and video galleries, file cards, separators and spoilers, laid out like on Discord, and their buttons and menus keep working.
 
 ### Changes
 - **Nicer settings** — both settings windows have a grouped sidebar with search (it also finds settings like "dark mode" and jumps to them), tidier rows, sticky page titles, an ESC close button and smooth page transitions.
@@ -51,6 +52,8 @@
 - **Member sort** — sorting Server Settings → Members by account creation date now works.
 - **Channel invites** — the Invites tab lists the channel's invites again, and new invites point at the channel you picked instead of the server's first channel.
 - **Channel settings that did not stick** — "Hide After Inactivity", moving a channel to another category as a moderator, and the age-restricted toggle now save and update right away; editing names with & no longer shows &amp;.
+- **Bot apps can update V2 component messages** — updating the message a button is on now works without resending the V2 flag.
+- **Webhook tools work with SerikaCord** — looking up a webhook, and editing or deleting its messages, now also work on the unversioned /api/webhooks/{id}/{token} URLs (like Discord), so Serika Hooks and Discohook-style tools can use them.
 
 ### Changes
 - **Reorder everything on your Board** — every widget (game sections, Serika Wishlist lists, app widgets, Connections and Recent activity) has up/down arrows, and the order you pick is the one everyone sees. Works with the keyboard and on phones. Visitors no longer see an empty Recent activity box.
@@ -74,6 +77,7 @@
 ### Security
 - **Smaller bot invite** — the Discord bridge invite asks only for the permissions it needs instead of Administrator, and Discord webhook URLs are never sent to the browser.
 - **Webhook access** — only members with Manage Webhooks can see a channel webhook list, and webhook pictures are stored on Serika servers.
+- **Bot images go through the image proxy** — pictures in component layouts load through Serika's image proxy, so the bot's server never sees viewers' addresses.
 
 ### Removed
 

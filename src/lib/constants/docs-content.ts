@@ -977,7 +977,34 @@ Represents a text message sent in a channel, thread, DM or group DM. Message obj
 - \`allowed_mentions\` (\`parse\`, \`users\`, \`roles\`, \`replied_user\`) decides who is pinged before anything is notified. Without it every mention in the content pings (still limited by \`MENTION_EVERYONE\` and mentionable roles) and a reply pings its author.
 - \`message_reference\`: \`{ message_id }\` replies in the same channel (\`fail_if_not_exists: false\` sends a normal message when the target is gone); \`{ type: 1, message_id, channel_id }\` forwards a message your bot can read (no other content allowed).
 - \`nonce\` (string up to 25 characters or integer) is echoed back; with \`enforce_nonce: true\` a retry within 5 minutes returns the first message instead of posting twice.
-- \`sticker_ids\` (one sticker), \`tts\` (needs \`SEND_TTS_MESSAGES\`), \`flags\` (\`SUPPRESS_EMBEDS\`, \`SUPPRESS_NOTIFICATIONS\`, \`IS_VOICE_MESSAGE\`), \`poll\` and \`attachments\` (file metadata; on edit, the attachments to keep).
+- \`sticker_ids\` (one sticker), \`tts\` (needs \`SEND_TTS_MESSAGES\`), \`flags\` (\`SUPPRESS_EMBEDS\`, \`SUPPRESS_NOTIFICATIONS\`, \`IS_VOICE_MESSAGE\`, \`IS_COMPONENTS_V2\`), \`poll\` and \`attachments\` (file metadata; on edit, the attachments to keep).
+- \`components\`: up to 5 action rows (buttons, selects), or a Components V2 layout with the \`IS_COMPONENTS_V2\` flag (below).
+
+## Components V2
+Set \`flags: 32768\` (\`IS_COMPONENTS_V2\`, 1 << 15) to build the message from layout components, like Discord. Works for bot messages (create / edit), interaction responses and followups (ephemeral too) and webhooks (\`?with_components=true\`).
+- Top level: action row (1), section (9), text display (10), media gallery (12), file (13), separator (14), container (17). Thumbnails (11) only as a section accessory.
+- Container (17): no nesting; holds action rows, sections, text displays, galleries, files, separators; \`accent_color\` 0x000000-0xFFFFFF or null; \`spoiler\`.
+- Section (9): 1-3 text displays + \`accessory\` (thumbnail or button). Thumbnail: \`media.url\`, \`description\` (1024), \`spoiler\`.
+- Media gallery (12): 1-10 items (\`media.url\`, \`description\` 1024, \`spoiler\`). File (13): \`file.url\` must be \`attachment://name\` of an upload; the response adds \`name\` and \`size\`. Separator (14): \`divider\` (default true), \`spacing\` 1 or 2.
+- \`content\`, \`embeds\`, \`poll\`, \`sticker_ids\` must be absent; at most 40 components in total (nested ones count) and 4000 characters across text displays; ids are optional unique 32-bit ints (0 or missing = assigned in order).
+- Media URLs: http(s) or \`attachment://\`. Attachments only show through components. The flag can't be removed on edit. Errors are 50035 with the field path (e.g. \`components.0.components.1.accessory.media.url\`).
+
+\`\`\`json
+{
+  "flags": 32768,
+  "components": [
+    { "type": 17, "accent_color": 5793266, "components": [
+      { "type": 10, "content": "# Weekly report" },
+      { "type": 9, "components": [{ "type": 10, "content": "**Uptime** 99.98%" }],
+        "accessory": { "type": 11, "media": { "url": "attachment://chart.png" } } },
+      { "type": 14, "divider": true, "spacing": 1 },
+      { "type": 12, "items": [{ "media": { "url": "https://example.com/a.png" } }] },
+      { "type": 13, "file": { "url": "attachment://report.pdf" } },
+      { "type": 1, "components": [{ "type": 2, "style": 1, "label": "Acknowledge", "custom_id": "report_ack" }] }
+    ] }
+  ]
+}
+\`\`\`
 
 ## Gateway events
 \`MESSAGE_CREATE\` (with \`member\` and \`guild_id\` in servers), \`MESSAGE_UPDATE\` (full message), \`MESSAGE_DELETE\`, \`MESSAGE_DELETE_BULK\`, \`CHANNEL_PINS_UPDATE\`, \`TYPING_START\` (\`GUILD_MESSAGE_TYPING\` / \`DIRECT_MESSAGE_TYPING\`), \`MESSAGE_POLL_VOTE_ADD\` / \`_REMOVE\`. They fire for messages from users, bots, webhooks and the system, in channels, threads and DMs, and only reach bots that can see the channel.`,

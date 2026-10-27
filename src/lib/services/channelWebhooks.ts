@@ -536,7 +536,14 @@ export async function editWebhookMessage(
   const found = await webhookMessage(w, messageId, query.thread_id);
   if (!found) return UNKNOWN_MESSAGE;
   const existing = (found.message.attachments ?? []) as IncomingAttachment[];
-  const parsed = parseOutgoingMessage(body, { mode: 'edit', existingAttachmentIds: existing.map((a) => String(a.id)), existingAttachmentNames: existing.map((a) => a.filename), existingFlags: found.message.flags ?? 0 });
+  const parsed = parseOutgoingMessage(body, {
+    mode: 'edit',
+    existingAttachmentIds: existing.map((a) => String(a.id)),
+    existingAttachmentNames: existing.map((a) => a.filename),
+    existingFlags: found.message.flags ?? 0,
+    existingContent: Boolean(found.message.content),
+    existingEmbeds: Array.isArray(found.message.embeds) && found.message.embeds.length > 0,
+  });
   if (!parsed.ok) return apiFailure(parsed);
   const m = parsed.message;
   let components = m.has.components && (query.with_components === 'true' || applicationIdOf(w)) ? m.components : undefined;

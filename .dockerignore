@@ -27,3 +27,17 @@ desktop-tauri/node_modules
 mobile/node_modules
 serika-accounts/node_modules
 serika-accounts/.env
+
+# Not part of the web app: desktop shells (desktop-tauri has ~1.5 GB of
+# committed build output), mobile shell, the accounts service submodule,
+# docs, tests and tooling. Keeps the build context and image small.
+desktop
+desktop-tauri
+desktop-QT
+mobile
+serika-accounts
+docs
+tests
+ref
+.claude
+.github

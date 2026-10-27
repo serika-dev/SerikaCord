@@ -3,6 +3,7 @@ import { BoundedMap } from '@/lib/utils/boundedMap';
 import { applyAffixes, isInboundActive } from './bridgeConfig';
 import { listActiveBridges, resolveGuildBridge } from './bridgeStore';
 import { recordBotHeartbeat, recordBridgeSuccess } from './bridgeHealth';
+import { componentsToText, isComponentsV2, type MessageComponent } from '@/lib/botapi/components';
 
 const BOT_ID = process.env.SERIKA_DISCORD_ID || '1524469730256355421';
 const SITE_URL = (process.env.NEXT_PUBLIC_APP_URL || process.env.APP_URL || 'https://serika.chat').replace(/\/$/, '');
@@ -40,6 +41,20 @@ function mapAttachments(d: any): any[] {
     height: att.height || null,
     spoiler: att.filename?.startsWith('SPOILER_') || false,
   }));
+}
+
+/**
+ * Text of a Discord message for the bridge. Components v2 messages (flag
+ * 1 << 15, sent by Discord bots) have no `content`: their text displays, link
+ * buttons and external media URLs become plain text instead (layouts and
+ * interactive components aren't mirrored, their attachments are mirrored as
+ * attachments). Null when the payload carries no text at all (edits).
+ */
+function discordMessageText(d: { flags?: unknown; components?: unknown; content?: unknown } | null | undefined): string | null {
+  if (isComponentsV2(typeof d?.flags === 'number' ? d.flags : 0)) {
+    return Array.isArray(d?.components) ? componentsToText(d.components as MessageComponent[], 4000) : null;
+  }
+  return typeof d?.content === 'string' ? d.content : null;
 }
 
 /**
@@ -971,7 +986,7 @@ export async function startDiscordBot() {
             }
 
             // Convert Discord content to Serika-friendly format
-            const rawContent = d.content || '';
+            const rawContent = discordMessageText(d) ?? '';
             const content = applyAffixes(formatDiscordContentForSerika(rawContent), options);
             const attachments = options.attachments ? mapAttachments(d) : [];
             const embeds = mapEmbeds(d);
@@ -1071,7 +1086,8 @@ export async function startDiscordBot() {
             // MESSAGE_UPDATE fires for content edits AND for embed-only changes
             // (e.g. Discord unfurling a link a moment after the message posts).
             // Only skip if there's genuinely nothing we track in the payload.
-            const hasContent = typeof d.content === 'string';
+            const editedText = discordMessageText(d);
+            const hasContent = editedText !== null;
             const hasEmbeds = Array.isArray(d.embeds);
             const hasAttachments = Array.isArray(d.attachments);
             if (!hasContent && !hasEmbeds && !hasAttachments) return;
@@ -1079,7 +1095,7 @@ export async function startDiscordBot() {
             const update: Record<string, any> = { updatedAt: new Date() };
             let newContent: string | undefined;
             if (hasContent) {
-              newContent = applyAffixes(formatDiscordContentForSerika(d.content), options);
+              newContent = applyAffixes(formatDiscordContentForSerika(editedText ?? ''), options);
               update.content = await encryptForStorage(newContent);
               update.edited = true;
               update.editedTimestamp = new Date();

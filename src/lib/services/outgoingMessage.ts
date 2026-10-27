@@ -15,7 +15,7 @@
 import { config } from '@/lib/config';
 import { FE, FormErrors, formError, type DiscordFormError } from '@/lib/botapi/formErrors';
 import {
-  IS_COMPONENTS_V2, resolveAttachmentRefs, validateMessageComponents, type MessageComponent,
+  IS_COMPONENTS_V2, componentsV2Conflicts, resolveAttachmentRefs, validateMessageComponents, type MessageComponent,
 } from '@/lib/botapi/components';
 import {
   effectiveFilename, imageDimensions, isSpoilerFilename, parseBotMessageBody, planAttachments,
@@ -83,6 +83,9 @@ export interface OutgoingOptions {
   /** Edit: file names of the message's attachments (attachment:// in embeds). */
   existingAttachmentNames?: string[];
   existingFlags?: number;
+  /** Edit: whether the stored message has text / embeds (they block turning IS_COMPONENTS_V2 on). */
+  existingContent?: boolean;
+  existingEmbeds?: boolean;
   allowEphemeral?: boolean;
 }
 export type OutgoingParse = ({ ok: true; message: OutgoingMessage; files: Array<{ index: number; file: FileLike }>; fileMeta: Map<number, AttachmentMeta> }) | ApiFailure;
@@ -158,9 +161,12 @@ export function parseOutgoingPayload(
     else if (Array.isArray(p.components) && p.components.length === 0) components = [];
   }
   if (v2) {
-    if (content) errors.add(['content'], FE.INVALID, 'The content field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
-    if (embeds.length) errors.add(['embeds'], FE.INVALID, 'The embeds field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
-    if (p.poll !== undefined && p.poll !== null) errors.add(['poll'], FE.INVALID, 'The poll field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+    // content / embeds / poll / sticker_ids must be absent (an edit can't leave old text behind either).
+    componentsV2Conflicts(
+      errors,
+      { content: p.content, embeds: p.embeds, poll: p.poll, sticker_ids: p.sticker_ids },
+      opts.mode === 'edit' ? { content: Boolean(opts.existingContent), embeds: Boolean(opts.existingEmbeds) } : undefined,
+    );
   }
 
   let fileMeta = new Map<number, AttachmentMeta>();
@@ -227,9 +233,15 @@ export async function prepareAppContent(content: string): Promise<string> {
   return normalizeEmojiFormat(sanitizeMessageContent(content));
 }
 
-/** A create must have something to show. */
+/**
+ * A create must have something to show. With IS_COMPONENTS_V2 only components
+ * are shown (attachments appear through file / gallery / thumbnail components),
+ * so a v2 message without components is empty.
+ */
 export function isEmptyOutgoing(m: OutgoingMessage, attachmentCount: number): boolean {
-  return !m.content && m.embeds.length === 0 && !(m.components && m.components.length) && attachmentCount === 0;
+  const hasComponents = Boolean(m.components && m.components.length);
+  if ((m.flags & IS_COMPONENTS_V2) !== 0) return !hasComponents;
+  return !m.content && m.embeds.length === 0 && !hasComponents && attachmentCount === 0;
 }
 
 /**
@@ -294,7 +306,7 @@ export function finalizeComponents(
 ): { ok: true; components: MessageComponent[] | null } | ApiFailure {
   if (!components) return { ok: true, components };
   const r = resolveAttachmentRefs(components, attachments.map((a) => ({
-    id: String(a.id), filename: a.filename, url: a.url, contentType: a.contentType, width: a.width, height: a.height,
+    id: String(a.id), filename: a.filename, url: a.url, contentType: a.contentType, width: a.width, height: a.height, size: a.size,
   })));
   if (!r.ok) return { ok: false, status: 400, body: formError(['components'], FE.INVALID, `Unknown attachment reference attachment://${r.missing}`) };
   return { ok: true, components: r.components };

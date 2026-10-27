@@ -5,7 +5,7 @@ import { ChannelWebhook, type IApplication } from '@/lib/models';
 import { addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage, type IChannel } from '@/lib/models';
 import { FormErrors } from '@/lib/botapi/formErrors';
-import { IS_COMPONENTS_V2, componentsPlainText, isComponentsV2, parseStoredComponents, resolveAttachmentRefs, validateMessageComponents } from '@/lib/botapi/components';
+import { IS_COMPONENTS_V2, componentsPlainText, componentsV2Conflicts, isComponentsV2, parseStoredComponents, resolveAttachmentRefs, validateMessageComponents } from '@/lib/botapi/components';
 import { nanoid } from 'nanoid';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { config } from '@/lib/config';
@@ -2428,12 +2428,13 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const componentErrors = new FormErrors();
   const validatedComponents = validateMessageComponents(components, { flags: typeof flags === 'number' ? flags : 0, errors: componentErrors });
   if (componentsV2) {
-    if (typeof content === 'string' && content) componentErrors.add(['content'], 'COMPONENT_INVALID', 'The content field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
-    if ((Array.isArray(embeds) && embeds.length) || embed) componentErrors.add(['embeds'], 'COMPONENT_INVALID', 'The embeds field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
-    if (pollRequest !== undefined && pollRequest !== null) componentErrors.add(['poll'], 'COMPONENT_INVALID', 'The poll field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+    // content / embeds / poll / sticker_ids must be absent with IS_COMPONENTS_V2.
+    componentsV2Conflicts(componentErrors, { content, embeds, embed, poll: pollRequest, sticker_ids });
   }
   if (!componentErrors.ok) { set.status = 400; return componentErrors.toBody(); }
   let messageComponents = validatedComponents?.components ?? null;
+  // A v2 message shows only its components (attachments appear through them).
+  if (componentsV2 && !messageComponents?.length) { set.status = 400; return { code: 50006, message: 'Cannot send an empty message' }; }
 
   // message_reference: reply (type 0, same channel) or forward (type 1).
   let replyTo: IMessage | null = null;
@@ -2587,7 +2588,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     const storedAttachments = voice.flag ? voice.attachments : attachments;
     if (messageComponents) {
       // attachment://name media in thumbnails / galleries / file components.
-      const refs = resolveAttachmentRefs(messageComponents, storedAttachments.map((a) => ({ id: String(a.id), filename: a.filename, url: a.url, contentType: a.contentType, width: a.width, height: a.height })));
+      const refs = resolveAttachmentRefs(messageComponents, storedAttachments.map((a) => ({ id: String(a.id), filename: a.filename, url: a.url, contentType: a.contentType, width: a.width, height: a.height, size: a.size })));
       if (!refs.ok) { set.status = 400; return formError(['components'], 'COMPONENT_INVALID', `Unknown attachment reference attachment://${refs.missing}`); }
       messageComponents = refs.components;
     }
@@ -2814,6 +2815,17 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     updates.flags = ((msg.flags ?? 0) & ~MESSAGE_FLAGS.SUPPRESS_EMBEDS) | (suppressNow ? MESSAGE_FLAGS.SUPPRESS_EMBEDS : 0) | (isAuthor && isComponentsV2(flags) ? IS_COMPONENTS_V2 : 0);
     updates.suppressEmbeds = suppressNow;
   }
+  // IS_COMPONENTS_V2 (already set, or turned on now): no text / embeds may be
+  // left on the message, whether sent now or kept from before.
+  const v2After = isComponentsV2(updates.flags ?? msg.flags ?? 0);
+  if (isAuthor && v2After) {
+    const v2Errors = new FormErrors();
+    componentsV2Conflicts(v2Errors, { content, embeds, embed }, {
+      content: Boolean(msg.content),
+      embeds: Array.isArray(msg.embeds) && msg.embeds.length > 0,
+    });
+    if (!v2Errors.ok) { set.status = 400; return v2Errors.toBody(); }
+  }
   // Components on edit (null / [] clears them), only the author's own.
   let nextComponents = parseStoredComponents(msg.components);
   if (components !== undefined && isAuthor) {
@@ -2822,7 +2834,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     if (!componentErrors.ok) { set.status = 400; return componentErrors.toBody(); }
     let list = v?.components ?? [];
     if (list.length) {
-      const refs = resolveAttachmentRefs(list, nextAttachments.map((a) => ({ id: String(a.id), filename: a.filename, url: a.url, contentType: a.contentType, width: a.width, height: a.height })));
+      const refs = resolveAttachmentRefs(list, nextAttachments.map((a) => ({ id: String(a.id), filename: a.filename, url: a.url, contentType: a.contentType, width: a.width, height: a.height, size: a.size })));
       if (!refs.ok) { set.status = 400; return formError(['components'], 'COMPONENT_INVALID', `Unknown attachment reference attachment://${refs.missing}`); }
       list = refs.components;
     }
@@ -2835,6 +2847,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const finalText = text ?? (msg.content ? await decryptFromStorage(msg.content).catch(() => '') : '');
   const finalEmbeds = (updates.embeds ?? msg.embeds ?? []) as unknown[];
   if (!finalText && finalEmbeds.length === 0 && nextAttachments.length === 0 && !msg.sticker && !msg.poll && !msg.messageSnapshot && !nextComponents?.length) {
+    set.status = 400; return { code: 50006, message: 'Cannot send an empty message' };
+  }
+  // A v2 message shows only components, so it can't lose all of them.
+  if (isAuthor && v2After && !nextComponents?.length) {
     set.status = 400; return { code: 50006, message: 'Cannot send an empty message' };
   }
 

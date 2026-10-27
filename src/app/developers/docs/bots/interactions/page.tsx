@@ -262,6 +262,9 @@ curl -X POST \\
       <P>
         {gt("Components are accepted on bot messages, interaction responses, followups and application-owned webhooks, validated against Discord's limits (custom_id up to 100 characters, labels up to 80, 40 components and 4,000 characters of text display in v2), and stored with the message. A user's click is checked against the stored message: unknown or disabled components never reach your app.")}
       </P>
+      <P>
+        {gt("Buttons and selects inside Components V2 layouts (containers and section accessories) send the same MESSAGE_COMPONENT interactions. Rules, limits and a full example payload are in")}{" "}<Link2 href="/developers/docs/resources/message#components-v2">{gt("Components V2")}</Link2>.
+      </P>
 
       <H2 id="modals">{gt("Modals")}</H2>
       <P>

@@ -25,6 +25,7 @@ import type { RoleIconData } from "@/components/chat/RoleIcon";
 import type { ChatGt } from "./ChatGtContext";
 import dynamic from "next/dynamic";
 import { attachmentsOutsideComponents, isLoadingMessage } from "@/lib/chat/interactionEvents";
+import { isComponentsV2Message } from "@/lib/chat/componentsV2";
 
 // Bot buttons / selects / components v2: its own chunk, only for messages that have them.
 const MessageComponents = dynamic(() => import("@/components/chat/MessageComponents"), { ssr: false });
@@ -518,7 +519,8 @@ function MessageGroupInner<M extends ChatMessage>({
                       />
                     )}
 
-                    {inlineMediaEnabled && (
+                    {/* Components v2: attachments show only through file / gallery / thumbnail components, like Discord. */}
+                    {inlineMediaEnabled && !isComponentsV2Message(message.flags) && (
                     <MessageAttachments
                       attachments={message.components?.length ? attachmentsOutsideComponents(message.attachments, message.components) : message.attachments}
                       messageId={message.id}

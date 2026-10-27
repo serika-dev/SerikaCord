@@ -210,6 +210,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "No results": gt("No results"),
       "Apply": gt("Apply"),
       "File": gt("File"),
+      "Download": gt("Download"),
       // MessageGroup — deferred interaction reply
       "{name} is thinking…": gt("{name} is thinking…", { name: "{name}" }),
       // MessageGroup — interaction header and ephemeral replies

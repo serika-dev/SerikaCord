@@ -12,16 +12,22 @@
  * isn't disabled before the app gets a MESSAGE_COMPONENT interaction. The
  * button spins until the app acknowledges (or fails to) on the user's
  * activity stream. Link buttons are plain links (new tab, noopener).
+ *
+ * Media (thumbnails, galleries, files) follows lib/chat/componentsV2: uploads
+ * and our CDN load directly, other images go through the image proxy, and
+ * external videos fetch nothing until played.
  */
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Check, ChevronDown, ExternalLink, FileText, Loader2 } from "lucide-react";
+import { Check, ChevronDown, Download, ExternalLink, FileText, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { useChatGt, type ChatGt } from "./ChatGtContext";
 import { useServer } from "@/contexts/ServerContext";
 import { claimInteraction, onInteractionEvent, postInteraction, recentOutcome } from "@/lib/chat/interactionEvents";
-import type { MessageComponent, SelectOption } from "@/lib/botapi/components";
+import { accentHex, componentImageSrc, componentVideoSrc, galleryLayout, isTrustedMedia, isVideoMedia } from "@/lib/chat/componentsV2";
+import { formatFileSize } from "@/lib/chat/messages";
+import type { MessageComponent, SelectOption, UnfurledMedia } from "@/lib/botapi/components";
 import type { MessageAttachment } from "@/lib/chat/types";
 
 const T = {
@@ -56,11 +62,6 @@ export interface MessageComponentsProps {
 
 const isHttpUrl = (u: unknown): u is string => typeof u === "string" && /^https?:\/\//i.test(u);
 
-function colorHex(n: number | null | undefined): string | undefined {
-  if (typeof n !== "number" || !Number.isFinite(n)) return undefined;
-  return `#${Math.max(0, Math.min(0xffffff, Math.floor(n))).toString(16).padStart(6, "0")}`;
-}
-
 function failureText(gt: ChatGt, code: string | undefined): string {
   switch (code) {
     case "rate_limited":
@@ -87,25 +88,175 @@ function Emoji({ emoji, emojis }: { emoji?: { id?: string; name?: string }; emoj
   return emoji.name ? <span aria-hidden>{emoji.name}</span> : null;
 }
 
-/** Media from a component (http(s) only, no referrer; blurred when a spoiler). */
-function Media({ url, alt, spoiler, className, onOpen }: { url?: string; alt?: string; spoiler?: boolean; className?: string; onOpen?: () => void }) {
+type MediaClick = (src: string, alt: string | undefined) => void;
+
+/** Attachment a component's media points at (by attachment_id, else by URL). */
+function attachmentFor(media: UnfurledMedia | undefined, attachments?: MessageAttachment[]): MessageAttachment | undefined {
+  if (!media || !attachments?.length) return undefined;
+  return attachments.find((a) => (media.attachment_id && a.id === media.attachment_id) || a.url === media.url);
+}
+
+/** Spoiler veil shared by media tiles, file cards and containers. */
+function SpoilerVeil({ onReveal }: { onReveal: () => void }) {
   const gt = useChatGt();
-  const [revealed, setRevealed] = useState(!spoiler);
-  if (!isHttpUrl(url)) return null;
   return (
     <button
       type="button"
-      className={cn("relative block overflow-hidden rounded-md bg-[var(--app-surface)]", className)}
-      onClick={() => (revealed ? onOpen?.() : setRevealed(true))}
-      aria-label={revealed ? alt || gt("Image") : gt("Click to reveal")}
+      onClick={onReveal}
+      aria-label={gt("Click to reveal")}
+      className="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--app-bg)]/40 text-xs font-semibold uppercase tracking-wide text-[var(--app-text)]"
     >
-      <img src={url} alt={alt || ""} loading="lazy" referrerPolicy="no-referrer" className={cn("block w-full h-full object-cover", !revealed && "blur-xl scale-110")} />
-      {!revealed && (
-        <span className="absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-[var(--app-text)] bg-[var(--app-bg)]/40">
-          {gt("Spoiler")}
-        </span>
-      )}
+      <span className="rounded-full bg-[var(--app-bg)]/80 px-3 py-1">{gt("Spoiler")}</span>
     </button>
+  );
+}
+
+/**
+ * One image / video of a thumbnail or gallery tile: http(s) only, external
+ * images through the proxy, no referrer, blurred while a spoiler.
+ */
+function Media({
+  media, alt, spoiler, className, fit = "cover", natural = false, tileWidth, onOpen,
+}: {
+  media?: UnfurledMedia;
+  alt?: string;
+  spoiler?: boolean;
+  className?: string;
+  fit?: "cover" | "contain";
+  /** Natural size within the shared chat media bounds (.chat-media), for a lone gallery item. */
+  natural?: boolean;
+  /** Rendered width in CSS px, to ask for a smaller rendition. */
+  tileWidth?: number;
+  onOpen?: MediaClick;
+}) {
+  const gt = useChatGt();
+  const [revealed, setRevealed] = useState(!spoiler);
+  const [failed, setFailed] = useState(false);
+  const video = isVideoMedia(media);
+  const src = video ? componentVideoSrc(media) : componentImageSrc(media, { width: tileWidth ? tileWidth * 2 : undefined });
+  if (!src) return null;
+  return (
+    <div className={cn("relative overflow-hidden rounded-md bg-[var(--app-surface)]", className)}>
+      {video ? (
+        <video
+          src={src}
+          controls={revealed}
+          playsInline
+          // External videos can't be proxied: fetch nothing until played.
+          preload={isTrustedMedia(media) ? "metadata" : "none"}
+          {...({ referrerPolicy: "no-referrer" } as unknown as React.VideoHTMLAttributes<HTMLVideoElement>)}
+          aria-label={alt || undefined}
+          className={cn(natural ? "chat-media" : "block w-full h-full", "bg-[var(--app-bg)]", fit === "cover" ? "object-cover" : "object-contain", !revealed && "blur-xl scale-110")}
+        />
+      ) : failed ? (
+        <div className="flex h-full min-h-16 w-full items-center justify-center p-2 text-center text-xs text-[var(--app-muted)]">
+          {gt("Image")}
+        </div>
+      ) : (
+        <button
+          type="button"
+          className={natural ? "block" : "block w-full h-full"}
+          onClick={() => revealed && onOpen?.(componentImageSrc(media) ?? src, alt)}
+          aria-label={alt || gt("Image")}
+          tabIndex={revealed ? 0 : -1}
+        >
+          <img
+            src={src}
+            alt={alt || ""}
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            onError={() => setFailed(true)}
+            className={cn(natural ? "chat-media" : "block w-full h-full", fit === "cover" ? "object-cover" : "object-contain", !revealed && "blur-xl scale-110")}
+          />
+        </button>
+      )}
+      {!revealed && <SpoilerVeil onReveal={() => setRevealed(true)} />}
+    </div>
+  );
+}
+
+type GalleryItem = NonNullable<MessageComponent["items"]>[number];
+
+/** Media gallery (12) in Discord's layouts: 1, 2, 1 big + 2, 2x2, then rows of three. */
+function MediaGallery({ items, attachments, onOpen }: { items: GalleryItem[]; attachments?: MessageAttachment[]; onOpen?: MediaClick }) {
+  const shown = items.filter((it) => componentImageSrc(it?.media) || componentVideoSrc(it?.media)).slice(0, 10);
+  const layout = galleryLayout(shown.length);
+  if (shown.length === 0) return null;
+  const tile = (it: GalleryItem, i: number, className: string, tileWidth: number, natural = false) => {
+    const att = attachmentFor(it.media, attachments);
+    return (
+      <Media
+        key={i}
+        media={it.media}
+        alt={it.description}
+        spoiler={Boolean(it.spoiler || att?.spoiler || att?.sensitive)}
+        className={className}
+        fit={natural ? "contain" : "cover"}
+        natural={natural}
+        tileWidth={tileWidth}
+        onOpen={onOpen}
+      />
+    );
+  };
+  if (shown.length === 1) {
+    return (
+      <div className="max-w-full">
+        {tile(shown[0], 0, "w-fit max-w-full", 520, true)}
+      </div>
+    );
+  }
+  if (layout.feature) {
+    return (
+      <div className="chat-cgallery grid grid-cols-2 grid-rows-2 gap-1 aspect-[3/2]">
+        {tile(shown[0], 0, "row-span-2 h-full", 340)}
+        {tile(shown[1], 1, "h-full", 260)}
+        {tile(shown[2], 2, "h-full", 260)}
+      </div>
+    );
+  }
+  const starts = layout.rows.map((_, r) => layout.rows.slice(0, r).reduce((a, b) => a + b, 0));
+  return (
+    <div className="chat-cgallery flex flex-col gap-1">
+      {layout.rows.map((count, r) => (
+        <div key={r} className="grid gap-1" style={{ gridTemplateColumns: `repeat(${count}, minmax(0, 1fr))` }}>
+          {shown.slice(starts[r], starts[r] + count).map((it, i) => tile(
+            it,
+            starts[r] + i,
+            count === 1 ? "aspect-video" : count === 2 ? "aspect-[4/3]" : "aspect-square",
+            Math.round(520 / count),
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** File (13): a card for the uploaded attachment it references, spoiler-veiled if asked. */
+function FileCard({ component, attachments }: { component: MessageComponent; attachments?: MessageAttachment[] }) {
+  const gt = useChatGt();
+  const att = attachmentFor(component.file, attachments);
+  const [revealed, setRevealed] = useState(!(component.spoiler || att?.spoiler));
+  const url = att?.url ?? component.file?.url;
+  if (!url || !/^https?:\/\//i.test(url)) return null;
+  const name = component.name || att?.filename || url.split("/").pop()?.split("?")[0] || gt("File");
+  const size = formatFileSize(component.size ?? att?.size);
+  return (
+    <div className="relative w-full max-w-[26rem] overflow-hidden rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)]">
+      <div className={cn("flex items-center gap-3 px-3 py-2.5", !revealed && "blur-md select-none")}>
+        <FileText className="w-8 h-8 shrink-0 text-[var(--app-accent)]" />
+        <div className="min-w-0 flex-1">
+          <a href={url} target="_blank" rel="noopener noreferrer" className="block truncate text-sm font-medium text-[var(--app-accent)] hover:underline" tabIndex={revealed ? 0 : -1}>
+            {name}
+          </a>
+          {size && <div className="text-xs text-[var(--app-muted)]">{size}</div>}
+        </div>
+        <a href={url} target="_blank" rel="noopener noreferrer" download className="shrink-0 rounded p-1.5 text-[var(--app-muted)] hover:bg-[var(--app-surface-alt)] hover:text-[var(--app-text)]" aria-label={gt("Download")} tabIndex={revealed ? 0 : -1}>
+          <Download className="w-5 h-5" />
+        </a>
+      </div>
+      {!revealed && <SpoilerVeil onReveal={() => setRevealed(true)} />}
+    </div>
   );
 }
 
@@ -345,6 +496,8 @@ export default function MessageComponents({
     );
   };
 
+  const openMedia: MediaClick = (src, alt) => onMediaClick?.(src, alt, messageId);
+
   const text = (content: string | undefined, key: string | number) => (
     <div key={key} className="chat-message-body text-[var(--app-text)]" style={{ whiteSpace: "pre-wrap" }}>
       <MessageContent
@@ -354,7 +507,7 @@ export default function MessageComponents({
         mentionRoles={mentionRoles}
         currentUserId={currentUserId}
         serverId={serverId}
-        onImageClick={(src, alt) => onMediaClick?.(src, alt, messageId)}
+        onImageClick={openMedia}
       />
     </div>
   );
@@ -374,45 +527,33 @@ export default function MessageComponents({
       case T.SECTION:
         return (
           <div key={key} className="flex gap-3 items-start">
-            <div className="flex-1 min-w-0 space-y-1">{(c.components ?? []).map((t, i) => text(t.content, i))}</div>
+            <div className="flex-1 min-w-0 flex flex-col gap-1">{(c.components ?? []).map((t, i) => text(t.content, i))}</div>
             {c.accessory && (c.accessory.type === T.THUMBNAIL
-              ? <Media url={c.accessory.media?.url} alt={c.accessory.description} spoiler={c.accessory.spoiler} className="w-20 h-20 shrink-0" onOpen={() => c.accessory?.media?.url && onMediaClick?.(c.accessory.media.url, c.accessory.description, messageId)} />
-              : <div className="shrink-0">{renderButton(c.accessory, "acc")}</div>)}
+              ? (
+                <Media
+                  media={c.accessory.media}
+                  alt={c.accessory.description}
+                  spoiler={c.accessory.spoiler || attachmentFor(c.accessory.media, attachments)?.sensitive}
+                  className="w-[5.25rem] h-[5.25rem] shrink-0"
+                  tileWidth={84}
+                  onOpen={openMedia}
+                />
+              )
+              : <div className="shrink-0 self-center">{renderButton(c.accessory, "acc")}</div>)}
           </div>
         );
       case T.THUMBNAIL:
-        return <Media key={key} url={c.media?.url} alt={c.description} spoiler={c.spoiler} className="w-20 h-20" />;
-      case T.MEDIA_GALLERY: {
-        const items = (c.items ?? []).filter((it) => isHttpUrl(it.media?.url));
+        return <Media key={key} media={c.media} alt={c.description} spoiler={c.spoiler} className="w-[5.25rem] h-[5.25rem]" tileWidth={84} onOpen={openMedia} />;
+      case T.MEDIA_GALLERY:
+        return <MediaGallery key={key} items={c.items ?? []} attachments={attachments} onOpen={openMedia} />;
+      case T.FILE:
+        return <FileCard key={key} component={c} attachments={attachments} />;
+      case T.SEPARATOR:
         return (
-          <div key={key} className={cn("grid gap-1 max-w-[var(--chat-media-max-inline)]", items.length > 1 ? "grid-cols-2" : "grid-cols-1")}>
-            {items.map((it, i) => (
-              <Media
-                key={i}
-                url={it.media.url}
-                alt={it.description}
-                spoiler={it.spoiler}
-                className={cn("w-full", items.length > 1 ? "aspect-square" : "max-h-[22rem]")}
-                onOpen={() => onMediaClick?.(it.media.url, it.description, messageId)}
-              />
-            ))}
+          <div key={key} role="separator" aria-hidden={c.divider === false || undefined} className={cn("w-full", c.spacing === 2 ? "py-2" : "py-0.5")}>
+            {c.divider !== false && <div className="border-t border-[var(--app-border)]" />}
           </div>
         );
-      }
-      case T.FILE: {
-        const att = attachments?.find((a) => a.id === c.file?.attachment_id || a.url === c.file?.url);
-        const url = att?.url ?? c.file?.url;
-        if (!isHttpUrl(url)) return null;
-        const name = att?.filename ?? url.split("/").pop()?.split("?")[0] ?? gt("File");
-        return (
-          <a key={key} href={url} target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 max-w-[25rem] rounded-md border border-[var(--app-border)] bg-[var(--app-surface)] px-3 py-2 hover:bg-[var(--app-surface-alt)]">
-            <FileText className="w-6 h-6 shrink-0 text-[var(--app-accent)]" />
-            <span className="truncate text-sm text-[var(--app-accent)]">{name}</span>
-          </a>
-        );
-      }
-      case T.SEPARATOR:
-        return <div key={key} role="separator" className={cn(c.spacing === 2 ? "my-3" : "my-1.5", c.divider !== false && "border-t border-[var(--app-border)]")} />;
       case T.CONTAINER:
         return <Container key={key} component={c} render={render} />;
       default:
@@ -429,22 +570,18 @@ export default function MessageComponents({
 }
 
 function Container({ component, render }: { component: MessageComponent; render: (c: MessageComponent, key: string | number) => React.ReactNode }) {
-  const gt = useChatGt();
   const [revealed, setRevealed] = useState(!component.spoiler);
-  const accent = colorHex(component.accent_color);
+  const accent = accentHex(component.accent_color);
   return (
     <div
-      className="chat-ccontainer relative max-w-[40rem]"
+      className="chat-ccontainer relative overflow-hidden"
+      data-accent={accent ? "" : undefined}
       style={accent ? ({ "--chat-ccontainer-accent": accent } as React.CSSProperties) : undefined}
     >
-      <div className={cn("flex flex-col gap-2", !revealed && "blur-md select-none pointer-events-none")}>
+      <div className={cn("flex flex-col gap-2 min-w-0", !revealed && "blur-md select-none pointer-events-none")} aria-hidden={!revealed || undefined}>
         {(component.components ?? []).map((c, i) => render(c, i))}
       </div>
-      {!revealed && (
-        <button type="button" onClick={() => setRevealed(true)} className="absolute inset-0 flex items-center justify-center text-xs font-semibold uppercase tracking-wide text-[var(--app-text)]">
-          {gt("Spoiler")}
-        </button>
-      )}
+      {!revealed && <SpoilerVeil onReveal={() => setRevealed(true)} />}
     </div>
   );
 }

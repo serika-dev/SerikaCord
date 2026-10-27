@@ -319,7 +319,14 @@ async function applyCallback(
   let modal: Modal | null = null;
   let choices: ReturnType<typeof validateAutocompleteChoices> = null;
   if (cbType === CallbackType.CHANNEL_MESSAGE_WITH_SOURCE || cbType === CallbackType.UPDATE_MESSAGE) {
-    parsed = parseOutgoingPayload(data ?? {}, input.files, { mode: cbType === CallbackType.UPDATE_MESSAGE ? 'edit' : 'create', allowEphemeral: cbType === CallbackType.CHANNEL_MESSAGE_WITH_SOURCE });
+    // UPDATE_MESSAGE edits the component's message: its IS_COMPONENTS_V2 flag
+    // stays on (and its components validate as v2) even when data omits flags.
+    const source = cbType === CallbackType.UPDATE_MESSAGE ? await sourceMessageShape(state) : null;
+    parsed = parseOutgoingPayload(data ?? {}, input.files, {
+      mode: cbType === CallbackType.UPDATE_MESSAGE ? 'edit' : 'create',
+      allowEphemeral: cbType === CallbackType.CHANNEL_MESSAGE_WITH_SOURCE,
+      ...(source ? { existingFlags: source.flags, existingContent: source.content, existingEmbeds: source.embeds } : {}),
+    });
     if (!parsed.ok) return failure(parsed);
   } else if (cbType === CallbackType.MODAL) {
     const errors = new FormErrors();
@@ -482,6 +489,16 @@ async function updateSourceMessage(
   if (!mat.ok) return failure(mat);
   const r = await editAppMessage({ channel, message: msg, patch: patchFrom(p.message, mat), author });
   return { discord: r.discord };
+}
+
+/** Flags and whether text / embeds are set, for the message a component interaction came from. */
+async function sourceMessageShape(state: InteractionState): Promise<{ flags: number; content: boolean; embeds: boolean } | null> {
+  if (!state.sourceMessageId) return null;
+  const shape = (m: { flags?: number | null; content?: unknown; embeds?: unknown } | null) => m
+    ? { flags: (m.flags ?? 0) & ~FLAG_LOADING, content: Boolean(m.content), embeds: Array.isArray(m.embeds) && m.embeds.length > 0 }
+    : null;
+  if (state.sourceEphemeral) return shape(await interactionStore().getRecord<EphemeralRecord>('eph', state.sourceMessageId).catch(() => null));
+  return shape(await loadLiveMessage(state.channelId, state.sourceMessageId).catch(() => null));
 }
 
 /** The author an interaction may edit a message as: the app's bot or an app-owned webhook. */
@@ -677,6 +694,8 @@ export async function editInteractionMessage(state: InteractionState, messageId:
     existingAttachmentIds: ((existing.attachments ?? []) as IncomingAttachment[]).map((a) => String(a.id)),
     existingAttachmentNames: ((existing.attachments ?? []) as IncomingAttachment[]).map((a) => a.filename),
     existingFlags: (existing.flags ?? 0) & ~FLAG_LOADING,
+    existingContent: Boolean(existing.content),
+    existingEmbeds: Array.isArray(existing.embeds) && existing.embeds.length > 0,
   });
   if (!p.ok) return failure(p);
   const channel = await botMayRespond(state.botId, state.channelId, state.guildId);

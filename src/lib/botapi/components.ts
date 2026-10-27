@@ -76,7 +76,15 @@ export const COMPONENT_LIMITS = {
 } as const;
 
 export interface ComponentEmoji { id?: string; name?: string; animated?: boolean }
-export interface UnfurledMedia { url: string; width?: number; height?: number; content_type?: string; attachment_id?: string }
+export interface UnfurledMedia {
+  url: string;
+  /** Same as `url` for uploaded attachments (Discord sends its media proxy URL here). */
+  proxy_url?: string;
+  width?: number;
+  height?: number;
+  content_type?: string;
+  attachment_id?: string;
+}
 export interface SelectOption { label: string; value: string; description?: string; emoji?: ComponentEmoji; default?: boolean }
 export interface SelectDefaultValue { id: string; type: 'user' | 'role' | 'channel' }
 
@@ -114,6 +122,9 @@ export interface MessageComponent {
   media?: UnfurledMedia;
   items?: Array<{ media: UnfurledMedia; description?: string; spoiler?: boolean }>;
   file?: UnfurledMedia;
+  /** File component (13): the attachment's file name and size, filled in from the upload like Discord's response. */
+  name?: string;
+  size?: number;
   spoiler?: boolean;
   divider?: boolean;
   spacing?: number;
@@ -583,11 +594,14 @@ export interface ResolvableAttachment {
   contentType?: string;
   width?: number;
   height?: number;
+  size?: number;
 }
 
 /**
  * Replace `attachment://name` media URLs with the uploaded file's URL (adding
- * `attachment_id`, size and type). Returns the unknown name on failure.
+ * `attachment_id`, `proxy_url`, size and type; File components also get the
+ * attachment's `name` and `size`, as in Discord's response). Returns the
+ * unknown name on failure.
  */
 export function resolveAttachmentRefs(
   components: MessageComponent[],
@@ -595,6 +609,10 @@ export function resolveAttachmentRefs(
 ): { ok: true; components: MessageComponent[] } | { ok: false; missing: string } {
   const byName = new Map(attachments.map((a) => [a.filename, a]));
   let missing: string | null = null;
+  const lookup = (m: UnfurledMedia | undefined): ResolvableAttachment | null => {
+    const name = m ? attachmentRefName(m.url) : null;
+    return name ? byName.get(name) ?? null : null;
+  };
   const fix = (m: UnfurledMedia | undefined): UnfurledMedia | undefined => {
     if (!m) return m;
     const name = attachmentRefName(m.url);
@@ -603,6 +621,7 @@ export function resolveAttachmentRefs(
     if (!a) { missing ??= name; return m; }
     return {
       url: a.url,
+      proxy_url: a.url,
       attachment_id: a.id,
       ...(a.contentType ? { content_type: a.contentType } : {}),
       ...(a.width ? { width: a.width } : {}),
@@ -612,7 +631,14 @@ export function resolveAttachmentRefs(
   const walk = (comp: MessageComponent): MessageComponent => {
     const next: MessageComponent = { ...comp };
     if (next.media) next.media = fix(next.media);
-    if (next.file) next.file = fix(next.file);
+    if (next.file) {
+      const a = lookup(next.file);
+      next.file = fix(next.file);
+      if (a) {
+        next.name = a.filename;
+        if (typeof a.size === 'number' && Number.isFinite(a.size)) next.size = a.size;
+      }
+    }
     if (next.items) next.items = next.items.map((it) => ({ ...it, media: fix(it.media)! }));
     if (next.components) next.components = next.components.map(walk);
     if (next.accessory) next.accessory = walk(next.accessory);
@@ -660,6 +686,69 @@ export function componentsPlainText(list: readonly MessageComponent[] | null | u
     if (comp.type === ComponentType.TEXT_DISPLAY && comp.content) parts.push(comp.content);
   }
   const text = parts.join('\n');
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+/** Components in a tree, counting nested ones and section accessories (the v2 limit is 40). */
+export function countComponents(list: readonly MessageComponent[] | null | undefined): number {
+  let n = 0;
+  for (const comp of walkComponents(list)) if (comp) n++;
+  return n;
+}
+
+/** Characters across every text display in a tree (the v2 limit is 4000). */
+export function textDisplayLength(list: readonly MessageComponent[] | null | undefined): number {
+  let n = 0;
+  for (const comp of walkComponents(list)) {
+    if (comp.type === ComponentType.TEXT_DISPLAY && typeof comp.content === 'string') n += comp.content.length;
+  }
+  return n;
+}
+
+/**
+ * The message fields Discord refuses next to IS_COMPONENTS_V2: `content`,
+ * `embeds`, `poll` and `sticker_ids` must be absent (empty / null is fine).
+ * `existing` (edits) holds what the stored message keeps when the request
+ * doesn't replace it, so turning v2 on can't leave old text or embeds behind.
+ */
+export function componentsV2Conflicts(
+  errors: FormErrors,
+  body: { content?: unknown; embeds?: unknown; embed?: unknown; poll?: unknown; sticker_ids?: unknown },
+  existing?: { content: boolean; embeds: boolean },
+): void {
+  const filled = (v: unknown) => v !== undefined && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0);
+  const contentAfter = body.content !== undefined ? filled(body.content) : Boolean(existing?.content);
+  const embedsAfter = body.embeds !== undefined || body.embed !== undefined
+    ? filled(body.embeds) || filled(body.embed)
+    : Boolean(existing?.embeds);
+  if (contentAfter) errors.add(['content'], FE.INVALID, 'The content field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+  if (embedsAfter) errors.add(['embeds'], FE.INVALID, 'The embeds field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+  if (filled(body.poll)) errors.add(['poll'], FE.INVALID, 'The poll field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+  if (filled(body.sticker_ids)) errors.add(['sticker_ids'], FE.INVALID, 'The sticker_ids field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
+}
+
+/**
+ * A readable text version of a v2 message: text displays, then the http(s)
+ * media of thumbnails / galleries and link buttons that aren't uploads. Used
+ * where layouts can't be shown (the Discord bridge's fallback).
+ */
+export function componentsToText(list: readonly MessageComponent[] | null | undefined, max = 4000): string {
+  const parts: string[] = [];
+  const seen = new Set<string>();
+  const addUrl = (raw: string | undefined, label?: string) => {
+    const url = raw ? safeHttpUrl(raw, COMPONENT_LIMITS.MEDIA_URL) : null;
+    if (!url || seen.has(url)) return;
+    seen.add(url);
+    parts.push(label ? `${cleanLabel(label)}: ${url}` : url);
+  };
+  for (const comp of walkComponents(list)) {
+    if (comp.type === ComponentType.TEXT_DISPLAY && comp.content) parts.push(cleanText(comp.content));
+    else if (comp.type === ComponentType.THUMBNAIL && !comp.media?.attachment_id) addUrl(comp.media?.url);
+    else if (comp.type === ComponentType.MEDIA_GALLERY) {
+      for (const item of comp.items ?? []) if (!item?.media?.attachment_id) addUrl(item?.media?.url);
+    } else if (comp.type === ComponentType.BUTTON && comp.style === ButtonStyle.LINK) addUrl(comp.url, comp.label);
+  }
+  const text = parts.join('\n').trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
 }
 

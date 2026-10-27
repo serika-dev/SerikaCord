@@ -107,6 +107,9 @@ export default async function WebhooksDoc() {
         ["with_components", gt("Use the components field (Discord ignores it without this)")],
       ]} />
       <P>
+        {gt("With flags set to 32768 (IS_COMPONENTS_V2) and ?with_components=true, a webhook can post a Components V2 layout (containers, sections, galleries, files) instead of content and embeds. See")}{" "}<Link2 href="/developers/docs/resources/message#components-v2">{gt("Components V2")}</Link2>.
+      </P>
+      <P>
         {gt("The username and avatar_url overrides are kept with the message, so it shows the same name after a reload. Old webhook URLs of the form /api/webhooks/CHANNEL_ID/TOKEN keep working.")}
       </P>
       <CodeBlock lang="bash">{`# Execute a webhook and wait for the message object
