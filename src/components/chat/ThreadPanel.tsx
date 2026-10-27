@@ -154,7 +154,8 @@ function ThreadCreateForm({
   const canPrivate = !starter && (perms.isOwner || perms.can("CREATE_PRIVATE_THREADS"));
   const [name, setName] = useState(() => (starter ? defaultThreadName(decodeHtmlEntities(starter.content), "") : ""));
   const [isPrivate, setIsPrivate] = useState(false);
-  const [duration, setDuration] = useState<number>(1440);
+  // Starts at the channel's "hide after inactivity" default (Channel Settings).
+  const [duration, setDuration] = useState<number>(() => normalizeAutoArchiveDuration(parentChannel.defaultAutoArchiveDuration));
   const [content, setContent] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const nameRef = useRef<HTMLInputElement>(null);

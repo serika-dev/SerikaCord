@@ -68,6 +68,52 @@ interface Channel {
   rateLimitPerUser?: number;
   permissionOverwrites?: PermissionOverwrite[];
   lastMessageAt?: string | null;
+  /** Default "hide after inactivity" (minutes) for new threads in a text channel. */
+  defaultAutoArchiveDuration?: number | null;
+}
+
+/** Fields `PATCH /api/channels/:id` accepts (src/lib/api/channels.ts). */
+export interface ChannelUpdate {
+  name?: string;
+  topic?: string;
+  nsfw?: boolean;
+  parentId?: string | null;
+  position?: number;
+  rateLimitPerUser?: number;
+  userLimit?: number;
+  permissionOverwrites?: PermissionOverwrite[];
+  type?: string;
+  forumMode?: 'posts' | 'tickets';
+  ticketAccessRoleIds?: string[];
+  availableTags?: Array<{ id?: string; name: string; moderated?: boolean; emojiName?: string }>;
+  defaultAutoArchiveDuration?: number;
+  autoArchiveDuration?: number;
+  defaultSortOrder?: 'latest_activity' | 'creation_date' | null;
+  defaultForumLayout?: 'not_set' | 'list_view' | 'gallery_view';
+  requireTag?: boolean;
+  archived?: boolean;
+  locked?: boolean;
+}
+
+/** A channel as `PATCH /api/channels/:id` returns it (the raw row). */
+type ChannelRow = Record<string, unknown> & {
+  parentId?: string | null;
+  nsfw?: boolean | null;
+  topic?: string | null;
+  rateLimitPerUser?: number | null;
+  permissionOverwrites?: PermissionOverwrite[] | null;
+};
+
+/** A failed channel update: the route's message plus validation details. */
+export class ChannelUpdateError extends Error {
+  status: number;
+  details: unknown;
+  constructor(message: string, status: number, details?: unknown) {
+    super(message);
+    this.name = "ChannelUpdateError";
+    this.status = status;
+    this.details = details;
+  }
 }
 
 interface ServerContextType {
@@ -92,7 +138,8 @@ interface ServerContextType {
   joinServer: (inviteCode: string) => Promise<void>;
   leaveServer: (serverId: string) => Promise<void>;
   deleteChannel: (channelId: string) => Promise<void>;
-  updateChannel: (channelId: string, data: { name?: string; topic?: string; nsfw?: boolean; parentId?: string | null; position?: number; rateLimitPerUser?: number; permissionOverwrites?: PermissionOverwrite[]; type?: string; forumMode?: 'posts' | 'tickets'; ticketAccessRoleIds?: string[]; availableTags?: Array<{ id?: string; name: string; moderated?: boolean; emojiName?: string }>; archived?: boolean; locked?: boolean }) => Promise<void>;
+  /** PATCH a channel; resolves with the saved row (raw API shape) and updates the list. */
+  updateChannel: (channelId: string, data: ChannelUpdate) => Promise<ChannelRow | null>;
   reorderChannels: (serverId: string, channelUpdates: Array<{ id: string; position: number; parentId?: string | null }>) => Promise<void>;
   fetchMembers: (serverId: string) => Promise<void>;
 }
@@ -271,6 +318,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
           rateLimitPerUser: c.rateLimitPerUser || 0,
           permissionOverwrites: c.permissionOverwrites || [],
           lastMessageAt: c.lastMessageAt || null,
+          defaultAutoArchiveDuration: c.defaultAutoArchiveDuration ?? null,
         }));
         // Cache channels for faster switching (in-memory + localStorage for
         // instant paint on reload).
@@ -316,6 +364,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
             rateLimitPerUser: c.rateLimitPerUser || 0,
             permissionOverwrites: c.permissionOverwrites || [],
             lastMessageAt: c.lastMessageAt || null,
+            defaultAutoArchiveDuration: c.defaultAutoArchiveDuration ?? null,
           }));
           channelCacheRef.current.set(serverId, list!);
           lsSet(LS_CHANNELS_PREFIX + serverId, list);
@@ -513,7 +562,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     }
   }, [currentChannel]);
 
-  const updateChannel = useCallback(async (channelId: string, data: { name?: string; topic?: string; nsfw?: boolean; parentId?: string | null; position?: number; rateLimitPerUser?: number; permissionOverwrites?: PermissionOverwrite[]; type?: string; forumMode?: 'posts' | 'tickets'; ticketAccessRoleIds?: string[]; availableTags?: Array<{ id?: string; name: string; moderated?: boolean; emojiName?: string }>; archived?: boolean; locked?: boolean }) => {
+  const updateChannel = useCallback(async (channelId: string, data: ChannelUpdate): Promise<ChannelRow | null> => {
     const response = await fetch(`/api/channels/${channelId}`, {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -521,23 +570,46 @@ export function ServerProvider({ children }: { children: ReactNode }) {
     });
 
     if (!response.ok) {
-      const responseData = await response.json();
-      throw new Error(responseData.error || "Failed to update channel");
+      const responseData = await response.json().catch(() => null);
+      throw new ChannelUpdateError(responseData?.error || "Failed to update channel", response.status, responseData?.details);
     }
 
-    const updatedChannel = await response.json();
-    // Update channel in list
-    setChannels((prev) => prev.map((c) => c.id === channelId ? { ...c, ...updatedChannel.channel } : c));
-    // Update cache too
+    const result = (await response.json()) as {
+      channel?: ChannelRow | null;
+      resyncedChannelIds?: string[];
+      nsfwChannelIds?: string[];
+    };
+    const updated = result.channel ?? null;
+    const resynced = new Set((result.resyncedChannelIds ?? []).map((id) => id.toLowerCase()));
+    const marked = new Set((result.nsfwChannelIds ?? []).map((id) => id.toLowerCase()));
+    // The route answers with the raw row (`nsfw`, not `isNsfw`), and a category
+    // edit also changes its synced / age-restricted children: apply all of it
+    // here so the sidebar and an open settings dialog never show stale values.
+    const apply = (list: Channel[]) =>
+      list.map((c) => {
+        const key = c.id.toLowerCase();
+        if (c.id === channelId && updated) {
+          return {
+            ...c,
+            ...updated,
+            id: c.id,
+            parentId: updated.parentId || undefined,
+            isNsfw: Boolean(updated.nsfw ?? c.isNsfw),
+            topic: updated.topic ?? undefined,
+            rateLimitPerUser: updated.rateLimitPerUser || 0,
+            permissionOverwrites: updated.permissionOverwrites || [],
+          } as Channel;
+        }
+        if (resynced.has(key) && updated) return { ...c, permissionOverwrites: updated.permissionOverwrites || [] };
+        if (marked.has(key)) return { ...c, isNsfw: true };
+        return c;
+      });
+    setChannels((prev) => apply(prev));
     if (currentServer) {
       const cached = channelCacheRef.current.get(currentServer.id);
-      if (cached) {
-        channelCacheRef.current.set(
-          currentServer.id,
-          cached.map((c) => c.id === channelId ? { ...c, ...updatedChannel.channel } : c)
-        );
-      }
+      if (cached) channelCacheRef.current.set(currentServer.id, apply(cached));
     }
+    return updated;
   }, [currentServer]);
 
   const reorderChannels = useCallback(async (serverId: string, channelUpdates: Array<{ id: string; position: number; parentId?: string | null }>) => {

@@ -61,6 +61,7 @@ import { containsLink, type VerificationAction } from '@/lib/servers/verificatio
 import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent, CHANNEL_AUDIT_KEYS, auditReason, diffChanges, diffOverwrites, snapshotChanges } from '@/lib/audit/auditLog';
 import { childrenToResync, normalizeOverwrites, overwritesInSync } from '@/lib/permissions/overwriteEditor';
+import { CHANNEL_FLAGS } from '@/lib/botapi/threadRules';
 import { e2eeMismatch, storedEnvelope } from '@/lib/services/e2ee';
 
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
@@ -1657,7 +1658,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }
     }
 
-    const { name, topic, nsfw, rateLimitPerUser, bitrate, userLimit, parentId, position, permissionOverwrites, type, forumMode, ticketAccessRoleIds, availableTags, archived, locked, autoArchiveDuration } = body;
+    const { name, topic, nsfw, rateLimitPerUser, bitrate, userLimit, parentId, position, permissionOverwrites, type, forumMode, ticketAccessRoleIds, availableTags, archived, locked, autoArchiveDuration, defaultAutoArchiveDuration, defaultSortOrder, defaultForumLayout, requireTag } = body;
 
     // Editing permission overwrites additionally needs Manage Roles (Discord's
     // "Manage Permissions"), so Manage Channels alone cannot grant itself access.
@@ -1699,6 +1700,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (bitrate !== undefined) updateData.bitrate = bitrate;
     if (userLimit !== undefined) updateData.userLimit = userLimit;
     if (position !== undefined && mayEditSettings) updateData.position = position;
+    // Default "hide after inactivity" for threads started in a text channel.
+    if (defaultAutoArchiveDuration !== undefined && (channel.type === 'text' || channel.type === 'announcement')) {
+      updateData.defaultAutoArchiveDuration = normalizeAutoArchiveDuration(defaultAutoArchiveDuration, normalizeAutoArchiveDuration(channel.defaultAutoArchiveDuration));
+    }
 
     if (permissionOverwrites !== undefined) {
       const cleaned = normalizeOverwrites(permissionOverwrites).filter((o) => isValidObjectId(o.id));
@@ -1721,8 +1726,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     // A thread's parent is its forum/channel and decides who can read it
-    // (ticketAccessRoleIds), so it is never moved through this route.
-    if (parentId !== undefined && !isThread && isServerOwner) {
+    // (ticketAccessRoleIds), so it is never moved through this route. Moving a
+    // channel between categories needs Manage Channels, like the drag-and-drop
+    // reorder route (it used to be owner-only and silently ignored for mods).
+    if (parentId !== undefined && !isThread && canManageChannel) {
       if (parentId === null) {
         updateData.parentId = null;
       } else {
@@ -1743,7 +1750,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         }
         updateData.parentId = parentId;
         // Discord's lock_permissions: moving into a category syncs with it.
-        if (body.lockPermissions && permissionOverwrites === undefined) {
+        // That rewrites the overwrites, so it needs Manage Roles too.
+        const maySyncPerms = isServerOwner || (!!editServer && await hasServerPermission(editServer, user.id, PERM_MANAGE_ROLES));
+        if (body.lockPermissions && permissionOverwrites === undefined && maySyncPerms) {
           updateData.permissionOverwrites = normalizeOverwrites(parentChannel.permissionOverwrites);
         }
       }
@@ -1804,6 +1813,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           moderated: Boolean(tag.moderated),
           emojiName: tag.emojiName,
         }));
+      }
+      if (defaultSortOrder !== undefined) updateData.defaultSortOrder = defaultSortOrder;
+      if (defaultForumLayout !== undefined) updateData.defaultForumLayout = defaultForumLayout;
+      if (requireTag !== undefined) {
+        const flags = Number(channel.flags) || 0;
+        updateData.flags = requireTag ? flags | CHANNEL_FLAGS.REQUIRE_TAG : flags & ~CHANNEL_FLAGS.REQUIRE_TAG;
       }
     }
 
@@ -1953,6 +1968,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       locked: t.Optional(t.Boolean()),
       autoArchiveDuration: t.Optional(t.Number()),
       lockPermissions: t.Optional(t.Boolean()),
+      defaultAutoArchiveDuration: t.Optional(t.Number()),
+      defaultSortOrder: t.Optional(t.Union([t.Literal('latest_activity'), t.Literal('creation_date'), t.Null()])),
+      defaultForumLayout: t.Optional(t.Union([t.Literal('not_set'), t.Literal('list_view'), t.Literal('gallery_view')])),
+      requireTag: t.Optional(t.Boolean()),
     }),
   })
   // Delete channel
@@ -2165,6 +2184,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     return {
       forumMode: channel.forumMode,
       availableTags: channel.availableTags || [],
+      // Forum settings the post list and the new-post form honour.
+      guidelines: channel.topic || '',
+      defaultSortOrder: channel.defaultSortOrder ?? null,
+      defaultForumLayout: channel.defaultForumLayout ?? 'not_set',
+      requireTag: (Number(channel.flags) & CHANNEL_FLAGS.REQUIRE_TAG) !== 0,
       threads: threads.map((t: any) => {
         const owner = t.ownerId ? ownerMap.get(t.ownerId) : null;
         const first = firstMessageMap.get(t.id);
@@ -2283,9 +2307,19 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     const isTicket = forum.forumMode === 'tickets';
 
-    // Validate applied tags against the forum's available tags
-    const validTagIds = new Set((forum.availableTags || []).map((tag: { id: string }) => tag.id));
-    const tags = (appliedTags || []).filter((id: string) => validTagIds.has(id));
+    // Validate applied tags against the forum's available tags. Moderated tags
+    // are for thread moderators only, and a forum may require at least one.
+    const forumTags = (forum.availableTags || []) as Array<{ id: string; moderated?: boolean }>;
+    const tagById = new Map(forumTags.map((tag) => [tag.id, tag]));
+    let tags = [...new Set((appliedTags || []).filter((id: string) => tagById.has(id)))];
+    if (tags.some((id) => tagById.get(id)?.moderated)) {
+      const canModerateTags = hasPermissionBit(await memberPermissionsIn(forum, user.id, membership), PERM_MANAGE_THREADS);
+      if (!canModerateTags) tags = tags.filter((id) => !tagById.get(id)?.moderated);
+    }
+    if ((Number(forum.flags) & CHANNEL_FLAGS.REQUIRE_TAG) !== 0 && forumTags.length > 0 && tags.length === 0) {
+      set.status = 400;
+      return { error: 'A tag is required to create a forum post in this channel' };
+    }
 
     const thread = await Channel.create({
       serverId: forum.serverId,

@@ -1,55 +1,60 @@
 "use client";
 
-import { useState, useEffect, useMemo, useCallback, useRef } from "react";
-import { useServer } from "@/contexts/ServerContext";
-import {
-  Dialog,
-  DialogContent,
-} from "@/components/ui/dialog";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Hash, Volume2, Megaphone, Folder, X, Settings, Trash2, Shield, Clock, Bold, Italic, Underline, Strikethrough, Eye, Link, Radio, Info } from "lucide-react";
+import { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
+import { Link2, Settings, Shield, Trash2, Webhook } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
+import { ChannelUpdateError, useServer, type ChannelUpdate } from "@/contexts/ServerContext";
+import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Loader } from "@/components/ui/Loader";
-import { ScrollArea } from "@/components/ui/scroll-area";
-import { cn } from "@/lib/utils";
-import dynamic from "next/dynamic";
-import { normalizeOverwrites } from "@/lib/permissions/overwriteEditor";
-import { normalizeChannelName } from "@/lib/servers/channelRules";
-import { useIsMobile } from "@/hooks/useIsMobile";
-import { useBackHandler } from "@/hooks/useBackHandler";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
+import { SettingsContent, SettingsNav, type SettingsNavSection } from "@/components/settings/SettingsShell";
+import { SettingsPageHeader } from "@/components/settings/SettingsSection";
+import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
 import {
   MobileSaveAction,
   MobileSettingsList,
   MobileSettingsScreen,
   type MobileSettingsGroup,
 } from "@/components/settings/MobileSettingsShell";
+import { ChannelKindIcon, ChannelOverviewPage, type ChannelFieldErrors } from "@/components/dialogs/channelSettings/ChannelOverviewPage";
+import { DeleteChannelDialog } from "@/components/dialogs/channelSettings/DeleteChannelDialog";
+import { useSettingsDraft, type SettingsDraft } from "@/hooks/useSettingsDraft";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { useBackHandler } from "@/hooks/useBackHandler";
+import { usePermissions } from "@/hooks/usePermissions";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { normalizeOverwrites, type EditableOverwrite } from "@/lib/permissions/overwriteEditor";
+import {
+  buildChannelPatch,
+  channelCapabilities,
+  channelDraftFrom,
+  channelErrorField,
+  channelSettingsKind,
+  validateChannelDraft,
+  type ChannelDraft,
+  type ChannelDraftKey,
+} from "@/lib/servers/channelSettings";
 import { mobileSettingsBack, openMobileSection, type MobileSettingsNav } from "@/lib/settings/mobileSettingsNav";
 
-type ChannelSettingsTab = "overview" | "permissions" | "integrations" | "invites" | "delete";
+type ChannelSettingsTab = "overview" | "permissions" | "invites" | "integrations";
 
-// The Integrations tab's webhook manager loads on first open too.
-const ChannelWebhooksPanel = dynamic(
-  () => import("@/components/dialogs/ChannelWebhooksPanel").then((m) => m.ChannelWebhooksPanel),
-  { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={28} /></div> },
-);
+const pageLoader = () => <SettingsSkeleton variant="rows" count={4} />;
 
-// The Permissions tab (overwrite editor, member/role picker) loads on first open.
+// Heavy pages load on first open.
 const ChannelPermissionsPanel = dynamic(
   () => import("@/components/dialogs/ChannelPermissionsPanel").then((m) => m.ChannelPermissionsPanel),
-  { ssr: false, loading: () => <div className="flex items-center justify-center py-12"><Loader size={28} /></div> },
+  { ssr: false, loading: pageLoader },
+);
+const ChannelWebhooksPanel = dynamic(
+  () => import("@/components/dialogs/ChannelWebhooksPanel").then((m) => m.ChannelWebhooksPanel),
+  { ssr: false, loading: () => <div className="flex justify-center py-12"><Loader size={28} /></div> },
+);
+const ChannelInvitesPage = dynamic(
+  () => import("@/components/dialogs/channelSettings/ChannelInvitesPage").then((m) => m.ChannelInvitesPage),
+  { ssr: false, loading: pageLoader },
 );
 
 interface ServerRole {
@@ -60,938 +65,409 @@ interface ServerRole {
   position?: number;
 }
 
-interface PermissionOverwrite {
-  id: string;
-  type: 'role' | 'member';
-  allow: string;
-  deny: string;
-}
-
 interface ChannelSettingsDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   channelId: string;
 }
 
-export function ChannelSettingsDialog({
-  open,
-  onOpenChange,
-  channelId,
-}: ChannelSettingsDialogProps) {
+/**
+ * Channel / category / thread settings: the shared settings chrome
+ * (SettingsNav + SettingsContent on desktop, MobileSettingsShell on phones)
+ * over one draft of every editable field, saved with a single
+ * `PATCH /api/channels/:id` that carries only what changed.
+ */
+export function ChannelSettingsDialog({ open, onOpenChange, channelId }: ChannelSettingsDialogProps) {
+  if (!open) return null;
+  // Keyed so another channel always starts from a fresh draft.
+  return <ChannelSettingsBody key={channelId} channelId={channelId} onOpenChange={onOpenChange} />;
+}
+
+function ChannelSettingsBody({ channelId, onOpenChange }: { channelId: string; onOpenChange: (open: boolean) => void }) {
   const { channels, updateChannel, deleteChannel, currentServer, fetchChannels } = useServer();
   const gt = useGT();
-
-  const channel = useMemo(
-    () => channels.find((c) => c.id === channelId),
-    [channels, channelId]
-  );
-
-  const categories = useMemo(
-    () => channels.filter((c) => c.type === "category"),
-    [channels]
-  );
-
-  const [activeTab, setActiveTab] = useState<ChannelSettingsTab>("overview");
   const confirmDialog = useConfirm();
-  // Phone layout: section list → pushed section page.
   const isMobile = useIsMobile();
-  const [mobileNav, setMobileNav] = useState<MobileSettingsNav<ChannelSettingsTab>>({ section: "overview", page: false, detail: null });
-  const [lastOpenKey, setLastOpenKey] = useState(open ? channelId : null);
-  const openKey = open ? channelId : null;
-  if (openKey !== lastOpenKey) {
-    setLastOpenKey(openKey);
-    if (openKey) setMobileNav({ section: "overview", page: false, detail: null });
-  }
-  useBackHandler(open && isMobile, () => {
-    const next = mobileSettingsBack(mobileNav);
-    if (next) setMobileNav(next);
-    else onOpenChange(false);
-    return true;
-  });
-  const [name, setName] = useState("");
-  const [topic, setTopic] = useState("");
-  const [nsfw, setNsfw] = useState(false);
-  const [announcement, setAnnouncement] = useState(false);
-  const [hideAfterInactivity, setHideAfterInactivity] = useState("3600");
-  const [parentId, setParentId] = useState<string | null>(null);
-  const [slowmode, setSlowmode] = useState(0);
-  const [isSaving, setIsSaving] = useState(false);
-  const [hasChanges, setHasChanges] = useState(false);
-  const [deleteConfirmText, setDeleteConfirmText] = useState("");
-  const [roles, setRoles] = useState<ServerRole[]>([]);
-  // Forum config
-  const [forumMode, setForumMode] = useState<"posts" | "tickets">("posts");
-  const [ticketRoleIds, setTicketRoleIds] = useState<string[]>([]);
-  const [forumTags, setForumTags] = useState<Array<{ id?: string; name: string }>>([]);
-  const [newTagName, setNewTagName] = useState("");
-  const [forumChanges, setForumChanges] = useState(false);
-  const [overwrites, setOverwrites] = useState<PermissionOverwrite[]>([]);
-  const [hasPermChanges, setHasPermChanges] = useState(false);
+  const serverId = currentServer?.id ?? null;
+  const perms = usePermissions(serverId);
 
-  // New States for Advanced Channel Settings UI
-  const [isPreviewTopic, setIsPreviewTopic] = useState(false);
-  const [invites, setInvites] = useState<any[]>([]);
-  const [isLoadingInvites, setIsLoadingInvites] = useState(false);
+  const channel = useMemo(() => channels.find((c) => c.id === channelId), [channels, channelId]);
+  const kind = channelSettingsKind(channel?.type);
+  const caps = channelCapabilities(channel?.type);
+  const isCategory = kind === "category";
+  const isThread = kind === "thread";
 
-  // Populate form when channel data loads
+  // What this member may change (the routes check again). While the first
+  // permissions answer loads, nothing is hidden or locked yet, so the page
+  // doesn't flash a "you can't edit this" state for moderators.
+  const may = (key: Parameters<typeof perms.can>[0]) => perms.loading || perms.isOwner || perms.can(key);
+  const canManageChannels = may("MANAGE_CHANNELS");
+  const canManageRoles = may("MANAGE_ROLES");
+  const canManageServer = may("MANAGE_SERVER");
+  const canCreateInvite = may("CREATE_INVITE");
+  const canManageWebhooks = may("MANAGE_WEBHOOKS");
+
+  // ── Data ─────────────────────────────────────────────────────────────────
+  // The full row carries what the sidebar list doesn't (user limit, forum
+  // tags / sort / layout / flags, default thread archive).
+  const [fullRow, setFullRow] = useState<{ row: Record<string, unknown> | null } | null>(null);
   useEffect(() => {
-    if (channel && open) {
-      setName(channel.name);
-      setTopic(channel.topic || "");
-      setNsfw(channel.isNsfw || false);
-      setAnnouncement(channel.type === "announcement");
-      setHideAfterInactivity("3600");
-      setParentId(channel.parentId || null);
-      setSlowmode(channel.rateLimitPerUser || 0);
-      setActiveTab("overview");
-      setHasChanges(false);
-      setDeleteConfirmText("");
-      setOverwrites((channel.permissionOverwrites || []).map(o => ({
-        id: o.id,
-        type: o.type,
-        allow: o.allow || "0",
-        deny: o.deny || "0",
-      })));
-      setHasPermChanges(false);
-      setIsPreviewTopic(false);
-    }
-  }, [channel, open]);
-
-  // Fetch server roles when dialog opens
-  useEffect(() => {
-    if (!open || !currentServer) return;
     let active = true;
-    fetch(`/api/servers/${currentServer.id}/roles`)
-      .then(r => r.json())
-      .then(data => {
-        if (!active) return;
-        const nextRoles = (data.roles || []).map((r: any) => ({
-          id: r._id || r.id,
-          name: r.name,
-          color: r.color,
-          isDefault: r.isDefault,
-          position: r.position,
-        }));
-        setRoles(nextRoles);
+    fetch(`/api/channels/${channelId}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (active) setFullRow({ row: (data?.channel as Record<string, unknown> | undefined) ?? null });
       })
-      .catch(() => {});
-    return () => { active = false; };
-  }, [open, currentServer]);
+      .catch(() => {
+        if (active) setFullRow({ row: null });
+      });
+    return () => {
+      active = false;
+    };
+  }, [channelId]);
 
-  // Load full forum config when opening settings for a forum channel
+  const [roles, setRoles] = useState<ServerRole[]>([]);
   useEffect(() => {
-    if (!open || !channel || channel.type !== "forum") return;
+    if (!serverId) return;
     let active = true;
-    fetch(`/api/channels/${channel.id}`)
+    fetch(`/api/servers/${serverId}/roles`)
       .then((r) => r.json())
       .then((data) => {
-        if (!active || !data.channel) return;
-        const ch = data.channel;
-        setForumMode(ch.forumMode === "tickets" ? "tickets" : "posts");
-        setTicketRoleIds((ch.ticketAccessRoleIds || []).map((r: any) => r.toString?.() || r));
-        setForumTags((ch.availableTags || []).map((t: any) => ({ id: t.id, name: t.name })));
-        setForumChanges(false);
+        if (!active) return;
+        setRoles(
+          (data.roles || []).map((r: { _id?: string; id?: string; name: string; color?: string; isDefault?: boolean; position?: number }) => ({
+            id: r.id || r._id || "",
+            name: r.name,
+            color: r.color,
+            isDefault: r.isDefault,
+            position: r.position,
+          })),
+        );
       })
       .catch(() => {});
-    return () => { active = false; };
-  }, [open, channel]);
-
-  const saveForumConfig = async () => {
-    if (!channel) return;
-    setIsSaving(true);
-    try {
-      await updateChannel(channel.id, {
-        forumMode,
-        ticketAccessRoleIds: ticketRoleIds,
-        availableTags: forumTags.map((t) => ({ id: t.id, name: t.name })),
-      });
-      toast.success(gt("Forum settings saved"));
-      setForumChanges(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : gt("Failed to save forum settings"));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  // Track overview changes
-  useEffect(() => {
-    if (!channel) return;
-    const changed =
-      name !== channel.name ||
-      topic !== (channel.topic || "") ||
-      nsfw !== (channel.isNsfw || false) ||
-      announcement !== (channel.type === "announcement") ||
-      parentId !== (channel.parentId || null) ||
-      slowmode !== (channel.rateLimitPerUser || 0);
-    setHasChanges(changed);
-  }, [name, topic, nsfw, announcement, parentId, slowmode, channel]);
-
-  // Track permission changes
-  useEffect(() => {
-    if (!channel) return;
-    const original = JSON.stringify(
-      (channel.permissionOverwrites || []).map(o => ({ id: o.id, type: o.type, allow: o.allow || "0", deny: o.deny || "0" }))
-    );
-    const current = JSON.stringify(overwrites);
-    setHasPermChanges(original !== current);
-  }, [overwrites, channel]);
-
-  // Handle escape key.
-  useEffect(() => {
-    if (!open) return;
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Escape") return;
-      const nested = document.querySelector(
-        '[role="dialog"],[role="alertdialog"],[role="menu"],[data-radix-popper-content-wrapper]'
-      );
-      if (nested) return; // let the nested overlay handle Escape first
-      e.preventDefault();
-      onOpenChange(false);
+    return () => {
+      active = false;
     };
-    window.addEventListener("keydown", handleKeyDown, { capture: true });
-    return () => window.removeEventListener("keydown", handleKeyDown, { capture: true } as EventListenerOptions);
-  }, [open, onOpenChange]);
+  }, [serverId]);
 
-  const fetchInvites = useCallback(async () => {
-    if (!currentServer || !channel) return;
-    setIsLoadingInvites(true);
-    try {
-      const res = await fetch(`/api/servers/${currentServer.id}/invites`);
-      const data = await res.json();
-      if (Array.isArray(data)) {
-        setInvites(data.filter((inv: any) => inv.channelId === channel.id));
-      }
-    } catch (err) {
-      console.error("Failed to fetch invites", err);
-    } finally {
-      setIsLoadingInvites(false);
-    }
-  }, [currentServer, channel]);
+  // The saved state: the live sidebar channel (updated by saves and refetches)
+  // over the full row.
+  const source = useMemo<ChannelDraft | null>(() => {
+    if (!channel || !fullRow) return null;
+    const row = fullRow.row ?? {};
+    // Keys the list doesn't carry (or an older cached list lacks) keep the row's value.
+    const live = Object.fromEntries(Object.entries(channel).filter(([, v]) => v !== undefined));
+    return channelDraftFrom({ ...row, ...live, nsfw: channel.isNsfw ?? row.nsfw });
+  }, [channel, fullRow]);
 
-  const handleDeleteInvite = async (code: string) => {
-    if (!currentServer) return;
-    if (!(await confirmDialog({ title: gt("Revoke this invite?"), confirmLabel: gt("Revoke") }))) return;
-    try {
-      const res = await fetch(`/api/servers/${currentServer.id}/invites/${code}`, {
-        method: "DELETE",
-      });
-      const data = await res.json();
-      if (data.success) {
-        toast.success(gt("Invite revoked successfully"));
-        fetchInvites();
-      } else {
-        toast.error(data.error || gt("Failed to revoke invite"));
-      }
-    } catch (err) {
-      toast.error(gt("Failed to revoke invite"));
-    }
-  };
+  // ── Draft ────────────────────────────────────────────────────────────────
+  const settingsDraft = useSettingsDraft({});
+  const { load: loadDraft, update: updateDraftValue, reset: resetDraft, markSaved } = settingsDraft;
+  const ready = "name" in settingsDraft.baseline;
+  const draft = settingsDraft.draft as unknown as ChannelDraft;
+  const baseline = settingsDraft.baseline as unknown as ChannelDraft;
+  const patch = useMemo(
+    () => (ready ? buildChannelPatch(channel?.type, baseline, draft) : {}),
+    [ready, channel?.type, baseline, draft],
+  );
+  const changeCount = Object.keys(patch).length;
+  const dirty = changeCount > 0;
 
-  // Run fetches depending on the activeTab
+  // (Re)load the draft from the saved state whenever it changes and nothing
+  // is being edited: first load, after a save, or an edit made elsewhere.
+  const loadedKeyRef = useRef<string | null>(null);
   useEffect(() => {
-    if (open && channel) {
-      if (activeTab === "invites") {
-        fetchInvites();
-      }
-    }
-  }, [open, channel, activeTab, fetchInvites]);
+    if (!source || dirty) return;
+    const key = JSON.stringify(source);
+    if (key === loadedKeyRef.current) return;
+    loadedKeyRef.current = key;
+    loadDraft(source as unknown as SettingsDraft);
+  }, [source, dirty, loadDraft]);
 
-  const topicRef = useRef<HTMLTextAreaElement>(null);
-  const insertFormatting = (syntax: string) => {
-    const el = topicRef.current;
-    if (!el) return;
-    const start = el.selectionStart;
-    const end = el.selectionEnd;
-    const text = el.value;
-    const selected = text.substring(start, end);
-    const replacement = syntax + selected + syntax;
-    setTopic(text.substring(0, start) + replacement + text.substring(end));
-    setTimeout(() => {
-      el.focus();
-      el.setSelectionRange(start + syntax.length, start + syntax.length + selected.length);
-    }, 0);
-  };
+  const [fieldErrors, setFieldErrors] = useState<ChannelFieldErrors>({});
+  const update = useCallback(
+    <K extends ChannelDraftKey>(key: K, value: ChannelDraft[K]) => {
+      updateDraftValue(key, value);
+      setFieldErrors((prev) => {
+        if (!(key in prev)) return prev;
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+    },
+    [updateDraftValue],
+  );
 
-  const handleSavePermissions = async () => {
-    if (!channel || !hasPermChanges) return;
-    setIsSaving(true);
-    try {
-      await updateChannel(channel.id, { permissionOverwrites: overwrites });
-      // A category edit also re-syncs its synced channels server-side.
-      if (channel.type === "category" && currentServer) await fetchChannels(currentServer.id);
-      toast.success(gt("Channel permissions saved"));
-      setHasPermChanges(false);
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : gt("Failed to save permissions"));
-    } finally {
-      setIsSaving(false);
-    }
-  };
+  // ── Navigation ───────────────────────────────────────────────────────────
+  // The sidebar follows `navTab` at once; the page renders from the deferred
+  // value so opening a heavy page never blocks the click.
+  const [navTab, setNavTab] = useState<ChannelSettingsTab>("overview");
+  const deferredTab = useDeferredValue(navTab);
+  const [navQuery, setNavQuery] = useState("");
+  const [mobileNav, setMobileNav] = useState<MobileSettingsNav<ChannelSettingsTab>>({ section: "overview", page: false, detail: null });
+  const [deleteOpen, setDeleteOpen] = useState(false);
 
-  // Discord's "Sync Now": copy the category's permissions onto this channel immediately.
-  const parentChannel = channel?.parentId && channel.type !== "category"
-    ? channels.find((c) => c.id === channel.parentId && c.type === "category") ?? null
-    : null;
-  const handleSyncNow = async () => {
-    if (!channel || !parentChannel) return;
-    const synced = normalizeOverwrites(parentChannel.permissionOverwrites);
-    setIsSaving(true);
-    try {
-      await updateChannel(channel.id, { permissionOverwrites: synced });
-      setOverwrites(synced);
-      toast.success(gt("Synced permissions with category"));
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : gt("Failed to save permissions"));
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
+  const [isSaving, setIsSaving] = useState(false);
   const handleSave = async () => {
-    if (!channel || !hasChanges) return;
+    if (!channel || !ready || isSaving) return;
+    const invalid = validateChannelDraft(channel.type, draft);
+    if (invalid.name || invalid.topic) {
+      const errors: ChannelFieldErrors = {};
+      if (invalid.name) errors.name = gt("Channel name cannot be empty");
+      if (invalid.topic) errors.topic = gt("The topic is too long");
+      setFieldErrors(errors);
+      toast.error(errors.name || errors.topic);
+      if (navTab !== "overview") setNavTab("overview");
+      return;
+    }
+    if (!dirty) return;
     setIsSaving(true);
+    setFieldErrors({});
     try {
-      const updates: Record<string, unknown> = {};
-      if (name !== channel.name) {
-        // Spaces and capitals are allowed for every channel type (CORD-56).
-        const formattedName = normalizeChannelName(name);
-        if (!formattedName) {
-          toast.error(gt("Channel name cannot be empty"));
-          return;
-        }
-        updates.name = formattedName;
-      }
-      if (topic !== (channel.topic || "")) updates.topic = topic;
-      if (nsfw !== (channel.isNsfw || false)) updates.nsfw = nsfw;
-      if (announcement !== (channel.type === "announcement")) {
-        updates.type = announcement ? "announcement" : "text";
-      }
-      if (parentId !== (channel.parentId || null)) updates.parentId = parentId;
-      if (slowmode !== (channel.rateLimitPerUser || 0)) updates.rateLimitPerUser = slowmode;
-
-      await updateChannel(channel.id, updates);
-      // Marking a category age-restricted (or moving into one) changes other
-      // channels' flags server-side: refresh the list.
-      const nsfwSideEffects = (isCategory && updates.nsfw === true) || updates.parentId !== undefined;
-      if (nsfwSideEffects && currentServer) await fetchChannels(currentServer.id);
+      const updated = await updateChannel(channel.id, patch as ChannelUpdate);
+      if (updated) setFullRow({ row: updated });
+      markSaved();
       toast.success(gt("Channel settings saved"));
-      setHasChanges(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : gt("Failed to save settings"));
+      const message = err instanceof Error && err.message ? err.message : gt("Failed to save settings");
+      const field = channelErrorField(message, err instanceof ChannelUpdateError ? err.details : undefined);
+      if (field) setFieldErrors({ [field]: message });
+      toast.error(message);
     } finally {
       setIsSaving(false);
     }
   };
+
+  const handleDiscard = () => {
+    resetDraft();
+    setFieldErrors({});
+  };
+
+  const navItems = useMemo(() => {
+    const items: Array<{ id: ChannelSettingsTab; label: string; icon: typeof Settings; keywords?: string }> = [
+      {
+        id: "overview",
+        label: gt("Overview"),
+        icon: Settings,
+        keywords: gt("name topic slowmode age-restricted nsfw category announcement tags guidelines user limit"),
+      },
+    ];
+    if (caps.permissions && canManageRoles) {
+      items.push({ id: "permissions", label: gt("Permissions"), icon: Shield, keywords: gt("private roles members access overrides sync") });
+    }
+    if (caps.invites && canManageServer) {
+      items.push({ id: "invites", label: gt("Invites"), icon: Link2, keywords: gt("invite link code") });
+    }
+    if (caps.integrations && canManageWebhooks) {
+      items.push({ id: "integrations", label: gt("Integrations"), icon: Webhook, keywords: gt("webhooks apps bots") });
+    }
+    return items;
+  }, [gt, caps.permissions, caps.invites, caps.integrations, canManageRoles, canManageServer, canManageWebhooks]);
+
+  const sectionTitle = isCategory ? gt("Category Settings") : isThread ? gt("Thread Settings") : gt("Channel Settings");
+  const navSections = useMemo<SettingsNavSection<ChannelSettingsTab>[]>(
+    () => [{ title: sectionTitle, items: navItems }],
+    [sectionTitle, navItems],
+  );
+  // A page the member can't use (permissions still loading / lost) falls back to Overview.
+  const activeTab: ChannelSettingsTab = navItems.some((i) => i.id === deferredTab) ? deferredTab : "overview";
+
+  // ── Closing ──────────────────────────────────────────────────────────────
+  // Leaving with unsaved changes: the first attempt shakes the save bar
+  // (Discord); trying again right away asks whether to discard them.
+  const [unsavedShake, shakeUnsaved] = useUnsavedShake();
+  const lastShakeAtRef = useRef(0);
+  const closePromptOpenRef = useRef(false);
+  const requestClose = useCallback(async () => {
+    if (dirty) {
+      if (closePromptOpenRef.current) return;
+      if (!isMobile && Date.now() - lastShakeAtRef.current > 2500) {
+        lastShakeAtRef.current = Date.now();
+        shakeUnsaved();
+        return;
+      }
+      closePromptOpenRef.current = true;
+      const discard = await confirmDialog({
+        title: gt("You have unsaved changes. Discard them and close?"),
+        confirmLabel: gt("Discard"),
+      }).finally(() => {
+        closePromptOpenRef.current = false;
+      });
+      if (!discard) return;
+      resetDraft();
+    }
+    onOpenChange(false);
+  }, [dirty, isMobile, shakeUnsaved, confirmDialog, gt, resetDraft, onOpenChange]);
+
+  // Phone: back walks page → list → close (Android back button too).
+  const handleMobileBack = () => {
+    const next = mobileSettingsBack(mobileNav);
+    if (next) setMobileNav(next);
+    else void requestClose();
+  };
+  useBackHandler(isMobile, () => {
+    if (deleteOpen) setDeleteOpen(false);
+    else handleMobileBack();
+    return true;
+  });
 
   const handleDelete = async () => {
-    if (!channel || deleteConfirmText !== channel.name) return;
+    if (!channel) return;
+    const name = decodeHtmlEntities(channel.name);
     try {
       await deleteChannel(channel.id);
-      toast.success(gt("Channel #{name} deleted", { name: channel.name }));
-      onOpenChange(false);
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : gt("Failed to delete channel"));
+      toast.error(err instanceof Error && err.message ? err.message : gt("Failed to delete channel"));
+      throw err;
+    }
+    toast.success(
+      isCategory
+        ? gt("Category {name} deleted", { name })
+        : isThread
+          ? gt("Thread {name} deleted", { name })
+          : gt("Channel #{name} deleted", { name }),
+    );
+    // A deleted category's channels move out of it server-side.
+    if (isCategory && serverId) void fetchChannels(serverId);
+    setDeleteOpen(false);
+    onOpenChange(false);
+  };
+
+  if (!channel || !serverId) return null;
+
+  // ── Pages ────────────────────────────────────────────────────────────────
+  const displayName = decodeHtmlEntities(channel.name);
+  const typeLabel =
+    kind === "voice" ? gt("Voice Channel")
+      : kind === "stage" ? gt("Stage Channel")
+        : kind === "announcement" ? gt("Announcement Channel")
+          : kind === "forum" ? gt("Forum Channel")
+            : kind === "category" ? gt("Category")
+              : kind === "thread" ? gt("Thread")
+                : gt("Text Channel");
+  const deleteLabel = isCategory ? gt("Delete Category") : isThread ? gt("Delete Thread") : gt("Delete Channel");
+  const categories = channels
+    .filter((c) => c.type === "category")
+    .map((c) => ({ id: c.id, name: decodeHtmlEntities(c.name), isNsfw: c.isNsfw }));
+  const parentCategory =
+    caps.parent && ready && draft.parentId ? channels.find((c) => c.id === draft.parentId && c.type === "category") ?? null : null;
+  const webhookChannelOptions = channels
+    .filter((c) => c.type === "text" || c.type === "announcement" || c.type === "forum")
+    .map((c) => ({ id: c.id, name: decodeHtmlEntities(c.name) }));
+
+  const renderPage = (tab: ChannelSettingsTab) => {
+    switch (tab) {
+      case "permissions":
+        return ready ? (
+          <ChannelPermissionsPanel
+            channel={{ id: channel.id, name: displayName, type: channel.type }}
+            parent={
+              parentCategory
+                ? { id: parentCategory.id, name: decodeHtmlEntities(parentCategory.name), permissionOverwrites: normalizeOverwrites(parentCategory.permissionOverwrites) }
+                : null
+            }
+            serverId={serverId}
+            roles={roles}
+            overwrites={draft.permissionOverwrites}
+            onChange={(next: EditableOverwrite[]) => update("permissionOverwrites", next)}
+            disabled={!canManageRoles}
+          />
+        ) : (
+          pageLoader()
+        );
+      case "invites":
+        return <ChannelInvitesPage serverId={serverId} channelId={channel.id} canCreate={canCreateInvite} />;
+      case "integrations":
+        return (
+          <div className="space-y-6">
+            <SettingsPageHeader
+              title={gt("Integrations")}
+              description={gt("Manage webhooks and applications integrated with this channel.")}
+              className="mb-0"
+            />
+            <ChannelWebhooksPanel channelId={channel.id} channelOptions={webhookChannelOptions} />
+          </div>
+        );
+      default:
+        return ready ? (
+          <ChannelOverviewPage
+            kind={kind}
+            caps={caps}
+            draft={draft}
+            update={update}
+            fieldErrors={fieldErrors}
+            categories={categories}
+            roles={roles}
+            canEdit={canManageChannels}
+            canManageRoles={canManageRoles}
+            canDelete={canManageChannels}
+            onDelete={() => setDeleteOpen(true)}
+          />
+        ) : (
+          <div className="space-y-6">
+            <SettingsPageHeader title={gt("Overview")} className="mb-0" />
+            {pageLoader()}
+          </div>
+        );
     }
   };
 
-  if (!channel) return null;
-
-  const isVoice = channel.type === "voice";
-  const isCategory = channel.type === "category";
-  // Where a webhook may be moved to (CORD-67).
-  const webhookChannelOptions = channels
-    .filter((c) => c.type === "text" || c.type === "announcement" || c.type === "forum")
-    .map((c) => ({ id: c.id, name: c.name }));
-  // The selected category (saved or pending) forces the age restriction on.
-  const parentIsNsfw = !isCategory && !!parentId && !!channels.find((c) => c.id === parentId && c.type === "category")?.isNsfw;
-
-  const tabs = [
-    { id: "overview" as const, label: gt("Overview"), icon: Settings },
-    { id: "permissions" as const, label: gt("Permissions"), icon: Shield },
-    ...(isCategory ? [] : [
-      { id: "integrations" as const, label: gt("Integrations"), icon: Radio },
-      { id: "invites" as const, label: gt("Invites"), icon: Link }
-    ]),
-  ];
-
-  const slowmodeOptions = [
-    { value: 0, label: gt("Off") },
-    { value: 5, label: "5s" },
-    { value: 10, label: "10s" },
-    { value: 15, label: "15s" },
-    { value: 30, label: "30s" },
-    { value: 60, label: "1m" },
-    { value: 120, label: "2m" },
-    { value: 300, label: "5m" },
-    { value: 600, label: "10m" },
-    { value: 900, label: "15m" },
-    { value: 1800, label: "30m" },
-    { value: 3600, label: "1h" },
-    { value: 7200, label: "2h" },
-    { value: 21600, label: "6h" },
-  ];
-
-
-  const tabContent = (
-    <>
-    {activeTab === "overview" && (
-      <div className="max-w-[680px] space-y-6">
-        <div className="mb-6 max-md:hidden">
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Channel Overview")}</h2>
-          <p className="text-sm text-[var(--text-muted)] flex items-center gap-1.5">
-            {channel.type === "announcement" ? <Megaphone className="w-3.5 h-3.5 text-blue-400" /> : isVoice ? <Volume2 className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : isCategory ? <Folder className="w-3.5 h-3.5 text-[var(--text-muted)]" /> : <Hash className="w-3.5 h-3.5 text-[var(--text-muted)]" />}
-            {channel.name}
-            {channel.type === "announcement" && <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-blue-500/15 text-blue-400">{gt("ANNOUNCEMENTS")}</span>}
-          </p>
-        </div>
-        {/* General section */}
-        <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-4 sm:p-6 space-y-6">
-          {/* Channel Name */}
-          <div className="space-y-2">
-            <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-              {isCategory ? gt("Category Name") : gt("Channel Name")}
-            </Label>
-            <div className="relative flex items-center">
-              <span className="absolute left-3 text-[var(--text-muted)]">
-                {isVoice ? <Volume2 className="w-4 h-4" /> : isCategory ? <Folder className="w-4 h-4" /> : channel.type === "announcement" ? <Megaphone className="w-4 h-4" /> : <Hash className="w-4 h-4" />}
-              </span>
-              <Input
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                maxLength={100}
-                className="pl-9 bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-[var(--app-accent)] h-10"
-              />
-            </div>
-          </div>
-
-          {/* Category info note */}
-          {isCategory && (
-            <div className="flex gap-3 p-3.5 rounded-xl bg-[var(--bg-sidebar)] border border-[var(--border-subtle)] text-xs text-[var(--text-secondary)] leading-relaxed">
-              <Folder className="w-4 h-4 shrink-0 text-[var(--text-muted)] mt-0.5" />
-              <div>
-                <span className="font-semibold text-[var(--text-primary)] block mb-0.5">{gt("Category")}</span>
-                {gt("Categories group channels together. Use the")} <strong>{gt("Permissions")}</strong> {gt("tab to set default access rules that all channels in this category inherit.")}
-              </div>
-            </div>
-          )}
-
-          {/* Channel Topic (not for voice or category) */}
-          {!isVoice && !isCategory && (
-            <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                {gt("Channel Topic")}
-              </Label>
-              <div className="rounded-lg overflow-hidden border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)]">
-                {/* Formatting Toolbar */}
-                <div className="flex items-center justify-between px-3 py-1.5 bg-[var(--bg-sidebar)] border-b border-[var(--border-subtle)]">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting("**")}
-                      className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                      title={gt("Bold")}
-                    >
-                      <Bold className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting("*")}
-                      className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                      title={gt("Italic")}
-                    >
-                      <Italic className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting("__")}
-                      className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                      title={gt("Underline")}
-                    >
-                      <Underline className="w-3.5 h-3.5" />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => insertFormatting("~~")}
-                      className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)] transition-all"
-                      title={gt("Strikethrough")}
-                    >
-                      <Strikethrough className="w-3.5 h-3.5" />
-                    </button>
-                    <div className="h-4 w-[1px] bg-[var(--border-subtle)] mx-1" />
-                    <button
-                      type="button"
-                      onClick={() => setIsPreviewTopic(!isPreviewTopic)}
-                      className={`p-1 max-md:p-2 rounded transition-all ${
-                        isPreviewTopic
-                          ? "bg-[var(--app-accent)] text-white"
-                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-active)]"
-                      }`}
-                      title={gt("Toggle Preview")}
-                    >
-                      <Eye className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-                </div>
-
-                {/* Editor / Preview text content */}
-                {isPreviewTopic ? (
-                  <div className="p-3 min-h-[80px] text-sm text-[var(--text-secondary)] bg-[var(--bg-sidebar-elevated)] prose prose-invert max-w-none">
-                    {topic ? (
-                      <p className="whitespace-pre-wrap leading-relaxed">{topic}</p>
-                    ) : (
-                      <span className="italic text-[var(--text-muted)]">{gt("Nothing to preview. Write some topic description.")}</span>
-                    )}
-                  </div>
-                ) : (
-                  <Textarea
-                    ref={topicRef}
-                    value={topic}
-                    onChange={(e) => setTopic(e.target.value)}
-                    maxLength={1024}
-                    placeholder={gt("Set a topic to let everyone know what this channel is about")}
-                    className="border-none bg-transparent text-[var(--text-primary)] focus-visible:ring-0 focus-visible:ring-offset-0 min-h-[80px] resize-none rounded-none p-3 h-auto"
-                  />
-                )}
-              </div>
-              <p className="text-[10px] text-[var(--text-muted)] text-right font-medium">
-                {topic.length}/1024
-              </p>
-            </div>
-          )}
-
-          {/* Category */}
-          {!isCategory && (
-            <div className="space-y-2">
-              <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                {gt("Category")}
-              </Label>
-              <Select value={parentId || "__none__"} onValueChange={(v) => setParentId(v === "__none__" ? null : v)}>
-                <SelectTrigger className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)]">
-                  <SelectItem value="__none__" className="text-[var(--text-secondary)]">
-                    {gt("No Category")}
-                  </SelectItem>
-                  {categories.map((cat) => (
-                    <SelectItem key={cat.id} value={cat.id} className="text-[var(--text-secondary)]">
-                      {cat.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-          )}
-        </div>
-
-        {/* Slowmode (text only) */}
-        {!isVoice && !isCategory && (
-          <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] p-4 sm:p-6 space-y-4 mt-6">
-            <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider flex items-center gap-1.5">
-              <Clock className="w-3.5 h-3.5 text-[var(--text-secondary)]" />
-              {gt("Slowmode")}
-            </Label>
-            <div className="flex items-center gap-4">
-              <input
-                type="range"
-                min={0}
-                max={slowmodeOptions.length - 1}
-                value={slowmodeOptions.findIndex((o) => o.value === slowmode)}
-                onChange={(e) => setSlowmode(slowmodeOptions[parseInt(e.target.value)].value)}
-                className="flex-1 accent-[var(--app-accent)] h-1 bg-[var(--bg-sidebar-elevated)] rounded-lg appearance-none cursor-pointer"
-              />
-              <span className="text-xs text-[var(--text-primary)] font-semibold bg-[var(--bg-sidebar-elevated)] border border-[var(--border-subtle)] rounded px-2.5 py-1 min-w-[50px] text-center">
-                {slowmodeOptions.find((o) => o.value === slowmode)?.label || gt("Off")}
-              </span>
-            </div>
-            <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-              {gt("Members will be restricted to sending one message per slowmode interval unless they have Manage Messages or Manage Channel overrides.")}
-            </p>
-          </div>
-        )}
-
-        {/* Additional Toggles */}
-          <div className="space-y-4 mt-6">
-            {/* NSFW Toggle. A category's applies to every channel in it (CORD-60). */}
-            <div className="flex items-center justify-between gap-3 p-4 sm:p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-              <div className="space-y-1">
-                <span className="text-sm font-semibold text-[var(--text-primary)]">
-                  {isCategory ? gt("Age-Restricted Category") : gt("Age-Restricted Channel")}
-                </span>
-                <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                  {isCategory
-                    ? gt("Every channel in this category, including new ones and ones moved into it, will be age-restricted. Turning this off keeps the channels age-restricted until you change them one by one.")
-                    : parentIsNsfw
-                      ? gt("This channel's category is age-restricted, so this channel is too. Move it out of the category to change this.")
-                      : gt("Users must verify their age to view content in this channel. This channel will be marked with an age-restricted badge in lists.")}
-                </p>
-              </div>
-              <ToggleSwitch
-                checked={nsfw || parentIsNsfw}
-                onCheckedChange={setNsfw}
-                disabled={parentIsNsfw}
-                aria-label={gt("Toggle NSFW")}
-              />
-            </div>
-            {!isCategory && (<>
-
-            {/* Announcement toggle — only meaningful for text channels */}
-            {(channel.type === "text" || channel.type === "announcement") && (
-            <div className="p-4 sm:p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-4">
-              <div className="flex items-center justify-between">
-                <div className="space-y-1">
-                  <span className="text-sm font-semibold text-[var(--text-primary)]">
-                    {gt("Announcement Channel")}
-                  </span>
-                  <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                    {gt("Publish updates from this channel directly to other servers so members can stay up to date.")}
-                  </p>
-                </div>
-                <ToggleSwitch
-                  checked={announcement}
-                  onCheckedChange={setAnnouncement}
-                  aria-label={gt("Toggle Announcement")}
-                />
-              </div>
-              {announcement && (
-                <div className="flex gap-3 p-4 rounded-xl bg-blue-500/10 border border-blue-500/20 text-xs text-blue-400 leading-relaxed">
-                  <Info className="w-4 h-4 shrink-0 text-blue-400" />
-                  <div>
-                    <span className="font-semibold text-blue-300 block mb-0.5">{gt("Announcement Channel")}</span>
-                    {gt("By creating an announcement channel, your server profile will be visible, and people can follow updates from this channel directly to their own servers.")}
-                  </div>
-                </div>
-              )}
-            </div>
-            )}
-
-            {/* Forum settings */}
-            {channel.type === "forum" && (
-              <div className="p-4 sm:p-6 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] space-y-5">
-                <div className="space-y-1">
-                  <span className="text-sm font-semibold text-[var(--text-primary)]">{gt("Forum Type")}</span>
-                  <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-                    {gt("Posts are public discussions. Tickets are private — each is only visible to its creator and the support roles you choose.")}
-                  </p>
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {(["posts", "tickets"] as const).map((mode) => (
-                    <button
-                      key={mode}
-                      onClick={() => { setForumMode(mode); setForumChanges(true); }}
-                      className={`p-3 rounded-lg border text-sm font-medium capitalize transition-colors ${
-                        forumMode === mode
-                          ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]"
-                          : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
-                      }`}
-                    >
-                      {mode === "tickets" ? gt("Tickets") : gt("Posts")}
-                    </button>
-                  ))}
-                </div>
-
-                {forumMode === "tickets" && (
-                  <div className="space-y-2">
-                    <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Support Roles")}</Label>
-                    <p className="text-xs text-[var(--text-muted)]">{gt("Members with these roles can see and respond to every ticket.")}</p>
-                    <div className="flex flex-wrap gap-2 pt-1">
-                      {roles.filter((r) => !r.isDefault).map((r) => {
-                        const on = ticketRoleIds.includes(r.id);
-                        return (
-                          <button
-                            key={r.id}
-                            onClick={() => {
-                              setTicketRoleIds((prev) => on ? prev.filter((x) => x !== r.id) : [...prev, r.id]);
-                              setForumChanges(true);
-                            }}
-                            className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                              on ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]" : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
-                            }`}
-                            style={on && r.color ? { color: r.color, borderColor: r.color } : undefined}
-                          >
-                            {r.name}
-                          </button>
-                        );
-                      })}
-                      {roles.filter((r) => !r.isDefault).length === 0 && (
-                        <span className="text-xs text-[var(--text-muted)]">{gt("No roles yet — create roles in Server Settings.")}</span>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                <div className="space-y-2">
-                  <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Tags")}</Label>
-                  <div className="flex flex-wrap gap-2">
-                    {forumTags.map((tag, i) => (
-                      <span key={tag.id || i} className="text-xs px-2.5 py-1 rounded-full bg-[var(--app-accent)]/15 text-[var(--app-accent)] flex items-center gap-1.5">
-                        {tag.name}
-                        <button
-                          onClick={() => { setForumTags((prev) => prev.filter((_, idx) => idx !== i)); setForumChanges(true); }}
-                          className="hover:text-red-400"
-                        >×</button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="flex gap-2">
-                    <Input
-                      value={newTagName}
-                      onChange={(e) => setNewTagName(e.target.value.slice(0, 40))}
-                      onKeyDown={(e) => {
-                        if (e.key === "Enter" && newTagName.trim()) {
-                          setForumTags((prev) => [...prev, { name: newTagName.trim() }]);
-                          setNewTagName("");
-                          setForumChanges(true);
-                        }
-                      }}
-                      placeholder={gt("Add a tag and press Enter")}
-                      className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] h-9 text-sm"
-                    />
-                  </div>
-                </div>
-
-                <button
-                  onClick={saveForumConfig}
-                  disabled={!forumChanges || isSaving}
-                  className="w-full py-2.5 rounded-lg bg-[var(--app-accent)] text-white text-sm font-semibold hover:opacity-90 disabled:opacity-50 transition-opacity"
-                >
-                  {gt("Save Forum Settings")}
-                </button>
-              </div>
-            )}
-
-            {/* Hide After Inactivity */}
-            <div className="space-y-3 p-4 sm:p-6 bg-[var(--bg-app)] border border-[var(--border-subtle)] rounded-xl">
-              <div className="space-y-1">
-                <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-                  {gt("Hide After Inactivity")}
-                </Label>
-                <p className="text-xs text-[var(--text-muted)] max-w-lg leading-relaxed">
-                  {gt("New threads in this channel will be hidden from the channel list after this period of inactivity.")}
-                </p>
-              </div>
-              <Select value={hideAfterInactivity} onValueChange={setHideAfterInactivity}>
-                <SelectTrigger className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)] text-[var(--text-primary)] h-10 w-full">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent className="bg-[var(--bg-sidebar-elevated)] border-[var(--border-subtle)]">
-                  <SelectItem value="3600" className="text-[var(--text-secondary)]">{gt("1 Hour")}</SelectItem>
-                  <SelectItem value="86400" className="text-[var(--text-secondary)]">{gt("24 Hours")}</SelectItem>
-                  <SelectItem value="259200" className="text-[var(--text-secondary)]">{gt("3 Days")}</SelectItem>
-                  <SelectItem value="604800" className="text-[var(--text-secondary)]">{gt("1 Week")}</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            </>)}
-          </div>
-      </div>
-    )}
-
-    {activeTab === "permissions" && currentServer && (
-      <ChannelPermissionsPanel
-        channel={{ id: channel.id, name: channel.name, type: channel.type }}
-        parent={parentChannel ? { id: parentChannel.id, name: parentChannel.name, permissionOverwrites: normalizeOverwrites(parentChannel.permissionOverwrites) } : null}
-        serverId={currentServer.id}
-        roles={roles}
-        overwrites={overwrites}
-        onChange={setOverwrites}
-        onSyncNow={() => void handleSyncNow()}
-        syncing={isSaving}
-      />
-    )}
-
-    {activeTab === "integrations" && (
-      <div className="max-w-[720px] space-y-6">
-        <div className="mb-6 max-md:mb-0">
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Integrations")}</h2>
-          <p className="text-sm text-[var(--text-muted)]">{gt("Manage webhooks and applications integrated with this channel.")}</p>
-        </div>
-        <ChannelWebhooksPanel channelId={channel.id} channelOptions={webhookChannelOptions} />
-      </div>
-    )}
-
-    {activeTab === "invites" && (
-      <div className="max-w-[720px] space-y-6">
-        <div className="mb-6 max-md:mb-0">
-          <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{gt("Invites")}</h2>
-          <p className="text-sm text-[var(--text-muted)]">{gt("Manage active invite links for this channel.")}</p>
-        </div>
-        <div className="p-5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-          <span className="text-sm font-semibold text-[var(--text-primary)] block mb-1">
-            {gt("Channel-Specific Invites")}
-          </span>
-          <p className="text-xs text-[var(--text-muted)] leading-relaxed">
-            {gt("A list of active invite links pointing directly to this channel. Revoking invite links deletes them immediately.")}
-          </p>
-        </div>
-
-        {isLoadingInvites ? (
-          <div className="text-center py-10 text-xs text-[var(--text-muted)]">{gt("Loading invites...")}</div>
-        ) : invites.length === 0 ? (
-          <div className="text-center py-12 border border-dashed border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] text-[var(--text-muted)] text-sm flex flex-col items-center gap-3">
-            <Link className="w-10 h-10 opacity-40 text-[var(--text-muted)]" />
-            <span>{gt("No active invites for this channel")}</span>
-          </div>
-        ) : (
-          <div className="border border-[var(--border-subtle)] rounded-xl bg-[var(--bg-app)] overflow-x-auto">
-            <table className="w-full text-left text-xs border-collapse">
-              <thead>
-                <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-sidebar)] text-[var(--text-muted)] uppercase tracking-wider font-bold">
-                  <th className="p-3 pl-4">{gt("Code")}</th>
-                  <th className="p-3">{gt("Uses")}</th>
-                  <th className="p-3">{gt("Expires")}</th>
-                  <th className="p-3 pr-4 text-right">{gt("Action")}</th>
-                </tr>
-              </thead>
-              <tbody>
-                {invites.map((inv) => (
-                  <tr key={inv.code} className="border-b border-[var(--border-subtle)]/50 last:border-none text-[var(--text-secondary)] font-medium">
-                    <td className="p-3 pl-4 font-mono text-[var(--text-primary)]">{inv.code}</td>
-                    <td className="p-3">{inv.uses} {inv.maxUses > 0 ? `/ ${inv.maxUses}` : ""}</td>
-                    <td className="p-3">
-                      {inv.expiresAt ? new Date(inv.expiresAt).toLocaleDateString() : gt("Never")}
-                    </td>
-                    <td className="p-3 pr-4 text-right">
-                      <button
-                        onClick={() => handleDeleteInvite(inv.code)}
-                        className="px-2.5 py-1 max-md:py-2 rounded bg-red-500/10 hover:bg-red-500 text-red-400 hover:text-white text-xs font-semibold transition-all"
-                      >
-                        {gt("Revoke")}
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-    )}
-
-    {activeTab === "delete" && (
-      <div className="max-w-[520px] space-y-6">
-        <div className="mb-6 max-md:mb-0">
-          <h2 className="text-xl font-bold text-red-500 mb-1">{isCategory ? gt("Delete Category") : gt("Delete Channel")}</h2>
-          <p className="text-sm text-[var(--text-muted)]">
-            {isCategory
-              ? gt("Remove this category. Its channels stay and move out of the category.")
-              : gt("Permanently remove this channel and all its content.")}
-          </p>
-        </div>
-        <div className="p-5 rounded-xl bg-red-500/10 border border-red-500/20">
-          <h3 className="text-base font-semibold text-red-400 mb-2">
-            {isCategory ? gt("Delete {name}", { name: channel.name }) : gt("Delete #{name}", { name: channel.name })}
-          </h3>
-          <p className="text-sm text-[var(--text-muted)] leading-relaxed">
-            {gt("Are you sure you want to delete")}
-            <span className="font-semibold text-[var(--text-primary)]">{isCategory ? channel.name : `#${channel.name}`}</span>?
-            {isCategory
-              ? gt("This can't be undone. The channels in it are kept.")
-              : gt("This action is irreversible. All messages, attachments, and data in this channel will be permanently lost.")}
-          </p>
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">
-            {gt("Type {name} to confirm", { name: channel.name })}
-          </Label>
-          <Input
-            value={deleteConfirmText}
-            onChange={(e) => setDeleteConfirmText(e.target.value)}
-            placeholder={channel.name}
-            className="bg-[var(--bg-sidebar)] border-[var(--border-subtle)] text-[var(--text-primary)] focus:border-red-500 h-10"
-          />
-        </div>
-
-        <Button
-          onClick={handleDelete}
-          disabled={deleteConfirmText !== channel.name}
-          className="bg-red-600 hover:bg-red-500 disabled:opacity-40 disabled:hover:bg-red-600 text-white font-medium w-full h-10"
-        >
-          {isCategory ? gt("Delete Category") : gt("Delete Channel")}
-        </Button>
-      </div>
-    )}
-    </>
+  const deleteDialog = (
+    <DeleteChannelDialog open={deleteOpen} onOpenChange={setDeleteOpen} kind={kind} name={displayName} onConfirm={handleDelete} />
   );
 
-  const resetOverview = () => {
-    if (!channel) return;
-    setName(channel.name);
-    setTopic(channel.topic || "");
-    setNsfw(channel.isNsfw || false);
-    setAnnouncement(channel.type === "announcement");
-    setParentId(channel.parentId || null);
-    setSlowmode(channel.rateLimitPerUser || 0);
-  };
-  const resetPermissions = () => {
-    if (!channel) return;
-    setOverwrites((channel.permissionOverwrites || []).map(o => ({
-      id: o.id,
-      type: o.type,
-      allow: o.allow || "0",
-      deny: o.deny || "0",
-    })));
-  };
-  const saveBar = (message: string, onReset: () => void, onSave: () => void, saveDisabled: boolean) => (
-    <div className="flex flex-wrap items-center justify-between gap-2">
-      <span className="text-[var(--text-primary)] text-sm font-medium min-w-0">{message}</span>
-      <div className="flex gap-2 max-md:w-full max-md:justify-end">
-        <button
-          onClick={onReset}
-          className="px-4 py-1.5 max-md:py-2.5 text-sm text-[var(--text-primary)] hover:underline transition-all"
-        >
-          {gt("Reset")}
-        </button>
-        <button
-          onClick={onSave}
-          disabled={saveDisabled}
-          className="px-4 py-1.5 max-md:py-2.5 bg-[#23A559] hover:bg-[#1f9150] disabled:opacity-50 text-white text-sm font-medium rounded transition-colors flex items-center gap-2"
-        >
-          {isSaving && <Loader size={16} />}
-          {gt("Save Changes")}
-        </button>
-      </div>
-    </div>
-  );
-  const overviewBar = saveBar(gt("Careful — you have unsaved changes!"), resetOverview, () => void handleSave(), isSaving || !name.trim());
-  const permBar = saveBar(gt("Careful — you have unsaved permission changes!"), resetPermissions, () => void handleSavePermissions(), isSaving);
+  const shellClass =
+    "theme-backdrop !fixed !top-0 !left-0 !translate-x-0 !translate-y-0 !max-w-none !w-screen !h-dvh !rounded-none flex gap-0 overflow-hidden border-none bg-[var(--bg-app)] p-0";
 
   if (isMobile) {
-    const channelLabel = isCategory ? channel.name : `#${channel.name}`;
-    const groups: MobileSettingsGroup<ChannelSettingsTab>[] = [
-      { title: gt("Settings"), items: tabs },
-      { items: [{ id: "delete", label: isCategory ? gt("Delete Category") : gt("Delete Channel"), icon: Trash2, destructive: true }] },
+    const draftPage = mobileNav.section === "overview" || mobileNav.section === "permissions";
+    const groups: MobileSettingsGroup<ChannelSettingsTab | "delete">[] = [
+      { title: sectionTitle, items: navItems.map(({ id, label, icon }) => ({ id, label, icon })) },
     ];
-    const pageTitle = mobileNav.section === "delete"
-      ? (isCategory ? gt("Delete Category") : gt("Delete Channel"))
-      : tabs.find((t) => t.id === mobileNav.section)?.label ?? "";
-    const mobileFooter = activeTab === "overview" && hasChanges
-      ? overviewBar
-      : activeTab === "permissions" && hasPermChanges
-        ? permBar
-        : null;
+    if (canManageChannels) groups.push({ items: [{ id: "delete", label: deleteLabel, icon: Trash2, destructive: true }] });
+    const unsavedBar = (
+      <UnsavedChangesBar
+        visible={dirty}
+        isSaving={isSaving}
+        onSave={() => void handleSave()}
+        onDiscard={handleDiscard}
+        changeCount={changeCount}
+        className="mt-0"
+      />
+    );
+    const pageLabel = navItems.find((i) => i.id === mobileNav.section)?.label ?? "";
     return (
-      <Dialog open={open} onOpenChange={onOpenChange}>
+      <Dialog open onOpenChange={(next) => !next && void requestClose()}>
         <DialogContent
           showCloseButton={false}
           aria-describedby={undefined}
-          className="theme-backdrop !max-w-none !w-screen !h-dvh !rounded-none p-0 gap-0 bg-[var(--bg-app)] border-none overflow-hidden !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed flex"
+          className={shellClass}
+          onEscapeKeyDown={(e) => {
+            e.preventDefault();
+            handleMobileBack();
+          }}
+          onInteractOutside={(e) => e.preventDefault()}
+          onOpenAutoFocus={(e) => e.preventDefault()}
         >
+          <DialogTitle className="sr-only">{sectionTitle}</DialogTitle>
           {!mobileNav.page ? (
             <MobileSettingsScreen
               embedded
               animate={false}
               leading="close"
-              onLeading={() => onOpenChange(false)}
-              title={channelLabel}
-              subtitle={isCategory ? gt("Category Settings") : gt("Channel Settings")}
+              onLeading={() => void requestClose()}
+              title={kind === "category" || kind === "thread" || kind === "voice" || kind === "stage" ? displayName : `#${displayName}`}
+              subtitle={typeLabel}
+              footer={dirty ? unsavedBar : undefined}
             >
               <MobileSettingsList
                 groups={groups}
                 onSelect={(id) => {
-                  setActiveTab(id);
+                  if (id === "delete") {
+                    setDeleteOpen(true);
+                    return;
+                  }
+                  setNavTab(id);
                   setMobileNav((nav) => openMobileSection(nav, id));
                 }}
               />
@@ -1001,113 +477,104 @@ export function ChannelSettingsDialog({
               key={mobileNav.section}
               embedded
               leading="back"
-              onLeading={() => setMobileNav((nav) => mobileSettingsBack(nav) ?? nav)}
-              title={pageTitle}
-              subtitle={channelLabel}
-              action={
-                mobileNav.section === "overview" ? (
-                  <MobileSaveAction onSave={() => void handleSave()} disabled={!hasChanges || !name.trim()} saving={isSaving} />
-                ) : mobileNav.section === "permissions" ? (
-                  <MobileSaveAction onSave={() => void handleSavePermissions()} disabled={!hasPermChanges} saving={isSaving} />
-                ) : null
-              }
-              footer={mobileFooter ? (
-                <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3 shadow-2xl">{mobileFooter}</div>
-              ) : undefined}
+              onLeading={handleMobileBack}
+              title={pageLabel}
+              subtitle={displayName}
+              action={draftPage ? <MobileSaveAction onSave={() => void handleSave()} disabled={!dirty} saving={isSaving} /> : null}
+              footer={dirty ? unsavedBar : undefined}
             >
-              <div className="px-4 pt-4 pb-10 space-y-6">{tabContent}</div>
+              <div className="px-4 pb-10 pt-4">{renderPage(mobileNav.section)}</div>
             </MobileSettingsScreen>
           )}
+          {deleteDialog}
         </DialogContent>
       </Dialog>
     );
   }
 
+  const activeLabel = navItems.find((i) => i.id === activeTab)?.label ?? gt("Overview");
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open onOpenChange={(next) => !next && void requestClose()}>
       <DialogContent
         showCloseButton={false}
-        className="theme-backdrop !max-w-none !w-screen !h-screen !rounded-none p-0 bg-[var(--bg-app)] border-none overflow-hidden flex !translate-x-0 !translate-y-0 !top-0 !left-0 !fixed"
-        onPointerDownOutside={(e) => e.preventDefault()}
+        aria-describedby={undefined}
+        className={shellClass}
+        onEscapeKeyDown={(e) => {
+          e.preventDefault();
+          // Escape in the sidebar search clears it before it closes anything.
+          const target = e.target as HTMLElement | null;
+          if (target?.dataset?.settingsSearch !== undefined && navQuery) {
+            setNavQuery("");
+            return;
+          }
+          void requestClose();
+        }}
+        onInteractOutside={(e) => e.preventDefault()}
+        // Don't pop the keyboard / focus the search box on open.
+        onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        {/* Sidebar Navigation */}
-        <div className="w-56 lg:w-64 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] flex flex-col justify-between py-6 shrink-0 h-full overflow-hidden">
-          <div className="space-y-4">
-            <div className="px-4 mb-4 flex-shrink-0">
-              <h2 className="text-[10px] font-bold uppercase text-[var(--text-muted)] tracking-widest mb-1.5">
-                {isVoice ? gt("Voice") : isCategory ? gt("Category") : channel.type === "announcement" ? gt("Announcement") : gt("Text")} {gt("Channel")}
-              </h2>
-              <p className="text-sm text-[var(--text-primary)] font-semibold truncate flex items-center gap-1.5">
-                {isVoice ? <Volume2 className="w-4 h-4 text-[var(--text-muted)]" /> : isCategory ? <Folder className="w-4 h-4 text-[var(--text-muted)]" /> : channel.type === "announcement" ? <Megaphone className="w-4 h-4 text-blue-400" /> : <Hash className="w-4 h-4 text-[var(--text-muted)]" />}
-                {channel.name}
-              </p>
+        <DialogTitle className="sr-only">{gt("{type} settings for {name}", { type: typeLabel, name: displayName })}</DialogTitle>
+        <SettingsNav
+          sections={navSections}
+          activeId={navTab}
+          onSelect={setNavTab}
+          query={navQuery}
+          onQueryChange={setNavQuery}
+          ariaLabel={sectionTitle}
+          header={
+            <div className="flex min-w-0 items-center gap-2.5 px-2.5">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--bg-hover)] text-[var(--text-secondary)]">
+                <ChannelKindIcon kind={kind} className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-[11px] font-bold uppercase tracking-[0.06em] text-[var(--text-muted)]">{typeLabel}</p>
+                <p className="truncate text-sm font-semibold text-[var(--text-primary)]" title={displayName}>{displayName}</p>
+              </div>
             </div>
-
-            <nav className="px-2 space-y-0.5">
-              {tabs.map((tab) => (
+          }
+          footer={
+            canManageChannels ? (
+              <div className="border-t border-[var(--border-subtle)] pt-3">
                 <button
-                  key={tab.id}
-                  onClick={() => setActiveTab(tab.id)}
-                  className={cn(
-                    "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors mb-0.5",
-                    activeTab === tab.id
-                      ? "bg-[var(--bg-active)] text-[var(--text-primary)] font-semibold"
-                      : "text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
-                  )}
+                  type="button"
+                  data-settings-nav-item
+                  onClick={() => setDeleteOpen(true)}
+                  className="settings-nav-item flex h-8 w-full items-center gap-2.5 rounded-md px-2.5 text-left text-sm text-red-500 hover:bg-red-500/10"
                 >
-                  <tab.icon className="w-4 h-4" />
-                  {tab.label}
+                  <span className="min-w-0 flex-1 truncate">{deleteLabel}</span>
+                  <Trash2 className="h-4 w-4 shrink-0" />
                 </button>
-              ))}
-            </nav>
-          </div>
-
-          <div className="px-2">
-            <button
-              onClick={() => setActiveTab("delete")}
-              className={cn(
-                "w-full flex items-center gap-2.5 px-2.5 py-1.5 rounded text-sm transition-colors",
-                activeTab === "delete"
-                  ? "bg-red-500/20 text-red-400 font-semibold"
-                  : "text-red-400 hover:bg-red-500/10 hover:text-red-300"
-              )}
-            >
-              <Trash2 className="w-4 h-4" />
-              {isCategory ? gt("Delete Category") : gt("Delete Channel")}
-            </button>
-          </div>
-        </div>
-
-        {/* Main Content */}
-        <div className="flex-1 flex flex-col min-w-0 overflow-hidden bg-[var(--bg-card)] relative">
-          {/* Close Button */}
-          <button
-            onClick={() => onOpenChange(false)}
-            className="absolute top-10 right-10 w-9 h-9 flex items-center justify-center text-[var(--text-secondary)] hover:text-[var(--text-primary)] border border-[var(--border-subtle)] rounded-full transition-colors z-50 bg-[var(--bg-card)]"
-          >
-            <X className="w-5 h-5" />
-          </button>
-
-          {/* ESC hint */}
-          <div className="absolute top-[44px] right-24 text-xs text-[var(--text-muted)] z-50 pointer-events-none">
-            ESC
-          </div>
-
-          {/* Content Area */}
-          <ScrollArea className="flex-1 h-full [&_[data-radix-scroll-area-viewport]]:!overflow-y-scroll [&_[data-radix-scroll-area-scrollbar]]:!flex bg-[var(--bg-card)]">
-            <div className="py-10 px-10 mx-auto pb-24 max-w-[740px] w-full space-y-8">
-              {tabContent}
-            </div>
-          </ScrollArea>
-
-          {/* Unsaved Changes Bars */}
-          {hasChanges && activeTab === "overview" && (
-            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 animate-in slide-in-from-bottom z-50">{overviewBar}</div>
-          )}
-          {hasPermChanges && activeTab === "permissions" && (
-            <div className="absolute bottom-0 left-0 right-0 bg-[var(--bg-card)] border-t border-[var(--border-subtle)] p-3 animate-in slide-in-from-bottom z-50">{permBar}</div>
-          )}
-        </div>
+              </div>
+            ) : undefined
+          }
+        />
+        <SettingsContent
+          pageKey={activeTab}
+          title={activeLabel}
+          width={activeTab === "permissions" || activeTab === "invites" ? "wide" : "narrow"}
+          onClose={() => void requestClose()}
+          closeLabel={gt("Close channel settings")}
+          highlightQuery={navQuery}
+          footer={
+            <UnsavedChangesBar
+              visible={dirty}
+              isSaving={isSaving}
+              onSave={() => void handleSave()}
+              onDiscard={handleDiscard}
+              onUndo={settingsDraft.undo}
+              onRedo={settingsDraft.redo}
+              canUndo={settingsDraft.canUndo}
+              canRedo={settingsDraft.canRedo}
+              changeCount={changeCount}
+              shakeSignal={unsavedShake}
+              className="mt-0 max-w-none"
+            />
+          }
+        >
+          {renderPage(activeTab)}
+        </SettingsContent>
+        {deleteDialog}
       </DialogContent>
     </Dialog>
   );

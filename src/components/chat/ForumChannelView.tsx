@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { useChatStream } from "@/hooks/useChatStream";
 import {
@@ -42,6 +42,8 @@ import { ChatArea } from "@/components/chat/ChatArea";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { cn, cdnImage } from "@/lib/utils";
 import { Loader } from "@/components/ui/Loader";
+import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
 
 interface ForumTag {
   id: string;
@@ -127,6 +129,11 @@ export function ForumChannelView({
   const [searchQuery, setSearchQuery] = useState("");
   const [sortBy, setSortBy] = useState<SortBy>("latest_activity");
   const [viewMode, setViewMode] = useState<ViewMode>("list");
+  // Forum settings (Channel Settings → Overview): guidelines, required tags,
+  // and the default sort / layout applied once when the forum first loads.
+  const [guidelines, setGuidelines] = useState("");
+  const [requireTag, setRequireTag] = useState(false);
+  const defaultsAppliedRef = useRef(false);
 
   // New-post form
   const [postTitle, setPostTitle] = useState("");
@@ -163,6 +170,13 @@ export function ForumChannelView({
         setThreads(data.threads || []);
         setAvailableTags(data.availableTags || []);
         setForumMode(data.forumMode || "posts");
+        setGuidelines(decodeHtmlEntities(typeof data.guidelines === "string" ? data.guidelines : ""));
+        setRequireTag(Boolean(data.requireTag));
+        if (!defaultsAppliedRef.current) {
+          defaultsAppliedRef.current = true;
+          if (data.defaultSortOrder === "creation_date") setSortBy("creation_date");
+          if (data.defaultForumLayout === "gallery_view") setViewMode("gallery");
+        }
       }
     } catch {
       // ignore transient errors
@@ -234,6 +248,81 @@ export function ForumChannelView({
   }, [threads, searchQuery, sortBy]);
 
   const showSplit = Boolean(selectedThreadId && !isMobile);
+
+  // New post / ticket form. Shows the forum's guidelines and, when the forum
+  // requires tags, keeps Post disabled until one is picked (Channel Settings).
+  const tagMissing = requireTag && availableTags.length > 0 && postTags.length === 0;
+  const createDialog = (
+    <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <DialogContent className="bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
+        <DialogHeader>
+          <DialogTitle>{isTickets ? gt("Open a Ticket") : gt("Create Post")}</DialogTitle>
+        </DialogHeader>
+        <div className="space-y-4">
+          {guidelines.trim() && (
+            <div className="max-h-40 overflow-y-auto rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-app)] px-3 py-2.5">
+              <p className="mb-1 text-[11px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{gt("Post Guidelines")}</p>
+              <MarkdownRenderer content={guidelines} className="text-sm text-[var(--text-secondary)]" />
+            </div>
+          )}
+          <Input
+            autoFocus
+            value={postTitle}
+            onChange={(e) => setPostTitle(e.target.value.slice(0, 100))}
+            placeholder={isTickets ? gt("Ticket subject") : gt("Post title")}
+            className="bg-[var(--bg-app)] border-[var(--border-subtle)]"
+          />
+          <textarea
+            value={postBody}
+            onChange={(e) => setPostBody(e.target.value.slice(0, 4000))}
+            placeholder={isTickets ? gt("Describe your issue…") : gt("What's on your mind?")}
+            rows={6}
+            className="w-full rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] p-3 resize-none focus:outline-none focus:border-[var(--app-accent)]"
+          />
+          {availableTags.length > 0 && (
+            <div className="space-y-1.5">
+              <div className="flex flex-wrap gap-2">
+                {availableTags.map((tag) => {
+                  const on = postTags.includes(tag.id);
+                  return (
+                    <button
+                      key={tag.id}
+                      onClick={() =>
+                        setPostTags((prev) => (on ? prev.filter((t) => t !== tag.id) : [...prev, tag.id]))
+                      }
+                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
+                        on
+                          ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]"
+                          : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
+                      }`}
+                    >
+                      {tag.emojiName ? `${tag.emojiName} ` : ""}
+                      {tag.name}
+                    </button>
+                  );
+                })}
+              </div>
+              {tagMissing && <p className="text-xs text-[var(--text-muted)]">{gt("Pick at least one tag for your post.")}</p>}
+            </div>
+          )}
+        </div>
+        <div className="flex justify-end gap-2 mt-2">
+          <Button variant="ghost" onClick={() => setCreateOpen(false)}>
+            {gt("Cancel")}
+          </Button>
+          <Button
+            onClick={handleCreate}
+            disabled={!postTitle.trim() || !postBody.trim() || creating || tagMissing}
+            className="bg-[var(--app-accent)] hover:opacity-90 text-white gap-1.5"
+          >
+            {creating && <Loader size={16} />}
+            {isTickets ? gt("Open Ticket") : gt("Post")}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+
 
   const PostCard = ({ thread }: { thread: ForumThread }) => {
     const selected = selectedThreadId === thread.id;
@@ -507,64 +596,7 @@ export function ForumChannelView({
           <ChatArea onToggleMembers={() => {}} showMembers={false} />
         </div>
 
-        <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-          <DialogContent className="bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
-            <DialogHeader>
-              <DialogTitle>{isTickets ? gt("Open a Ticket") : gt("Create Post")}</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-4">
-              <Input
-                autoFocus
-                value={postTitle}
-                onChange={(e) => setPostTitle(e.target.value.slice(0, 100))}
-                placeholder={isTickets ? gt("Ticket subject") : gt("Post title")}
-                className="bg-[var(--bg-app)] border-[var(--border-subtle)]"
-              />
-              <textarea
-                value={postBody}
-                onChange={(e) => setPostBody(e.target.value.slice(0, 4000))}
-                placeholder={isTickets ? gt("Describe your issue…") : gt("What's on your mind?")}
-                rows={6}
-                className="w-full rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] p-3 resize-none focus:outline-none focus:border-[var(--app-accent)]"
-              />
-              {availableTags.length > 0 && (
-                <div className="flex flex-wrap gap-2">
-                  {availableTags.map((tag) => {
-                    const on = postTags.includes(tag.id);
-                    return (
-                      <button
-                        key={tag.id}
-                        onClick={() =>
-                          setPostTags((prev) => (on ? prev.filter((t) => t !== tag.id) : [...prev, tag.id]))
-                        }
-                        className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                          on
-                            ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]"
-                            : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
-                        }`}
-                      >
-                        {tag.name}
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-2 mt-2">
-              <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-                {gt("Cancel")}
-              </Button>
-              <Button
-                onClick={handleCreate}
-                disabled={!postTitle.trim() || !postBody.trim() || creating}
-                className="bg-[var(--app-accent)] hover:opacity-90 text-white gap-1.5"
-              >
-                {creating && <Loader size={16} />}
-                {isTickets ? gt("Open Ticket") : gt("Post")}
-              </Button>
-            </div>
-          </DialogContent>
-        </Dialog>
+        {createDialog}
       </div>
     );
   }
@@ -586,64 +618,7 @@ export function ForumChannelView({
         </div>
       )}
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
-        <DialogContent className="bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{isTickets ? gt("Open a Ticket") : gt("Create Post")}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            <Input
-              autoFocus
-              value={postTitle}
-              onChange={(e) => setPostTitle(e.target.value.slice(0, 100))}
-              placeholder={isTickets ? gt("Ticket subject") : gt("Post title")}
-              className="bg-[var(--bg-app)] border-[var(--border-subtle)]"
-            />
-            <textarea
-              value={postBody}
-              onChange={(e) => setPostBody(e.target.value.slice(0, 4000))}
-              placeholder={isTickets ? gt("Describe your issue…") : gt("What's on your mind?")}
-              rows={6}
-              className="w-full rounded-lg bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] p-3 resize-none focus:outline-none focus:border-[var(--app-accent)]"
-            />
-            {availableTags.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {availableTags.map((tag) => {
-                  const on = postTags.includes(tag.id);
-                  return (
-                    <button
-                      key={tag.id}
-                      onClick={() =>
-                        setPostTags((prev) => (on ? prev.filter((t) => t !== tag.id) : [...prev, tag.id]))
-                      }
-                      className={`text-xs px-2.5 py-1 rounded-full border transition-colors ${
-                        on
-                          ? "bg-[var(--app-accent)]/15 border-[var(--app-accent)] text-[var(--app-accent)]"
-                          : "border-[var(--border-subtle)] text-[var(--text-muted)] hover:border-[var(--text-muted)]"
-                      }`}
-                    >
-                      {tag.name}
-                    </button>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-          <div className="flex justify-end gap-2 mt-2">
-            <Button variant="ghost" onClick={() => setCreateOpen(false)}>
-              {gt("Cancel")}
-            </Button>
-            <Button
-              onClick={handleCreate}
-              disabled={!postTitle.trim() || !postBody.trim() || creating}
-              className="bg-[var(--app-accent)] hover:opacity-90 text-white gap-1.5"
-            >
-              {creating && <Loader size={16} />}
-              {isTickets ? gt("Open Ticket") : gt("Post")}
-            </Button>
-          </div>
-        </DialogContent>
-      </Dialog>
+      {createDialog}
     </div>
   );
 }

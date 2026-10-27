@@ -243,6 +243,9 @@ async function canManageChannels(server: { ownerId: string; id: string }, userId
   return hasServerPermission(server, userId, PERMISSION_BITS.MANAGE_CHANNELS);
 }
 
+/** Channel types an invite may point at (not categories or threads). */
+const INVITE_CHANNEL_TYPES = new Set(['text', 'announcement', 'voice', 'stage', 'forum']);
+
 // Check if user can create invites (owner or has CREATE_INVITE / ADMINISTRATOR)
 async function canCreateInvite(
   server: { ownerId: string; id: string },
@@ -2324,13 +2327,28 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Invite creation rate limited', retryAfter: rateLimit.retryAfter };
     }
 
-    // Get default channel
-    const channels = await Channel.find({
-      serverId: params.serverId,
-      type: { in: ['text', 'announcement'] },
-    });
-    channels.sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
-    const channel = channels[0];
+    // The requested channel (invite dialog, channel settings) when the inviter
+    // can see it; otherwise the server's first text channel. `channelId` used
+    // to be ignored, so every invite pointed at the first channel.
+    let channel: typeof schema.channels.$inferSelect | null = null;
+    if (body.channelId) {
+      const { checkChannelAccess } = await import('@/lib/api/channels');
+      const access = isValidObjectId(body.channelId) ? await checkChannelAccess(user.id, body.channelId) : null;
+      const target = access?.hasAccess ? access.channel : null;
+      if (!target || !target.serverId || !sameId(target.serverId, server.id) || !INVITE_CHANNEL_TYPES.has(String(target.type))) {
+        set.status = 400;
+        return { error: 'Invalid channel for invite' };
+      }
+      channel = target;
+    }
+    if (!channel) {
+      const channels = await Channel.find({
+        serverId: params.serverId,
+        type: { in: ['text', 'announcement'] },
+      });
+      channels.sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
+      channel = channels[0] ?? null;
+    }
 
     if (!channel) {
       set.status = 400;
@@ -2382,6 +2400,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       maxUses: t.Optional(t.Number({ minimum: 0, maximum: 100 })),
       maxAge: t.Optional(t.Number({ minimum: 0, maximum: 604800 })),
       temporary: t.Optional(t.Boolean()),
+      channelId: t.Optional(t.String()),
     }),
   })
   // Get server channels

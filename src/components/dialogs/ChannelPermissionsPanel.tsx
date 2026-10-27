@@ -1,14 +1,23 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
-import { AlertCircle, Check, ChevronDown, ChevronRight, Lock, Plus, RefreshCw, Search, Shield, Slash, Trash2, User as UserIcon, X } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { AlertCircle, Check, Lock, Plus, RefreshCw, Shield, Slash, Trash2, User as UserIcon, X } from "lucide-react";
 import { useGT } from "gt-next";
-import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { useServerMembersOptional } from "@/contexts/ServerContext";
 import { cn, cdnImage } from "@/lib/utils";
 import { PERMISSION_BITS, type PermissionName } from "@/lib/permissions/bits";
 import { ROLE_PERMISSION_CATEGORIES } from "@/lib/constants/rolePermissions";
+import {
+  SettingsCard,
+  SettingsPageHeader,
+  SettingsSection,
+  SettingsToggleRow,
+} from "@/components/settings/SettingsSection";
+import { SettingsButton } from "@/components/settings/blocks/SettingsButton";
+import { SettingsEmptyState } from "@/components/settings/blocks/SettingsEmptyState";
+import { SettingsSearchInput } from "@/components/settings/blocks/SettingsSearchInput";
 import {
   accessHolders,
   addOverwrite,
@@ -45,6 +54,7 @@ const PERMISSION_META = new Map<bigint, { label: string; description: string }>(
 );
 
 type Target = { id: string; type: "role" | "member" };
+const sameTarget = (a: Target, b: Target) => a.type === b.type && a.id.toLowerCase() === b.id.toLowerCase();
 
 /** Discord's deny / inherit / allow switch for one permission of one override. */
 function TriState({
@@ -52,59 +62,67 @@ function TriState({
   onSet,
   label,
   labels,
+  disabled,
 }: {
   state: OverwriteState;
   onSet: (s: OverwriteState) => void;
   label: string;
   labels: { deny: string; inherit: string; allow: string };
+  disabled?: boolean;
 }) {
+  const cell = "flex h-7 w-8 items-center justify-center transition-colors duration-(--motion-fast) disabled:cursor-not-allowed max-md:h-10 max-md:w-11";
   return (
-    <div role="radiogroup" aria-label={label} className="flex items-center rounded-md overflow-hidden border border-[var(--border-subtle)] shrink-0">
+    <div role="radiogroup" aria-label={label} className="flex shrink-0 overflow-hidden rounded-md border border-[var(--border-subtle)] bg-[var(--bg-input)]">
       <button
         type="button"
         role="radio"
         aria-checked={state === "deny"}
         aria-label={labels.deny}
-        onClick={() => onSet("deny")}
         title={labels.deny}
-        className={cn("w-8 h-7 max-md:w-11 max-md:h-10 flex items-center justify-center transition-colors", state === "deny" ? "bg-red-500 text-white" : "text-red-400 hover:bg-red-500/10")}
+        disabled={disabled}
+        onClick={() => onSet("deny")}
+        className={cn(cell, state === "deny" ? "bg-red-500 text-white" : "text-red-500 hover:bg-red-500/10")}
       >
-        <X className="w-4 h-4" />
+        <X className="h-4 w-4" />
       </button>
       <button
         type="button"
         role="radio"
         aria-checked={state === "neutral"}
         aria-label={labels.inherit}
-        onClick={() => onSet("neutral")}
         title={labels.inherit}
+        disabled={disabled}
+        onClick={() => onSet("neutral")}
         className={cn(
-          "w-8 h-7 max-md:w-11 max-md:h-10 flex items-center justify-center border-x border-[var(--border-subtle)] transition-colors",
-          state === "neutral" ? "bg-[var(--app-surface-alt)] text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)]",
+          cell,
+          "border-x border-[var(--border-subtle)]",
+          state === "neutral" ? "bg-[var(--bg-active)] text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)]",
         )}
       >
-        <Slash className="w-3.5 h-3.5" />
+        <Slash className="h-3.5 w-3.5" />
       </button>
       <button
         type="button"
         role="radio"
         aria-checked={state === "allow"}
         aria-label={labels.allow}
-        onClick={() => onSet("allow")}
         title={labels.allow}
-        className={cn("w-8 h-7 max-md:w-11 max-md:h-10 flex items-center justify-center transition-colors", state === "allow" ? "bg-green-500 text-white" : "text-green-500 hover:bg-green-500/10")}
+        disabled={disabled}
+        onClick={() => onSet("allow")}
+        className={cn(cell, state === "allow" ? "bg-green-600 text-white" : "text-green-600 hover:bg-green-500/10")}
       >
-        <Check className="w-4 h-4" />
+        <Check className="h-4 w-4" />
       </button>
     </div>
   );
 }
 
 /**
- * The Permissions tab of a channel or category, like Discord's: sync status
- * with the category, the "Private Channel" toggle with who can access it, and
- * per-role / per-member overrides with tri-state (deny / inherit / allow)
- * switches grouped by section.
+ * Channel Settings → Permissions, laid out like Discord's: category sync
+ * banner, the "Private Channel" toggle with who can see it, then Advanced
+ * permissions (roles / members on the left, tri-state permission rows on the
+ * right). Every change edits `overwrites` (the dialog's draft); nothing is
+ * saved here.
  */
 export function ChannelPermissionsPanel({
   channel,
@@ -113,8 +131,7 @@ export function ChannelPermissionsPanel({
   roles,
   overwrites,
   onChange,
-  onSyncNow,
-  syncing,
+  disabled = false,
 }: {
   channel: { id: string; name: string; type: string };
   parent: { id: string; name: string; permissionOverwrites?: EditableOverwrite[] } | null;
@@ -122,8 +139,7 @@ export function ChannelPermissionsPanel({
   roles: PanelRole[];
   overwrites: EditableOverwrite[];
   onChange: (next: EditableOverwrite[]) => void;
-  onSyncNow: () => void;
-  syncing?: boolean;
+  disabled?: boolean;
 }) {
   const gt = useGT();
   const rawMembers = useServerMembersOptional()?.members;
@@ -133,12 +149,8 @@ export function ChannelPermissionsPanel({
   const everyoneRole = roles.find((r) => r.isDefault) ?? null;
   const everyoneId = everyoneRole?.id ?? null;
 
-  const [showAdvanced, setShowAdvanced] = useState(false);
   const [selected, setSelected] = useState<Target | null>(null);
-  const [picker, setPicker] = useState<"access" | "advanced" | null>(null);
-  const [pickerQuery, setPickerQuery] = useState("");
   const [permQuery, setPermQuery] = useState("");
-  const pickerInputRef = useRef<HTMLInputElement>(null);
 
   const roleById = useMemo(() => new Map(roles.map((r) => [r.id.toLowerCase(), r] as const)), [roles]);
   const memberById = useMemo(() => new Map(members.map((mem) => [String(mem.id).toLowerCase(), mem] as const)), [members]);
@@ -146,85 +158,62 @@ export function ChannelPermissionsPanel({
   const synced = parent ? overwritesInSync(overwrites, parent.permissionOverwrites || []) : false;
   const isPrivate = isPrivateChannel(overwrites, everyoneId, serverId);
   const holders = useMemo(() => accessHolders(overwrites, everyoneId), [overwrites, everyoneId]);
+  const isEveryone = (t: Target) =>
+    t.type === "role" && ((everyoneId && t.id.toLowerCase() === everyoneId.toLowerCase()) || t.id.toLowerCase() === serverId.toLowerCase());
 
   const targetName = (t: Target) => {
     if (t.type === "member") {
       const mem = memberById.get(t.id.toLowerCase());
       return mem ? mem.displayName || mem.username : gt("Unknown member");
     }
-    if (everyoneId && t.id.toLowerCase() === everyoneId.toLowerCase()) return "@everyone";
-    if (t.id.toLowerCase() === serverId.toLowerCase()) return "@everyone";
+    if (isEveryone(t)) return "@everyone";
     return roleById.get(t.id.toLowerCase())?.name ?? gt("Deleted role");
   };
 
-  const targetBadge = (t: Target, size = "w-5 h-5") => {
+  const targetBadge = (t: Target, size = "h-5 w-5") => {
     if (t.type === "member") {
       const mem = memberById.get(t.id.toLowerCase());
       return (
         <Avatar className={cn(size, "shrink-0")}>
           <AvatarImage src={cdnImage(mem?.avatar || undefined)} />
-          <AvatarFallback className="text-[9px] bg-[var(--app-surface-alt)]">{(mem?.username || "?").charAt(0).toUpperCase()}</AvatarFallback>
+          <AvatarFallback className="bg-[var(--bg-active)] text-[9px]">{(mem?.username || "?").charAt(0).toUpperCase()}</AvatarFallback>
         </Avatar>
       );
     }
     const role = roleById.get(t.id.toLowerCase());
     return (
-      <span className="w-3 h-3 rounded-full shrink-0 border border-[var(--border-subtle)]" style={{ backgroundColor: role?.color || "var(--text-muted)" }} />
+      <span
+        aria-hidden
+        className="h-3 w-3 shrink-0 rounded-full border border-[var(--border-subtle)]"
+        style={{ backgroundColor: role?.color || "var(--text-muted)" }}
+      />
     );
   };
 
-  // Left list: @everyone first, then roles by position, then members (Discord order).
+  // Left list: roles by position (@everyone last, as in Discord), then members.
+  // @everyone is always there even without an overwrite yet.
   const listed = useMemo(() => {
-    const roleRows = overwrites
+    const rows = overwrites
       .filter((o) => o.type === "role")
       .sort((a, b) => {
-        const aEveryone = everyoneId && a.id.toLowerCase() === everyoneId.toLowerCase();
-        const bEveryone = everyoneId && b.id.toLowerCase() === everyoneId.toLowerCase();
+        const aEveryone = Boolean(everyoneId && a.id.toLowerCase() === everyoneId.toLowerCase());
+        const bEveryone = Boolean(everyoneId && b.id.toLowerCase() === everyoneId.toLowerCase());
         if (aEveryone !== bEveryone) return aEveryone ? 1 : -1;
         return (roleById.get(b.id.toLowerCase())?.position ?? 0) - (roleById.get(a.id.toLowerCase())?.position ?? 0);
-      });
-    const memberRows = overwrites.filter((o) => o.type === "member");
-    const rows = [...roleRows, ...memberRows];
-    // @everyone is always editable even without an overwrite yet.
+      })
+      .concat(overwrites.filter((o) => o.type === "member"));
     if (everyoneId && !rows.some((o) => o.type === "role" && o.id.toLowerCase() === everyoneId.toLowerCase())) {
       rows.push({ id: everyoneId, type: "role", allow: "0", deny: "0" });
     }
     return rows;
   }, [overwrites, everyoneId, roleById]);
 
-  const activeTarget: Target | null = selected ?? (listed[0] ? { id: listed[0].id, type: listed[0].type } : null);
-  const activeOverwrite = activeTarget
-    ? overwrites.find((o) => o.type === activeTarget.type && o.id.toLowerCase() === activeTarget.id.toLowerCase()) ?? null
-    : null;
+  const activeTarget: Target | null =
+    (selected && listed.some((o) => sameTarget(o, selected)) ? selected : null) ??
+    (listed[0] ? { id: listed[0].id, type: listed[0].type } : null);
+  const activeOverwrite = activeTarget ? overwrites.find((o) => sameTarget(o, activeTarget)) ?? null : null;
 
-  const pickerResults = useMemo(() => {
-    const q = pickerQuery.trim().toLowerCase();
-    const exclude = (t: Target) =>
-      picker === "advanced"
-        ? overwrites.some((o) => o.type === t.type && o.id.toLowerCase() === t.id.toLowerCase())
-        : holders.some((o) => o.type === t.type && o.id.toLowerCase() === t.id.toLowerCase());
-    const roleItems = roles
-      .filter((r) => !r.isDefault)
-      .filter((r) => !q || r.name.toLowerCase().includes(q))
-      .filter((r) => !exclude({ id: r.id, type: "role" }))
-      .sort((a, b) => (b.position ?? 0) - (a.position ?? 0))
-      .slice(0, 25)
-      .map((r) => ({ id: r.id, type: "role" as const }));
-    const memberItems = members
-      .filter((mem) => !q || (mem.displayName || "").toLowerCase().includes(q) || mem.username.toLowerCase().includes(q))
-      .filter((mem) => !exclude({ id: mem.id, type: "member" }))
-      .slice(0, 25)
-      .map((mem) => ({ id: mem.id, type: "member" as const }));
-    return { roleItems, memberItems };
-  }, [pickerQuery, roles, members, overwrites, holders, picker]);
-
-  const openPicker = (which: "access" | "advanced") => {
-    setPicker(which);
-    setPickerQuery("");
-    setTimeout(() => pickerInputRef.current?.focus(), 30);
-  };
-
-  // Phones stack the target list above the editor: bring the editor into view on pick.
+  // Phones stack the list above the editor: bring the editor into view on pick.
   const selectTarget = (t: Target) => {
     setSelected(t);
     if (typeof window !== "undefined" && window.matchMedia?.("(max-width: 767px)").matches) {
@@ -232,25 +221,22 @@ export function ChannelPermissionsPanel({
     }
   };
 
-  const pick = (t: Target) => {
-    if (picker === "access") {
-      let next = setOverwriteState(overwrites, t, PERMISSION_BITS.VIEW_CHANNEL, "allow");
-      if (isVoice) next = setOverwriteState(next, t, PERMISSION_BITS.CONNECT, "allow");
-      onChange(next);
-    } else {
-      onChange(addOverwrite(overwrites, t));
-      selectTarget(t);
-      setShowAdvanced(true);
-    }
-    setPicker(null);
+  const grantAccess = (t: Target) => {
+    let next = setOverwriteState(overwrites, t, PERMISSION_BITS.VIEW_CHANNEL, "allow");
+    if (isVoice) next = setOverwriteState(next, t, PERMISSION_BITS.CONNECT, "allow");
+    onChange(next);
   };
 
   const removeAccess = (t: Target) => {
     let next = setOverwriteState(overwrites, t, PERMISSION_BITS.VIEW_CHANNEL, "neutral");
     if (isVoice) next = setOverwriteState(next, t, PERMISSION_BITS.CONNECT, "neutral");
     // Drop overwrites that no longer carry anything.
-    next = next.filter((o) => !(o.type === t.type && o.id.toLowerCase() === t.id.toLowerCase() && o.allow === "0" && o.deny === "0"));
-    onChange(next);
+    onChange(next.filter((o) => !(sameTarget(o, t) && o.allow === "0" && o.deny === "0")));
+  };
+
+  const addAdvanced = (t: Target) => {
+    onChange(addOverwrite(overwrites, t));
+    selectTarget(t);
   };
 
   const groupLabel = (g: PermissionGroup["id"]) => {
@@ -279,171 +265,113 @@ export function ChannelPermissionsPanel({
 
   const groups = permissionGroupsFor(channel.type);
   const q = permQuery.trim().toLowerCase();
-
   const triLabels = { deny: gt("Deny"), inherit: gt("Inherit"), allow: gt("Allow") };
-
-  const pickerPopover = (
-    <>
-      <div className="fixed inset-0 z-40" onClick={() => setPicker(null)} />
-      <div className="absolute left-0 right-0 sm:right-auto sm:w-80 mt-1 z-50 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-sidebar-elevated)] shadow-xl">
-        <div className="p-2 border-b border-[var(--border-subtle)]">
-          <div className="relative">
-            <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-[var(--text-muted)]" />
-            <input
-              ref={pickerInputRef}
-              value={pickerQuery}
-              onChange={(e) => setPickerQuery(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Escape") {
-                  e.stopPropagation();
-                  setPicker(null);
-                }
-              }}
-              placeholder={gt("Search members and roles")}
-              aria-label={gt("Search members and roles")}
-              className="w-full pl-7 pr-2 py-1.5 rounded-md bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
-            />
-          </div>
-        </div>
-        <div className="max-h-64 overflow-y-auto py-1">
-          {pickerResults.roleItems.length > 0 && (
-            <p className="px-3 pt-1 pb-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{gt("Roles")}</p>
-          )}
-          {pickerResults.roleItems.map((t) => (
-            <button
-              key={`r-${t.id}`}
-              type="button"
-              onClick={() => pick(t)}
-              className="w-full flex items-center gap-2 px-3 py-1.5 max-md:py-3 text-sm text-left text-[var(--text-secondary)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)]"
-            >
-              {targetBadge(t)}
-              <span className="truncate">{targetName(t)}</span>
-            </button>
-          ))}
-          {pickerResults.memberItems.length > 0 && (
-            <p className="px-3 pt-2 pb-0.5 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{gt("Members")}</p>
-          )}
-          {pickerResults.memberItems.map((t) => {
-            const mem = memberById.get(t.id.toLowerCase());
-            return (
-              <button
-                key={`m-${t.id}`}
-                type="button"
-                onClick={() => pick(t)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 max-md:py-3 text-sm text-left text-[var(--text-secondary)] hover:bg-[var(--bg-active)] hover:text-[var(--text-primary)]"
-              >
-                {targetBadge(t)}
-                <span className="truncate">{targetName(t)}</span>
-                {mem && <span className="truncate text-xs text-[var(--text-muted)]">{mem.username}</span>}
-              </button>
-            );
-          })}
-          {pickerResults.roleItems.length === 0 && pickerResults.memberItems.length === 0 && (
-            <p className="px-3 py-3 text-xs text-center text-[var(--text-muted)]">{gt("No roles or members found")}</p>
-          )}
-        </div>
-      </div>
-    </>
-  );
+  const visibleGroups = groups
+    .map((g) => ({ ...g, keys: g.keys.filter((k) => !q || permLabel(k).toLowerCase().includes(q) || permDescription(k).toLowerCase().includes(q)) }))
+    .filter((g) => g.keys.length > 0);
 
   return (
-    <div className="max-w-[720px] space-y-6">
-      <div>
-        <h2 className="text-xl font-bold text-[var(--text-primary)] mb-1 max-md:hidden">{isCategory ? gt("Category Permissions") : gt("Channel Permissions")}</h2>
-        <p className="text-sm text-[var(--text-muted)]">{gt("Use permissions to customise who can do what in this channel.")}</p>
-      </div>
+    <div className="space-y-8">
+      <SettingsPageHeader
+        title={isCategory ? gt("Category Permissions") : gt("Channel Permissions")}
+        description={gt("Use permissions to customise who can do what in this channel.")}
+        className="mb-0"
+      />
 
       {/* Category sync status */}
       {parent && !isCategory && (
         synced ? (
-          <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-secondary)]">
-            <RefreshCw className="w-4 h-4 text-[var(--app-accent)] shrink-0" />
-            <span>
+          <div className="flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+            <RefreshCw className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
+            <span className="min-w-0">
               {gt("Permissions synced with category:")} <strong className="text-[var(--text-primary)]">{parent.name}</strong>
             </span>
           </div>
         ) : (
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-sm text-amber-500">
-            <div className="flex items-center gap-2.5">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              <span>
+          <div className="flex flex-col justify-between gap-3 rounded-xl border border-yellow-500/30 bg-yellow-500/10 px-4 py-3 text-sm sm:flex-row sm:items-center">
+            <div className="flex min-w-0 items-center gap-3 text-[var(--text-primary)]">
+              <AlertCircle className="h-4 w-4 shrink-0 text-yellow-600 dark:text-yellow-400" />
+              <span className="min-w-0">
                 {gt("Permissions not synced with category:")} <strong>{parent.name}</strong>
               </span>
             </div>
-            <button
-              type="button"
-              onClick={onSyncNow}
-              disabled={syncing}
-              className="self-start sm:self-auto px-3 py-1.5 rounded-md bg-amber-500 hover:bg-amber-400 text-white text-xs font-semibold disabled:opacity-60"
+            <SettingsButton
+              size="sm"
+              variant="secondary"
+              className="self-start sm:self-auto"
+              disabled={disabled}
+              onClick={() => onChange((parent.permissionOverwrites || []).map((o) => ({ ...o })))}
             >
+              <RefreshCw />
               {gt("Sync Now")}
-            </button>
+            </SettingsButton>
           </div>
         )
       )}
       {isCategory && (
-        <div className="flex items-center gap-2.5 p-3.5 rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)] text-sm text-[var(--text-secondary)]">
-          <RefreshCw className="w-4 h-4 text-[var(--app-accent)] shrink-0" />
+        <div className="flex items-center gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] px-4 py-3 text-sm text-[var(--text-secondary)]">
+          <RefreshCw className="h-4 w-4 shrink-0 text-[var(--app-accent)]" />
           <span>{gt("Changes here also apply to every channel in this category that is synced with it.")}</span>
         </div>
       )}
 
       {/* Private channel */}
-      <div className="rounded-xl bg-[var(--bg-app)] border border-[var(--border-subtle)]">
-        <div className="p-4 sm:p-5 flex items-start justify-between gap-3 sm:gap-4">
-          <div className="flex gap-3">
-            <div className="p-2 rounded-lg bg-[var(--app-surface-alt)] text-[var(--text-secondary)] shrink-0">
-              <Lock className="w-5 h-5" />
-            </div>
-            <div className="space-y-1">
-              <span className="text-sm font-semibold text-[var(--text-primary)]">{isCategory ? gt("Private Category") : gt("Private Channel")}</span>
-              <p className="text-xs text-[var(--text-muted)] max-w-md leading-relaxed">
-                {isCategory
-                  ? gt("By making a category private, only selected members and roles will be able to view this category. Synced channels in this category will also be updated.")
-                  : gt("By making a channel private, only selected members and roles will be able to view this channel.")}
-              </p>
-            </div>
-          </div>
-          <ToggleSwitch
-            checked={isPrivate}
-            disabled={!everyoneId}
-            onCheckedChange={(checked) => everyoneId && onChange(setPrivateChannel(overwrites, everyoneId, checked, { voice: isVoice }))}
-            aria-label={isCategory ? gt("Private Category") : gt("Private Channel")}
-          />
-        </div>
+      <SettingsCard>
+        <SettingsToggleRow
+          icon={Lock}
+          label={isCategory ? gt("Private Category") : gt("Private Channel")}
+          description={
+            isCategory
+              ? gt("By making a category private, only selected members and roles will be able to view this category. Synced channels in this category will also be updated.")
+              : gt("By making a channel private, only selected members and roles will be able to view this channel.")
+          }
+          checked={isPrivate}
+          disabled={disabled || !everyoneId}
+          onCheckedChange={(checked) => everyoneId && onChange(setPrivateChannel(overwrites, everyoneId, checked, { voice: isVoice }))}
+        />
         {isPrivate && (
-          <div className="px-5 pb-5 border-t border-[var(--border-subtle)] pt-4 space-y-3">
-            <div className="flex flex-wrap items-center justify-between gap-3 relative">
-              <span className="text-xs font-bold uppercase tracking-wide text-[var(--text-muted)]">{gt("Who can access this channel?")}</span>
-              <button
-                type="button"
-                onClick={() => openPicker("access")}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-[var(--app-accent)] text-white text-xs font-semibold hover:opacity-90"
-              >
-                <Plus className="w-3.5 h-3.5" />
-                {gt("Add members or roles")}
-              </button>
-              {picker === "access" && <div className="absolute top-full right-0 left-0">{pickerPopover}</div>}
+          <div className="space-y-3 px-4 py-3.5">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <span className="text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-muted)]">
+                {isCategory ? gt("Who can access this category?") : gt("Who can access this channel?")}
+              </span>
+              <TargetPicker
+                roles={roles}
+                members={members}
+                exclude={holders}
+                onPick={grantAccess}
+                disabled={disabled}
+                renderBadge={targetBadge}
+                trigger={
+                  <SettingsButton size="sm" variant="primary" disabled={disabled}>
+                    <Plus />
+                    {gt("Add members or roles")}
+                  </SettingsButton>
+                }
+              />
             </div>
             {holders.length === 0 ? (
-              <p className="text-xs text-[var(--text-muted)]">{gt("Only administrators and the server owner can see this channel. Add roles or members to give them access.")}</p>
+              <p className="text-[13px] text-[var(--text-secondary)]">
+                {gt("Only administrators and the server owner can see this channel. Add roles or members to give them access.")}
+              </p>
             ) : (
-              <ul className="space-y-1">
+              <ul className="-mx-1.5 space-y-0.5">
                 {holders.map((o) => {
                   const t: Target = { id: o.id, type: o.type };
                   return (
-                    <li key={`${o.type}-${o.id}`} className="flex items-center gap-2.5 px-2.5 py-1.5 max-md:py-2.5 rounded-md hover:bg-[var(--bg-hover)]">
-                      {targetBadge(t, "w-6 h-6")}
-                      <span className="flex-1 min-w-0 truncate text-sm text-[var(--text-primary)]">{targetName(t)}</span>
+                    <li key={`${o.type}-${o.id}`} className="group/holder flex items-center gap-2.5 rounded-md px-1.5 py-1.5 hover:bg-[var(--bg-hover)] max-md:py-2.5">
+                      {targetBadge(t, "h-6 w-6")}
+                      <span className="min-w-0 flex-1 truncate text-sm text-[var(--text-primary)]">{targetName(t)}</span>
                       <span className="text-[11px] text-[var(--text-muted)]">{o.type === "role" ? gt("Role") : gt("Member")}</span>
                       <button
                         type="button"
                         onClick={() => removeAccess(t)}
+                        disabled={disabled}
                         title={gt("Remove")}
                         aria-label={gt("Remove")}
-                        className="p-1 max-md:p-2 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/10"
+                        className="rounded p-1 text-[var(--text-muted)] hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40 max-md:p-2"
                       >
-                        <X className="w-3.5 h-3.5" />
+                        <X className="h-3.5 w-3.5" />
                       </button>
                     </li>
                   );
@@ -452,149 +380,236 @@ export function ChannelPermissionsPanel({
             )}
           </div>
         )}
-      </div>
+      </SettingsCard>
 
       {/* Advanced permissions */}
-      <div className="border-t border-[var(--border-subtle)] pt-4">
-        <button
-          type="button"
-          onClick={() => setShowAdvanced((v) => !v)}
-          aria-expanded={showAdvanced}
-          className="flex items-center justify-between w-full py-2 text-sm font-semibold text-[var(--text-primary)] hover:text-[var(--text-secondary)]"
-        >
-          <span>{gt("Advanced permissions")}</span>
-          {showAdvanced ? <ChevronDown className="w-4 h-4 text-[var(--text-muted)]" /> : <ChevronRight className="w-4 h-4 text-[var(--text-muted)]" />}
-        </button>
-
-        {showAdvanced && (
-          <div className="mt-3 grid grid-cols-1 md:grid-cols-[210px_1fr] gap-4 border border-[var(--border-subtle)] rounded-xl p-3 sm:p-4 bg-[var(--bg-app)]">
-            <div className="md:border-r border-[var(--border-subtle)] md:pr-3 flex flex-col gap-1">
-              <div className="flex items-center justify-between mb-1 relative">
-                <span className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-wider">{gt("Roles/Members")}</span>
-                <button
-                  type="button"
-                  onClick={() => openPicker("advanced")}
-                  title={gt("Add a role or member")}
-                  aria-label={gt("Add a role or member")}
-                  className="p-1 rounded bg-[var(--bg-sidebar)] hover:bg-[var(--bg-hover)] border border-[var(--border-subtle)] text-[var(--text-primary)]"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                </button>
-                {picker === "advanced" && <div className="absolute top-full left-0 right-0">{pickerPopover}</div>}
-              </div>
+      <SettingsSection
+        title={gt("Advanced permissions")}
+        description={gt("Allow or deny single permissions for a role or member. Anything left on inherit uses their server role permissions.")}
+      >
+        <div className="grid grid-cols-1 overflow-hidden rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] md:grid-cols-[220px_minmax(0,1fr)]">
+          <div className="border-b border-[var(--border-subtle)] p-2 md:border-b-0 md:border-r">
+            <div className="flex items-center justify-between px-1.5 pb-1.5 pt-1">
+              <span className="text-[11px] font-bold uppercase tracking-[0.04em] text-[var(--text-muted)]">{gt("Roles/Members")}</span>
+              <TargetPicker
+                roles={roles}
+                members={members}
+                exclude={overwrites}
+                onPick={addAdvanced}
+                disabled={disabled}
+                renderBadge={targetBadge}
+                trigger={
+                  <button
+                    type="button"
+                    disabled={disabled}
+                    title={gt("Add a role or member")}
+                    aria-label={gt("Add a role or member")}
+                    className="flex h-6 w-6 items-center justify-center rounded-md text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] disabled:opacity-40 max-md:h-9 max-md:w-9"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                }
+              />
+            </div>
+            <div className="max-h-[420px] space-y-0.5 overflow-y-auto max-md:max-h-56">
               {listed.map((o) => {
                 const t: Target = { id: o.id, type: o.type };
-                const isActive = activeTarget && activeTarget.type === t.type && activeTarget.id.toLowerCase() === t.id.toLowerCase();
-                const isEveryone = everyoneId && o.type === "role" && o.id.toLowerCase() === everyoneId.toLowerCase();
+                const active = activeTarget ? sameTarget(activeTarget, t) : false;
                 return (
-                  <button
+                  <div
                     key={`${o.type}-${o.id}`}
-                    type="button"
-                    onClick={() => selectTarget(t)}
                     className={cn(
-                      "w-full flex items-center gap-2 px-2.5 py-1.5 max-md:py-3 max-md:text-sm rounded-md text-xs font-medium text-left transition-colors",
-                      isActive ? "bg-[var(--bg-active)] text-[var(--text-primary)]" : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]",
+                      "group/target flex items-center rounded-md transition-colors",
+                      active ? "bg-[var(--bg-active)]" : "hover:bg-[var(--bg-hover)]",
                     )}
                   >
-                    {o.type === "member" ? <UserIcon className="w-3.5 h-3.5 shrink-0" /> : targetBadge(t)}
-                    <span className="truncate flex-1">{targetName(t)}</span>
-                    {!isEveryone && (
-                      <span
-                        role="button"
-                        tabIndex={0}
-                        aria-label={gt("Remove")}
-                        onClick={(e) => {
-                          e.stopPropagation();
+                    <button
+                      type="button"
+                      onClick={() => selectTarget(t)}
+                      aria-current={active ? "true" : undefined}
+                      className={cn(
+                        "flex min-w-0 flex-1 items-center gap-2 px-2 py-1.5 text-left text-sm max-md:py-2.5",
+                        active ? "font-medium text-[var(--text-primary)]" : "text-[var(--text-secondary)]",
+                      )}
+                    >
+                      {o.type === "member" ? targetBadge(t, "h-5 w-5") : targetBadge(t)}
+                      <span className="truncate">{targetName(t)}</span>
+                    </button>
+                    {!isEveryone(t) && (
+                      <button
+                        type="button"
+                        disabled={disabled}
+                        aria-label={gt("Remove {name}", { name: targetName(t) })}
+                        title={gt("Remove")}
+                        onClick={() => {
                           onChange(removeOverwrite(overwrites, t));
-                          if (isActive) setSelected(null);
+                          if (active) setSelected(null);
                         }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            onChange(removeOverwrite(overwrites, t));
-                            if (isActive) setSelected(null);
-                          }
-                        }}
-                        className="p-0.5 max-md:p-1.5 rounded text-[var(--text-muted)] hover:text-red-400 hover:bg-red-500/20"
+                        className="mr-1 rounded p-1 text-[var(--text-muted)] transition-opacity hover:bg-red-500/10 hover:text-red-500 disabled:opacity-40 [@media(hover:hover)]:opacity-0 [@media(hover:hover)]:group-hover/target:opacity-100 [@media(hover:hover)]:group-focus-within/target:opacity-100 max-md:p-2"
                       >
-                        <X className="w-3.5 h-3.5" />
-                      </span>
+                        <X className="h-3.5 w-3.5" />
+                      </button>
                     )}
-                  </button>
+                  </div>
                 );
               })}
             </div>
+          </div>
 
-            <div data-perm-editor="" className="min-w-0 scroll-mt-4">
-              {activeTarget ? (
-                <div className="space-y-4">
-                  <div className="flex flex-wrap items-center justify-between gap-2 pb-2 border-b border-[var(--border-subtle)]">
-                    <span className="text-xs text-[var(--text-secondary)] flex items-center gap-1.5 min-w-0">
-                      {targetBadge(activeTarget)}
-                      <strong className="text-[var(--text-primary)] truncate">{targetName(activeTarget)}</strong>
-                    </span>
-                    <div className="flex items-center gap-2 max-md:w-full">
-                      <div className="relative max-md:flex-1">
-                        <Search className="absolute left-2 top-1/2 -translate-y-1/2 w-3 h-3 text-[var(--text-muted)]" />
-                        <input
-                          value={permQuery}
-                          onChange={(e) => setPermQuery(e.target.value)}
-                          placeholder={gt("Search permissions")}
-                          aria-label={gt("Search permissions")}
-                          className="w-40 max-md:w-full pl-6 pr-2 py-1 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-xs text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]"
-                        />
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => onChange(clearOverwrite(overwrites, activeTarget))}
-                        disabled={!activeOverwrite || (activeOverwrite.allow === "0" && activeOverwrite.deny === "0")}
-                        title={gt("Clear all overrides")}
-                        className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-xs text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] disabled:opacity-40"
-                      >
-                        <Trash2 className="w-3.5 h-3.5" />
-                        {gt("Clear")}
-                      </button>
-                    </div>
+          <div data-perm-editor="" className="min-w-0 scroll-mt-4 p-3 sm:p-4">
+            {activeTarget ? (
+              <div className="space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="flex min-w-0 items-center gap-2 text-sm">
+                    {activeTarget.type === "member" ? <UserIcon className="h-4 w-4 shrink-0 text-[var(--text-muted)]" /> : targetBadge(activeTarget)}
+                    <strong className="truncate text-[var(--text-primary)]">{targetName(activeTarget)}</strong>
+                  </span>
+                  <div className="flex items-center gap-2 max-md:w-full">
+                    <SettingsSearchInput
+                      value={permQuery}
+                      onValueChange={setPermQuery}
+                      placeholder={gt("Search permissions")}
+                      clearLabel={gt("Clear search")}
+                      className="w-48 max-md:flex-1"
+                      inputClassName="h-8"
+                    />
+                    <SettingsButton
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => onChange(clearOverwrite(overwrites, activeTarget))}
+                      disabled={disabled || !activeOverwrite || (activeOverwrite.allow === "0" && activeOverwrite.deny === "0")}
+                      title={gt("Clear all overrides")}
+                    >
+                      <Trash2 />
+                      {gt("Clear")}
+                    </SettingsButton>
                   </div>
-                  {groups.map((group) => {
-                    const keys = group.keys.filter((k) => !q || permLabel(k).toLowerCase().includes(q));
-                    if (keys.length === 0) return null;
-                    return (
-                      <section key={group.id} className="space-y-1">
-                        <h4 className="text-[11px] font-bold uppercase tracking-wide text-[var(--text-muted)] pt-2">{groupLabel(group.id)}</h4>
-                        {keys.map((key) => {
+                </div>
+                {visibleGroups.length === 0 ? (
+                  <SettingsEmptyState compact icon={Shield} title={gt("No permissions match your search.")} />
+                ) : (
+                  visibleGroups.map((group) => (
+                    <section key={group.id}>
+                      <h4 className="pb-1 pt-2 text-[11px] font-bold uppercase tracking-[0.04em] text-[var(--text-muted)]">{groupLabel(group.id)}</h4>
+                      <div className="divide-y divide-[var(--border-subtle)]">
+                        {group.keys.map((key) => {
                           const flag = PERMISSION_BITS[key];
                           const state = getOverwriteState(activeOverwrite, flag);
                           return (
-                            <div key={key} className="flex items-start justify-between gap-3 sm:gap-4 py-2.5 border-b border-[var(--border-subtle)]/40 last:border-0">
+                            <div key={key} data-settings-row className="flex items-start justify-between gap-3 py-3 sm:gap-4">
                               <div className="min-w-0">
-                                <p className="text-sm font-medium text-[var(--text-primary)]">{permLabel(key)}</p>
-                                <p className="text-xs text-[var(--text-muted)] mt-0.5 leading-relaxed">{permDescription(key)}</p>
+                                <p className="text-sm font-medium text-[var(--text-primary)]" data-settings-label={permLabel(key)}>{permLabel(key)}</p>
+                                <p className="mt-0.5 text-[13px] leading-snug text-[var(--text-secondary)]">{permDescription(key)}</p>
                               </div>
                               <TriState
                                 state={state}
                                 label={permLabel(key)}
                                 labels={triLabels}
+                                disabled={disabled}
                                 onSet={(s) => onChange(setOverwriteState(overwrites, activeTarget, flag, s))}
                               />
                             </div>
                           );
                         })}
-                      </section>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="flex flex-col items-center justify-center h-full py-10 text-[var(--text-muted)] text-xs">
-                  <Shield className="w-8 h-8 mb-2 opacity-50" />
-                  <span>{gt("Select a role or member on the left")}</span>
-                </div>
-              )}
-            </div>
+                      </div>
+                    </section>
+                  ))
+                )}
+              </div>
+            ) : (
+              <SettingsEmptyState compact icon={Shield} title={gt("Select a role or member on the left")} />
+            )}
           </div>
-        )}
-      </div>
+        </div>
+      </SettingsSection>
     </div>
   );
 }
+
+/** "Add members or roles" search popover (Radix: Escape closes it, not the settings). */
+function TargetPicker({
+  roles,
+  members,
+  exclude,
+  onPick,
+  trigger,
+  disabled,
+  renderBadge,
+}: {
+  roles: PanelRole[];
+  members: PanelMember[];
+  exclude: ReadonlyArray<Target>;
+  onPick: (t: Target) => void;
+  trigger: ReactNode;
+  disabled?: boolean;
+  renderBadge: (t: Target) => ReactNode;
+}) {
+  const gt = useGT();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+
+  const results = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const excluded = (t: Target) => exclude.some((o) => sameTarget(o, t));
+    const roleItems = roles
+      .filter((r) => !r.isDefault && (!q || r.name.toLowerCase().includes(q)) && !excluded({ id: r.id, type: "role" }))
+      .sort((a, b) => (b.position ?? 0) - (a.position ?? 0))
+      .slice(0, 25);
+    const memberItems = members
+      .filter((m) => (!q || (m.displayName || "").toLowerCase().includes(q) || m.username.toLowerCase().includes(q)) && !excluded({ id: m.id, type: "member" }))
+      .slice(0, 25);
+    return { roleItems, memberItems };
+  }, [query, roles, members, exclude]);
+
+  const pick = (t: Target) => {
+    onPick(t);
+    setOpen(false);
+    setQuery("");
+  };
+
+  const row = "flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] max-md:py-2.5";
+
+  return (
+    <Popover open={open && !disabled} onOpenChange={(next) => { setOpen(next); if (!next) setQuery(""); }}>
+      <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+      <PopoverContent align="end" className="w-80 max-w-[calc(100vw-2rem)] p-0">
+        <div className="border-b border-[var(--border-subtle)] p-2">
+          <SettingsSearchInput
+            autoFocus
+            value={query}
+            onValueChange={setQuery}
+            placeholder={gt("Search members and roles")}
+            clearLabel={gt("Clear search")}
+            inputClassName="h-8"
+          />
+        </div>
+        <div className="max-h-72 overflow-y-auto p-1.5">
+          {results.roleItems.length > 0 && (
+            <p className="px-2 pb-0.5 pt-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{gt("Roles")}</p>
+          )}
+          {results.roleItems.map((r) => (
+            <button key={`r-${r.id}`} type="button" onClick={() => pick({ id: r.id, type: "role" })} className={row}>
+              {renderBadge({ id: r.id, type: "role" })}
+              <span className="truncate">{r.name}</span>
+            </button>
+          ))}
+          {results.memberItems.length > 0 && (
+            <p className="px-2 pb-0.5 pt-2 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{gt("Members")}</p>
+          )}
+          {results.memberItems.map((m) => (
+            <button key={`m-${m.id}`} type="button" onClick={() => pick({ id: m.id, type: "member" })} className={row}>
+              {renderBadge({ id: m.id, type: "member" })}
+              <span className="truncate">{m.displayName || m.username}</span>
+              {m.displayName && <span className="truncate text-xs text-[var(--text-muted)]">{m.username}</span>}
+            </button>
+          ))}
+          {results.roleItems.length === 0 && results.memberItems.length === 0 && (
+            <p className="px-3 py-4 text-center text-xs text-[var(--text-muted)]">{gt("No roles or members found")}</p>
+          )}
+        </div>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+export default ChannelPermissionsPanel;
