@@ -290,9 +290,24 @@ main().catch((err: unknown) => {
 });
 
 // ─── API handler ──────────────────────────────────────────
+// Discord serves webhook token routes unversioned too (/api/webhooks/{id}/{token},
+// its /messages/... and GET/PATCH/DELETE), and tools like Serika Hooks and
+// Discohook use that form. Our unversioned router only has the execute POST
+// (which also takes legacy /api/webhooks/{channel_id}/{token} URLs), so every
+// other method or sub-path goes to the Discord-compatible /api/v10 routes.
+const UNVERSIONED_WEBHOOK = /^\/api\/webhooks\/([^/]+)\/([^/]+)(\/.*)?$/;
+
+function versionWebhookRequest(req: Request): Request {
+  const url = new URL(req.url);
+  const m = url.pathname.match(UNVERSIONED_WEBHOOK);
+  if (!m || (req.method === 'POST' && !m[3])) return req;
+  url.pathname = `/api/v10${url.pathname.slice('/api'.length)}`;
+  return new Request(url, req);
+}
+
 async function handleApiRequest(req: Request): Promise<Response> {
   try {
-    return await api.handle(req);
+    return await api.handle(versionWebhookRequest(req));
   } catch (err) {
     console.error('[API] Unhandled error:', err);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
