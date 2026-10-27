@@ -1,4 +1,8 @@
 import { Elysia, t } from 'elysia';
+import { applicationsBotRoutes } from './botApi/applications';
+import { messagesBotRoutes } from './botApi/messages';
+import { guildsBotRoutes } from './botApi/guilds';
+import { socialBotRoutes } from './botApi/social';
 import { buildPollView, fromDiscordPollRequest, isPollClosed, normalizePollInput, parseStoredPoll, type StoredPoll } from '@/lib/chat/polls';
 import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
 import { ChannelWebhook, type IApplication } from '@/lib/models';
@@ -4809,4 +4813,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   set.status = 404;
   return { code: 10027, message: 'Unknown SKU' };
-});
+})
+
+// ─── Route groups split out of this file (after every hook above) ──
+.use(applicationsBotRoutes)
+.use(messagesBotRoutes)
+.use(guildsBotRoutes)
+.use(socialBotRoutes);
