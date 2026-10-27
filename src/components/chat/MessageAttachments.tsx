@@ -2,13 +2,14 @@
 
 import { isInlineVideo } from "@/lib/chat/uploadPolicy";
 import { useEffect, useMemo, useState } from "react";
-import { FileText, Eye, ShieldAlert, Lock } from "lucide-react";
+import { FileText, Lock } from "lucide-react";
 import { loadE2eeSession } from "@/lib/e2ee/client/state";
 import { VideoMediaPlayer, AudioMediaPlayer } from "@/components/chat/MediaPlayer";
 import { VoiceMessagePlayer } from "@/components/chat/VoiceMessagePlayer";
 import { isVoiceAttachment } from "@/lib/chat/voiceMessage";
 import { formatFileSize } from "@/lib/chat/messages";
 import { useChatGt } from "./ChatGtContext";
+import { SpoilerVeil } from "./SpoilerVeil";
 import type { MessageAttachment } from "@/lib/chat/types";
 
 interface MessageAttachmentsProps {
@@ -197,42 +198,28 @@ export function MessageAttachments({ attachments: rawAttachments, messageId, onM
             // filter stay blurred until clicked.
             const isSpoiler = (attachment.spoiler || attachment.sensitive) && !revealedSpoilers.has(attachment.id);
             if (isSpoiler) {
+              const single = imageAttachments.length === 1;
               return (
                 <div
                   key={attachment.id}
-                  className={
-                    imageAttachments.length === 1
-                      ? "relative mt-2 cursor-pointer inline-block group"
-                      : "relative cursor-pointer group"
-                  }
-                  onClick={() => toggleReveal(attachment.id)}
+                  className={single ? "relative mt-2 inline-block overflow-hidden rounded-md" : "relative overflow-hidden rounded-md"}
                 >
                   <img
                     src={attachment.e2ee ? attachment.url : blurUrl(attachment.url)}
-                    alt={attachment.filename}
+                    alt=""
                     loading="lazy"
                     decoding="async"
                     className={
-                      imageAttachments.length === 1
-                        ? "chat-media max-w-[280px] max-h-[240px] object-contain rounded-md blur-[6px]"
-                        : "w-full h-24 object-cover rounded-md blur-[6px]"
+                      single
+                        ? "chat-media max-w-[280px] max-h-[240px] object-contain rounded-md blur-2xl scale-110 brightness-90"
+                        : "w-full h-24 object-cover rounded-md blur-2xl scale-110 brightness-90"
                     }
                   />
-                  <div className="absolute inset-0 flex flex-col items-center justify-center gap-1 rounded-md bg-black/40 px-2 text-center">
-                    {attachment.sensitive && !attachment.spoiler ? (
-                      <>
-                        <ShieldAlert className="w-5 h-5 text-white/80" />
-                        <span className="text-xs font-medium text-white/80">{gt("Sensitive content")}</span>
-                        <span className="text-[10px] text-white/60">{gt("This media may contain explicit content.")}</span>
-                      </>
-                    ) : (
-                      <>
-                        <Eye className="w-5 h-5 text-white/80" />
-                        <span className="text-xs font-medium text-white/80">{gt("Spoiler")}</span>
-                      </>
-                    )}
-                    <span className="text-[10px] text-white/50">{gt("Click to reveal")}</span>
-                  </div>
+                  <SpoilerVeil
+                    onReveal={() => toggleReveal(attachment.id)}
+                    kind={attachment.sensitive && !attachment.spoiler ? "sensitive" : "spoiler"}
+                    compact={!single}
+                  />
                 </div>
               );
             }
@@ -278,28 +265,19 @@ export function MessageAttachments({ attachments: rawAttachments, messageId, onM
                 progress={decryptProgress[attachment.id]}
               />
             ) : (attachment.spoiler || attachment.sensitive) && !revealedSpoilers.has(attachment.id) ? (
-              <button
+              <div
                 key={attachment.id}
-                type="button"
-                onClick={() => toggleReveal(attachment.id)}
                 className={
                   (videoAttachments.length === 1 ? "max-w-[280px] w-full aspect-video" : "w-full h-24") +
-                  " rounded-lg overflow-hidden flex flex-col items-center justify-center gap-1 bg-[var(--app-surface-alt)] text-[var(--app-muted)] px-2 text-center"
+                  " relative overflow-hidden rounded-lg bg-[var(--app-surface-alt)]"
                 }
               >
-                {attachment.sensitive && !attachment.spoiler ? (
-                  <>
-                    <ShieldAlert className="w-5 h-5" />
-                    <span className="text-xs font-medium">{gt("Sensitive content")}</span>
-                  </>
-                ) : (
-                  <>
-                    <Eye className="w-5 h-5" />
-                    <span className="text-xs font-medium">{gt("Spoiler")}</span>
-                  </>
-                )}
-                <span className="text-[10px]">{gt("Click to reveal")}</span>
-              </button>
+                <SpoilerVeil
+                  onReveal={() => toggleReveal(attachment.id)}
+                  kind={attachment.sensitive && !attachment.spoiler ? "sensitive" : "spoiler"}
+                  compact={videoAttachments.length > 1}
+                />
+              </div>
             ) : (
               <VideoMediaPlayer
                 key={attachment.id}

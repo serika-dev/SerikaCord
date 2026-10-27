@@ -24,10 +24,12 @@
 - **Staff bot tools** — staff can find any app (listed or not, by name, username or ID), verify any bot directly whatever its server count, mark apps as official, feature, delist and fix a listing's description, categories and tags. Every action asks for confirmation and is written to the activity log.
 
 ### Changes
+- **Nicer spoilers** — spoilered images and videos have a stronger blur and a clear SPOILER pill, and they look the same whether a person or a bot or webhook posted them.
 - **Cleaner bot profile cards** — the Official or Verified app card is more compact, Add to Server and Bot page sit side by side, and the duplicate lone Official badge is gone.
 - **Developer portal home and Applications** — a cleaner home with your apps, stats, quick links and what's new; the Applications page gets search by name, bot or ID, sorting, grid and list views, and creating an app opens it straight away.
 
 ### Bug Fixes
+- **Spoilers added by editing** — turning on spoiler for an image, file or section by editing a bot or webhook message now hides it right away instead of only after a reload.
 - **"Please stop sending the same message repeatedly" for no reason** — the spam guard only looks at messages from the last minute, so a word you last sent long ago (like voting "smash") is no longer blocked.
 - **Bot page descriptions** — tables and --- dividers in a bot's long description now render on its /bots page instead of showing as raw text.
 - **Threads match Discord** — a thread started from a message now has the same id as that message, as on Discord, so bot libraries find a message's thread.

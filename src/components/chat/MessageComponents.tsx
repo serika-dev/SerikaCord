@@ -23,6 +23,7 @@ import { cn } from "@/lib/utils";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { useChatGt, type ChatGt } from "./ChatGtContext";
+import { SpoilerVeil } from "./SpoilerVeil";
 import { useServer } from "@/contexts/ServerContext";
 import { claimInteraction, onInteractionEvent, postInteraction, recentOutcome } from "@/lib/chat/interactionEvents";
 import { accentHex, componentImageSrc, componentVideoSrc, galleryLayout, isTrustedMedia, isVideoMedia } from "@/lib/chat/componentsV2";
@@ -96,21 +97,6 @@ function attachmentFor(media: UnfurledMedia | undefined, attachments?: MessageAt
   return attachments.find((a) => (media.attachment_id && a.id === media.attachment_id) || a.url === media.url);
 }
 
-/** Spoiler veil shared by media tiles, file cards and containers. */
-function SpoilerVeil({ onReveal }: { onReveal: () => void }) {
-  const gt = useChatGt();
-  return (
-    <button
-      type="button"
-      onClick={onReveal}
-      aria-label={gt("Click to reveal")}
-      className="absolute inset-0 z-[1] flex items-center justify-center bg-[var(--app-bg)]/40 text-xs font-semibold uppercase tracking-wide text-[var(--app-text)]"
-    >
-      <span className="rounded-full bg-[var(--app-bg)]/80 px-3 py-1">{gt("Spoiler")}</span>
-    </button>
-  );
-}
-
 /**
  * One image / video of a thumbnail or gallery tile: http(s) only, external
  * images through the proxy, no referrer, blurred while a spoiler.
@@ -130,7 +116,9 @@ function Media({
   onOpen?: MediaClick;
 }) {
   const gt = useChatGt();
-  const [revealed, setRevealed] = useState(!spoiler);
+  // Only the reveal click is state: an edit that turns the spoiler on must veil again.
+  const [clicked, setRevealed] = useState(false);
+  const revealed = !spoiler || clicked;
   const [failed, setFailed] = useState(false);
   const video = isVideoMedia(media);
   const src = video ? componentVideoSrc(media) : componentImageSrc(media, { width: tileWidth ? tileWidth * 2 : undefined });
@@ -146,7 +134,7 @@ function Media({
           preload={isTrustedMedia(media) ? "metadata" : "none"}
           {...({ referrerPolicy: "no-referrer" } as unknown as React.VideoHTMLAttributes<HTMLVideoElement>)}
           aria-label={alt || undefined}
-          className={cn(natural ? "chat-media" : "block w-full h-full", "bg-[var(--app-bg)]", fit === "cover" ? "object-cover" : "object-contain", !revealed && "blur-xl scale-110")}
+          className={cn(natural ? "chat-media" : "block w-full h-full", "bg-[var(--app-bg)]", fit === "cover" ? "object-cover" : "object-contain", !revealed && "blur-2xl scale-110 brightness-90")}
         />
       ) : failed ? (
         <div className="flex h-full min-h-16 w-full items-center justify-center p-2 text-center text-xs text-[var(--app-muted)]">
@@ -167,11 +155,11 @@ function Media({
             decoding="async"
             referrerPolicy="no-referrer"
             onError={() => setFailed(true)}
-            className={cn(natural ? "chat-media" : "block w-full h-full", fit === "cover" ? "object-cover" : "object-contain", !revealed && "blur-xl scale-110")}
+            className={cn(natural ? "chat-media" : "block w-full h-full", fit === "cover" ? "object-cover" : "object-contain", !revealed && "blur-2xl scale-110 brightness-90")}
           />
         </button>
       )}
-      {!revealed && <SpoilerVeil onReveal={() => setRevealed(true)} />}
+      {!revealed && <SpoilerVeil onReveal={() => setRevealed(true)} compact={(tileWidth ?? 999) < 120} />}
     </div>
   );
 }
@@ -236,7 +224,8 @@ function MediaGallery({ items, attachments, onOpen }: { items: GalleryItem[]; at
 function FileCard({ component, attachments }: { component: MessageComponent; attachments?: MessageAttachment[] }) {
   const gt = useChatGt();
   const att = attachmentFor(component.file, attachments);
-  const [revealed, setRevealed] = useState(!(component.spoiler || att?.spoiler));
+  const [clicked, setRevealed] = useState(false);
+  const revealed = !(component.spoiler || att?.spoiler) || clicked;
   const url = att?.url ?? component.file?.url;
   if (!url || !/^https?:\/\//i.test(url)) return null;
   const name = component.name || att?.filename || url.split("/").pop()?.split("?")[0] || gt("File");
@@ -570,7 +559,8 @@ export default function MessageComponents({
 }
 
 function Container({ component, render }: { component: MessageComponent; render: (c: MessageComponent, key: string | number) => React.ReactNode }) {
-  const [revealed, setRevealed] = useState(!component.spoiler);
+  const [clicked, setRevealed] = useState(false);
+  const revealed = !component.spoiler || clicked;
   const accent = accentHex(component.accent_color);
   return (
     <div
