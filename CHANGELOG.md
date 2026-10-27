@@ -7,26 +7,14 @@
 ## Unreleased
 
 ### Features
-- **Bot library at /bots** — browse and search bots by category, see staff picks, popular and new bots, and open a page per bot with its description, commands, links and an Add to Server button. Works without signing in.
-- **App Discovery works again** — Server Settings → App Discovery lists the bots in the App Directory with categories, shows which apps are already in your server, and Add to Server opens the permission screen with your server already selected.
-- **List your bot in the App Directory** — the developer portal's App Directory Page has a listing switch, short and long (Markdown) descriptions, categories, tags, a cover image and support, website, terms and privacy links, plus the listing status and your verification progress.
-- **Apps & Bots staff tools** — staff with the new "Manage apps and bots" permission can approve or reject verification requests with a reason, revoke verification, feature bots as staff picks and delist or relist them; every action is in the activity log.
-- **Custom emojis in onboarding and the Server Guide** — onboarding answers, Server Guide to-dos and resources, and welcome screen recommended channels now have an emoji picker that offers your server's own custom emojis (animated ones too) alongside regular emoji, with a button to clear it. New members see the custom emojis in the join flow, the Server Guide and Channels & Roles, and bots get them as normal emoji objects. (CORD-71)
 
 ### Changes
-- **Status bubble on profile cards** — the profile pop-out now shows a custom status as a thought bubble next to the avatar, like the full profile.
 
 ### Bug Fixes
-- **Bot verification progress** — the developer portal now shows how many servers your bot is really in (it always showed 0), so the Apply for Verification button appears once you reach 100.
-- **Verification wait times stick** — the minimum account age and member age in Server Settings → Safety no longer jump back to 5 minutes after you reload.
-- **Webhook and bridged profiles** — webhooks, Discord-bridged users and system accounts show a simple card without Message, Add Friend, Add Role, Mod View or View Full Profile, and replies to webhook posts show the webhook's name.
-- **Channel and server-page links** — <id:members>, <id:guide>, <id:customize> and <id:browse> in messages open the server's Members, Server Guide and Channels & Roles pages; channel mentions work in DMs and across servers, show the channel type, and Discord channel mentions in bridged messages link to the bridged channel.
-- **Coding activity** — IntelliJ, PyCharm and other editors no longer show as "Working in VS Code".
 
 ### Performance
 
 ### Security
-- **Private bots stay private** — a bot with Public Bot turned off can only be added to servers by its owner or team.
 
 ### Removed
 
@@ -55,6 +43,11 @@
 - **Live event badge on server icons** — servers with an event happening now show a green live badge in the server list (a calendar badge when one starts within the hour), and the tooltip says which event and when.
 - **Forum settings** — set post guidelines, tags (including moderator-only tags), required tags, and the default sort order and layout for each forum.
 - **Discord Components V2 layouts** — bot and webhook messages can be cards with accent colours, sections with thumbnails, image and video galleries, file cards, separators and spoilers, laid out like on Discord, and their buttons and menus keep working.
+- **Bot library at /bots** — browse and search bots by category, see staff picks, popular and new bots, and open a page per bot with its description, commands, links and an Add to Server button. Works without signing in.
+- **App Discovery works again** — Server Settings → App Discovery lists the bots in the App Directory with categories, shows which apps are already in your server, and Add to Server opens the permission screen with your server already selected.
+- **List your bot in the App Directory** — the developer portal's App Directory Page has a listing switch, short and long (Markdown) descriptions, categories, tags, a cover image and support, website, terms and privacy links, plus the listing status and your verification progress.
+- **Apps & Bots staff tools** — staff with the new "Manage apps and bots" permission can approve or reject verification requests with a reason, revoke verification, feature bots as staff picks and delist or relist them; every action is in the activity log.
+- **Custom emojis in onboarding and the Server Guide** — onboarding answers, Server Guide to-dos and resources, and welcome screen recommended channels now have an emoji picker that offers your server's own custom emojis (animated ones too) alongside regular emoji, with a button to clear it. New members see the custom emojis in the join flow, the Server Guide and Channels & Roles, and bots get them as normal emoji objects. (CORD-71)
 
 ### Changes
 - **Nicer settings** — both settings windows have a grouped sidebar with search (it also finds settings like "dark mode" and jumps to them), tidier rows, sticky page titles, an ESC close button and smooth page transitions.
@@ -64,6 +57,7 @@
 - **Server Guide redesign** — a Discord-style guide: the owner welcome as a highlighted message, a Get Started checklist, and a sidebar with the server card, resources and connections.
 - **Discord-style status badges** — online, idle (a moon), Do Not Disturb and offline have clear, distinct shapes cut out of the avatar, the same everywhere: member list, DMs, friends, profiles, the status menu and mobile.
 - **Redesigned channel settings** — channel, category and thread settings look like the rest of Settings, with one Save bar for every page, Discord-style permissions (allow / inherit / deny per role or member), an Invites table, and only the options that actually do something.
+- **Status bubble on profile cards** — the profile pop-out now shows a custom status as a thought bubble next to the avatar, like the full profile.
 
 ### Bug Fixes
 - **Menus stay on screen** — right-clicking a channel near the bottom of the list, or an emoji, opens the menu above the pointer instead of off the screen; the member ⋯ menu groups Call, Moderation, Apps and Copy into submenus so it always fits.
@@ -86,6 +80,11 @@
 - **Channel settings that did not stick** — "Hide After Inactivity", moving a channel to another category as a moderator, and the age-restricted toggle now save and update right away; editing names with & no longer shows &amp;.
 - **Bot apps can update V2 component messages** — updating the message a button is on now works without resending the V2 flag.
 - **Webhook tools work with SerikaCord** — looking up a webhook, and editing or deleting its messages, now also work on the unversioned /api/webhooks/{id}/{token} URLs (like Discord), so Serika Hooks and Discohook-style tools can use them.
+- **Bot verification progress** — the developer portal now shows how many servers your bot is really in (it always showed 0), so the Apply for Verification button appears once you reach 100.
+- **Verification wait times stick** — the minimum account age and member age in Server Settings → Safety no longer jump back to 5 minutes after you reload.
+- **Webhook and bridged profiles** — webhooks, Discord-bridged users and system accounts show a simple card without Message, Add Friend, Add Role, Mod View or View Full Profile, and replies to webhook posts show the webhook's name.
+- **Channel and server-page links** — <id:members>, <id:guide>, <id:customize> and <id:browse> in messages open the server's Members, Server Guide and Channels & Roles pages; channel mentions work in DMs and across servers, show the channel type, and Discord channel mentions in bridged messages link to the bridged channel.
+- **Coding activity** — IntelliJ, PyCharm and other editors no longer show as "Working in VS Code".
 
 ### Changes
 - **Reorder everything on your Board** — every widget (game sections, Serika Wishlist lists, app widgets, Connections and Recent activity) has up/down arrows, and the order you pick is the one everyone sees. Works with the keyboard and on phones. Visitors no longer see an empty Recent activity box.
@@ -110,6 +109,7 @@
 - **Smaller bot invite** — the Discord bridge invite asks only for the permissions it needs instead of Administrator, and Discord webhook URLs are never sent to the browser.
 - **Webhook access** — only members with Manage Webhooks can see a channel webhook list, and webhook pictures are stored on Serika servers.
 - **Bot images go through the image proxy** — pictures in component layouts load through Serika's image proxy, so the bot's server never sees viewers' addresses.
+- **Private bots stay private** — a bot with Public Bot turned off can only be added to servers by its owner or team.
 
 ---
 
