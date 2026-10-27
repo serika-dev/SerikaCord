@@ -11,6 +11,7 @@
 - **App Discovery works again** — Server Settings → App Discovery lists the bots in the App Directory with categories, shows which apps are already in your server, and Add to Server opens the permission screen with your server already selected.
 - **List your bot in the App Directory** — the developer portal's App Directory Page has a listing switch, short and long (Markdown) descriptions, categories, tags, a cover image and support, website, terms and privacy links, plus the listing status and your verification progress.
 - **Apps & Bots staff tools** — staff with the new "Manage apps and bots" permission can approve or reject verification requests with a reason, revoke verification, feature bots as staff picks and delist or relist them; every action is in the activity log.
+- **Custom emojis in onboarding and the Server Guide** — onboarding answers, Server Guide to-dos and resources, and welcome screen recommended channels now have an emoji picker that offers your server's own custom emojis (animated ones too) alongside regular emoji, with a button to clear it. New members see the custom emojis in the join flow, the Server Guide and Channels & Roles, and bots get them as normal emoji objects. (CORD-71)
 
 ### Changes
 

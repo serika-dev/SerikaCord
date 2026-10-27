@@ -7,13 +7,15 @@
  * list and the Apply to Join / rules screening question fields.
  */
 
-import type { CSSProperties, KeyboardEvent, ReactNode } from "react";
+import { useState, type CSSProperties, type KeyboardEvent, type ReactNode } from "react";
 import { useGT, useLocale } from "gt-next";
 import { BadgeCheck, Hash, Megaphone, MessageSquare, Mic, Volume2 } from "lucide-react";
 import { ConnectionIcon, getConnectionHref } from "@/components/user/ConnectionIcon";
 import type { ApplicationQuestionView, ServerConnectionView } from "@/hooks/useServerOnboarding";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
-import { cdnImage, cn } from "@/lib/utils";
+import { useAnimatedMedia } from "@/hooks/useAnimatedMedia";
+import { parseCommunityEmoji, type CommunityEmojiView } from "@/lib/servers/communityEmoji";
+import { cdnImage, cdnImageFallback, cn } from "@/lib/utils";
 
 /** Mirrors APPLICATION_SHORT_MAX / APPLICATION_PARAGRAPH_MAX in src/lib/servers/community.ts. */
 export const APPLICATION_SHORT_MAX = 150;
@@ -167,13 +169,55 @@ export function ServerConnectionsList({
   );
 }
 
-/** A unicode emoji, or `fallback` for empty / custom (`<:name:id>`) values. */
-export function EmojiOrIcon({ emoji, fallback, className }: { emoji: string | null | undefined; fallback: ReactNode; className?: string }) {
-  const value = emoji?.trim();
-  if (value && !value.startsWith("<") && value.length <= 16) {
-    return <span className={cn("leading-none", className)} aria-hidden>{value}</span>;
+/**
+ * A community emoji (CORD-71): a unicode emoji as text, or one of the server's
+ * custom emojis (`<:name:id>` / `<a:name:id>`) as its image, sized to the
+ * surrounding font so it fills the tile like a unicode one. `emojis` is the
+ * resolved image list (`customEmojis` from GET /onboarding, or the server's
+ * emoji list in the editors). Empty, unknown or broken values show `fallback`.
+ */
+export function EmojiOrIcon({
+  emoji,
+  fallback,
+  className,
+  emojis,
+}: {
+  emoji: string | null | undefined;
+  fallback: ReactNode;
+  className?: string;
+  emojis?: readonly CommunityEmojiView[] | null;
+}) {
+  const parsed = parseCommunityEmoji(emoji);
+  if (!parsed) return <>{fallback}</>;
+  if (parsed.kind === "unicode") {
+    return <span className={cn("leading-none", className)} aria-hidden>{parsed.value}</span>;
   }
-  return <>{fallback}</>;
+  const view = emojis?.find((e) => e.id === parsed.id);
+  if (!view) return <>{fallback}</>;
+  return <CommunityEmojiImage key={view.url} view={view} fallback={fallback} className={className} />;
+}
+
+function CommunityEmojiImage({ view, fallback, className }: { view: CommunityEmojiView; fallback: ReactNode; className?: string }) {
+  const animate = useAnimatedMedia();
+  // 0: converted image, 1: original (format conversion failed), 2: give up and show the icon.
+  const [attempt, setAttempt] = useState(0);
+  const primary = cdnImage(view.url, { still: view.animated && !animate });
+  const retry = cdnImageFallback(primary);
+  if (attempt >= 2) return <>{fallback}</>;
+  const label = `:${decodeHtmlEntities(view.name)}:`;
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={attempt === 1 && retry ? retry : primary}
+      alt={label}
+      title={label}
+      draggable={false}
+      loading="lazy"
+      decoding="async"
+      onError={() => setAttempt((a) => (a === 0 && retry ? 1 : 2))}
+      className={cn("h-[1.25em] w-[1.25em] object-contain shrink-0", className)}
+    />
+  );
 }
 
 /** Arrow keys / Home / End move between the option cards of a question

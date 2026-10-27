@@ -19,6 +19,7 @@ import { Loader } from "@/components/ui/Loader";
 import { useServer } from "@/contexts/ServerContext";
 import { useServerOnboarding, type OnboardingOptionView, type ServerOnboarding } from "@/hooks/useServerOnboarding";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
+import { welcomeEmojiValue } from "@/lib/servers/communityEmoji";
 import { cdnImage, cn } from "@/lib/utils";
 import {
   ApplicationQuestionFields,
@@ -411,7 +412,8 @@ export function ServerJoinFlow({
                   >
                     <span className="w-11 h-11 rounded-full bg-[var(--app-surface-alt)] flex items-center justify-center text-xl shrink-0" aria-hidden>
                       <EmojiOrIcon
-                        emoji={wc.emojiId ? null : wc.emojiName}
+                        emoji={welcomeEmojiValue(wc)}
+                        emojis={data.customEmojis}
                         fallback={<ChannelGlyph type={ch?.type} className="w-5 h-5 text-[var(--text-secondary)]" />}
                       />
                     </span>
@@ -508,7 +510,7 @@ export function ServerJoinFlow({
                 )}
               >
                 <span className="w-12 h-12 rounded-xl bg-[var(--app-surface-alt)] flex items-center justify-center text-2xl shrink-0" aria-hidden>
-                  <EmojiOrIcon emoji={option.emoji} fallback={<Sparkles className="w-5 h-5 text-[var(--text-muted)]" />} />
+                  <EmojiOrIcon emoji={option.emoji} emojis={data.customEmojis} fallback={<Sparkles className="w-5 h-5 text-[var(--text-muted)]" />} />
                 </span>
                 <span className="flex-1 min-w-0 pr-7">
                   <span className="block text-[15px] font-semibold text-[var(--text-primary)] break-words">{decodeHtmlEntities(option.title)}</span>

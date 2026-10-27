@@ -10,6 +10,8 @@ import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton"
 import { useServer } from "@/contexts/ServerContext";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { invalidateServerOnboarding } from "@/hooks/useServerOnboarding";
+import { CommunityEmojiField, useServerCommunityEmojis } from "@/components/server/community/CommunityEmojiField";
+import { parseCommunityEmoji, welcomeEmojiValue } from "@/lib/servers/communityEmoji";
 import {
   WELCOME_CHANNELS_MAX,
   WELCOME_CHANNEL_DESCRIPTION_MAX,
@@ -20,7 +22,8 @@ import {
 interface DraftChannel {
   channelId: string;
   description: string;
-  emojiName: string;
+  /** A unicode emoji or the server's custom emoji as `<:name:id>` (split into emojiId / emojiName on save). */
+  emoji: string | null;
 }
 
 interface Draft {
@@ -37,7 +40,7 @@ function fromApi(raw: unknown): Draft {
   const w = (raw && typeof raw === "object" ? raw : {}) as {
     enabled?: boolean;
     description?: string;
-    welcomeChannels?: Array<{ channelId: string; description?: string; emojiName?: string | null }>;
+    welcomeChannels?: Array<{ channelId: string; description?: string; emojiName?: string | null; emojiId?: string | null }>;
   };
   return {
     enabled: Boolean(w.enabled),
@@ -45,17 +48,26 @@ function fromApi(raw: unknown): Draft {
     welcomeChannels: (w.welcomeChannels ?? []).map((c) => ({
       channelId: c.channelId,
       description: decodeHtmlEntities(c.description ?? ""),
-      emojiName: c.emojiName ?? "",
+      emoji: welcomeEmojiValue(c),
     })),
   };
 }
 
 const fieldCls = "w-full px-3 py-2 rounded-md bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]";
 
+/** The API's split form of a draft emoji (Discord's emoji_id + emoji_name). */
+function emojiFields(value: string | null): { emojiId: string | null; emojiName: string | null } {
+  const parsed = parseCommunityEmoji(value);
+  if (!parsed) return { emojiId: null, emojiName: null };
+  return parsed.kind === "custom" ? { emojiId: parsed.id, emojiName: parsed.name } : { emojiId: null, emojiName: parsed.value };
+}
+
 /** Server Settings → Welcome Screen (Discord): description + up to 5 recommended channels. */
 export default function ServerWelcomeScreenPanel({ serverId }: { serverId: string }) {
   const gt = useGT();
-  const { channels } = useServer();
+  const { channels, currentServer } = useServer();
+  const serverEmojis = useServerCommunityEmojis(serverId);
+  const serverName = currentServer?.id === serverId ? currentServer.name : undefined;
   const [loaded, setLoaded] = useState<Loaded>(null);
   const [saving, setSaving] = useState(false);
 
@@ -118,7 +130,7 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
           welcomeChannels: draft.welcomeChannels.map((c) => ({
             channelId: c.channelId,
             description: c.description,
-            emojiName: c.emojiName.trim() || null,
+            ...emojiFields(c.emoji),
           })),
         }),
       });
@@ -184,12 +196,12 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
         {draft.welcomeChannels.map((wc, index) => (
           <div key={`${wc.channelId}-${index}`} className="p-3 rounded-lg bg-[var(--bg-app)] max-md:bg-[var(--bg-card)] border border-[var(--border-subtle)] space-y-2">
             <div className="flex items-center gap-2">
-              <input
-                value={wc.emojiName}
-                onChange={(e) => updateChannel(index, { emojiName: e.target.value.slice(0, 16) })}
-                placeholder="😀"
-                aria-label={gt("Emoji")}
-                className={cn(fieldCls, "w-14 text-center shrink-0")}
+              <CommunityEmojiField
+                value={wc.emoji}
+                onChange={(emoji) => updateChannel(index, { emoji })}
+                emojis={serverEmojis}
+                serverName={serverName}
+                label={gt("Emoji")}
               />
               <div className="relative flex-1 min-w-0">
                 <Hash className="w-4 h-4 absolute left-2.5 top-1/2 -translate-y-1/2 text-[var(--text-muted)] pointer-events-none" />
@@ -235,7 +247,7 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
         {draft.welcomeChannels.length < WELCOME_CHANNELS_MAX && firstFree && (
           <button
             type="button"
-            onClick={() => setDraft({ ...draft, welcomeChannels: [...draft.welcomeChannels, { channelId: firstFree.id, description: "", emojiName: "" }] })}
+            onClick={() => setDraft({ ...draft, welcomeChannels: [...draft.welcomeChannels, { channelId: firstFree.id, description: "", emoji: null }] })}
             className="w-full h-10 rounded-lg border border-dashed border-[var(--border-subtle)] text-sm text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:border-[var(--app-accent)] flex items-center justify-center gap-2"
           >
             <Plus className="w-4 h-4" />

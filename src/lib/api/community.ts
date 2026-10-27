@@ -33,7 +33,7 @@
 // Pure rules: lib/servers/community.ts. Storage: services/serverCommunity.ts,
 // services/serverTemplates.ts. Enforcement of screening: services/serverGate.ts.
 import { Elysia, t } from 'elysia';
-import { Channel, Role, Server, ServerMember, ServerMemberApplication, User, UserConnection } from '@/lib/models';
+import { Channel, Role, Server, ServerEmoji, ServerMember, ServerMemberApplication, User, UserConnection } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, isValidObjectId, rejectInvalidObjectIdParams, sanitizeInput } from '@/lib/security';
 import { config } from '@/lib/config';
@@ -47,6 +47,7 @@ import {
   parseServerSnapshot,
   parseTemplateCode,
   validateApplicationAnswers,
+  type WelcomeScreen,
 } from '@/lib/servers/community';
 import {
   isGuideVisible,
@@ -57,7 +58,15 @@ import {
   normalizeOnboardingConfig,
   rolesWithUnsafeChannelGrants,
   validateOnboardingSelection,
+  type OnboardingConfig,
 } from '@/lib/servers/onboarding';
+import {
+  communityEmojiViews,
+  customEmojiIds,
+  serverEmojiLookup,
+  welcomeEmojiValue,
+  type CommunityEmojiView,
+} from '@/lib/servers/communityEmoji';
 import {
   admitScreenedMember,
   applyMemberOnboardingRoles,
@@ -150,7 +159,7 @@ const WELCOME_BODY = t.Object({
   welcomeChannels: t.Optional(t.Array(t.Object({
     channelId: t.String(),
     description: t.Optional(t.String({ maxLength: 500 })),
-    emojiName: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
+    emojiName: t.Optional(t.Union([t.String({ maxLength: 128 }), t.Null()])),
     emojiId: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
   }), { maxItems: 20 })),
 });
@@ -200,17 +209,51 @@ async function creatorView(userId: string) {
 
 const sameUser = (a: string | null | undefined, b: string | null | undefined) => sameId(a, b);
 
-/** HTML-escapes every string in a submitted JSON tree (the client decodes for display). */
-function sanitizeDeep(value: unknown, depth = 0): unknown {
+/**
+ * HTML-escapes every string in a submitted JSON tree (the client decodes for
+ * display). `emoji` strings are left for normalizeCommunityEmoji, which only
+ * keeps one unicode emoji or an exact `<:name:id>` token (escaping would turn
+ * the token into nothing).
+ */
+function sanitizeDeep(value: unknown, depth = 0, key: string | null = null): unknown {
   if (depth > 6) return null;
-  if (typeof value === 'string') return sanitizeInput(value.slice(0, 2000));
+  if (typeof value === 'string') return key === 'emoji' ? value.slice(0, 120) : sanitizeInput(value.slice(0, 2000));
   if (Array.isArray(value)) return value.slice(0, 50).map((v) => sanitizeDeep(v, depth + 1));
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {};
-    for (const [k, v] of Object.entries(value as Record<string, unknown>).slice(0, 30)) out[k] = sanitizeDeep(v, depth + 1);
+    for (const [k, v] of Object.entries(value as Record<string, unknown>).slice(0, 30)) out[k] = sanitizeDeep(v, depth + 1, k);
     return out;
   }
   return value;
+}
+
+/**
+ * The server's own custom emojis, keyed for normalizeOnboardingConfig /
+ * normalizeWelcomeScreen (CORD-71). A failed read throws: an empty list would
+ * strip every custom emoji from the save.
+ */
+export async function serverEmojiLookupFor(serverId: string) {
+  return serverEmojiLookup(await ServerEmoji.find({ serverId }));
+}
+
+/**
+ * Display data (image url) for the custom emojis the join flow, Server Guide
+ * and Channels & Roles show. `all` (the admin preview) returns every emoji so
+ * unsaved edits render too.
+ */
+async function communityEmojisFor(
+  serverId: string,
+  parts: { welcome: WelcomeScreen | null; onboarding: OnboardingConfig | null; all?: boolean },
+): Promise<CommunityEmojiView[]> {
+  const ids = customEmojiIds([
+    ...(parts.welcome?.welcomeChannels ?? []).map(welcomeEmojiValue),
+    ...(parts.onboarding?.questions ?? []).flatMap((q) => q.options.map((o) => o.emoji)),
+    ...(parts.onboarding?.guide.todos ?? []).map((t) => t.emoji),
+    ...(parts.onboarding?.guide.resources ?? []).map((r) => r.emoji),
+  ]);
+  if (!parts.all && ids.size === 0) return [];
+  const rows = await ServerEmoji.find({ serverId }).catch(() => []);
+  return communityEmojiViews(rows, parts.all ? undefined : ids);
 }
 
 /** Ids of every channel in the server (guide to-dos / resources, accessible channels). */
@@ -363,6 +406,11 @@ export const communityRoutes = new Elysia()
     const showQuestions = preview ? onboarding.questions.length > 0 : isOnboardingVisible(onboarding);
     const showGuide = preview ? isGuideVisible({ ...onboarding.guide, enabled: true }) : isGuideVisible(onboarding.guide);
     const showScreening = preview ? screening.rules.length > 0 : screening.enabled;
+    const customEmojis = await communityEmojisFor(server.id, {
+      welcome: showWelcome ? visibleWelcome : null,
+      onboarding: showQuestions || showGuide ? onboarding : null,
+      all: preview,
+    });
     return {
       preview,
       canManage,
@@ -393,6 +441,8 @@ export const communityRoutes = new Elysia()
           }
         : null,
       connections,
+      // Custom emojis used above, with their images (CORD-71).
+      customEmojis,
       member: {
         pending: preview ? showScreening : Boolean(member?.pending),
         screeningBlocked: blocked && showScreening,
@@ -432,10 +482,11 @@ export const communityRoutes = new Elysia()
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
     const access = await serverAccess(user, params.serverId, true);
     if ('error' in access) { set.status = access.status; return { error: access.error }; }
-    const [channelIds, assignable, current] = await Promise.all([
+    const [channelIds, assignable, current, emojis] = await Promise.all([
       serverChannelIds(access.server.id),
       assignableOnboardingRoleIds(access.server, user.id),
       getOnboardingConfig(access.server.id),
+      serverEmojiLookupFor(access.server.id),
     ]);
     // Roles already on an option that this editor can't assign (a higher
     // admin set them up) stay; they just can't add new ones.
@@ -451,7 +502,7 @@ export const communityRoutes = new Elysia()
     }
     const config = normalizeOnboardingConfig(
       { enabled: body.enabled ?? current.enabled, questions: sanitized.questions ?? current.questions, guide: sanitized.guide ?? current.guide },
-      { channelIds, roleIds },
+      { channelIds, roleIds, emojis },
     );
     await saveOnboardingConfig(access.server.id, config);
     return { onboarding: config, assignableRoleIds: [...assignable] };
@@ -649,7 +700,8 @@ export const communityRoutes = new Elysia()
         ? body.welcomeChannels.map((c) => ({ ...c, description: c.description ? sanitizeInput(c.description) : '' }))
         : current.welcomeChannels,
     };
-    const screen = normalizeWelcomeScreen(merged, await eligibleWelcomeChannelIds(access.server.id));
+    const [eligible, emojis] = await Promise.all([eligibleWelcomeChannelIds(access.server.id), serverEmojiLookupFor(access.server.id)]);
+    const screen = normalizeWelcomeScreen(merged, eligible, emojis);
     await saveWelcomeScreen(access.server.id, screen);
     return { welcomeScreen: screen };
   }, { params: t.Object({ serverId: t.String() }), body: WELCOME_BODY })

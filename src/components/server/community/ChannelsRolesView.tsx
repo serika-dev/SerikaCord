@@ -35,6 +35,7 @@ import {
 } from "@/lib/servers/serverPages";
 import { cdnImage, cn } from "@/lib/utils";
 import { ChannelGlyph, EmojiOrIcon, onOptionKeyDown } from "./serverProfileBits";
+import type { CommunityEmojiView } from "@/lib/servers/communityEmoji";
 
 // Bios are markdown; the renderer is part of the chat chunk, so load it on demand.
 const MarkdownRenderer = dynamic(() => import("@/components/chat/MarkdownRenderer").then((m) => m.MarkdownRenderer), {
@@ -215,6 +216,7 @@ function CustomizeQuestions({ serverId, data, questions }: { serverId: string; d
             selected={selected}
             needsAnswer={missing.includes(question.id)}
             onToggle={(optionId) => toggle(question, optionId)}
+            emojis={data.customEmojis}
           />
         ))}
       </div>
@@ -227,11 +229,13 @@ function QuestionCard({
   selected,
   needsAnswer,
   onToggle,
+  emojis,
 }: {
   question: OnboardingQuestionView;
   selected: readonly string[];
   needsAnswer: boolean;
   onToggle: (optionId: string) => void;
+  emojis?: readonly CommunityEmojiView[];
 }) {
   const gt = useGT();
   const uid = useId();
@@ -281,7 +285,7 @@ function QuestionCard({
             >
               {option.emoji && (
                 <span className="flex h-8 w-8 shrink-0 items-center justify-center text-2xl" aria-hidden>
-                  <EmojiOrIcon emoji={option.emoji} fallback={null} />
+                  <EmojiOrIcon emoji={option.emoji} emojis={emojis} fallback={null} />
                 </span>
               )}
               <span className="min-w-0 flex-1">

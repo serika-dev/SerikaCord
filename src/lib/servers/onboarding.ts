@@ -9,6 +9,7 @@
 // Tests: tests/server-onboarding.test.ts.
 import { PERMISSION_BITS } from '@/lib/permissions/bits';
 import { stableId } from '@/lib/servers/community';
+import { normalizeCommunityEmoji, type ServerEmojiLookup } from '@/lib/servers/communityEmoji';
 
 export const ONBOARDING_QUESTIONS_MAX = 8;
 export const ONBOARDING_OPTIONS_MAX = 12;
@@ -24,7 +25,7 @@ export interface OnboardingOption {
   id: string;
   title: string;
   description: string;
-  /** A unicode emoji shown on the option card. */
+  /** A unicode emoji, or one of the server's custom emojis as `<:name:id>` / `<a:name:id>`. */
   emoji: string | null;
   roleIds: string[];
 }
@@ -87,11 +88,6 @@ function multiline(value: unknown, max: number): string {
   return value.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, max);
 }
 
-function emoji(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const t = value.trim();
-  return t && t.length <= 16 && !/\s/.test(t) ? t : null;
-}
 
 function channelRef(value: unknown, valid?: ReadonlySet<string>): string | null {
   if (typeof value !== 'string' || !value || value.length > 64) return null;
@@ -103,6 +99,8 @@ export interface OnboardingContext {
   channelIds?: ReadonlySet<string>;
   /** Roles an option may grant; others are dropped. */
   roleIds?: ReadonlySet<string>;
+  /** The server's custom emojis (on save): emojis of other servers are dropped. */
+  emojis?: ServerEmojiLookup;
 }
 
 /** Normalizes a stored or submitted onboarding config against the server's channels and roles. */
@@ -158,7 +156,7 @@ export function normalizeOnboardingConfig(input: unknown, ctx: OnboardingContext
         .filter((r): r is string => typeof r === 'string' && r.length > 0 && r.length <= 64)
         .filter((r) => !ctx.roleIds || ctx.roleIds.has(r)))]
         .slice(0, ONBOARDING_ROLES_PER_OPTION);
-      options.push({ id: oid, title: otitle, description: str(or.description, ONBOARDING_DESCRIPTION_MAX), emoji: emoji(or.emoji), roleIds });
+      options.push({ id: oid, title: otitle, description: str(or.description, ONBOARDING_DESCRIPTION_MAX), emoji: normalizeCommunityEmoji(or.emoji, ctx.emojis), roleIds });
       if (options.length >= ONBOARDING_OPTIONS_MAX) break;
     }
     if (options.length === 0) continue;
@@ -183,7 +181,7 @@ export function normalizeOnboardingConfig(input: unknown, ctx: OnboardingContext
     const kind: GuideTodoKind = tr.kind === 'chat' || tr.kind === 'roles' || tr.kind === 'profile' ? tr.kind : 'read';
     const channelId = kind === 'read' || kind === 'chat' ? channelRef(tr.channelId, ctx.channelIds) : null;
     if ((kind === 'read' || kind === 'chat') && !channelId) continue;
-    todos.push({ id: stableId(tr.id, `t${i}`), kind, title, description: str(tr.description, ONBOARDING_DESCRIPTION_MAX), channelId, emoji: emoji(tr.emoji) });
+    todos.push({ id: stableId(tr.id, `t${i}`), kind, title, description: str(tr.description, ONBOARDING_DESCRIPTION_MAX), channelId, emoji: normalizeCommunityEmoji(tr.emoji, ctx.emojis) });
     if (todos.length >= GUIDE_TODOS_MAX) break;
   }
   const resources: GuideResource[] = [];
@@ -192,7 +190,7 @@ export function normalizeOnboardingConfig(input: unknown, ctx: OnboardingContext
     const rr = r as Record<string, unknown>;
     const title = str(rr.title, ONBOARDING_TITLE_MAX);
     if (!title) continue;
-    resources.push({ id: stableId(rr.id, `r${i}`), title, description: str(rr.description, ONBOARDING_DESCRIPTION_MAX), channelId: channelRef(rr.channelId, ctx.channelIds), emoji: emoji(rr.emoji) });
+    resources.push({ id: stableId(rr.id, `r${i}`), title, description: str(rr.description, ONBOARDING_DESCRIPTION_MAX), channelId: channelRef(rr.channelId, ctx.channelIds), emoji: normalizeCommunityEmoji(rr.emoji, ctx.emojis) });
     if (resources.length >= GUIDE_RESOURCES_MAX) break;
   }
 

@@ -2,6 +2,7 @@
 // (no DB). The routes in src/lib/api/community.ts and the services in
 // src/lib/services/serverCommunity.ts / serverTemplates.ts use them, and the
 // tests in tests/server-community.test.ts pin them down.
+import { normalizeWelcomeEmoji, type ServerEmojiLookup } from '@/lib/servers/communityEmoji';
 
 // ─── Welcome screen ───────────────────────────────────────────────────────────
 
@@ -14,6 +15,7 @@ export interface WelcomeChannel {
   description: string;
   /** Unicode emoji, or a custom emoji's name when emojiId is set. */
   emojiName: string | null;
+  /** One of the server's custom emojis. */
   emojiId: string | null;
 }
 
@@ -35,20 +37,13 @@ function multiline(value: unknown, max: number): string {
   return value.replace(/\r\n?/g, '\n').replace(/\n{3,}/g, '\n\n').trim().slice(0, max);
 }
 
-/** A short emoji token (unicode or custom name); anything longer is dropped. */
-function emojiToken(value: unknown): string | null {
-  if (typeof value !== 'string') return null;
-  const trimmed = value.trim();
-  if (!trimmed || trimmed.length > 64 || /\s/.test(trimmed)) return null;
-  return trimmed;
-}
-
 /**
  * Normalizes a stored or submitted welcome screen. With `validChannelIds`,
  * recommended channels that no longer exist (or aren't eligible) are dropped.
- * Duplicates are removed and at most 5 kept, as on Discord.
+ * Duplicates are removed and at most 5 kept, as on Discord. With `emojis` (on
+ * save), a custom emoji must be one of the server's own (CORD-71).
  */
-export function normalizeWelcomeScreen(input: unknown, validChannelIds?: ReadonlySet<string>): WelcomeScreen {
+export function normalizeWelcomeScreen(input: unknown, validChannelIds?: ReadonlySet<string>, emojis?: ServerEmojiLookup): WelcomeScreen {
   if (!input || typeof input !== 'object') return { ...EMPTY_WELCOME_SCREEN, welcomeChannels: [] };
   const raw = input as Record<string, unknown>;
   const seen = new Set<string>();
@@ -61,12 +56,12 @@ export function normalizeWelcomeScreen(input: unknown, validChannelIds?: Readonl
     if (!channelId || seen.has(channelId)) continue;
     if (validChannelIds && !validChannelIds.has(channelId)) continue;
     seen.add(channelId);
-    const emojiId = typeof (e.emojiId ?? e.emoji_id) === 'string' && String(e.emojiId ?? e.emoji_id).trim() ? String(e.emojiId ?? e.emoji_id).trim() : null;
+    const emoji = normalizeWelcomeEmoji(e.emojiId ?? e.emoji_id, e.emojiName ?? e.emoji_name, emojis);
     channels.push({
       channelId,
       description: str(e.description, WELCOME_CHANNEL_DESCRIPTION_MAX),
-      emojiName: emojiToken(e.emojiName ?? e.emoji_name),
-      emojiId,
+      emojiName: emoji.emojiName,
+      emojiId: emoji.emojiId,
     });
     if (channels.length >= WELCOME_CHANNELS_MAX) break;
   }

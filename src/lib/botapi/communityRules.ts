@@ -9,6 +9,7 @@
 import type { OnboardingConfig } from '@/lib/servers/onboarding';
 import type { ServerSnapshot, WelcomeScreen } from '@/lib/servers/community';
 import { CHANNEL_TYPE_NUMBERS, toDiscordGuildBase } from '@/lib/services/gatewayEvents';
+import { fromDiscordEmoji, toDiscordEmoji } from '@/lib/servers/communityEmoji';
 
 /** A stable 19-digit numeric id for a Serika onboarding id (FNV-1a 64, top bit cleared). */
 export function numericOnboardingId(id: string): string {
@@ -36,17 +37,21 @@ export function toDiscordOnboarding(guildId: string, cfg: OnboardingConfig) {
       single_select: !q.multiple,
       required: q.required,
       in_onboarding: true,
-      options: q.options.map((o) => ({
-        id: numericOnboardingId(o.id),
-        title: o.title,
-        description: o.description || null,
-        channel_ids: [],
-        role_ids: o.roleIds,
-        emoji: o.emoji ? { id: null, name: o.emoji, animated: false } : null,
-        emoji_id: null,
-        emoji_name: o.emoji ?? null,
-        emoji_animated: false,
-      })),
+      options: q.options.map((o) => {
+        // Unicode: { id: null, name: "🎮" }; the server's custom emoji: { id, name, animated } (CORD-71).
+        const emoji = toDiscordEmoji(o.emoji);
+        return {
+          id: numericOnboardingId(o.id),
+          title: o.title,
+          description: o.description || null,
+          channel_ids: [],
+          role_ids: o.roleIds,
+          emoji,
+          emoji_id: emoji?.id ?? null,
+          emoji_name: emoji?.name ?? null,
+          emoji_animated: emoji?.animated ?? false,
+        };
+      }),
     })),
     default_channel_ids: [],
     enabled: cfg.enabled,
@@ -85,8 +90,8 @@ export function fromDiscordOnboarding(body: unknown, current: OnboardingConfig, 
           required: pr.required === true,
           options: (Array.isArray(pr.options) ? pr.options : []).map((o) => {
             const or = (o && typeof o === 'object' ? o : {}) as Record<string, unknown>;
-            const emoji = typeof or.emoji_name === 'string' ? or.emoji_name
-              : or.emoji && typeof or.emoji === 'object' && typeof (or.emoji as { name?: unknown }).name === 'string' ? (or.emoji as { name: string }).name : null;
+            // `<:name:id>` for a custom emoji; normalizeOnboardingConfig keeps it only if it is the guild's own.
+            const emoji = fromDiscordEmoji(or);
             return {
               id: idFor(or.id),
               title: text(or.title),

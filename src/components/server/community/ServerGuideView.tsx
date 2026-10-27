@@ -232,7 +232,7 @@ export function ServerGuideView({ serverId, data, preview = false, onNavigate, o
                             )}
                             aria-hidden
                           >
-                            <EmojiOrIcon emoji={todo.emoji} fallback={<TodoGlyph kind={todo.kind} />} />
+                            <EmojiOrIcon emoji={todo.emoji} emojis={data.customEmojis} fallback={<TodoGlyph kind={todo.kind} />} />
                           </span>
                           <span className="flex-1 min-w-0">
                             <span className={cn("block text-sm font-semibold break-words", isDone ? "text-[var(--text-muted)]" : "text-[var(--text-primary)]")}>
@@ -316,7 +316,7 @@ export function ServerGuideView({ serverId, data, preview = false, onNavigate, o
                           )}
                         >
                           <span className="w-8 h-8 rounded-lg bg-[var(--app-surface-alt)] flex items-center justify-center text-base shrink-0" aria-hidden>
-                            <EmojiOrIcon emoji={resource.emoji} fallback={<BookMarked className="w-4 h-4 text-[var(--app-accent)]" />} />
+                            <EmojiOrIcon emoji={resource.emoji} emojis={data.customEmojis} fallback={<BookMarked className="w-4 h-4 text-[var(--app-accent)]" />} />
                           </span>
                           <span className="min-w-0 flex-1 truncate text-sm font-medium text-[var(--text-primary)]">
                             {decodeHtmlEntities(resource.title)}

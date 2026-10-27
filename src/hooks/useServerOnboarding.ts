@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useSyncExternalStore } from "react";
+import type { CommunityEmojiView } from "@/lib/servers/communityEmoji";
 
 /** GET /api/servers/:id/onboarding (src/lib/api/community.ts). */
 export interface WelcomeChannelView {
@@ -14,6 +15,7 @@ export interface OnboardingOptionView {
   id: string;
   title: string;
   description: string;
+  /** A unicode emoji or the server's custom emoji as `<:name:id>` (src/lib/servers/communityEmoji.ts). */
   emoji: string | null;
   roleIds: string[];
 }
@@ -105,6 +107,8 @@ export interface ServerOnboarding {
     restrictChannels: boolean;
   } | null;
   connections: ServerConnectionView[];
+  /** Images for the custom emojis used by the welcome screen, questions and guide (CORD-71). */
+  customEmojis?: CommunityEmojiView[];
   member: {
     pending: boolean;
     screeningBlocked: boolean;

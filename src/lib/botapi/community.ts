@@ -48,18 +48,19 @@ export async function putBotOnboarding(guildId: string, botId: string, body: unk
   const server = await Server.findById(guildId);
   if (!server) return { status: 404, body: { code: 10004, message: 'Unknown Guild' } };
   const { getOnboardingConfig, saveOnboardingConfig } = await import('@/lib/services/serverCommunity');
-  const { assignableOnboardingRoleIds, serverChannelIds } = await import('@/lib/api/community');
-  const [current, assignable, channelIds, roles] = await Promise.all([
+  const { assignableOnboardingRoleIds, serverChannelIds, serverEmojiLookupFor } = await import('@/lib/api/community');
+  const [current, assignable, channelIds, roles, emojis] = await Promise.all([
     getOnboardingConfig(guildId),
     assignableOnboardingRoleIds(server, botId),
     serverChannelIds(guildId),
     Role.find({ serverId: guildId }),
+    serverEmojiLookupFor(guildId),
   ]);
   // Same rule as the web editor: roles already on an option stay, new ones must be assignable and safe.
   const keepable = new Set([...assignable, ...current.questions.flatMap((q) => q.options.flatMap((o) => o.roleIds))]);
   const safe = new Set(roles.filter((r) => isSafeOnboardingRole(r)).map((r) => r.id));
   const roleIds = new Set([...keepable].filter((r) => safe.has(r)));
-  const config = normalizeOnboardingConfig(fromDiscordOnboarding(body, current, (s) => sanitizeInput(s)), { channelIds, roleIds });
+  const config = normalizeOnboardingConfig(fromDiscordOnboarding(body, current, (s) => sanitizeInput(s)), { channelIds, roleIds, emojis });
   await saveOnboardingConfig(guildId, config);
   return { status: 200, body: toDiscordOnboarding(guildId, config) };
 }
@@ -82,7 +83,7 @@ export async function patchBotWelcomeScreen(guildId: string, botId: string, body
     return { status: 400, body: formError('welcome_channels', 'BASE_TYPE_ARRAY', 'Must be an array.') };
   }
   const { getWelcomeScreen, saveWelcomeScreen } = await import('@/lib/services/serverCommunity');
-  const { eligibleWelcomeChannelIds } = await import('@/lib/api/community');
+  const { eligibleWelcomeChannelIds, serverEmojiLookupFor } = await import('@/lib/api/community');
   const current = await getWelcomeScreen(guildId);
   const merged = {
     enabled: typeof body.enabled === 'boolean' ? body.enabled : current.enabled,
@@ -96,7 +97,8 @@ export async function patchBotWelcomeScreen(guildId: string, botId: string, body
       }))
       : body.welcome_channels === null ? [] : current.welcomeChannels,
   };
-  const screen = normalizeWelcomeScreen(merged, await eligibleWelcomeChannelIds(guildId));
+  const [eligible, emojis] = await Promise.all([eligibleWelcomeChannelIds(guildId), serverEmojiLookupFor(guildId)]);
+  const screen = normalizeWelcomeScreen(merged, eligible, emojis);
   await saveWelcomeScreen(guildId, screen);
   return { status: 200, body: toDiscordWelcomeScreen(screen) };
 }

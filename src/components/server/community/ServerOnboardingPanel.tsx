@@ -8,9 +8,10 @@ import { toast } from "sonner";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { CommunityEmojiField, useServerCommunityEmojis } from "@/components/server/community/CommunityEmojiField";
+import type { CommunityEmojiView } from "@/lib/servers/communityEmoji";
 import { useServer } from "@/contexts/ServerContext";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
-import { cn } from "@/lib/utils";
 import {
   invalidateServerOnboarding,
   type GuideResourceView,
@@ -56,6 +57,12 @@ interface Draft {
 type Loaded = { serverId: string; draft: Draft; saved: string; assignable: string[] } | null;
 
 type PreviewAt = "invite" | "flow" | "guide";
+
+/** The server's custom emojis offered by the emoji pickers (CORD-71). */
+interface EmojiSource {
+  emojis: readonly CommunityEmojiView[];
+  serverName?: string;
+}
 
 const fieldCls = "w-full h-10 px-3 rounded-md bg-[var(--bg-input)] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] focus:outline-none focus:border-[var(--app-accent)]";
 const iconBtn = "w-10 h-10 sm:w-8 sm:h-8 flex items-center justify-center rounded text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] disabled:opacity-30 disabled:hover:bg-transparent";
@@ -151,10 +158,6 @@ function move<T>(list: T[], index: number, delta: number): T[] {
   const next = [...list];
   [next[index], next[target]] = [next[target], next[index]];
   return next;
-}
-
-function emojiValue(value: string): string | null {
-  return value === "" ? null : value;
 }
 
 function todoKindLabel(gt: Gt, kind: GuideTodoKind): string {
@@ -338,6 +341,7 @@ function OptionRow({
   index,
   roles,
   assignable,
+  emojiSource,
   onChange,
   onRemove,
 }: {
@@ -345,6 +349,7 @@ function OptionRow({
   index: number;
   roles: OnboardingRoleOption[];
   assignable: ReadonlySet<string>;
+  emojiSource: EmojiSource;
   onChange: (option: OnboardingOptionView) => void;
   onRemove: () => void;
 }) {
@@ -352,13 +357,12 @@ function OptionRow({
   return (
     <div className="rounded-md border border-[var(--border-subtle)] bg-[var(--bg-app)] p-2.5 sm:p-3 space-y-2">
       <div className="flex items-center gap-2">
-        <input
-          value={option.emoji ?? ""}
-          maxLength={16}
-          onChange={(e) => onChange({ ...option, emoji: emojiValue(e.target.value) })}
-          placeholder="🙂"
-          aria-label={gt("Option emoji")}
-          className={cn(fieldCls, "w-12 shrink-0 px-0 text-center")}
+        <CommunityEmojiField
+          value={option.emoji}
+          onChange={(emoji) => onChange({ ...option, emoji })}
+          emojis={emojiSource.emojis}
+          serverName={emojiSource.serverName}
+          label={gt("Option emoji")}
         />
         <input
           value={option.title}
@@ -396,6 +400,7 @@ function QuestionCard({
   count,
   roles,
   assignable,
+  emojiSource,
   onChange,
   onMove,
   onRemove,
@@ -405,6 +410,7 @@ function QuestionCard({
   count: number;
   roles: OnboardingRoleOption[];
   assignable: ReadonlySet<string>;
+  emojiSource: EmojiSource;
   onChange: (question: OnboardingQuestionView) => void;
   onMove: (delta: number) => void;
   onRemove: () => void;
@@ -476,6 +482,7 @@ function QuestionCard({
             index={oi}
             roles={roles}
             assignable={assignable}
+            emojiSource={emojiSource}
             onChange={(next) => onChange({ ...question, options: question.options.map((o, i) => (i === oi ? next : o)) })}
             onRemove={() => onChange({ ...question, options: question.options.filter((_, i) => i !== oi) })}
           />
@@ -512,6 +519,7 @@ function TodoCard({
   count,
   readGroups,
   chatGroups,
+  emojiSource,
   onChange,
   onMove,
   onRemove,
@@ -521,6 +529,7 @@ function TodoCard({
   count: number;
   readGroups: ChannelGroups;
   chatGroups: ChannelGroups;
+  emojiSource: EmojiSource;
   onChange: (todo: GuideTodoView) => void;
   onMove: (delta: number) => void;
   onRemove: () => void;
@@ -574,13 +583,12 @@ function TodoCard({
         />
       )}
       <div className="flex items-center gap-2">
-        <input
-          value={todo.emoji ?? ""}
-          maxLength={16}
-          onChange={(e) => onChange({ ...todo, emoji: emojiValue(e.target.value) })}
-          placeholder="✅"
-          aria-label={gt("To-do emoji")}
-          className={cn(fieldCls, "w-12 shrink-0 px-0 text-center")}
+        <CommunityEmojiField
+          value={todo.emoji}
+          onChange={(emoji) => onChange({ ...todo, emoji })}
+          emojis={emojiSource.emojis}
+          serverName={emojiSource.serverName}
+          label={gt("To-do emoji")}
         />
         <input
           value={todo.title}
@@ -616,6 +624,7 @@ function ResourceCard({
   index,
   count,
   groups,
+  emojiSource,
   onChange,
   onMove,
   onRemove,
@@ -624,6 +633,7 @@ function ResourceCard({
   index: number;
   count: number;
   groups: ChannelGroups;
+  emojiSource: EmojiSource;
   onChange: (resource: GuideResourceView) => void;
   onMove: (delta: number) => void;
   onRemove: () => void;
@@ -632,13 +642,12 @@ function ResourceCard({
   return (
     <div className={cardCls}>
       <div className="flex items-center gap-2">
-        <input
-          value={resource.emoji ?? ""}
-          maxLength={16}
-          onChange={(e) => onChange({ ...resource, emoji: emojiValue(e.target.value) })}
-          placeholder="📌"
-          aria-label={gt("Resource emoji")}
-          className={cn(fieldCls, "w-12 shrink-0 px-0 text-center")}
+        <CommunityEmojiField
+          value={resource.emoji}
+          onChange={(emoji) => onChange({ ...resource, emoji })}
+          emojis={emojiSource.emojis}
+          serverName={emojiSource.serverName}
+          label={gt("Resource emoji")}
         />
         <input
           value={resource.title}
@@ -694,7 +703,10 @@ function ResourceCard({
  */
 export default function ServerOnboardingPanel({ serverId, roles }: { serverId: string; roles: OnboardingRoleOption[] }) {
   const gt = useGT();
-  const { channels } = useServer();
+  const { channels, currentServer } = useServer();
+  const serverEmojis = useServerCommunityEmojis(serverId);
+  const serverName = currentServer?.id === serverId ? currentServer.name : undefined;
+  const emojiSource = useMemo<EmojiSource>(() => ({ emojis: serverEmojis, serverName }), [serverEmojis, serverName]);
   const [loaded, setLoaded] = useState<Loaded>(null);
   const [failed, setFailed] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -856,6 +868,7 @@ export default function ServerOnboardingPanel({ serverId, roles }: { serverId: s
             count={draft.questions.length}
             roles={sortedRoles}
             assignable={assignable}
+            emojiSource={emojiSource}
             onChange={(next) => setDraft({ ...draft, questions: draft.questions.map((q, i) => (i === qi ? next : q)) })}
             onMove={(delta) => setDraft({ ...draft, questions: move(draft.questions, qi, delta) })}
             onRemove={() => setDraft({ ...draft, questions: draft.questions.filter((_, i) => i !== qi) })}
@@ -953,6 +966,7 @@ export default function ServerOnboardingPanel({ serverId, roles }: { serverId: s
               count={guide.todos.length}
               readGroups={readGroups}
               chatGroups={chatGroups}
+              emojiSource={emojiSource}
               onChange={(next) => setGuide({ ...guide, todos: guide.todos.map((t, i) => (i === ti ? next : t)) })}
               onMove={(delta) => setGuide({ ...guide, todos: move(guide.todos, ti, delta) })}
               onRemove={() => setGuide({ ...guide, todos: guide.todos.filter((_, i) => i !== ti) })}
@@ -988,6 +1002,7 @@ export default function ServerOnboardingPanel({ serverId, roles }: { serverId: s
               index={ri}
               count={guide.resources.length}
               groups={readGroups}
+              emojiSource={emojiSource}
               onChange={(next) => setGuide({ ...guide, resources: guide.resources.map((r, i) => (i === ri ? next : r)) })}
               onMove={(delta) => setGuide({ ...guide, resources: move(guide.resources, ri, delta) })}
               onRemove={() => setGuide({ ...guide, resources: guide.resources.filter((_, i) => i !== ri) })}
