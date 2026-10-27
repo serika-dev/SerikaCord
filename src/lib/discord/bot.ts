@@ -136,7 +136,10 @@ async function resolveReply(d: any, serikaChannelId?: string): Promise<{ referen
  *
  * Also converts Discord markdown where needed and strips Discord-specific formatting.
  */
-function formatDiscordContentForSerika(content: string): string {
+function formatDiscordContentForSerika(
+  content: string,
+  channelMap?: Map<string, { serikaChannelId: string }>,
+): string {
   if (!content) return '';
   let result = content;
   // User mentions: <@123> or <@!123> → @username (we don't have the lookup, so just @user)
@@ -146,8 +149,12 @@ function formatDiscordContentForSerika(content: string): string {
   });
   // Role mentions: <@&123> → @rolename
   result = result.replace(/<@&\d+>/g, '@role');
-  // Channel mentions: <#123> → #channel
-  result = result.replace(/<#\d+>/g, '#channel');
+  // Channel mentions: a bridged channel becomes a real SerikaCord mention
+  // (<#uuid>, clickable); any other <#123> → #channel.
+  result = result.replace(/<#(\d+)>/g, (_m, id: string) => {
+    const linked = channelMap?.get(id);
+    return linked ? `<#${linked.serikaChannelId}>` : '#channel';
+  });
   // Custom emoji: <:name:123> or <a:name:123> → :name: (Serika can't resolve Discord emoji IDs)
   result = result.replace(/<a?:([a-zA-Z0-9_]+):\d+>/g, ':$1:');
   // @everyone / @here pass through as-is
@@ -987,7 +994,8 @@ export async function startDiscordBot() {
 
             // Convert Discord content to Serika-friendly format
             const rawContent = discordMessageText(d) ?? '';
-            const content = applyAffixes(formatDiscordContentForSerika(rawContent), options);
+            const bridgeMap = d.guild_id ? (await resolveGuildBridge(d.guild_id))?.byDiscordChannel : undefined;
+            const content = applyAffixes(formatDiscordContentForSerika(rawContent, bridgeMap), options);
             const attachments = options.attachments ? mapAttachments(d) : [];
             const embeds = mapEmbeds(d);
             const reply = await resolveReply(d, serikaChannelId);
@@ -1095,7 +1103,8 @@ export async function startDiscordBot() {
             const update: Record<string, any> = { updatedAt: new Date() };
             let newContent: string | undefined;
             if (hasContent) {
-              newContent = applyAffixes(formatDiscordContentForSerika(editedText ?? ''), options);
+              const bridgeMap = d.guild_id ? (await resolveGuildBridge(d.guild_id))?.byDiscordChannel : undefined;
+              newContent = applyAffixes(formatDiscordContentForSerika(editedText ?? '', bridgeMap), options);
               update.content = await encryptForStorage(newContent);
               update.edited = true;
               update.editedTimestamp = new Date();

@@ -3,11 +3,12 @@
 import { Fragment, memo, useMemo, useState, useEffect, useCallback } from "react";
 import { parseMarkdown, type MarkdownNode, type ParsedMarkdown } from "@/lib/chat/markdown";
 import { cn } from "@/lib/utils";
-import { Check, Copy, Hash } from "lucide-react";
+import { Check, Copy, Hash, Megaphone, MessagesSquare, Signpost, ListChecks, Users, Volume2 } from "lucide-react";
 import { useChatGt } from "./ChatGtContext";
-import { useServer } from "@/contexts/ServerContext";
+import { useServerOptional } from "@/contexts/ServerContext";
 import { useRouter } from "next/navigation";
 import { useGT } from "gt-next";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
 
 type GTFunc = (str: string, params?: Record<string, unknown>) => string;
 
@@ -223,29 +224,123 @@ const DiscordTimestamp = memo(function DiscordTimestamp({
   );
 });
 
+interface MentionedChannel { id: string; name: string; type?: string; serverId?: string | null }
+
+// Channels mentioned from outside the open server (or in DMs), looked up once
+// per id: the channel route only answers for channels you can see.
+const mentionedChannelCache = new Map<string, Promise<MentionedChannel | null>>();
+function lookupMentionedChannel(id: string): Promise<MentionedChannel | null> {
+  let hit = mentionedChannelCache.get(id);
+  if (!hit) {
+    hit = fetch(`/api/channels/${encodeURIComponent(id)}`)
+      .then(async (r) => {
+        if (!r.ok) return null;
+        const c = (await r.json())?.channel;
+        return c?.id ? { id: c.id, name: c.name, type: c.type, serverId: c.serverId ?? null } : null;
+      })
+      .catch(() => null);
+    if (mentionedChannelCache.size > 500) mentionedChannelCache.clear();
+    mentionedChannelCache.set(id, hit);
+  }
+  return hit;
+}
+
+const UUID_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const pillClass = "inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[0.9em] font-medium align-baseline transition-colors duration-150";
+const activePill = "bg-[var(--app-accent)]/15 hover:bg-[var(--app-accent)]/25 text-[var(--app-accent)] cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]/60";
+const mutedPill = "bg-[var(--app-surface-alt)] text-[var(--text-muted)] cursor-default";
+
+function ChannelIcon({ type }: { type?: string }) {
+  const cls = "w-3.5 h-3.5 shrink-0";
+  if (type === "voice" || type === "stage") return <Volume2 className={cls} />;
+  if (type === "forum") return <MessagesSquare className={cls} />;
+  if (type === "announcement") return <Megaphone className={cls} />;
+  return <Hash className={cls} />;
+}
+
 const ChannelMention = memo(function ChannelMention({ channelId }: { channelId: string }) {
   const gt = useGT();
   const router = useRouter();
-  const { channels, currentServer } = useServer();
+  // Optional: markdown also renders outside the app shell (the public /bots pages).
+  const server = useServerOptional();
+  const channels = server?.channels;
+  const currentServer = server?.currentServer;
 
-  const channelName = useMemo(() => {
-    const ch = channels.find((c) => c.id === channelId);
-    return ch ? ch.name : null;
-  }, [channelId, channels]);
+  const local = useMemo<MentionedChannel | null>(() => {
+    const ch = channels?.find((c) => c.id === channelId);
+    return ch ? { id: ch.id, name: ch.name, type: ch.type, serverId: ch.serverId ?? currentServer?.id ?? null } : null;
+  }, [channelId, channels, currentServer?.id]);
 
-  const handleClick = () => {
-    if (currentServer) {
-      router.push(`/channels/${currentServer.id}/${channelId}`);
-    }
-  };
+  // Not in the open server (another server, a DM): ask the API once.
+  const [remote, setRemote] = useState<MentionedChannel | null | undefined>(undefined);
+  useEffect(() => {
+    if (local || !UUID_ID.test(channelId) || !server) return;
+    let alive = true;
+    void lookupMentionedChannel(channelId).then((c) => { if (alive) setRemote(c); });
+    return () => { alive = false; };
+  }, [local, channelId, server]);
 
+  const channel = local ?? remote ?? null;
+  const target = channel?.serverId ? `/channels/${channel.serverId}/${channel.id}` : null;
+  const open = () => { if (target) router.push(target); };
+
+  if (!channel) {
+    return (
+      <span className={cn(pillClass, mutedPill)} title={gt("You can't see this channel")}>
+        <Hash className="w-3.5 h-3.5 shrink-0" />
+        {gt("unknown-channel")}
+      </span>
+    );
+  }
   return (
     <span
-      onClick={handleClick}
-      className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-[var(--app-accent)]/15 hover:bg-[var(--app-accent)]/25 text-[var(--app-accent)] text-[0.9em] font-medium cursor-pointer transition-colors duration-150 align-baseline"
+      role="link"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }}
+      className={cn(pillClass, activePill)}
     >
-      <Hash className="w-3.5 h-3.5 shrink-0" />
-      {channelName || gt("unknown-channel")}
+      <ChannelIcon type={channel.type} />
+      {decodeHtmlEntities(channel.name)}
+    </span>
+  );
+});
+
+/** <id:guide>, <id:customize>, <id:browse>, <id:members>: the open server's built-in pages. */
+const GuildNavMention = memo(function GuildNavMention({ page }: { page: string }) {
+  const gt = useGT();
+  const router = useRouter();
+  const serverId = useServerOptional()?.currentServer?.id ?? null;
+
+  const { label, icon, path } = (() => {
+    const cls = "w-3.5 h-3.5 shrink-0";
+    switch (page) {
+      case "customize":
+      case "linked-roles":
+        return { label: gt("Channels & Roles"), icon: <ListChecks className={cls} />, path: "customize" };
+      case "browse":
+        return { label: gt("Browse Channels"), icon: <Hash className={cls} />, path: "customize?tab=browse" };
+      case "members":
+        return { label: gt("Members"), icon: <Users className={cls} />, path: "members" };
+      default:
+        return { label: gt("Server Guide"), icon: <Signpost className={cls} />, path: "guide" };
+    }
+  })();
+
+  if (!serverId) {
+    return <span className={cn(pillClass, mutedPill)}>{icon}{label}</span>;
+  }
+  const open = () => router.push(`/channels/${serverId}/${path}`);
+  return (
+    <span
+      role="link"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); open(); } }}
+      className={cn(pillClass, activePill)}
+    >
+      {icon}
+      {label}
     </span>
   );
 });
@@ -527,6 +622,8 @@ function renderInlineNodes(nodes: MarkdownNode[], keyPrefix: string, renderText:
         return <DiscordTimestamp key={key} timestamp={parseInt(node.content)} format={node.format} options={node.options} />;
       case "channel_mention":
         return <ChannelMention key={key} channelId={node.content} />;
+      case "guild_nav":
+        return <GuildNavMention key={key} page={node.content} />;
       default:
         return renderText(node, key);
     }

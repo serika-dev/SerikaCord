@@ -19,7 +19,7 @@ function formatElapsed(startedAt: string | null, gt: (key: string, vars?: Record
 
 const typeConfig: Record<string, { label: string; Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string }> = {
   game:    { label: "Playing a Game",      Icon: Gamepad2, color: "#22c55e" },
-  vscode:  { label: "Working in VS Code:", Icon: Code2,    color: "#0ea5e9" },
+  vscode:  { label: "Coding",              Icon: Code2,    color: "#0ea5e9" },
   music:   { label: "Listening to Music",    Icon: Music,    color: "#e4335a" },
   windsurf:{ label: "Coding in Windsurf",  Icon: Wind,     color: "#38bdf8" },
   devin:   { label: "Coding in Devin Desktop", Icon: Wind, color: "#0bb39a" },
@@ -29,10 +29,13 @@ const typeConfig: Record<string, { label: string; Icon: React.ComponentType<{ cl
   other:   { label: "Using an App",         Icon: Layers,   color: "#8B5CF6" },
 };
 
-function gameTypeLabel(type: string, gt: ReturnType<typeof useGT>): string {
+/** The editor presence reports every IDE (IntelliJ, PyCharm, …) as type "vscode". */
+const VS_CODE_NAME = /^(visual studio code|vs ?code|vscodium|code - (oss|insiders))$/i;
+
+function gameTypeLabel(type: string, gt: ReturnType<typeof useGT>, name?: string): string {
   switch (type) {
     case 'game': return gt('Playing a Game');
-    case 'vscode': return gt('Working in VS Code:');
+    case 'vscode': return name && VS_CODE_NAME.test(name.trim()) ? gt('Working in VS Code') : gt('Coding');
     case 'music': return gt('Listening to Music');
     case 'windsurf': return gt('Coding in Windsurf');
     case 'devin': return gt('Coding in Devin Desktop');
@@ -62,7 +65,7 @@ export function GameActivityCard({ game }: { game: GameActivity }) {
       <div className="flex items-center justify-between px-3 pt-2.5 pb-2">
         <h4 className="text-[10.5px] font-semibold uppercase tracking-[0.08em] text-[var(--sw-faint)] flex items-center gap-1.5">
           <span aria-hidden className="w-1.5 h-1.5 rounded-full" style={{ backgroundColor: cfg.color, boxShadow: `0 0 8px ${cfg.color}` }} />
-          {gameTypeLabel(game.type, gt)}
+          {gameTypeLabel(game.type, gt, game.name)}
         </h4>
       </div>
 

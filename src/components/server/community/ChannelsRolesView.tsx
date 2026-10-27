@@ -16,6 +16,7 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { useGT } from "gt-next";
 import { Check } from "lucide-react";
 import { toast } from "sonner";
@@ -52,7 +53,9 @@ export function ChannelsRolesView({ serverId, data }: { serverId: string; data: 
   const gt = useGT();
   const questions = useMemo(() => data.onboarding?.questions ?? [], [data.onboarding]);
   const hasQuestions = questions.length > 0;
-  const [picked, setPicked] = useState<Tab>("customize");
+  // <id:browse> links open straight on Browse Channels (?tab=browse).
+  const searchParams = useSearchParams();
+  const [picked, setPicked] = useState<Tab>(() => (searchParams?.get("tab") === "browse" ? "browse" : "customize"));
   const tab: Tab = hasQuestions ? picked : "browse";
   const tabsId = useId();
 

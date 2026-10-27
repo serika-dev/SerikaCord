@@ -28,6 +28,7 @@ export interface MarkdownNode {
     | "linebreak"
     | "timestamp"
     | "channel_mention"
+    | "guild_nav"
     | "spoiler";
   content: string;
   href?: string;
@@ -47,7 +48,10 @@ const LINK_RE = /\[([^\]\n]+)\]\((?:<([^>\s]+)>|([^)\s]+))(?:\s+"[^"]*")?\)/;
 const ANGLE_URL_RE = /<(https?:\/\/[^\s<>]+)>/;
 const URL_RE = /https?:\/\/[^\s<>]*[^\s<>.,:;"')\]!?*_~|]/;
 const TIMESTAMP_RE = /<t:(-?\d+)(?::([tTdDfFRC])((?:\[[^\]]*\])*))?>/;
-const CHANNEL_MENTION_RE = /<#([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>/;
+/** <#id>: SerikaCord UUIDs, plus Discord-style snowflakes and legacy 24-hex ids (bots, the bridge). */
+const CHANNEL_MENTION_RE = /<#([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\d{17,20}|[0-9a-fA-F]{24})>/;
+/** Discord's server-page mentions: <id:guide>, <id:customize>, <id:browse>, <id:members>, … */
+const GUILD_NAV_RE = /<id:(guide|home|customize|browse|members|linked-roles)>/;
 const ESCAPE_RE = /\\([*_~`|>#\-\\[\]()<:.!+])/;
 
 /** Only these link targets may become clickable (no javascript:, data:, ...). */
@@ -86,6 +90,7 @@ export function parseInlineMarkdown(text: string): MarkdownNode[] {
     { regex: URL_RE, build: (m) => ({ type: "url", content: m[0], href: m[0] }) },
     { regex: TIMESTAMP_RE, build: (m) => ({ type: "timestamp", content: m[1], format: m[2] || "f", options: m[3] }) },
     { regex: CHANNEL_MENTION_RE, build: (m) => ({ type: "channel_mention", content: m[1] }) },
+    { regex: GUILD_NAV_RE, build: (m) => ({ type: "guild_nav", content: m[1] }) },
     { regex: BOLD_RE, build: (m) => ({ type: "bold", content: m[1] }) },
     { regex: UNDERLINE_RE, build: (m) => ({ type: "underline", content: m[1] }) },
     { regex: STRIKE_RE, build: (m) => ({ type: "strikethrough", content: m[1] }) },

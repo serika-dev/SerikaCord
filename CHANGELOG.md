@@ -13,6 +13,8 @@
 ### Bug Fixes
 - **Verification wait times stick** — the minimum account age and member age in Server Settings → Safety no longer jump back to 5 minutes after you reload.
 - **Webhook and bridged profiles** — webhooks, Discord-bridged users and system accounts show a simple card without Message, Add Friend, Add Role, Mod View or View Full Profile, and replies to webhook posts show the webhook's name.
+- **Channel and server-page links** — <id:members>, <id:guide>, <id:customize> and <id:browse> in messages open the server's Members, Server Guide and Channels & Roles pages; channel mentions work in DMs and across servers, show the channel type, and Discord channel mentions in bridged messages link to the bridged channel.
+- **Coding activity** — IntelliJ, PyCharm and other editors no longer show as "Working in VS Code".
 
 ### Performance
 
