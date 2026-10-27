@@ -90,7 +90,7 @@ function SingleEmbed({ embed, onMediaClick, ctx }: { embed: MessageEmbed; onMedi
 
   return (
     <div
-      className="mt-2 max-w-[520px] rounded-md overflow-hidden flex flex-col"
+      className="mt-2 w-fit min-w-0 max-w-[min(520px,100%)] rounded-md overflow-hidden flex flex-col"
       style={{ background: "var(--app-embed-bg, #1a1a1a)", borderLeft: `4px solid ${accent}` }}
     >
       <div className="grid gap-2 p-3" style={{ gridTemplateColumns: thumbUrl ? "minmax(0,1fr) auto" : "minmax(0,1fr)" }}>
@@ -158,7 +158,7 @@ function SingleEmbed({ embed, onMediaClick, ctx }: { embed: MessageEmbed; onMedi
 
         {thumbUrl && (
           <button type="button" onClick={() => onMediaClick?.(thumbUrl, embed.title)} className="shrink-0 self-start">
-            <img src={thumbUrl} alt="" className="w-20 h-20 rounded-md object-cover cursor-pointer" loading="lazy" />
+            <img src={thumbUrl} alt="" className="block h-auto w-auto max-w-20 max-h-20 rounded-md cursor-pointer" loading="lazy" />
           </button>
         )}
       </div>
@@ -171,8 +171,18 @@ function SingleEmbed({ embed, onMediaClick, ctx }: { embed: MessageEmbed; onMedi
 
       {!videoUrl && imageUrl && (
         <div className="px-3 pb-3">
-          <button type="button" onClick={() => onMediaClick?.(imageUrl, embed.title)} className="block w-full">
-            <img src={imageUrl} alt={embed.title || "Embed image"} className="block max-h-[300px] w-full object-cover rounded-md cursor-pointer" loading="lazy" />
+          {/* Like Discord: the image keeps its own shape (portrait art isn't
+              cropped to a banner), capped at 400px tall and the embed's width.
+              width/height from the embed reserve the space before it loads. */}
+          <button type="button" onClick={() => onMediaClick?.(imageUrl, embed.title)} className="block max-w-full">
+            <img
+              src={imageUrl}
+              alt={embed.title || "Embed image"}
+              width={embed.image?.width || undefined}
+              height={embed.image?.height || undefined}
+              className="block h-auto w-auto max-w-full max-h-[400px] rounded-md cursor-pointer"
+              loading="lazy"
+            />
           </button>
         </div>
       )}
