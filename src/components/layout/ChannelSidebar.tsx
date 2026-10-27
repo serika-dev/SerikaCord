@@ -87,6 +87,7 @@ import { ServerEventsEntry } from "@/components/events/ServerEventsEntry";
 import { ServerGuideEntry } from "@/components/server/community/ServerGuideEntry";
 import { ServerPageEntries } from "@/components/server/community/ServerPageEntries";
 import { StatusBadge } from "@/components/user/StatusBadge";
+import { decodeHtmlEntities } from "@/lib/chat/messages";
 
 const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
@@ -852,7 +853,7 @@ export function ChannelSidebar({
                 isActive ? "text-green-400" : "text-[var(--text-muted)]"
               )} />
             )}
-            <span className="truncate text-sm flex-1 text-left min-w-0" title={channel.name}>{channel.name}</span>
+            <span className="truncate text-sm flex-1 text-left min-w-0" title={decodeHtmlEntities(channel.name)}>{decodeHtmlEntities(channel.name)}</span>
             {channelParticipants.length > 0 && (
               <span className="flex items-center gap-1 shrink-0">
                 <span className={cn("inline-block w-1.5 h-1.5 rounded-full", isActive ? "bg-green-500 animate-pulse" : "bg-green-500/60")} />
@@ -925,7 +926,7 @@ export function ChannelSidebar({
           style={{ width: "calc(100% - 16px)" }}
         >
           {getChannelIcon(channel.type, undefined, channel.isNsfw)}
-          <span className="truncate text-sm flex-1 text-left min-w-0" title={channel.name}>{channel.name}</span>
+          <span className="truncate text-sm flex-1 text-left min-w-0" title={decodeHtmlEntities(channel.name)}>{decodeHtmlEntities(channel.name)}</span>
           {mentionCount > 0 && !isActive && (
             <span className="shrink-0 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-[#c4306b] text-[10px] font-bold text-white leading-none">
               {mentionCount > 99 ? "99+" : mentionCount}
@@ -1568,7 +1569,7 @@ export function ChannelSidebar({
     return (
       <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
         <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)] shrink-0">
-          <span className="font-semibold truncate text-[var(--text-primary)]">{currentServer.name}</span>
+          <span className="font-semibold truncate text-[var(--text-primary)]">{decodeHtmlEntities(currentServer.name)}</span>
         </div>
         <div className="flex-1 flex flex-col items-center justify-center px-6 text-center select-none">
           <div className="relative mb-6">
@@ -1770,7 +1771,7 @@ export function ChannelSidebar({
                         )}
                       />
                       <span className="text-xs font-bold uppercase text-[var(--text-muted)] group-hover:text-[var(--text-secondary)] select-none truncate min-w-0">
-                        {category.name}
+                        {decodeHtmlEntities(category.name)}
                       </span>
                     </div>
                     {canManageChannels && (
