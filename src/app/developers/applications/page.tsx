@@ -9,6 +9,7 @@ import {
   Copy,
   LayoutGrid,
   List,
+  LogIn,
   Plus,
   Search,
   Server,
@@ -56,6 +57,7 @@ function Applications() {
   const params = useSearchParams();
   const [apps, setApps] = useState<App[]>([]);
   const [loading, setLoading] = useState(true);
+  const [signedOut, setSignedOut] = useState(false);
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<Sort>("recent");
   const [view, setView] = useState<View>("grid");
@@ -66,7 +68,10 @@ function Applications() {
   useEffect(() => {
     let cancelled = false;
     fetch("/api/developers/applications")
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (res.status === 401 && !cancelled) setSignedOut(true);
+        return res.ok ? res.json() : null;
+      })
       .then((data) => {
         if (!cancelled && data) setApps(data.applications || []);
       })
@@ -239,6 +244,22 @@ function Applications() {
           <div className="flex flex-col items-center justify-center py-28 gap-3">
             <Loader size={24} className="size-7" />
             <p className="text-xs text-[#949ba4]">{gt("Loading developer applications...")}</p>
+          </div>
+        ) : signedOut ? (
+          <div className="text-center py-16 px-6 rounded-xl border border-dashed border-white/[0.08]">
+            <div className="size-12 rounded-xl bg-[#8B5CF6]/10 text-[#a78bfa] flex items-center justify-center mx-auto mb-4">
+              <LogIn className="size-6" />
+            </div>
+            <h3 className="text-base font-semibold mb-1">{gt("Sign in to see your applications")}</h3>
+            <p className="text-sm text-[#949ba4] max-w-sm mx-auto mb-5">
+              {gt("Use your SerikaCord account to create bots and manage your apps.")}
+            </p>
+            <Link
+              href={`/login?redirect=${encodeURIComponent("/developers/applications")}`}
+              className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-sm font-semibold transition-colors"
+            >
+              <LogIn className="size-4" /> {gt("Sign in")}
+            </Link>
           </div>
         ) : shown.length === 0 ? (
           <div className="text-center py-16 px-6 rounded-xl border border-dashed border-white/[0.08]">

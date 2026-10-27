@@ -16,6 +16,7 @@ import {
   GitCompareArrows,
   LayoutGrid,
   Library,
+  LogIn,
   Package,
   Plus,
   Server,
@@ -49,11 +50,15 @@ export default function DeveloperHomePage() {
   const { user } = useAuth();
   const [apps, setApps] = useState<App[]>([]);
   const [loading, setLoading] = useState(true);
+  const [signedOut, setSignedOut] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
     fetch("/api/developers/applications")
-      .then((res) => (res.ok ? res.json() : null))
+      .then((res) => {
+        if (res.status === 401 && !cancelled) setSignedOut(true);
+        return res.ok ? res.json() : null;
+      })
       .then((data) => {
         if (!cancelled && data) setApps(data.applications || []);
       })
@@ -126,6 +131,8 @@ export default function DeveloperHomePage() {
                 <div className="flex items-center justify-center gap-2 py-16 text-sm text-[#949ba4]">
                   <Loader size={24} className="size-4" /> {gt("Loading your apps...")}
                 </div>
+              ) : signedOut ? (
+                <SignInPrompt redirect="/developers/home" />
               ) : recentApps.length === 0 ? (
                 <div className="text-center px-6 py-14">
                   <div className="size-12 rounded-xl bg-[#8B5CF6]/10 text-[#a78bfa] flex items-center justify-center mx-auto mb-4">
@@ -244,6 +251,27 @@ export default function DeveloperHomePage() {
           <span className="sm:ml-auto">{gt("© SerikaCord Developer Portal")}</span>
         </div>
       </div>
+    </div>
+  );
+}
+
+function SignInPrompt({ redirect }: { redirect: string }) {
+  const gt = useGT();
+  return (
+    <div className="text-center px-6 py-14">
+      <div className="size-12 rounded-xl bg-[#8B5CF6]/10 text-[#a78bfa] flex items-center justify-center mx-auto mb-4">
+        <LogIn className="size-6" />
+      </div>
+      <h3 className="text-sm font-semibold mb-1">{gt("Sign in to see your applications")}</h3>
+      <p className="text-xs text-[#949ba4] max-w-sm mx-auto mb-5">
+        {gt("Use your SerikaCord account to create bots and manage your apps.")}
+      </p>
+      <Link
+        href={`/login?redirect=${encodeURIComponent(redirect)}`}
+        className="inline-flex items-center gap-2 h-9 px-4 rounded-lg bg-[#8B5CF6] hover:bg-[#7C3AED] text-white text-sm font-semibold transition-colors"
+      >
+        <LogIn className="size-4" /> {gt("Sign in")}
+      </Link>
     </div>
   );
 }
