@@ -1024,7 +1024,7 @@ export default function ServerOnboardingPanel({ serverId, roles }: { serverId: s
         </div>
       </section>
 
-      <div className="sticky bottom-0 flex flex-wrap items-center justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-card)] max-md:bg-[var(--bg-app)]">
+      <div className="theme-solid sticky bottom-0 flex flex-wrap items-center justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-card)] max-md:bg-[var(--bg-app)]">
         {firstIncomplete !== null && (
           <p role="alert" className="mr-auto flex items-center gap-1.5 text-sm text-red-500">
             <AlertTriangle className="w-4 h-4 shrink-0" />

@@ -554,7 +554,7 @@ const CodeBlock = memo(function CodeBlock({ code, lang }: { code: string; lang: 
       <button
         type="button"
         onClick={copy}
-        className="absolute right-1.5 top-1.5 z-[1] flex items-center gap-1 rounded bg-[var(--app-surface)] px-1.5 py-1 text-[11px] text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover/code:opacity-100"
+        className="theme-solid absolute right-1.5 top-1.5 z-[1] flex items-center gap-1 rounded bg-[var(--app-surface)] px-1.5 py-1 text-[11px] text-[var(--text-muted)] opacity-0 shadow-sm transition-opacity hover:text-[var(--text-primary)] focus-visible:opacity-100 group-hover/code:opacity-100"
         title={gt("Copy")}
         aria-label={gt("Copy")}
       >

@@ -45,7 +45,7 @@ function InviteCardReplica({ data, onAccept }: { data: ServerOnboarding; onAccep
               className="absolute inset-0 bg-cover bg-center"
               style={{ backgroundImage: `url(${cdnImage(server.banner)})`, filter: "blur(36px) saturate(1.2)", transform: "scale(1.15)" }}
             />
-            <div className="absolute inset-0 bg-[var(--app-bg)]/70" />
+            <div className="theme-solid absolute inset-0 bg-[var(--app-bg)]/70" />
           </>
         ) : (
           <div
@@ -59,7 +59,7 @@ function InviteCardReplica({ data, onAccept }: { data: ServerOnboarding; onAccep
       </div>
 
       <div className="relative w-full max-w-md animate-in fade-in-0 zoom-in-95 duration-300 motion-reduce:animate-none">
-        <div className="bg-[var(--app-surface)]/80 backdrop-blur-2xl border border-[var(--app-border)]/80 rounded-3xl overflow-hidden shadow-2xl">
+        <div className="theme-solid bg-[var(--app-surface)]/80 backdrop-blur-2xl border border-[var(--app-border)]/80 rounded-3xl overflow-hidden shadow-2xl">
           <div className="pt-8 px-6 pb-6">
             <ServerIconTile
               name={server.name}

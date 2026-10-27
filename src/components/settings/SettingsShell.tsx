@@ -289,7 +289,7 @@ export function SettingsContent({
             className={cn(
               "settings-sticky-header pointer-events-none absolute inset-x-0 top-0 h-16 border-b",
               scrolled
-                ? "border-[var(--border-subtle)] bg-[var(--bg-card)]/90 shadow-[0_6px_16px_-12px_rgba(0,0,0,0.45)] backdrop-blur-md"
+                ? "theme-solid border-[var(--border-subtle)] bg-[var(--bg-card)] shadow-[0_6px_16px_-12px_rgba(0,0,0,0.45)]"
                 : "border-transparent bg-transparent",
             )}
           />

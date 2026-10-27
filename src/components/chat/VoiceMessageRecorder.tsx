@@ -308,7 +308,7 @@ export default function VoiceMessageRecorder({ hold, channelId, uploadEndpoint, 
 
   return (
     <div
-      className="absolute inset-0 z-20 flex items-center gap-2 sm:gap-3 rounded-lg bg-[var(--app-surface)] border border-[var(--app-border)] px-2 sm:px-3"
+      className="theme-solid absolute inset-0 z-20 flex items-center gap-2 sm:gap-3 rounded-lg bg-[var(--app-surface)] border border-[var(--app-border)] px-2 sm:px-3"
       role="group"
       aria-label={gt("Recording voice message")}
     >

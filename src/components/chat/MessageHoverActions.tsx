@@ -129,7 +129,7 @@ export function MessageHoverActions<M extends ChatMessage>({
   return (
     <div
       className={cn(
-        "absolute -top-3 right-4 transition-opacity duration-(--motion-fast) z-[100]",
+        "theme-solid absolute -top-3 right-4 transition-opacity duration-(--motion-fast) z-[100]",
         reactionPickerOpen ? "opacity-100" : "opacity-0 group-hover/message:opacity-100 group-has-[:focus-visible]/message:opacity-100"
       )}
     >

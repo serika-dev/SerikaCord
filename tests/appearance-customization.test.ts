@@ -2,6 +2,8 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_THEME_GRADIENT,
   GRADIENT_SURFACE_ALPHA,
+  SURFACE_OVERRIDE_VARS,
+  SURFACE_SOLID_VARS,
   THEME_SURFACES,
   THEME_TEXT,
   clampAccentForContrast,
@@ -11,6 +13,7 @@ import {
   computeSurfaceOverrides,
   contrastRatio,
   gradientFromTint,
+  hexToRgb,
   mixHex,
   parseThemeGradientKey,
   readUserThemeGradient,
@@ -328,6 +331,21 @@ describe("gradient app themes", () => {
     expect(o["--app-bg-solid"]).toMatch(/^#[0-9a-f]{6}$/);
     expect(computeSurfaceOverrides({ theme: "light", translucent: true })!["--app-bg-solid"]).toBe("#f4f7fc");
     expect(computeSurfaceOverrides({ theme: "light", gradient: renderThemeGradient(DEFAULT_THEME_GRADIENT, "light") })!["--tooltip-bg"]).toBe("#ffffff");
+    // Every surface has an opaque copy (same colour, no alpha) for floating
+    // layers, and ThemeContext knows to set and clear it.
+    for (const mode of [{ gradient: rendered }, { translucent: true }]) {
+      const s = computeSurfaceOverrides({ theme: "dark", ...mode })!;
+      for (const [key, solidVar] of Object.entries(SURFACE_SOLID_VARS)) {
+        expect(SURFACE_OVERRIDE_VARS).toContain(solidVar);
+        expect(s[solidVar]).toMatch(/^#[0-9a-f]{6}$/);
+        const [r, g, b] = hexToRgb(s[solidVar]);
+        const see = key === "bg" ? s["--app-bg"] : key === "sidebar" ? s["--bg-sidebar"] : key === "surface" ? s["--app-surface"] : key === "surfaceAlt" ? s["--app-surface-alt"] : s["--bg-card"];
+        expect(see.startsWith(`rgba(${r}, ${g}, ${b}, `)).toBe(true);
+      }
+    }
+    // Opaque themes (legacy tint only) need no copies: the stylesheet
+    // defaults resolve to the opaque surfaces.
+    expect(computeSurfaceOverrides({ theme: "dark", tint: "#8b5cf6" })!["--app-surface-solid"]).toBeUndefined();
     // A background image wins over the gradient (old translucent alphas).
     expect(computeSurfaceOverrides({ theme: "light", translucent: true, gradient: rendered })!["--app-bg"]).toBe("rgba(244, 247, 252, 0.55)");
   });

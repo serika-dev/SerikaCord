@@ -29,7 +29,7 @@
 - **Developer portal home and Applications** — a cleaner home with your apps, stats, quick links and what's new; the Applications page gets search by name, bot or ID, sorting, grid and list views, and creating an app opens it straight away.
 
 ### Bug Fixes
-- **See-through Mod View with gradient themes** — Mod View and other dialogs and menus that use the app background are solid again when a gradient or translucent theme is on.
+- **See-through menus, popups and panels with gradient or background-image themes** — every dialog, menu, popover, profile card, emoji/GIF picker, autocomplete, context menu, bottom sheet, toast and floating bar (message actions, call controls, unsaved-changes bar, the phone bottom bar and members drawer) is now solid, so the chat behind no longer shows through and text stays readable. The gradient or image still shows behind the app itself.
 - **Spoilers added by editing** — turning on spoiler for an image, file or section by editing a bot or webhook message now hides it right away instead of only after a reload.
 - **"Please stop sending the same message repeatedly" for no reason** — the spam guard only looks at messages from the last minute, so a word you last sent long ago (like voting "smash") is no longer blocked.
 - **Bot page descriptions** — tables and --- dividers in a bot's long description now render on its /bots page instead of showing as raw text.

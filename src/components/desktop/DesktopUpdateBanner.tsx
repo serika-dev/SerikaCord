@@ -47,7 +47,7 @@ export function DesktopUpdateBanner() {
   return (
     <div
       role="status"
-      className="fixed bottom-4 right-4 z-[60] w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 shadow-2xl"
+      className="theme-solid fixed bottom-4 right-4 z-[60] w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 shadow-2xl"
     >
       <div className="flex items-start gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[var(--app-accent)] text-[var(--text-on-accent)]">

@@ -95,10 +95,16 @@
 
   /* App-level visual tokens */
   --app-bg: #05060a;
-  /* Always-opaque app background for overlays (dialogs, menus). Gradient and
-     translucent themes make --app-bg see-through; the theme then sets this to
-     the same colour without alpha (lib/appearance/customization.ts). */
+  /* Always-opaque copies of the surfaces for floating layers (dialogs, menus,
+     popovers, sheets). Gradient and background-image themes make the surfaces
+     see-through; the theme then sets these to the same colours without alpha
+     (SURFACE_SOLID_VARS in lib/appearance/customization.ts). Resolved here on
+     <html>, so each theme class's own values apply. */
   --app-bg-solid: var(--app-bg);
+  --bg-sidebar-solid: var(--bg-sidebar);
+  --app-surface-solid: var(--app-surface);
+  --app-surface-alt-solid: var(--app-surface-alt);
+  --bg-card-solid: var(--bg-card);
   --app-surface: #0c0f17;
   --app-surface-alt: #131a28;
   --app-border: #1e2637;
@@ -1241,16 +1247,35 @@ html.reduce-motion.has-theme-gradient body::after {
   }
 }
 
-/* Floating layers (menus, popovers, hover cards, selects) sit over
-   see-through panels here; blur what's behind so the few that use the
-   lighter --app-surface stay readable. Cards/menus on --bg-card are already
-   nearly opaque. */
-html.has-theme-gradient [data-radix-popper-content-wrapper] > *,
-html.has-custom-bg [data-radix-popper-content-wrapper] > *,
-html.has-theme-gradient .ctx-menu,
-html.has-custom-bg .ctx-menu {
-  -webkit-backdrop-filter: blur(16px);
-  backdrop-filter: blur(16px);
+/* Floating layers are always opaque. Gradient and background-image themes
+   make the surface tokens see-through so the backdrop shows behind the shell,
+   but anything that sits over other content (dialogs, popovers, menus, selects,
+   hover cards, tooltips, context menus, bottom sheets, toasts, and custom
+   popups marked `.theme-solid`) swaps them for the opaque copies, so every
+   background inside it (including bg-[var(--app-surface)] etc.) is solid.
+   Full-screen `.theme-backdrop` panels keep the see-through tokens: they
+   repaint the gradient / image underneath instead (below). */
+:is(
+  [role="dialog"],
+  [role="alertdialog"],
+  [role="menu"],
+  [role="listbox"],
+  [data-radix-popper-content-wrapper],
+  [data-message-sheet],
+  [data-sonner-toaster],
+  .ctx-menu,
+  .theme-solid
+):not(.theme-backdrop) {
+  --app-bg: var(--app-bg-solid);
+  --bg-app: var(--app-bg-solid);
+  --bg-primary: var(--app-bg-solid);
+  --bg-sidebar: var(--bg-sidebar-solid);
+  --app-surface: var(--app-surface-solid);
+  --bg-sidebar-elevated: var(--app-surface-solid);
+  --app-surface-alt: var(--app-surface-alt-solid);
+  --bg-input: var(--app-surface-alt-solid);
+  --bg-card: var(--bg-card-solid);
+  --bg-secondary: var(--bg-card-solid);
 }
 
 /* Full-screen layers that cover the shell (settings, mobile thread/search
@@ -1562,13 +1587,4 @@ html.rtl .text-right-rtl {
   .sw-card {
     transition: none;
   }
-}
-
-/* Overlays painted with --app-bg (Mod View and other dialogs, menus, pickers)
-   stay opaque when a gradient or translucent theme makes --app-bg see-through. */
-[role="dialog"].bg-\[var\(--app-bg\)\],
-[role="alertdialog"].bg-\[var\(--app-bg\)\],
-[role="menu"].bg-\[var\(--app-bg\)\],
-[role="listbox"].bg-\[var\(--app-bg\)\] {
-  background-color: var(--app-bg-solid);
 }

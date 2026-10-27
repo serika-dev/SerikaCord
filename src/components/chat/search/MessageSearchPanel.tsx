@@ -318,7 +318,7 @@ export function MessageSearchPanel({
                             )}
                           </div>
                         </div>
-                        <span className="absolute right-2 top-2 hidden group-hover:inline-flex group-focus-visible:inline-flex rounded bg-[var(--app-surface)] border border-[var(--app-border)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text-primary)] shadow-sm">
+                        <span className="theme-solid absolute right-2 top-2 hidden group-hover:inline-flex group-focus-visible:inline-flex rounded bg-[var(--app-surface)] border border-[var(--app-border)] px-2 py-0.5 text-[11px] font-semibold text-[var(--text-primary)] shadow-sm">
                           {gt("Jump")}
                         </span>
                       </div>

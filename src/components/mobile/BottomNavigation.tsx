@@ -106,7 +106,7 @@ export function BottomNavigation({
   return (
     <nav
       aria-label={gt("Main")}
-      className="mobile-bottom-nav fixed bottom-0 left-0 right-0 z-50 bg-[var(--bg-app)]/95 backdrop-blur-2xl border-t border-[var(--border-subtle)] md:hidden"
+      className="mobile-bottom-nav theme-solid fixed bottom-0 left-0 right-0 z-50 bg-[var(--bg-app)] border-t border-[var(--border-subtle)] md:hidden"
       style={{ paddingBottom: "var(--safe-area-bottom)" }}
     >
       <div className="flex items-stretch justify-around h-[56px] px-1">

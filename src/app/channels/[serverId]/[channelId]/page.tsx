@@ -309,7 +309,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 
             {/* Call controls bar — floating dock */}
             <div className="bg-transparent px-3 sm:px-4 pb-3 sm:pb-5 pt-1">
-              <div className="mx-auto w-fit flex items-center justify-center gap-1 sm:gap-1.5 rounded-2xl bg-[var(--app-surface-alt)]/90 backdrop-blur-md px-2 py-1.5 sm:px-2.5 sm:py-2 shadow-[0_8px_30px_rgba(0,0,0,0.4)] ring-1 ring-white/5">
+              <div className="theme-solid mx-auto w-fit flex items-center justify-center gap-1 sm:gap-1.5 rounded-2xl bg-[var(--app-surface-alt)]/90 backdrop-blur-md px-2 py-1.5 sm:px-2.5 sm:py-2 shadow-[0_8px_30px_rgba(0,0,0,0.4)] ring-1 ring-white/5">
                 <button
                   onClick={handleMute}
                   title={serverVoice.mute ? gt("Server Muted") : isMuted ? gt("Unmute") : gt("Mute")}
@@ -483,7 +483,7 @@ export default function ChannelPage() {
           {/* Drawer */}
           <SwipeNav
             onSwipeRight={() => setShowMembers(false)}
-            className="fixed top-0 right-0 bottom-0 z-50 w-72 max-w-[85vw] md:hidden shadow-2xl flex flex-col bg-[var(--bg-app)] animate-in slide-in-from-right duration-200 ease-out pt-safe pb-safe"
+            className="theme-solid fixed top-0 right-0 bottom-0 z-50 w-72 max-w-[85vw] md:hidden shadow-2xl flex flex-col bg-[var(--bg-app)] animate-in slide-in-from-right duration-200 ease-out pt-safe pb-safe"
           >
             <div className="flex items-center justify-between h-12 px-4 border-b border-[var(--app-border)] shrink-0">
               <span className="flex items-center gap-2 font-semibold text-[var(--text-primary)]">

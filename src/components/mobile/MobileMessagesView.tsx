@@ -385,7 +385,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   return (
     <div className="flex flex-col h-full bg-[var(--bg-app)]">
       {/* Header */}
-      <div className="flex flex-col px-5 bg-[var(--bg-app)] sticky top-0 z-10 pt-safe">
+      <div className="theme-solid flex flex-col px-5 bg-[var(--bg-app)] sticky top-0 z-10 pt-safe">
         <div className="flex items-center justify-between pt-4 pb-3">
           {showSearch ? (
             <div className="flex-1 flex items-center gap-3">

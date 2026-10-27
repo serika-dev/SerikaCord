@@ -32,7 +32,7 @@ export default function SuspendedScreen() {
 
   return (
     <div className="h-dvh overflow-y-auto bg-[var(--bg-app)] text-[var(--text-primary)]">
-      <header className="sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-app)]/95 pt-safe backdrop-blur">
+      <header className="theme-solid sticky top-0 z-10 border-b border-[var(--border-subtle)] bg-[var(--bg-app)] pt-safe">
         <div className="mx-auto flex h-14 max-w-[760px] items-center justify-between gap-3 px-4">
           <Logo variant="full" size="sm" />
           <button

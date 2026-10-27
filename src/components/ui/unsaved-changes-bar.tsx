@@ -107,7 +107,7 @@ export function UnsavedChangesBar({
         >
           <div
             ref={barRef}
-            className="flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)]/95 px-4 py-2.5 shadow-[var(--app-elev-2)] backdrop-blur transition-colors duration-(--motion-fast)"
+            className="theme-solid flex w-full flex-wrap items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-2.5 shadow-[var(--app-elev-2)] transition-colors duration-(--motion-fast)"
           >
             <p className="text-sm font-medium text-[var(--text-primary)] min-w-0">
               {gt("Careful — you have unsaved changes")}{changeCount > 0 ? ` (${changeCount} ${changeCount === 1 ? gt("field") : gt("fields")})` : ""}!

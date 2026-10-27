@@ -1758,7 +1758,7 @@ export default function MobileSettingsSectionPage() {
       </div>
 
       {isSaving && (
-        <div className="absolute bottom-6 right-6 px-3 py-2 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm flex items-center gap-2">
+        <div className="theme-solid absolute bottom-6 right-6 px-3 py-2 rounded-md bg-[var(--bg-card)] border border-[var(--border-subtle)] text-[var(--text-primary)] text-sm flex items-center gap-2">
           <Loader size={16} />
           {gt("Saving...")}
         </div>

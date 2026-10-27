@@ -955,7 +955,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           <div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] shadow-[var(--app-elev-1)] overflow-hidden">
             {/* Mention suggestions overlay */}
             {mentionSuggestions.length > 0 && (
-              <div className="absolute left-2 right-2 bottom-[calc(100%+8px)] z-20 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-alt)] shadow-[var(--app-elev-2)] overflow-hidden max-h-80 overflow-y-auto">
+              <div className="theme-solid absolute left-2 right-2 bottom-[calc(100%+8px)] z-20 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-alt)] shadow-[var(--app-elev-2)] overflow-hidden max-h-80 overflow-y-auto">
                 {/* Command list — bot commands grouped by application, then
                     built-in commands grouped by category (Discord-style). */}
                 {mentionSuggestions.length > 0 && mentionSuggestions.every(s => s.kind === "command" || s.kind === "app-command") && (() => {
@@ -985,7 +985,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   let globalIdx = 0;
                   return groups.map((group) => (
                     <div key={group.key}>
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50 sticky top-0 z-10">
+                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[color-mix(in_srgb,var(--app-surface)_50%,var(--app-surface-alt))] border-b border-[var(--app-border)]/50 sticky top-0 z-10">
                         {group.kind === "app" ? (
                           group.icon ? (
                             <img src={cdnImage(group.icon)} alt="" className="w-4 h-4 rounded-sm object-cover shrink-0" />

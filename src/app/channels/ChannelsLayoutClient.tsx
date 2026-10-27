@@ -431,7 +431,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         {!isInChannel && !isSettingsRoute && (
           <VoiceBar
             channelName={voiceChannelName}
-            className="fixed bottom-[var(--mobile-content-pb)] left-0 right-0 z-40 md:hidden"
+            className="theme-solid fixed bottom-[var(--mobile-content-pb)] left-0 right-0 z-40 md:hidden"
           />
         )}
         <VoiceAudioSink />

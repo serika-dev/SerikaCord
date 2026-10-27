@@ -256,7 +256,7 @@ export default function ServerWelcomeScreenPanel({ serverId }: { serverId: strin
         )}
       </div>
 
-      <div className="sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-card)] max-md:bg-[var(--bg-app)]">
+      <div className="theme-solid sticky bottom-0 flex justify-end gap-2 pt-2 pb-[env(safe-area-inset-bottom)] bg-[var(--bg-card)] max-md:bg-[var(--bg-app)]">
         <button
           type="button"
           disabled={!dirty || saving}

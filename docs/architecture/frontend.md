@@ -133,6 +133,18 @@ layout variables: `--chat-gutter`, `--chat-row-gap`,
 hard-code hex colors for theme roles; `bun run check:theme` and `bun run
 check:chat-media` guard the shell and chat files.
 
+Gradient and background-image themes make the surface tokens (`--app-bg`,
+`--bg-app`, `--app-surface`, `--bg-card`, ...) see-through so the backdrop
+shows behind the shell. Anything that floats over other content must stay
+opaque: dialogs, menus, popovers, listboxes, Radix popper content, `.ctx-menu`,
+`[data-message-sheet]` and toasts swap the surface tokens for their opaque
+copies (`--app-bg-solid`, `--app-surface-solid`, `--app-surface-alt-solid`,
+`--bg-card-solid`, `--bg-sidebar-solid`) automatically (globals.css). A custom
+popup, sticky header or floating bar without one of those roles needs the
+`theme-solid` class, and should not add an opacity modifier
+(`bg-[var(--bg-card)]/90`) on top. Full-screen panels use `theme-backdrop`
+instead, which repaints the gradient underneath.
+
 ## Mobile
 
 `ChannelsLayoutClient` switches to mobile views (`src/components/mobile/*`,

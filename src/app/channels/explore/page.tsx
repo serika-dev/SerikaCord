@@ -650,7 +650,7 @@ export default function ExplorePage() {
         </div>
 
         {/* Mobile category tabs (underline style, accent — no pills) */}
-        <div className="md:hidden sticky top-0 z-10 bg-[var(--app-bg)]/95 backdrop-blur border-b border-[var(--border-subtle)]">
+        <div className="theme-solid md:hidden sticky top-0 z-10 bg-[var(--app-bg)] border-b border-[var(--border-subtle)]">
           <div className="flex gap-1 overflow-x-auto no-scrollbar px-3">
             {categories.map((category) => {
               const Icon = category.icon;
@@ -812,7 +812,7 @@ export default function ExplorePage() {
 
       {applyServer && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
-          <div className="w-full max-w-md bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-4 shadow-2xl">
+          <div className="theme-solid w-full max-w-md bg-[var(--bg-card)] rounded-2xl border border-[var(--border-subtle)] p-6 space-y-4 shadow-2xl">
             <div>
               <h3 className="text-xl font-bold text-[var(--text-primary)]">{gt("Apply to join")} {applyServer.name}</h3>
               <p className="text-sm text-[var(--text-secondary)] mt-1">

@@ -3298,7 +3298,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       />
     );
     const roleBar = hasUnsavedRoleChanges ? (
-      <div className="flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3 shadow-2xl">
+      <div className="theme-solid flex items-center justify-between gap-3 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] px-4 py-3 shadow-2xl">
         <p className="text-sm font-medium text-[var(--text-primary)] min-w-0">{gt("You have unsaved changes")}</p>
         <button
           type="button"

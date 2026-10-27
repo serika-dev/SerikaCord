@@ -1037,7 +1037,7 @@ function MessageListInner<M extends ChatMessage>(
       {/* Non-intrusive top loading indicator — absolute positioned, no layout shift */}
       {hasMoreOlder && !isLoading && isLoadingMore && (
         <div className="absolute top-0 left-0 right-0 z-10 flex justify-center py-2 pointer-events-none">
-          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] bg-[var(--bg-app)]/80 backdrop-blur-sm px-3 py-1 rounded-full shadow-sm">
+          <div className="flex items-center gap-2 text-xs text-[var(--text-muted)] theme-solid bg-[var(--bg-app)] px-3 py-1 rounded-full shadow-sm">
             <Loader size={undefined} />
             {gt("Loading older messages")}
           </div>
@@ -1133,7 +1133,7 @@ function MessageListInner<M extends ChatMessage>(
           is detached from the live tail or far above it. */}
       {showPresentBar && (
         <div className="absolute bottom-0 left-0 right-0 z-10 px-2 animate-fade-in-up">
-          <div className="flex items-center gap-3 rounded-t-lg bg-[var(--app-surface-alt)] border border-b-0 border-[var(--app-border)] px-3 py-1.5 text-xs shadow-[var(--app-elev-1)]">
+          <div className="theme-solid flex items-center gap-3 rounded-t-lg bg-[var(--app-surface-alt)] border border-b-0 border-[var(--app-border)] px-3 py-1.5 text-xs shadow-[var(--app-elev-1)]">
             <span className="min-w-0 flex-1 truncate font-medium text-[var(--app-muted)]">
               {pillCount > 0
                 ? gt("{count} new messages", { count: pillCount })

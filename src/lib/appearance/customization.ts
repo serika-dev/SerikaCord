@@ -490,8 +490,26 @@ const SURFACE_VARS: Record<SurfaceKey, string[]> = {
   card: ["--bg-card"],
 };
 
+/**
+ * Always-opaque copy of each surface. Gradient and background-image themes
+ * make the surfaces see-through so the backdrop shows behind the shell;
+ * floating layers (dialogs, menus, popovers, sheets, toasts, `.theme-solid`)
+ * swap the surface tokens for these in globals.css so nothing bleeds through.
+ */
+export const SURFACE_SOLID_VARS: Record<SurfaceKey, string> = {
+  bg: "--app-bg-solid",
+  sidebar: "--bg-sidebar-solid",
+  surface: "--app-surface-solid",
+  surfaceAlt: "--app-surface-alt-solid",
+  card: "--bg-card-solid",
+};
+
 /** CSS custom properties ThemeContext may set inline for surfaces. */
-export const SURFACE_OVERRIDE_VARS: readonly string[] = [...Object.values(SURFACE_VARS).flat(), "--tooltip-bg", "--app-bg-solid"];
+export const SURFACE_OVERRIDE_VARS: readonly string[] = [
+  ...Object.values(SURFACE_VARS).flat(),
+  ...Object.values(SURFACE_SOLID_VARS),
+  "--tooltip-bg",
+];
 
 function withAlpha(hex: string, alpha: number): string {
   const [r, g, b] = hexToRgb(hex);
@@ -530,11 +548,11 @@ export function computeSurfaceOverrides(opts: {
     const color = tint ? mixHex(base[key], tint, amount) : base[key];
     const value = alphas ? withAlpha(color, alphas[key]) : color;
     for (const cssVar of SURFACE_VARS[key]) out[cssVar] = value;
+    // Overlays (dialogs, menus, sheets) use the same colour without alpha.
+    if (alphas) out[SURFACE_SOLID_VARS[key]] = color;
   }
   // Tooltips mix --app-bg with black; keep them solid when it goes see-through.
-  // Overlays (dialogs, menus) use the same colour without alpha.
   if (alphas) {
-    out["--app-bg-solid"] = tint ? mixHex(base.bg, tint, amount) : base.bg;
     out["--tooltip-bg"] = light ? "#ffffff" : mixHex(tint ? mixHex(base.bg, tint, amount) : base.bg, "#000000", 0.3);
   }
   return out;
