@@ -329,6 +329,7 @@ export function ProfileCard({
 
   const { resolve: resolveBadges } = useBadges();
   const badges = resolveBadges(user.badges);
+  const shownBadges = user.isBot ? badges.filter((b) => b.id !== "official_app") : badges;
 
   const bgStyle = getProfileBackgroundStyle(user.customization, { opaque: true });
   const isHolographic = user.customization?.profileCardEffect === 'holographic';
@@ -489,10 +490,10 @@ export function ProfileCard({
           )}
         </div>
 
-        {/* Badges */}
-        {badges.length > 0 && (
+        {/* Badges (a bot's "official app" badge is said by the app card below) */}
+        {shownBadges.length > 0 && (
           <div className="mt-3">
-            <BadgeList badges={badges.map((b) => b.id) as UIBadgeId[]} size="sm" maxDisplay={badges.length} expandable={false} />
+            <BadgeList badges={shownBadges.map((b) => b.id) as UIBadgeId[]} size="sm" maxDisplay={shownBadges.length} expandable={false} />
           </div>
         )}
 

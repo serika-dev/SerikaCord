@@ -22,6 +22,7 @@
 - **Staff bot tools** — staff can find any app (listed or not, by name, username or ID), verify any bot directly whatever its server count, mark apps as official, feature, delist and fix a listing's description, categories and tags. Every action asks for confirmation and is written to the activity log.
 
 ### Changes
+- **Cleaner bot profile cards** — the Official or Verified app card is more compact, Add to Server and Bot page sit side by side, and the duplicate lone Official badge is gone.
 - **Developer portal home and Applications** — a cleaner home with your apps, stats, quick links and what's new; the Applications page gets search by name, bot or ID, sorting, grid and list views, and creating an app opens it straight away.
 
 ### Bug Fixes

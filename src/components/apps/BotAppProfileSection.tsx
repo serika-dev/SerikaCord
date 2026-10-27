@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useGT } from "gt-next";
-import { BadgeCheck, ExternalLink, Plus } from "lucide-react";
+import { BadgeCheck, BookOpen, Plus, ShieldCheck } from "lucide-react";
 import { getJsonCached } from "@/lib/swrJson";
 
 /** GET /api/apps/by-bot/:userId (src/lib/services/appDirectory.ts BotAppSummary). */
@@ -42,41 +42,48 @@ export function BotAppProfileSection({ botUserId }: { botUserId: string }) {
   const pageHref = app.listed && app.id ? `/bots/${app.id}` : null;
   if (!showStatus && !app.installUrl && !pageHref) return null;
 
+  const buttons = [app.installUrl, pageHref].filter(Boolean).length;
+  const btn = "inline-flex h-9 min-w-0 items-center justify-center gap-1.5 rounded-lg px-3 text-[13px] font-semibold transition-colors";
+
   return (
-    <div className="mt-4 rounded-lg border border-white/[0.05] bg-white/[0.03] p-3">
+    <div className="mt-4 overflow-hidden rounded-xl border border-white/[0.06] bg-[linear-gradient(135deg,color-mix(in_srgb,var(--app-accent)_12%,transparent),transparent_70%)] p-3">
       {showStatus && (
-        <div className="mb-2.5 flex items-start gap-2">
-          <BadgeCheck className="mt-0.5 h-4 w-4 shrink-0 text-[var(--app-accent)]" aria-hidden />
-          <div className="min-w-0">
-            <p className="text-sm font-semibold text-[#e2e2ee]">{app.official ? gt("Official app") : gt("Verified app")}</p>
-            <p className="text-xs text-[#9a9aad]">
+        <div className="flex items-center gap-2.5">
+          <div className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[color-mix(in_srgb,var(--app-accent)_18%,transparent)] text-[var(--app-accent)]">
+            {app.official ? <ShieldCheck className="size-[18px]" aria-hidden /> : <BadgeCheck className="size-[18px]" aria-hidden />}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-semibold text-[#ededf5]">{app.official ? gt("Official app") : gt("Verified app")}</p>
+            <p className="truncate text-xs text-[#9a9aad]">
               {app.official ? gt("Made by SerikaCord") : gt("Reviewed and verified by the SerikaCord team")}
             </p>
           </div>
         </div>
       )}
-      <div className="flex flex-wrap gap-2">
-        {app.installUrl && (
-          <a
-            href={app.installUrl}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--app-accent)] px-3 py-1.5 text-sm font-medium text-[var(--text-on-accent)] transition-opacity hover:opacity-90"
-          >
-            <Plus className="h-4 w-4" aria-hidden />
-            {gt("Add to Server")}
-          </a>
-        )}
-        {pageHref && (
-          <a
-            href={pageHref}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-lg bg-white/[0.06] px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-white/[0.12]"
-          >
-            {gt("View in bot library")}
-            <ExternalLink className="h-3.5 w-3.5" aria-hidden />
-          </a>
-        )}
-      </div>
+      {buttons > 0 && (
+        <div className={`${showStatus ? "mt-3 " : ""}grid gap-2 ${buttons === 2 ? "grid-cols-2" : "grid-cols-1"}`}>
+          {app.installUrl && (
+            <a
+              href={app.installUrl}
+              className={`${btn} bg-[var(--app-accent)] text-[var(--text-on-accent)] hover:opacity-90`}
+            >
+              <Plus className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">{gt("Add to Server")}</span>
+            </a>
+          )}
+          {pageHref && (
+            <a
+              href={pageHref}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={`${btn} bg-white/[0.07] text-white hover:bg-white/[0.12]`}
+            >
+              <BookOpen className="size-4 shrink-0" aria-hidden />
+              <span className="truncate">{gt("Bot page")}</span>
+            </a>
+          )}
+        </div>
+      )}
     </div>
   );
 }
