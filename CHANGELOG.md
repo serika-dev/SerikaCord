@@ -26,6 +26,7 @@
 - **Developer portal home and Applications** — a cleaner home with your apps, stats, quick links and what's new; the Applications page gets search by name, bot or ID, sorting, grid and list views, and creating an app opens it straight away.
 
 ### Bug Fixes
+- **"Please stop sending the same message repeatedly" for no reason** — the spam guard only looks at messages from the last minute, so a word you last sent long ago (like voting "smash") is no longer blocked.
 - **Bot page descriptions** — tables and --- dividers in a bot's long description now render on its /bots page instead of showing as raw text.
 - **Threads match Discord** — a thread started from a message now has the same id as that message, as on Discord, so bot libraries find a message's thread.
 - **Bot embed images** — pictures in bot and webhook embeds keep their own shape instead of being cropped into a wide strip (portrait art shows in full, like on Discord), thumbnails aren't cropped, and embeds are only as wide as their content.

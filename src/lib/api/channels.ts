@@ -3050,8 +3050,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         const recentContents = await Promise.all(
           recent.map((m: any) => (m.content ? decryptFromStorage(m.content) : Promise.resolve('')))
         );
-        const allDuplicate = recentContents.every(
-          (c) => normalizeForSpamCheck(c) === spamFingerprint
+        const { isDuplicateSpam } = await import('@/lib/chat/duplicateSpam');
+        const allDuplicate = isDuplicateSpam(
+          spamFingerprint,
+          recent.map((m: any, i: number) => ({ fingerprint: normalizeForSpamCheck(recentContents[i]), createdAt: m.createdAt })),
+          DUPLICATE_SPAM_THRESHOLD,
         );
         if (allDuplicate) {
           set.status = 429;

@@ -688,7 +688,12 @@ export async function checkDmDuplicateSpam(channelId: string, userId: string, pr
   const recentContents = await Promise.all(
     recent.map((m) => (m.content ? decryptFromStorage(m.content) : Promise.resolve('')))
   );
-  const allDuplicate = recentContents.every((c) => normalizeForSpamCheck(c) === spamFingerprint);
+  const { isDuplicateSpam } = await import('@/lib/chat/duplicateSpam');
+  const allDuplicate = isDuplicateSpam(
+    spamFingerprint,
+    recent.map((m, i) => ({ fingerprint: normalizeForSpamCheck(recentContents[i]), createdAt: m.createdAt })),
+    DUPLICATE_SPAM_THRESHOLD,
+  );
   return allDuplicate ? fail(429, 'Please stop sending the same message repeatedly.') : null;
 }
 
