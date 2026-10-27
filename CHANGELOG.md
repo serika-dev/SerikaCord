@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.2.0.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.3.0.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.3.0 — 2026-10-27
+
+**Tag:** `v2.3.0` · **Commit:** `cea75de0`
 
 ### Features
 - **Edit your profile from your profile** — open your own full profile and click the pen tab on its left edge to change your nameplate, avatar, name style, theme colours, banner and per-server profiles in a side panel. Double-click your name, pronouns, status or About Me to edit them in place, and hover your avatar or banner to change them.
@@ -78,8 +96,6 @@
 - **Smaller bot invite** — the Discord bridge invite asks only for the permissions it needs instead of Administrator, and Discord webhook URLs are never sent to the browser.
 - **Webhook access** — only members with Manage Webhooks can see a channel webhook list, and webhook pictures are stored on Serika servers.
 - **Bot images go through the image proxy** — pictures in component layouts load through Serika's image proxy, so the bot's server never sees viewers' addresses.
-
-### Removed
 
 ---
 
