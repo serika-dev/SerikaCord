@@ -8,7 +8,8 @@ import { normalizeChannelName } from '@/lib/servers/channelRules';
 import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent } from '@/lib/audit/auditLog';
 import * as guildEvents from '@/lib/services/guildGatewayEvents';
-import { findActiveGuildClaim, guildClaimError, linkedDiscordAccountId, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
+import { NO_DISCORD_ACCOUNT_ERROR, findActiveGuildClaim, guildClaimError, linkedDiscordAccountId, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
+import { resolveLinkedDiscord } from '@/lib/services/discordConnection';
 import {
   BUILTIN_LINK_OPTIONS,
   autoMatchByName,
@@ -218,17 +219,16 @@ async function prepareWebhook(discordChannelId: string): Promise<{ ok: true; sea
   return { ok: true, sealed: await sealWebhook(hook.url) };
 }
 
-async function bridgeState(server: IServer, userId: string) {
+/** `recheckAccount`: ask Serika Accounts again for a Discord link it said was missing ("I've connected it"). */
+async function bridgeState(server: IServer, userId: string, opts: { recheckAccount?: boolean } = {}) {
   const bridge = bridgeOf(server);
   const configured = Boolean(bridgeBotToken());
-  const [bot, discordAccountId, health, serikaChannels] = await Promise.all([
+  const [bot, discord, health, serikaChannels] = await Promise.all([
     readBotHeartbeat(),
-    linkedDiscordAccountId(userId),
+    resolveLinkedDiscord(userId, { fresh: opts.recheckAccount }),
     readBridgeHealth(server.id),
     serikaChannelsOf(server.id),
   ]);
-  const { UserConnection } = await import('@/lib/models');
-  const connection = discordAccountId ? await UserConnection.findOne({ userId, provider: 'discord' }) : null;
 
   // Another server that stores the same guild with the bridge on and wins the
   // mirror (links made before one-server-per-guild): this one is inactive.
@@ -252,7 +252,7 @@ async function bridgeState(server: IServer, userId: string) {
   return {
     configured,
     bot: { online: bot.online, lastSeenAt: bot.at, username: bot.username, id: BRIDGE_BOT_ID, inviteUrl: bridgeInviteUrl(BRIDGE_BOT_ID, bridge.guildId) },
-    account: { connected: Boolean(discordAccountId), username: connection?.username || connection?.displayName || null },
+    account: { connected: Boolean(discord), username: discord?.username || discord?.displayName || null },
     enabled: bridge.enabled,
     restrictUnconsented: bridge.restrictUnconsented,
     guild: bridge.guildId
@@ -302,12 +302,13 @@ export const discordBridgeRoutes = new Elysia({ prefix: '/servers' })
   .onBeforeHandle(rejectInvalidObjectIdParams)
 
   // Everything the panel shows: link, bot, account, defaults, links + health.
-  .get('/:serverId/discord-bridge', async ({ headers, cookie, params, set }) => {
+  // `?recheck=account` re-asks Serika Accounts for the user's Discord link.
+  .get('/:serverId/discord-bridge', async ({ headers, cookie, params, query, set }) => {
     const ctx = { headers, cookie: cookie as Ctx['cookie'], set };
     const access = await managerAccess(ctx, params.serverId);
     if (!access.ok) return access.body;
-    return bridgeState(access.server, access.userId);
-  }, { params: serverParams })
+    return bridgeState(access.server, access.userId, { recheckAccount: query.recheck === 'account' });
+  }, { params: serverParams, query: t.Object({ recheck: t.Optional(t.String({ maxLength: 16 })) }) })
 
   // Discord servers the bot is in that the user's linked Discord account can manage.
   .get('/:serverId/discord-bridge/guilds', async ({ headers, cookie, params, query, set }) => {
@@ -321,7 +322,7 @@ export const discordBridgeRoutes = new Elysia({ prefix: '/servers' })
     const discordUserId = await linkedDiscordAccountId(access.userId);
     if (!discordUserId) {
       set.status = 403;
-      return { error: 'Link your Discord account in Connections first', code: 'no_account' };
+      return { error: NO_DISCORD_ACCOUNT_ERROR, code: 'no_account' };
     }
     // Up to 200 member lookups on a cache miss.
     const limited = await heavyLimit(ctx, access.userId, access.server.id);

@@ -7,6 +7,7 @@ import { Check, ExternalLink, KeyRound, Link2, RefreshCw, ShieldCheck, Users } f
 import { Input } from "@/components/ui/input";
 import { Loader } from "@/components/ui/Loader";
 import { cn } from "@/lib/utils";
+import { ACCOUNTS_CONNECTIONS_URL } from "@/lib/accountsHandoff";
 import { DiscordMark, btnDiscord, btnGhost, btnPrimary, btnSecondary } from "./bits";
 import { bridgeApi, type BridgeState, type PickableGuild } from "./types";
 
@@ -53,11 +54,14 @@ function Step({ n, title, done, active, children }: { n: number; title: string; 
 export function SetupStepper({
   serverId,
   state,
+  onState,
   onLinked,
   onCancel,
 }: {
   serverId: string;
   state: BridgeState;
+  /** A re-fetched bridge state (after re-checking the Discord account). */
+  onState: (s: BridgeState) => void;
   onLinked: (s: BridgeState) => void;
   /** Shown when switching an existing link. */
   onCancel?: () => void;
@@ -71,6 +75,9 @@ export function SetupStepper({
   const [manual, setManual] = useState(false);
   const [manualId, setManualId] = useState("");
   const [linking, setLinking] = useState(false);
+  const [checkingAccount, setCheckingAccount] = useState(false);
+  // Set once Serika Accounts was opened from step 1: coming back to this tab re-checks quietly.
+  const [awaitingAccount, setAwaitingAccount] = useState(false);
 
   const accountDone = state.account.connected;
   const step = !accountDone ? 1 : !botAdded ? 2 : !picked ? 3 : 4;
@@ -98,9 +105,33 @@ export function SetupStepper({
     setRefreshingGuilds(false);
   };
 
-  const openConnections = () => {
-    window.dispatchEvent(new CustomEvent("openUserSettings", { detail: { tab: "connections" } }));
-  };
+  // Discord is linked in Serika Accounts; the server picks a new link up from
+  // there, so re-checking needs no page reload.
+  const recheckAccount = useCallback(async (quiet: boolean) => {
+    setCheckingAccount(true);
+    const res = await bridgeApi<BridgeState>(serverId, "?recheck=account");
+    setCheckingAccount(false);
+    if (!res.ok) {
+      if (!quiet) toast.error(res.error || gt("Could not check your Discord account. Try again in a moment."));
+      return;
+    }
+    onState(res.data);
+    if (res.data.account.connected) {
+      setAwaitingAccount(false);
+      toast.success(gt("Discord account connected"));
+    } else if (!quiet) {
+      toast.error(gt("No Discord account is linked yet. Finish linking Discord in Serika Accounts (Settings → Connections), then try again."));
+    }
+  }, [serverId, gt, onState]);
+
+  useEffect(() => {
+    if (!awaitingAccount || accountDone) return;
+    const onFocus = () => {
+      if (document.visibilityState === "visible") void recheckAccount(true);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [awaitingAccount, accountDone, recheckAccount]);
 
   const confirmLink = async () => {
     if (!picked) return;
@@ -140,16 +171,26 @@ export function SetupStepper({
       )}
       <ol className="list-none">
         <Step n={1} title={gt("Connect your Discord account")} done={accountDone} active={step === 1}>
+          <p className="text-xs text-[var(--text-secondary)] mb-1.5">
+            <T>The bridge checks that you own or manage the Discord server, using the Discord account linked to your Serika account.</T>
+          </p>
           <p className="text-xs text-[var(--text-secondary)] mb-3">
-            <T>The bridge checks that you own or manage the Discord server, using the Discord account linked to your SerikaCord profile.</T>
+            <T>Discord is linked in Serika Accounts: open it, choose Link Discord under Connections, then come back here.</T>
           </p>
           <div className="flex flex-wrap gap-2">
-            <button type="button" className={btnDiscord} onClick={openConnections}>
+            <a
+              href={ACCOUNTS_CONNECTIONS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className={btnDiscord}
+              onClick={() => setAwaitingAccount(true)}
+            >
               <DiscordMark className="size-4" />
-              <T>Open Connections</T>
-            </button>
-            <button type="button" className={btnSecondary} onClick={() => window.location.reload()}>
-              <RefreshCw className="size-4" aria-hidden="true" />
+              <T>Link Discord in Serika Accounts</T>
+              <ExternalLink className="size-3.5" aria-hidden="true" />
+            </a>
+            <button type="button" className={btnSecondary} onClick={() => void recheckAccount(false)} disabled={checkingAccount}>
+              {checkingAccount ? <Loader size={14} /> : <RefreshCw className="size-4" aria-hidden="true" />}
               <T>I&apos;ve connected it</T>
             </button>
           </div>

@@ -684,6 +684,17 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
         }
       }
 
+      // Discord linked/unlinked in Serika Accounts: mirror it into the local
+      // connection the Discord bridge and profile read.
+      if ('discordId' in updates) {
+        try {
+          const { applyAccountsDiscordUpdate } = await import('@/lib/services/discordConnection');
+          await applyAccountsDiscordUpdate(user.id, { discordId: updates.discordId, discordUsername: updates.discordUsername });
+        } catch (err) {
+          console.error('Failed to sync discord connection from /internal/update-profile:', err);
+        }
+      }
+
       // Sync other whitelisted fields to the local User model if needed
       const userUpdates: Record<string, any> = {};
       if ('isPremium' in updates) userUpdates.isPremium = updates.isPremium;
@@ -710,6 +721,8 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
       updates: t.Object({
         serikaMoeUsername: t.Optional(t.Union([t.String({ maxLength: 128 }), t.Null()])),
         serikaMoeId: t.Optional(t.Union([t.String({ maxLength: 128 }), t.Null()])),
+        discordId: t.Optional(t.Union([t.String({ maxLength: 32 }), t.Null()])),
+        discordUsername: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
         isPremium: t.Optional(t.Boolean()),
         isVerified: t.Optional(t.Boolean()),
         isBanned: t.Optional(t.Boolean()),
@@ -2263,7 +2276,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       deviceId: t.String(),
     }),
   })
-  .get('/me/connections', async ({ headers, cookie, set }) => {
+  // `?refresh=1` re-asks Serika Accounts for a Discord link it said was missing.
+  .get('/me/connections', async ({ headers, cookie, query, set }) => {
     const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!authUser) {
       set.status = 401;
@@ -2304,6 +2318,20 @@ const userRoutes = new Elysia({ prefix: '/users' })
         }
       } catch (err) {
         console.error('Failed to sync serika connection in GET /connections:', err);
+      }
+    }
+
+    // Discord is linked in Serika Accounts: pick up a link made after sign-in.
+    if (!connections.some(c => c.provider === 'discord')) {
+      try {
+        const { resolveLinkedDiscord } = await import('@/lib/services/discordConnection');
+        const fresh = (query as Record<string, unknown> | undefined)?.refresh === '1';
+        if (await resolveLinkedDiscord(userId, { fresh })) {
+          const row = await UserConnection.findOne({ userId, provider: 'discord' });
+          if (row) connections.push(row);
+        }
+      } catch (err) {
+        console.error('Failed to sync discord connection in GET /connections:', err);
       }
     }
 

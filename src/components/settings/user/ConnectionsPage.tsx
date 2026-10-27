@@ -1,16 +1,18 @@
 "use client";
 
-import { createElement, memo, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
+import { createElement, memo, useCallback, useEffect, useMemo, useState, type Dispatch, type SetStateAction } from "react";
 import { useGT } from "gt-next";
-import { Lock, X } from "lucide-react";
+import { ExternalLink, Lock, RefreshCw, UserRound, X } from "lucide-react";
 import { toast } from "sonner";
 import { getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { DomainConnectionsSection } from "@/components/settings/DomainConnectionsSection";
 import { SettingsPageHeader, SettingsSection } from "@/components/settings/SettingsSection";
 import { SettingsStatusPill } from "@/components/settings/blocks/SettingsStatusPill";
+import { SettingsButton, SettingsLinkButton } from "@/components/settings/blocks/SettingsButton";
 import { SettingsSkeleton } from "@/components/settings/blocks/SettingsSkeleton";
 import { cn } from "@/lib/utils";
+import { ACCOUNTS_CONNECTIONS_URL } from "@/lib/accountsHandoff";
 
 type GTFunc = ReturnType<typeof useGT>;
 
@@ -41,8 +43,15 @@ export const CONNECTION_PROVIDERS: ConnectionProvider[] = [
   { id: "serika", label: "Serika", color: "#8B5CF6", bg: "#8B5CF620", category: "social" },
 ];
 
-/** Linked through Serika Accounts, never from here. */
+/**
+ * Linked through Serika Accounts (accounts.serika.dev → Settings →
+ * Connections), never from here; SerikaCord mirrors them. Everything else is
+ * linked directly in SerikaCord through its own OAuth flows (or, for
+ * websites, DNS verification).
+ */
 const MANAGED = new Set(["serika", "discord"]);
+const MANAGED_PROVIDERS = CONNECTION_PROVIDERS.filter((p) => MANAGED.has(p.id));
+const LOCAL_PROVIDERS = CONNECTION_PROVIDERS.filter((p) => !MANAGED.has(p.id));
 
 function connectionProviderHint(id: string, gt: GTFunc): string {
   switch (id) {
@@ -93,6 +102,39 @@ export const ConnectionsPage = memo(function ConnectionsPage({
 }) {
   const gt = useGT();
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  // Set once Serika Accounts was opened from here: coming back re-checks quietly.
+  const [awaitingAccounts, setAwaitingAccounts] = useState(false);
+
+  // Picks up links made in Serika Accounts since this page loaded.
+  const refreshFromAccounts = useCallback(async (quiet: boolean) => {
+    setRefreshing(true);
+    try {
+      const res = await fetch("/api/users/me/connections?refresh=1");
+      const data = await res.json().catch(() => null);
+      if (res.ok && Array.isArray(data?.connections)) {
+        setUserConnections(data.connections);
+        if (!quiet) toast.success(gt("Connections refreshed"));
+      } else if (!quiet) {
+        toast.error(gt("Could not refresh your connections"));
+      }
+    } catch {
+      if (!quiet) toast.error(gt("Could not refresh your connections"));
+    } finally {
+      setRefreshing(false);
+    }
+  }, [gt, setUserConnections]);
+
+  useEffect(() => {
+    if (!awaitingAccounts) return;
+    const onFocus = () => {
+      if (document.visibilityState !== "visible") return;
+      setAwaitingAccounts(false);
+      void refreshFromAccounts(true);
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [awaitingAccounts, refreshFromAccounts]);
 
   const connectedMap = useMemo(
     () => Object.fromEntries(userConnections.map((c) => [c.provider, c])) as Record<string, Connection>,
@@ -184,12 +226,74 @@ export const ConnectionsPage = memo(function ConnectionsPage({
         </div>
       )}
 
-      {/* Add accounts: provider tile grid */}
-      <SettingsSection title={gt("Add accounts to your profile")} description={gt("This information won't be shared without your permission.")}>
+      {/* Discord + SerikaMoe: owned by the Serika account, linked in Serika Accounts */}
+      <SettingsSection
+        title={gt("Linked in Serika Accounts")}
+        description={gt("Discord and SerikaMoe belong to your Serika account, so you link and unlink them in Serika Accounts, not here. Once linked they appear below on their own, and the Discord bridge uses the Discord account linked there.")}
+      >
+        <div className="overflow-hidden rounded-xl border border-[color-mix(in_srgb,var(--app-accent)_35%,transparent)] bg-[color-mix(in_srgb,var(--app-accent)_7%,var(--bg-app))]">
+          <div className="flex items-start gap-3 px-4 pt-4 pb-3">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--app-accent)] text-[var(--text-on-accent)]">
+              <UserRound className="h-5 w-5" aria-hidden />
+            </span>
+            <div className="min-w-0 flex-1">
+              <p className="text-[15px] font-semibold text-[var(--text-primary)]">{gt("Managed in Serika Accounts")}</p>
+              <p className="text-[13px] text-[var(--text-secondary)]">
+                {gt("Open Serika Accounts, go to Settings → Connections and choose Link Discord or Link SerikaMoe. Come back here when you're done.")}
+              </p>
+            </div>
+          </div>
+          <ul className="divide-y divide-[var(--border-subtle)] border-y border-[var(--border-subtle)]">
+            {MANAGED_PROVIDERS.map((p) => {
+              const conn = connectedMap[p.id];
+              return (
+                <li key={p.id} className="flex items-center gap-3 px-4 py-2.5">
+                  <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full" style={{ backgroundColor: p.bg }}>
+                    <ProviderIcon provider={p} size={16} />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-[var(--text-primary)]">{p.label}</p>
+                    <p className="truncate text-xs text-[var(--text-secondary)]">
+                      {conn
+                        ? gt("Linked as {name}", { name: conn.displayName || conn.username || conn.accountId })
+                        : gt("Not linked yet")}
+                    </p>
+                  </div>
+                  <SettingsStatusPill tone={conn ? "success" : "neutral"} dot>
+                    {conn ? gt("Linked") : gt("Not linked")}
+                  </SettingsStatusPill>
+                </li>
+              );
+            })}
+          </ul>
+          <div className="flex flex-wrap items-center gap-2 px-4 py-3">
+            <SettingsLinkButton
+              variant="primary"
+              href={ACCOUNTS_CONNECTIONS_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => setAwaitingAccounts(true)}
+              className="max-sm:w-full"
+            >
+              {gt("Open Serika Accounts")}
+              <ExternalLink aria-hidden />
+            </SettingsLinkButton>
+            <SettingsButton onClick={() => void refreshFromAccounts(false)} disabled={refreshing} className="max-sm:w-full">
+              <RefreshCw className={cn(refreshing && "animate-spin motion-reduce:animate-none")} aria-hidden />
+              {gt("I've linked it, refresh")}
+            </SettingsButton>
+          </div>
+        </div>
+      </SettingsSection>
+
+      {/* Everything else: linked right here in SerikaCord */}
+      <SettingsSection
+        title={gt("Add accounts to your profile")}
+        description={gt("These are linked directly in SerikaCord and only show on your SerikaCord profile. This information won't be shared without your permission.")}
+      >
         <div className="grid grid-cols-[repeat(auto-fill,minmax(88px,1fr))] gap-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-3">
-          {CONNECTION_PROVIDERS.map((p) => {
+          {LOCAL_PROVIDERS.map((p) => {
             const connected = Boolean(connectedMap[p.id]);
-            const managed = MANAGED.has(p.id);
             const disabled = disabledProviders.includes(p.id);
             const hint = disabled
               ? gt("Disabled")
@@ -213,7 +317,7 @@ export const ConnectionsPage = memo(function ConnectionsPage({
               </>
             );
             const tileClass = "group/tile relative flex flex-col items-center gap-1.5 rounded-lg px-1 py-3 transition-colors duration-(--motion-fast)";
-            const canConnect = connectionsEnabled && !disabled && !managed && !connected;
+            const canConnect = connectionsEnabled && !disabled && !connected;
             return canConnect ? (
               <a
                 key={p.id}
@@ -229,7 +333,7 @@ export const ConnectionsPage = memo(function ConnectionsPage({
                 key={p.id}
                 title={hint}
                 aria-disabled
-                className={cn(tileClass, !connected && (disabled || !connectionsEnabled) && "opacity-40", managed && !connected && "opacity-70")}
+                className={cn(tileClass, !connected && (disabled || !connectionsEnabled) && "opacity-40")}
               >
                 {tile}
               </div>
@@ -261,7 +365,17 @@ export const ConnectionsPage = memo(function ConnectionsPage({
                         <p className="truncate text-[13px] text-[var(--text-secondary)]">{p.label}</p>
                       </div>
                       {managed ? (
-                        <SettingsStatusPill tone="accent">{gt("Managed")}</SettingsStatusPill>
+                        <SettingsLinkButton
+                          size="sm"
+                          href={ACCOUNTS_CONNECTIONS_URL}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          title={gt("Linked in Serika Accounts. Unlink it there.")}
+                          onClick={() => setAwaitingAccounts(true)}
+                        >
+                          {gt("Manage in Serika Accounts")}
+                          <ExternalLink aria-hidden />
+                        </SettingsLinkButton>
                       ) : (
                         <button
                           type="button"

@@ -77,7 +77,10 @@ function realRoleCount(member: GateMember, everyoneRoleId: string | null): numbe
 /** Whether the user has an account verified through a sign-in flow or a DNS-verified domain. */
 async function hasVerifiedConnection(userId: string): Promise<boolean> {
   const rows = await UserConnection.find({ userId }).catch(() => []);
-  return rows.some((c) => (OAUTH_ONLY_PROVIDERS as readonly string[]).includes(c.provider) || isVerifiedDomainConnection(c));
+  if (rows.some((c) => (OAUTH_ONLY_PROVIDERS as readonly string[]).includes(c.provider) || isVerifiedDomainConnection(c))) return true;
+  // Discord linked in Serika Accounts after sign-in has no local row yet.
+  const { resolveLinkedDiscord } = await import('./discordConnection');
+  return Boolean(await resolveLinkedDiscord(userId).catch(() => null));
 }
 
 export type MemberVerificationState = VerificationGateResult & {

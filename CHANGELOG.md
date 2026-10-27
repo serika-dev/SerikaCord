@@ -39,6 +39,8 @@
 - **App pictures in the developer portal** — apps without their own icon show their bot's avatar on the portal home, and server counts there are live.
 - **Message links from bots** — Discord-style links like serika.chat/channels/server/channel/message, which bots build, now open the right message.
 - **Verified bots now show their check** — approving a bot's verification didn't add the check to its BOT tag in chat, member lists and profiles. Verified bots (including ones verified before this fix) now show it.
+- **Discord bridge sees a Discord account linked in Serika Accounts** — step 1 of the bridge setup now completes as soon as Discord is linked in Serika Accounts (no sign-out needed), "I've connected it" re-checks without reloading the page, and the button takes you to Serika Accounts where Discord is actually linked.
+- **Connections explains what Serika Accounts manages** — on desktop, Settings → Connections now has a clear Serika Accounts card for Discord and SerikaMoe with an Open Serika Accounts button and a refresh, separate from the accounts you link right in SerikaCord; on mobile the Managed labels open Serika Accounts.
 
 ### Performance
 

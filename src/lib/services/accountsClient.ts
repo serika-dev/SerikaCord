@@ -237,6 +237,15 @@ export function accountsInternalGetUserByOriginalId(originalUserId: string) {
   });
 }
 
+/** /internal/get-user with exactly one of `id`, `originalUserId` or `email`. */
+export function accountsInternalLookupUser(lookup: { id: string } | { originalUserId: string } | { email: string }) {
+  return accountsFetch<{ user?: AccountsUser; success?: boolean }>('/internal/get-user', {
+    method: 'POST',
+    internal: true,
+    body: JSON.stringify(lookup),
+  });
+}
+
 
 /**
  * Push profile changes made in SerikaCord back to the accounts service so

@@ -1,7 +1,7 @@
-import { UserConnection } from '@/lib/models';
 import { db, schema } from '@/lib/db/postgres';
 import { and, ne, sql } from 'drizzle-orm';
 import { canManageGuild, getGuildInfo, getMemberGuildPermissions, type DiscordGuildInfo } from '@/lib/discord/rest';
+import { resolveLinkedDiscord } from './discordConnection';
 
 /**
  * Linking a SerikaCord server to a Discord guild lets the platform bot create
@@ -12,6 +12,9 @@ import { canManageGuild, getGuildInfo, getMemberGuildPermissions, type DiscordGu
  */
 
 const SNOWFLAKE = /^\d{17,20}$/;
+
+/** Shown when the acting user has no Discord account linked anywhere. */
+export const NO_DISCORD_ACCOUNT_ERROR = 'Link your Discord account in Serika Accounts (Settings → Connections) first';
 
 export type GuildLinkCheck = { ok: true; guild: DiscordGuildInfo } | { ok: false; status: number; error: string };
 
@@ -44,10 +47,13 @@ export function guildClaimError(claim: { name: string; ownerId: string }, userId
     : 'That Discord server is already bridged to another SerikaCord server';
 }
 
-/** The acting user's linked Discord account id, or null. */
-export async function linkedDiscordAccountId(userId: string): Promise<string | null> {
-  const connection = await UserConnection.findOne({ userId, provider: 'discord' });
-  return connection?.accountId || null;
+/**
+ * The acting user's linked Discord account id, or null. Discord is linked in
+ * Serika Accounts; resolveLinkedDiscord falls back to asking it when the local
+ * connection row is missing, so the bridge setup and the guild check agree.
+ */
+export async function linkedDiscordAccountId(userId: string, opts: { fresh?: boolean } = {}): Promise<string | null> {
+  return (await resolveLinkedDiscord(userId, opts))?.accountId || null;
 }
 
 export async function verifyDiscordGuildControl(
@@ -69,9 +75,9 @@ export async function verifyDiscordGuildControl(
     if (claim) return { ok: false, status: 409, error: guildClaimError(claim, userId) };
   }
 
-  const discordUserId = await linkedDiscordAccountId(userId);
+  const discordUserId = await linkedDiscordAccountId(userId, { fresh: opts.fresh });
   if (!discordUserId) {
-    return { ok: false, status: 403, error: 'Link your Discord account in Connections first' };
+    return { ok: false, status: 403, error: NO_DISCORD_ACCOUNT_ERROR };
   }
 
   const guild = await getGuildInfo(guildId, { fresh: opts.fresh });

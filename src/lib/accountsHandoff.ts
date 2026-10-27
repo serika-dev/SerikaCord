@@ -16,6 +16,11 @@ export const HANDOFF_CALLBACK_PATH = "/api/auth/accounts/callback";
 export const DEFAULT_NEXT_PATH = "/channels/me";
 /** Serika Accounts security settings, where passkeys are added and managed. */
 export const ACCOUNTS_SECURITY_URL = "https://accounts.serika.dev/settings?tab=security";
+/**
+ * Serika Accounts connections settings, where Discord (and SerikaMoe) are
+ * linked. SerikaCord picks a new link up from there (services/discordConnection).
+ */
+export const ACCOUNTS_CONNECTIONS_URL = "https://accounts.serika.dev/settings?tab=connections";
 
 /**
  * Error codes the callback puts on `/login?error=`. Anything else on that

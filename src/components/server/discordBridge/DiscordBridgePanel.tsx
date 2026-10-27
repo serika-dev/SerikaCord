@@ -233,6 +233,7 @@ export default function DiscordBridgePanel({ serverId }: { serverId: string }) {
                   <SetupStepper
                     serverId={serverId}
                     state={state}
+                    onState={onState}
                     onCancel={switching ? () => setSwitching(false) : undefined}
                     onLinked={(next) => {
                       setState(next);

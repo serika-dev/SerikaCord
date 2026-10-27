@@ -13,6 +13,7 @@ import { toast } from "sonner";
 import Link from "next/link";
 import { getConnectionIcon } from "@/components/user/ConnectionIcon";
 import { cn, cdnImage } from "@/lib/utils";
+import { ACCOUNTS_CONNECTIONS_URL } from "@/lib/accountsHandoff";
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, getProfileBackgroundStyle } from "@/lib/userDisplayNameStyle";
 import { NAMEPLATE_PRESETS, getNameplateBackground, type NameplateCustomization } from "@/lib/constants/nameplates";
 import { NameplateImagePicker } from "@/components/settings/NameplateImagePicker";
@@ -1610,6 +1611,9 @@ export default function MobileSettingsSectionPage() {
             <p className="text-sm text-[var(--text-muted)]">
               {gt("Connect your accounts to display them on your profile.")}
             </p>
+            <p className="rounded-xl border border-[var(--app-accent)]/30 bg-[var(--app-accent)]/10 p-3 text-xs text-[var(--text-secondary)]">
+              {gt("Discord and SerikaMoe are linked in Serika Accounts (Settings → Connections) and show up here shortly after. Everything else is linked right here.")}
+            </p>
             {CONNECTION_CATEGORIES.map((cat) => {
               const catProviders = CONNECTION_PROVIDERS.filter((p) => p.category === cat.id);
               return (
@@ -1647,9 +1651,15 @@ export default function MobileSettingsSectionPage() {
                             </div>
                             {conn ? (
                               prov.id === "serika" || prov.id === "discord" ? (
-                                <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)]">
-                                  {gt("Managed")}
-                                </span>
+                                <a
+                                  href={ACCOUNTS_CONNECTIONS_URL}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)]"
+                                >
+                                  {gt("Manage")}
+                                  <ExternalLink className="w-3 h-3" aria-hidden />
+                                </a>
                               ) : (
                                 <button
                                   onClick={async () => {
@@ -1667,9 +1677,15 @@ export default function MobileSettingsSectionPage() {
                                 </button>
                               )
                             ) : prov.id === "serika" || prov.id === "discord" ? (
-                              <span className="px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)]">
-                                {gt("Managed")}
-                              </span>
+                              <a
+                                href={ACCOUNTS_CONNECTIONS_URL}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-medium bg-[var(--app-accent)]/10 text-[var(--app-accent)]"
+                              >
+                                {gt("Link")}
+                                <ExternalLink className="w-3 h-3" aria-hidden />
+                              </a>
                             ) : disabledProviders.includes(prov.id) ? (
                               <button
                                 disabled
