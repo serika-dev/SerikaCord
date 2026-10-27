@@ -264,7 +264,19 @@ SerikaCord implements standard v10 REST resources.
     description: "Connect AI assistants and LLM agents directly to SerikaCord documentation, API schemas, gateway opcodes, permissions, and code templates using standard unauthenticated MCP endpoints.",
     content: `# Model Context Protocol (MCP) Endpoint
 
-SerikaCord provides a native, unauthenticated Model Context Protocol (MCP) server endpoint compliant with the MCP 2024-11-05 specification. This allows AI assistants, IDE extensions (Cursor, Windsurf), and custom LLM agents to query documentation, inspect Gateway opcodes, calculate permission bitmasks, and retrieve code templates in real time.
+SerikaCord provides a native, unauthenticated Model Context Protocol (MCP) server endpoint. It speaks the latest MCP version (2026-07-28) by default and every earlier standard version (2025-11-25, 2025-06-18, 2025-03-26, 2024-11-05); add \`?v=<version>\` to the endpoint URL to pin one. This allows AI assistants, IDE extensions (Cursor, Windsurf), and custom LLM agents to query documentation, inspect Gateway opcodes, calculate permission bitmasks, and retrieve code templates in real time.
+
+## Protocol versions
+
+| Version | How a client uses it |
+|---|---|
+| \`2026-07-28\` (default) | No handshake. Every request carries \`io.modelcontextprotocol/protocolVersion\`, \`clientInfo\` and \`clientCapabilities\` in \`params._meta\`, plus the \`MCP-Protocol-Version\`, \`Mcp-Method\` and (tools/call, resources/read, prompts/get) \`Mcp-Name\` headers. \`server/discover\` lists the supported versions. |
+| \`2025-11-25\` | \`initialize\` handshake, then the \`MCP-Protocol-Version\` header on each request. |
+| \`2025-06-18\` | \`initialize\`; titles on tools, prompts and resources; no batches. |
+| \`2025-03-26\` | \`initialize\`; read-only tool annotations; batches allowed. Requests without \`MCP-Protocol-Version\` are served as this version. |
+| \`2024-11-05\` | The original \`initialize\` handshake and batches. |
+
+Pin a version with \`?v=\`, e.g. \`https://api.serika.chat/api/v10/mcp?v=2024-11-05\`. Errors: \`-32022\` unsupported version (data lists \`supported\`), \`-32020\` header mismatch, \`-32601\` method not found (HTTP 404 on 2026-07-28), \`-32002\` resource not found on 2025-11-25 and earlier. The server is stateless (no \`Mcp-Session-Id\`; SSE GET and DELETE answer 405).
 
 ## Endpoint URLs
 The MCP server endpoint is publicly accessible with **no authentication required** (\`no auth\`):
@@ -324,14 +336,19 @@ The endpoint registers documentation pages, API configurations, cheat sheets, an
   "mcpServers": {
     "serikacord-docs": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-fetch", "https://api.serika.chat/api/v10/mcp"]
+      "args": ["-y", "mcp-remote", "https://api.serika.chat/api/v10/mcp"]
     }
   }
 }
 \`\`\`
 
-### 3. Direct JSON-RPC Request (HTTP POST)
-Send a POST request with \`Content-Type: application/json\`:
+### 3. Claude Code
+\`\`\`bash
+claude mcp add --transport http serikacord-docs https://api.serika.chat/api/v10/mcp
+\`\`\`
+
+### 4. Direct request (2026-07-28)
+POST with \`Content-Type: application/json\`, \`MCP-Protocol-Version: 2026-07-28\`, \`Mcp-Method: tools/call\` and \`Mcp-Name: get_doc_page\`:
 
 \`\`\`json
 {
@@ -340,12 +357,17 @@ Send a POST request with \`Content-Type: application/json\`:
   "method": "tools/call",
   "params": {
     "name": "get_doc_page",
-    "arguments": {
-      "slug": "getting-started"
+    "arguments": { "slug": "getting-started" },
+    "_meta": {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientInfo": { "name": "my-client", "version": "1.0.0" },
+      "io.modelcontextprotocol/clientCapabilities": {}
     }
   }
 }
-\`\`\``,
+\`\`\`
+
+On a pinned legacy endpoint (\`?v=2024-11-05\`) send \`initialize\` first, then plain requests without \`_meta\`.`,
     codeExamples: [
       {
         lang: "json",

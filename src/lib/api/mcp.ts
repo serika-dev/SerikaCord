@@ -1,6 +1,24 @@
 import { Elysia } from 'elysia';
 import { API, docNav, getAllDocSlugs } from '@/lib/constants/docs-nav';
 import { getDocContentBySlug, searchDocContent } from '@/lib/constants/docs-content';
+import {
+  ERR, HEADERLESS_LEGACY_VERSION, LATEST_VERSION, SUPPORTED_VERSIONS, allowsBatch, capabilitiesFor, isModern, readPin,
+  selectVersion, serverInfoFor, shapeErrorCode, shapeResult, validateModernRequest, type McpError, type ServerIdentity,
+} from '@/lib/mcp/protocol';
+
+const SERVER_IDENTITY: ServerIdentity = {
+  name: 'serikacord-docs-mcp',
+  title: 'SerikaCord Docs',
+  version: '1.3.0',
+  description: 'Official Model Context Protocol Server for SerikaCord Documentation & API Specs',
+  websiteUrl: 'https://serika.chat/developers/docs/mcp',
+  icons: [{ src: 'https://serika.chat/icons/icon-192x192.png', mimeType: 'image/png', sizes: ['192x192'] }],
+};
+
+const SERVER_INSTRUCTIONS =
+  'Use these tools to answer questions about building bots and integrations for SerikaCord (a Discord-API-v10-compatible chat platform): '
+  + 'search_docs and get_doc_page for documentation, get_api_endpoints for base URLs, get_gateway_opcodes and get_permission_flags for reference tables, '
+  + 'and get_code_example for snippets. Everything is read-only.';
 
 interface JsonRpcRequest {
   jsonrpc?: string;
@@ -242,7 +260,7 @@ console.log('Registered slash command:', command.name);`,
   }
 };
 
-function handleMcpMessage(body: JsonRpcRequest) {
+function handleMcpMessage(body: JsonRpcRequest, version: string = LATEST_VERSION, pin: string | null = null) {
   if (!body || typeof body !== 'object') {
     return buildJsonRpcError(null, -32700, 'Parse error: Request body must be a valid JSON-RPC object');
   }
@@ -258,20 +276,37 @@ function handleMcpMessage(body: JsonRpcRequest) {
 
   switch (method) {
     case 'initialize': {
+      // Legacy handshake (2025-11-25 and earlier); `version` is already negotiated.
       return buildJsonRpcResponse(id, {
-        protocolVersion: '2024-11-05',
-        capabilities: {
-          tools: { listChanged: true },
-          resources: { subscribe: false, listChanged: true },
-          prompts: { listChanged: true },
-          logging: {},
-        },
-        serverInfo: {
-          name: 'serikacord-docs-mcp',
-          version: '1.2.0',
-          description: 'Official Model Context Protocol Server for SerikaCord Documentation & API Specs',
-        },
+        protocolVersion: version,
+        capabilities: capabilitiesFor(version),
+        serverInfo: serverInfoFor(version, SERVER_IDENTITY),
+        instructions: SERVER_INSTRUCTIONS,
       });
+    }
+
+    case 'server/discover': {
+      return buildJsonRpcResponse(id, {
+        supportedVersions: pin ? [pin] : [...SUPPORTED_VERSIONS],
+        capabilities: capabilitiesFor(version),
+        instructions: SERVER_INSTRUCTIONS,
+        ttlMs: 3_600_000,
+        cacheScope: 'public',
+      });
+    }
+
+    case 'logging/setLevel': {
+      return buildJsonRpcResponse(id, {});
+    }
+
+    case 'completion/complete': {
+      // Doc slugs for the docs://{slug} resource template; nothing else completes.
+      const ref = params?.ref;
+      const arg = params?.argument;
+      const values = ref?.type === 'ref/resource' && ref?.uri === 'docs://{slug}' && arg?.name === 'slug'
+        ? getAllDocSlugs().filter((s) => s.startsWith(String(arg?.value ?? ''))).slice(0, 100)
+        : [];
+      return buildJsonRpcResponse(id, { completion: { values, total: values.length, hasMore: false } });
     }
 
     case 'ping': {
@@ -551,7 +586,7 @@ function handleMcpMessage(body: JsonRpcRequest) {
         });
       }
 
-      return buildJsonRpcError(id, -32601, `Unknown tool: ${toolName}`);
+      return buildJsonRpcError(id, -32602, `Unknown tool: ${toolName}`);
     }
 
     case 'resources/list': {
@@ -825,14 +860,18 @@ REST Endpoint: POST ${API.rest}/applications/YOUR_APP_ID/commands.`;
   }
 }
 
-// Meta endpoint JSON object payload
-const getMcpMeta = () => ({
+// Meta endpoint JSON object payload (GET on the MCP endpoint, for humans and probes).
+const getMcpMeta = (pin: string | null) => ({
   status: 'online',
-  name: 'serikacord-docs-mcp',
-  version: '1.2.0',
+  name: SERVER_IDENTITY.name,
+  version: SERVER_IDENTITY.version,
   mcp: true,
   auth: false,
-  protocolVersion: '2024-11-05',
+  protocolVersion: pin ?? LATEST_VERSION,
+  defaultProtocolVersion: LATEST_VERSION,
+  supportedProtocolVersions: pin ? [pin] : [...SUPPORTED_VERSIONS],
+  versionSelection: 'Modern clients (2026-07-28) send io.modelcontextprotocol/protocolVersion in params._meta on every request; legacy clients (2025-11-25 and earlier) use initialize. Add ?v=<version> to the endpoint URL to pin one version.',
+  transport: 'streamable-http (POST, application/json responses)',
   endpoints: [
     '/api/mcp',
     '/api/v10/mcp',
@@ -847,37 +886,111 @@ const getMcpMeta = () => ({
   },
 });
 
-// Helper for HTTP OPTIONS preflight
-const handleOptions = ({ set }: { set: any }) => {
+type SetLike = { status?: number | string; headers: Record<string, string | number> };
+type Ctx = { body?: unknown; set: SetLike; headers: Record<string, string | undefined>; query: Record<string, string | undefined> };
+
+const cors = (set: SetLike) => {
   set.headers['Access-Control-Allow-Origin'] = '*';
+  set.headers['Access-Control-Expose-Headers'] = 'MCP-Protocol-Version';
+};
+
+// Helper for HTTP OPTIONS preflight
+const handleOptions = ({ set }: { set: SetLike }) => {
+  cors(set);
   set.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS';
-  set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization';
+  set.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Mcp-Session-Id, Last-Event-ID';
   set.status = 204;
   return null;
 };
 
-// Helper for HTTP GET metadata
-const handleGetMeta = ({ set }: { set: any }) => {
-  set.headers['Access-Control-Allow-Origin'] = '*';
-  return getMcpMeta();
+const rpcError = (id: unknown, err: McpError) => buildJsonRpcError((id ?? null) as string | number | null, err.code, err.message, err.data);
+
+// Helper for HTTP GET: metadata JSON for humans and probes. No standalone SSE
+// stream (2025-03-26..2025-11-25 allowed one; 2026-07-28 removed it): 405.
+const handleGetMeta = ({ set, headers, query }: Ctx) => {
+  cors(set);
+  const pinned = readPin(query?.v);
+  if ('error' in pinned) {
+    set.status = 400;
+    return rpcError(null, pinned.error);
+  }
+  if ((headers?.accept ?? '').includes('text/event-stream')) {
+    set.status = 405;
+    set.headers['Allow'] = 'POST';
+    return '';
+  }
+  return getMcpMeta(pinned.pin);
 };
 
+// Sessions don't exist here (stateless server): DELETE is not allowed.
+const handleDelete = ({ set }: Ctx) => {
+  cors(set);
+  set.status = 405;
+  set.headers['Allow'] = 'POST';
+  return '';
+};
+
+/** One JSON-RPC message: era/version selection, modern header checks, core handling, version shaping. */
+function processMessage(msg: unknown, headers: Record<string, string | undefined>, pin: string | null): { status: number; body: unknown } {
+  const m = (msg && typeof msg === 'object' && !Array.isArray(msg) ? msg : {}) as JsonRpcRequest;
+  if (!msg || typeof msg !== 'object' || Array.isArray(msg) || typeof m.method !== 'string') {
+    return { status: 400, body: buildJsonRpcError(m.id ?? null, ERR.invalidRequest, 'Invalid Request: expected a JSON-RPC request or notification') };
+  }
+  const era = selectVersion(m, headers, pin);
+  if ('error' in era) return { status: era.error.status, body: rpcError(m.id, era.error) };
+  if (era.era === 'modern') {
+    const invalid = validateModernRequest(m, headers);
+    if (invalid) return { status: invalid.status, body: rpcError(m.id, invalid) };
+  }
+  // Notifications: accepted, never answered.
+  if (m.id === undefined || m.id === null) return { status: 202, body: null };
+
+  const res = handleMcpMessage(m, era.version, pin) as { error?: { code: number; message: string }; result?: unknown };
+  if (res?.error) {
+    const code = shapeErrorCode(m.method, res.error.code, res.error.message, era.version);
+    const body = { ...res, error: { ...res.error, code } };
+    // Modern HTTP: an unknown method is a 404 with -32601 (so legacy probes can tell modern servers apart).
+    const status = isModern(era.version) && code === ERR.methodNotFound ? 404 : 200;
+    return { status, body };
+  }
+  return { status: 200, body: { ...res, result: shapeResult(m.method, res.result, era.version, SERVER_IDENTITY) } };
+}
+
 // Helper for HTTP POST JSON-RPC
-const handlePostJsonRpc = async ({ body, set }: { body: any; set: any }) => {
-  set.headers['Access-Control-Allow-Origin'] = '*';
+const handlePostJsonRpc = async ({ body, set, headers, query }: Ctx) => {
+  cors(set);
   set.headers['Content-Type'] = 'application/json';
+  const h = headers ?? {};
+  const pinned = readPin(query?.v);
+  if ('error' in pinned) {
+    set.status = 400;
+    return rpcError(null, pinned.error);
+  }
+  const pin = pinned.pin;
 
   if (Array.isArray(body)) {
-    const responses = body.map((msg) => handleMcpMessage(msg)).filter(Boolean);
+    // JSON-RPC batches exist only in 2024-11-05 and 2025-03-26.
+    const version = h['mcp-protocol-version'] ?? pin ?? HEADERLESS_LEGACY_VERSION;
+    if (!allowsBatch(version)) {
+      set.status = 400;
+      return buildJsonRpcError(null, ERR.invalidRequest, `Invalid Request: batches are not supported in protocol version ${version}`);
+    }
+    const responses = body.map((m) => processMessage(m, h, pin).body).filter(Boolean);
+    if (responses.length === 0) {
+      set.status = 202;
+      return '';
+    }
     return responses;
   }
 
-  const response = handleMcpMessage(body as JsonRpcRequest);
-  if (!response) {
-    set.status = 204;
-    return null;
+  if (body === undefined || body === null || typeof body !== 'object') {
+    set.status = 400;
+    return buildJsonRpcError(null, ERR.parse, 'Parse error: Request body must be a valid JSON-RPC object');
   }
-  return response;
+  const out = processMessage(body, h, pin);
+  set.status = out.status;
+  if (out.body === null) return '';
+  return out.body;
 };
 
 // Unauthenticated MCP Route definitions
@@ -888,11 +1001,17 @@ export const mcpRoutes = new Elysia({ prefix: '' })
   .options('/docs/mcp', handleOptions)
   .options('/v10/docs/mcp', handleOptions)
 
-  // GET Meta info
+  // GET Meta info (405 for an SSE GET)
   .get('/mcp', handleGetMeta)
   .get('/v10/mcp', handleGetMeta)
   .get('/docs/mcp', handleGetMeta)
   .get('/v10/docs/mcp', handleGetMeta)
+
+  // DELETE (legacy session termination): no sessions here
+  .delete('/mcp', handleDelete)
+  .delete('/v10/mcp', handleDelete)
+  .delete('/docs/mcp', handleDelete)
+  .delete('/v10/docs/mcp', handleDelete)
 
   // POST JSON-RPC handler for MCP methods
   .post('/mcp', handlePostJsonRpc)

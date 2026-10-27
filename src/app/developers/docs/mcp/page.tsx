@@ -26,7 +26,7 @@ export default async function McpDoc() {
   return (
     <DocPage
       title={gt("Model Context Protocol (MCP) Endpoint")}
-      description={gt("Query documentation, inspect gateway opcodes, calculate permission bitmasks, and retrieve code templates in real time using open MCP 2024-11-05 endpoints — built specifically for AI assistants, Cursor, Windsurf, and Claude Desktop with no authentication required.")}
+      description={gt("Query documentation, inspect gateway opcodes, calculate permission bitmasks, and retrieve code templates in real time over the Model Context Protocol. The server speaks the latest MCP version (2026-07-28) by default and every earlier standard version back to 2024-11-05, with no authentication required.")}
     >
       <Callout type="info" title={gt("No Authentication Required")}>
         {gt("The SerikaCord documentation MCP server is public and unauthenticated (no auth). Any AI assistant, IDE extension, or custom LLM tool can issue JSON-RPC 2.0 requests directly to inspect endpoints, fetch docs, lookup Gateway opcodes, and compute permission bitmasks.")}
@@ -69,6 +69,33 @@ export default async function McpDoc() {
       <Endpoint method="POST" path="https://api.serika.chat/api/docs/mcp">
         {gt("Dedicated docs MCP endpoint alias.")}
       </Endpoint>
+
+      <H2 id="protocol-versions">{gt("Protocol versions")}</H2>
+      <P>{gt("One endpoint serves every standard MCP version. Clients get the latest by default; older clients keep working without any change.")}</P>
+      <Table
+        headers={[gt("Version"), gt("How a client uses it")]}
+        rows={[
+          [<InlineCode key="v1">2026-07-28</InlineCode>, gt("Latest and default. No handshake: every request carries its version, client info and capabilities in params._meta, plus the MCP-Protocol-Version, Mcp-Method and (for tools/call, resources/read and prompts/get) Mcp-Name headers. Call server/discover to list the supported versions.")],
+          [<InlineCode key="v2">2025-11-25</InlineCode>, gt("initialize handshake, then the MCP-Protocol-Version header on each request. Server info includes icons and a description.")],
+          [<InlineCode key="v3">2025-06-18</InlineCode>, gt("initialize handshake. Tools, prompts and resources include human-readable titles; JSON-RPC batches are not allowed.")],
+          [<InlineCode key="v4">2025-03-26</InlineCode>, gt("initialize handshake. Tools include read-only annotations; batches are allowed. Requests without a MCP-Protocol-Version header are served as this version.")],
+          [<InlineCode key="v5">2024-11-05</InlineCode>, gt("The original initialize handshake, plain tool definitions and batches.")],
+        ]}
+      />
+      <H3 id="pin-version">{gt("Pinning a version")}</H3>
+      <P>
+        {gt("Add the v query parameter to the endpoint URL to make it speak exactly one version, for example")}{" "}
+        <InlineCode>https://api.serika.chat/api/v10/mcp?v=2024-11-05</InlineCode>.{" "}
+        {gt("A pinned endpoint answers initialize with that version and rejects requests for any other one. An unknown version is refused with error -32022 and the list of supported versions.")}
+      </P>
+      <H3 id="version-errors">{gt("Version and header errors")}</H3>
+      <UL>
+        <li><InlineCode>-32022</InlineCode> {gt("Unsupported protocol version (HTTP 400). The error data lists supported and requested, so a client can retry with a version it shares with the server.")}</li>
+        <li><InlineCode>-32020</InlineCode> {gt("Header mismatch (HTTP 400): a required header is missing or does not match the request body. Applies to 2026-07-28 requests.")}</li>
+        <li><InlineCode>-32601</InlineCode> {gt("Method not found. On 2026-07-28 requests the HTTP status is 404.")}</li>
+        <li><InlineCode>-32002</InlineCode> {gt("Resource not found on 2025-11-25 and earlier; 2026-07-28 uses -32602 instead.")}</li>
+      </UL>
+      <P>{gt("The server is stateless: it never issues an Mcp-Session-Id, a GET that asks for an event stream and DELETE both answer 405, and every response is a single JSON object. A plain GET returns the server metadata, including the default and supported versions.")}</P>
 
       <H2 id="mcp-tools">{gt("Available MCP Tools")}</H2>
       <P>{gt("AI assistants automatically invoke these native tools to retrieve documentation context and API utilities:")}</P>
@@ -143,7 +170,10 @@ export default async function McpDoc() {
 
       <H2 id="client-config">{gt("Connecting Your AI Clients")}</H2>
 
-      <H3 id="cursor-setup">{gt("1. Cursor IDE Setup")}</H3>
+      <H3 id="claude-code-setup">{gt("1. Claude Code")}</H3>
+      <CodeBlock lang="bash">{`claude mcp add --transport http serikacord-docs https://api.serika.chat/api/v10/mcp`}</CodeBlock>
+
+      <H3 id="cursor-setup">{gt("2. Cursor and Windsurf")}</H3>
       <P>{gt("Add the endpoint to your project's")} <InlineCode>.cursor/mcp.json</InlineCode> {gt("or global Cursor MCP settings:")}</P>
       <CodeBlock lang="json">{`{
   "mcpServers": {
@@ -153,32 +183,54 @@ export default async function McpDoc() {
   }
 }`}</CodeBlock>
 
-      <H3 id="claude-desktop-setup">{gt("2. Claude Desktop Setup")}</H3>
-      <P>{gt("Add the server to your")} <InlineCode>claude_desktop_config.json</InlineCode>:</P>
+      <H3 id="claude-desktop-setup">{gt("3. Claude Desktop")}</H3>
+      <P>{gt("Add it as a custom connector with the endpoint URL, or bridge it through mcp-remote in your")} <InlineCode>claude_desktop_config.json</InlineCode>:</P>
       <CodeBlock lang="json">{`{
   "mcpServers": {
     "serikacord-docs": {
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-fetch", "https://api.serika.chat/api/v10/mcp"]
+      "args": ["-y", "mcp-remote", "https://api.serika.chat/api/v10/mcp"]
     }
   }
 }`}</CodeBlock>
+      <P>{gt("An older client that only speaks one version can use a pinned URL instead, such as")} <InlineCode>https://api.serika.chat/api/v10/mcp?v=2025-06-18</InlineCode>.</P>
 
-      <H3 id="json-rpc-request">{gt("3. Direct JSON-RPC HTTP Request")}</H3>
-      <P>{gt("Perform standard JSON-RPC 2.0 requests via cURL or any HTTP client:")}</P>
+      <H3 id="json-rpc-request">{gt("4. Direct HTTP requests")}</H3>
+      <P>{gt("A 2026-07-28 request carries the version and client details in params._meta and mirrors the method and tool name into headers:")}</P>
       <CodeBlock lang="bash">{`curl -X POST "https://api.serika.chat/api/v10/mcp" \\
   -H "Content-Type: application/json" \\
+  -H "Accept: application/json, text/event-stream" \\
+  -H "MCP-Protocol-Version: 2026-07-28" \\
+  -H "Mcp-Method: tools/call" \\
+  -H "Mcp-Name: get_permission_flags" \\
   -d '{
     "jsonrpc": "2.0",
     "id": 1,
     "method": "tools/call",
     "params": {
       "name": "get_permission_flags",
-      "arguments": {
-        "permissions": ["SEND_MESSAGES", "EMBED_LINKS", "ATTACH_FILES"]
+      "arguments": { "permissions": ["SEND_MESSAGES", "EMBED_LINKS", "ATTACH_FILES"] },
+      "_meta": {
+        "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+        "io.modelcontextprotocol/clientInfo": { "name": "curl", "version": "1.0.0" },
+        "io.modelcontextprotocol/clientCapabilities": {}
       }
     }
   }'`}</CodeBlock>
+      <P>{gt("Ask which versions the server supports:")}</P>
+      <CodeBlock lang="bash">{`curl -X POST "https://api.serika.chat/api/v10/mcp" \\
+  -H "Content-Type: application/json" \\
+  -H "MCP-Protocol-Version: 2026-07-28" \\
+  -H "Mcp-Method: server/discover" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}'`}</CodeBlock>
+      <P>{gt("The same call with the classic 2024-11-05 handshake, on a pinned endpoint:")}</P>
+      <CodeBlock lang="bash">{`curl -X POST "https://api.serika.chat/api/v10/mcp?v=2024-11-05" \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"curl","version":"1.0.0"}}}'
+
+curl -X POST "https://api.serika.chat/api/v10/mcp?v=2024-11-05" \\
+  -H "Content-Type: application/json" \\
+  -d '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"get_permission_flags","arguments":{"permissions":["SEND_MESSAGES"]}}}'`}</CodeBlock>
     </DocPage>
   );
 }

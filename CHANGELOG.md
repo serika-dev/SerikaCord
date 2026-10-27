@@ -7,6 +7,7 @@
 ## Unreleased
 
 ### Features
+- **Docs MCP server speaks every MCP version** — the SerikaCord docs MCP endpoint now uses the latest protocol (2026-07-28, no handshake, server/discover) by default and still serves 2025-11-25, 2025-06-18, 2025-03-26 and 2024-11-05 clients. Add ?v=2024-11-05 (or any version) to the URL to pin one. The MCP docs page explains it and has working setup for Claude Code, Cursor and Claude Desktop.
 - **Discord API compatibility: 95.6% of routes** — nearly every Discord API v10 route now works for bots (up from 71%), and none are missing. The compatibility page and developer docs are fully updated.
 - **Bot message search, join requests and raid tools** — bots can search a server's messages with Discord's filters (only channels they can read), approve or reject member applications, read the Server Guide, and pause invites during a raid.
 - **Soundboard, stage and voice channel status for bots** — bots can create, edit and play soundboard sounds, run stage instances, and set a voice channel's status.
