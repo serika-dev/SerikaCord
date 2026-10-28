@@ -14,7 +14,7 @@
  * the app's own bot user when that bot is in the bridged server.
  * Pure parts: src/lib/discord/botLink.ts.
  */
-import { and, eq, ne } from 'drizzle-orm';
+import { and, eq, inArray, ne } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { processShared } from '@/lib/realtime/processShared';
@@ -135,6 +135,7 @@ const linkedAuthorCache = processShared('discordLinkAuthors', () => new BoundedM
  */
 export function invalidateDiscordLinkCache(): void {
   linkedAuthorCache.clear();
+  linkedDiscordIdCache.clear();
 }
 
 /**
@@ -180,4 +181,48 @@ export async function resolveLinkedBotAuthor(discordBotId: string, channelId: st
   }
   linkedAuthorCache.set(key, { at: Date.now(), user });
   return user;
+}
+
+// `serikaBotUserId` -> the Discord bot user id it is linked to, or null.
+const linkedDiscordIdCache = processShared('discordLinkByBotUser', () => new BoundedMap<string, { at: number; discordId: string | null }>(2000));
+
+/**
+ * The Discord bot user ids linked to these SerikaCord bot users (via their
+ * application), for the outbound bridge: a mention of a linked bot becomes a
+ * mention of its Discord bot, and a linked bot that runs on both platforms
+ * isn't relayed twice. Missing keys = not linked. Cached one minute; empty
+ * on any error.
+ */
+export async function linkedDiscordBotIds(botUserIds: readonly string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  const missing: string[] = [];
+  for (const raw of botUserIds) {
+    const id = raw.toLowerCase();
+    const hit = linkedDiscordIdCache.get(id);
+    if (hit && Date.now() - hit.at < LOOKUP_TTL_MS) {
+      if (hit.discordId) out.set(id, hit.discordId);
+    } else if (!missing.includes(id)) {
+      missing.push(id);
+    }
+  }
+  if (missing.length === 0) return out;
+  try {
+    await ensureApplicationApiSchema();
+    const rows = await db.select({ botId: schema.applications.botId, discordBotUserId: s().discordBotUserId })
+      .from(s())
+      .innerJoin(schema.applications, eq(schema.applications.id, s().applicationId))
+      .where(inArray(schema.applications.botId, missing.slice(0, 100)));
+    const found = new Map<string, string>();
+    for (const r of rows) {
+      if (r.botId && isDiscordSnowflake(r.discordBotUserId)) found.set(String(r.botId).toLowerCase(), r.discordBotUserId);
+    }
+    for (const id of missing.slice(0, 100)) {
+      const discordId = found.get(id) ?? null;
+      linkedDiscordIdCache.set(id, { at: Date.now(), discordId });
+      if (discordId) out.set(id, discordId);
+    }
+  } catch (err) {
+    console.error('[discord-link] linked bot lookup failed:', (err as Error)?.message ?? err);
+  }
+  return out;
 }

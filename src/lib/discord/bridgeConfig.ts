@@ -33,7 +33,11 @@ export interface BridgeLinkOptions {
   attachments: boolean;
   /** SerikaCord -> Discord: post as the author's name and avatar (else as the bridge webhook with a bold name). */
   showIdentity: boolean;
-  /** Discord -> SerikaCord: mirror messages written by Discord bots. */
+  /**
+   * Bot messages, both ways: Discord bots' messages come in, and SerikaCord
+   * bot / webhook / interaction messages go out (outboundFormat.ts
+   * decideOutboundRelay). On by default.
+   */
   includeBots: boolean;
   /** Text added before / after every mirrored message (both directions). */
   prefix: string;

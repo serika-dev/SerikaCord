@@ -121,6 +121,17 @@ async function publishConversation(channel: IChannel, data: object): Promise<voi
   } catch { /* best-effort */ }
 }
 
+/**
+ * Discord bridge (SerikaCord -> Discord) for an app message in a bridged
+ * server channel; the bridge decides (bot messages option, loops, linked bots).
+ */
+function relayToDiscordBridge(action: 'create' | 'edit', channel: IChannel, message: object): void {
+  if (isDmChannel(channel) || !channel.serverId) return;
+  void import('@/lib/discord/outbound')
+    .then(({ replicateToDiscord }) => replicateToDiscord(action, channel.id, message))
+    .catch(() => {});
+}
+
 async function toInvoker(userId: string, payload: Record<string, unknown>): Promise<void> {
   try {
     const { fanoutToUsers } = await import('@/lib/api/activity');
@@ -271,6 +282,8 @@ export async function createAppMessage(opts: {
   const message = clientMessage({ id: row.id, channel: opts.channel, author, authorId, body, interaction, createdAt: row.createdAt ?? new Date(), webhookId });
   await publishConversation(opts.channel, { type: 'message', message });
   if (!opts.loading) void signalAppMessage(opts.channel, row, author, body);
+  // A deferred "thinking…" placeholder goes to Discord once it gets content (editAppMessage).
+  if (!opts.loading) relayToDiscordBridge('create', opts.channel, message);
   // MESSAGE_CREATE re-reads the stored row (same object as the REST API).
   void import('@/lib/services/gatewayEvents')
     .then(({ emitMessageCreate }) => emitMessageCreate({ id: row.id, channelId: opts.channel.id, serverId: opts.channel.serverId ?? null }))
@@ -381,6 +394,7 @@ export async function editAppMessage(opts: {
   const webhookId = opts.author.kind === 'webhook' ? opts.author.webhook.id : null;
   const client = clientMessage({ id: message.id, channel: opts.channel, author, authorId, body, interaction, createdAt: updated.createdAt ?? new Date(), edited: !wasLoading, webhookId });
   if (wasLoading) void signalAppMessage(opts.channel, updated, author, body);
+  relayToDiscordBridge(wasLoading ? 'create' : 'edit', opts.channel, client);
   void import('@/lib/services/gatewayEvents')
     .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: opts.channel.id, serverId: opts.channel.serverId ?? null }))
     .catch(() => {});

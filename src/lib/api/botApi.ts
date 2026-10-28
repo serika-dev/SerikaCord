@@ -2727,6 +2727,27 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     void import('@/lib/services/gatewayEvents')
       .then(({ emitMessageCreate }) => emitMessageCreate({ id: msg.id, channelId: params.channelId, serverId: channel.serverId ?? null }, { nonce }))
       .catch(() => {});
+    // Discord bridge: a bot message in a bridged channel goes to Discord too
+    // (the bridge applies the "bot messages" option, loops and linked bots).
+    if (!isDm) {
+      const relayed = {
+        id: msg.id,
+        authorId: botId,
+        author: botAuthorPayload(author),
+        channelId: params.channelId,
+        content: text,
+        attachments: storedAttachments,
+        embeds: finalEmbeds,
+        components: messageComponents ?? null,
+        flags: msgFlags,
+        mentionedUserIds: mentions.userIds,
+        referencedMessageId: replyTo?.id ?? null,
+        ...(stickerData ? { sticker: stickerData } : {}),
+      };
+      void import('@/lib/discord/outbound')
+        .then(({ replicateToDiscord }) => replicateToDiscord('create', params.channelId, relayed))
+        .catch(() => {});
+    }
 
     return presentMessage(msg, viewer, { isThread, nonce: nonce !== null ? { messageId: msg.id, value: nonce } : null });
   } finally {
@@ -2910,6 +2931,25 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   void import('@/lib/services/gatewayEvents')
     .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: msg.id, channelId: params.channelId, serverId: channel.serverId ?? null }))
     .catch(() => {});
+  // Discord bridge: the bot's own edit reaches its Discord copy.
+  if (isAuthor && contentChanged && channel.serverId && !isDmChannel(channel)) {
+    const relayed = {
+      id: msg.id,
+      authorId: botId,
+      author: botAuthorPayload(auth.botUser),
+      channelId: params.channelId,
+      content: finalText,
+      attachments: nextAttachments,
+      embeds: finalEmbeds,
+      components: nextComponents,
+      flags: updated.flags ?? msg.flags ?? 0,
+      mentionedUserIds: (updated.mentionedUserIds ?? []) as string[],
+      referencedMessageId: msg.referencedMessageId ?? null,
+    };
+    void import('@/lib/discord/outbound')
+      .then(({ replicateToDiscord }) => replicateToDiscord('edit', params.channelId, relayed))
+      .catch(() => {});
+  }
   return presentMessage(updated, viewerOf(auth), { isThread });
 })
 .delete('/channels/:channelId/messages/:messageId', async ({ headers, params, set }) => {

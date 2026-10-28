@@ -190,6 +190,26 @@ export async function getMemberGuildPermissions(guild: DiscordGuildInfo, discord
   return value;
 }
 
+const guildMemberCache = new BoundedMap<string, { at: number; value: boolean }>(5000);
+
+/**
+ * Whether a Discord user (person or bot) is in the guild: true / false, or
+ * null when Discord could not be asked. Definite answers are cached 10
+ * minutes. Used by the outbound bridge to decide between a real Discord
+ * mention and a plain-text name.
+ */
+export async function isGuildMember(guildId: string, discordUserId: string): Promise<boolean | null> {
+  if (!isSnowflake(guildId) || !isSnowflake(discordUserId)) return false;
+  const key = `${guildId}:${discordUserId}`;
+  const hit = cached(guildMemberCache, key, 600_000);
+  if (hit !== undefined) return hit;
+  const res = await discordBot<{ user?: { id?: string } }>(`/guilds/${guildId}/members/${discordUserId}`);
+  if (!res.ok && res.status !== 404) return null;
+  const value = res.ok && Boolean(res.data);
+  guildMemberCache.set(key, { at: Date.now(), value });
+  return value;
+}
+
 export function canManageGuild(perms: bigint | null): boolean {
   return perms !== null && ((perms & ADMINISTRATOR) !== 0n || (perms & MANAGE_GUILD) !== 0n);
 }

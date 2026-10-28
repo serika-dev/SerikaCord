@@ -16,6 +16,7 @@
 ### Bug Fixes
 - **Status rings always show** — the dark ring around the online, idle and Do Not Disturb icons on avatars no longer disappears with gradient or picture themes until you hover; it's always there, like on Discord.
 - **Big animated banners upload** — GIF profile, per-server and server banners between 10 MB and 50 MB now upload instead of failing with a server error, and a banner that is too big now says what the limit is.
+- **Discord bridge: real names and bot replies** — mentions sent from SerikaCord to Discord now show the person's, role's or channel's real name (people and bots who are in the Discord server get a proper Discord mention, bridged channels link to their Discord channel) instead of "@user", and replies and messages from SerikaCord bots, apps and webhooks now reach Discord too, with their embeds, under the bot's name and avatar. The per-channel "bot messages" option now covers both directions, and @everyone, @here and roles still never ping on Discord.
 
 ### Performance
 
