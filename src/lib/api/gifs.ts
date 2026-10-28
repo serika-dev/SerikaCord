@@ -1,6 +1,10 @@
 import { Elysia, t } from 'elysia';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { User, type IGifFavorite } from '@/lib/models';
+import { checkRateLimit } from '@/lib/security';
+import { ANIMATED_BANNER_MAX_BYTES } from '@/lib/media/imageUploadLimits';
+import { fetchRemoteImage, remoteImageResponse } from '@/lib/media/remoteImage';
+import { DEFAULT_GIF_MEDIA_HOSTS, isGifSlug, isImportableGifUrl, parseGifHostList } from '@/lib/media/gifImport';
 
 type GifItem = {
   id: string;
@@ -119,7 +123,87 @@ async function proxySerikaJson(
   return upstream.json();
 }
 
+/** GIF CDNs a favorite's URL may be imported from (src/lib/media/gifImport.ts), plus SERIKA_GIFS_MEDIA_HOSTS. */
+function gifMediaHosts(): string[] {
+  const hosts = [...DEFAULT_GIF_MEDIA_HOSTS, ...parseGifHostList(process.env.SERIKA_GIFS_MEDIA_HOSTS)];
+  try {
+    hosts.push(new URL(SERIKA_GIFS_API).hostname.toLowerCase());
+  } catch {
+    // misconfigured API URL: the defaults still apply
+  }
+  return hosts;
+}
+
+/** The media URL of a GIF on the Serika GIF API, by slug (null when unknown). */
+async function serikaGifUrl(slug: string): Promise<string | null> {
+  try {
+    const res = await fetch(serikaUrl(`/gifs/${encodeURIComponent(slug)}`), {
+      headers: getSerikaGifAuthHeaders(),
+      signal: AbortSignal.timeout(8_000),
+    });
+    if (!res.ok) return null;
+    const data = await res.json() as { gif?: { url?: unknown } };
+    const url = data.gif?.url;
+    return typeof url === 'string' && url.startsWith('https://') ? url : null;
+  } catch {
+    return null;
+  }
+}
+
 export const gifRoutes = new Elysia({ prefix: '/gifs' })
+  // The bytes of a GIF picked in the image picker ("Choose GIF" for an
+  // avatar, banner or icon). Fetched here (SSRF-guarded, size-capped, image
+  // bytes only) so the client never hotlinks it; the client then crops and
+  // uploads it through the normal upload route (Trust & Safety scan there).
+  // By slug (looked up on the GIF API) or, for favorites, by URL on a known
+  // GIF CDN only.
+  .post('/import', async ({ headers, cookie, body, set }) => {
+    const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: error || 'Unauthorized' };
+    }
+    const rl = await checkRateLimit('mediaImport', user.id);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: rl.retryAfter };
+    }
+    let url: string | null = null;
+    let allowHost: ((host: string) => boolean) | undefined;
+    if (body.slug) {
+      if (!isGifSlug(body.slug)) {
+        set.status = 400;
+        return { error: 'Invalid GIF' };
+      }
+      url = await serikaGifUrl(body.slug);
+      if (!url) {
+        set.status = 404;
+        return { error: 'GIF not found' };
+      }
+    } else if (body.url) {
+      const hosts = gifMediaHosts();
+      if (!isImportableGifUrl(body.url, hosts)) {
+        set.status = 400;
+        return { error: "This GIF can't be used as an image" };
+      }
+      url = body.url;
+      allowHost = (host) => isImportableGifUrl(`https://${host}/`, hosts);
+    } else {
+      set.status = 400;
+      return { error: 'GIF slug or URL is required' };
+    }
+    const image = await fetchRemoteImage(url, { maxBytes: ANIMATED_BANNER_MAX_BYTES, allowHost });
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.error };
+    }
+    return remoteImageResponse(image);
+  }, {
+    body: t.Object({
+      slug: t.Optional(t.String({ maxLength: 64 })),
+      url: t.Optional(t.String({ maxLength: 1024 })),
+    }),
+  })
   .get('/gifs', async ({ headers, cookie, query, set }) => {
     const { user, error } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {

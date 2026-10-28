@@ -44,9 +44,9 @@ import { hasDiscoveryTag, isHexColor, isServerTagIcon, normalizeDiscoveryTags, n
 import { customizationWithTag, invalidateServerTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
 import { memberOverridesFromRow, overriddenFields, resolveMemberProfile, sanitizeMemberProfilePatch } from '@/lib/profiles/memberProfile';
 import { storage, keyFromUrl, ContentBlockedError, UploadRejectedError } from '@/lib/services/storage';
-import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
 import { checkImageUploadFor, imageTooLargeMessageFor, imageUploadCeiling } from '@/lib/media/imageUploadLimits';
 import { trackMemberMediaDraft, untrackMemberMediaDrafts } from '@/lib/services/memberProfileMedia';
+import { recentProfileMediaUrls, recordProfileMediaChange } from '@/lib/services/recentProfileMedia';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -437,15 +437,6 @@ async function canChangeOwnNickname(server: { id: string; ownerId: string }, use
 function isTimedOut(member: { communicationDisabledUntil?: Date | string | null }): boolean {
   const until = member.communicationDisabledUntil ? new Date(member.communicationDisabledUntil).getTime() : 0;
   return Number.isFinite(until) && until > Date.now();
-}
-
-/** Delete a replaced per-server image when it lives in this member's own folder. */
-function cleanupMemberMedia(oldUrl: string | null | undefined, newUrl: string | null | undefined, kind: 'avatar' | 'banner', serverId: string, userId: string): void {
-  if (!oldUrl || oldUrl === newUrl) return;
-  const key = keyFromUrl(oldUrl);
-  const prefix = `${kind === 'avatar' ? 'avatars' : 'banners'}/${normalizeId(serverId)}/${normalizeId(userId)}/`;
-  if (!isOwnedMediaKey(key, prefix)) return;
-  void storage.delete(key).catch((e) => console.error('Failed to delete replaced member media:', e));
 }
 
 /** Tell the server's connected members (web clients) that someone's server profile changed. */
@@ -2409,7 +2400,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const raw = { ...(body as Record<string, unknown>) };
     // Nicknames are stored sanitized, as everywhere else they are written
     // (after the length check, so escaping can't push a valid name over it).
-    const result = sanitizeMemberProfilePatch(raw, { userId: user.id, serverId: server.id, cdnUrl: config.CDN_URL, current, storeNickname: sanitizeInput });
+    // Images from the user's recent avatars / banners may be reused as-is.
+    const reusesImage = (['avatar', 'banner'] as const).some((k) => typeof raw[k] === 'string' && raw[k] !== '' && raw[k] !== current[k]);
+    const recentMedia = reusesImage ? await recentProfileMediaUrls(user.id) : undefined;
+    const result = sanitizeMemberProfilePatch(raw, { userId: user.id, serverId: server.id, cdnUrl: config.CDN_URL, current, storeNickname: sanitizeInput, recentMedia });
     if (!result.ok) {
       set.status = 400;
       return { error: result.error, field: result.field };
@@ -2435,8 +2429,14 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       // Saved drafts are no longer drafts (the sweep would keep them anyway: it re-checks the row).
       const savedMedia = [columns.avatar, columns.banner].filter((u): u is string => typeof u === 'string' && u.length > 0);
       if (savedMedia.length > 0) void untrackMemberMediaDrafts(savedMedia.map((u) => keyFromUrl(u)));
-      if (columns.avatar !== undefined) cleanupMemberMedia(member.avatar, columns.avatar, 'avatar', server.id, user.id);
-      if (columns.banner !== undefined) cleanupMemberMedia(member.banner, columns.banner, 'banner', server.id, user.id);
+      // Changed images go to the recent list (the replaced one is kept there
+      // and deleted once it drops off the list and nothing uses it).
+      if (columns.avatar !== undefined && (columns.avatar ?? null) !== (member.avatar ?? null)) {
+        void recordProfileMediaChange(user.id, 'avatar', { url: columns.avatar, previous: member.avatar });
+      }
+      if (columns.banner !== undefined && (columns.banner ?? null) !== (member.banner ?? null)) {
+        void recordProfileMediaChange(user.id, 'banner', { url: columns.banner, previous: member.banner });
+      }
       void guildEvents.emitMemberUpdate(params.serverId, user.id);
       notifyMemberProfileChange(server.id, user.id);
       if (columns.nickname !== undefined && (columns.nickname ?? null) !== (member.nickname ?? null)) {

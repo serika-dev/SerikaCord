@@ -112,6 +112,11 @@ export const rateLimiters_config = {
   
   // Upload rate limits
   upload: { points: 10, duration: 60 }, // 10 uploads per minute
+  // Fetching a GIF / the linked Discord avatar server-side for the image
+  // picker (the bytes then go through a normal upload), per user
+  mediaImport: { points: 20, duration: 60 },
+  // Reusing / removing a recent avatar or banner, per user
+  recentMedia: { points: 30, duration: 60 },
   
   // Invite rate limits
   invite: { points: 5, duration: 60 }, // 5 invite creations per minute

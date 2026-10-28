@@ -15,6 +15,10 @@
  *   or the server is deleted, the files under the member's own prefixes are
  *   deleted after the membership row is gone. Fire-and-forget: never blocks
  *   the leave and only logs failures.
+ * - Recent images: a file the user still lists as a recent avatar / banner,
+ *   or uses as their main or another server profile image, is never deleted
+ *   here (filterUnprotectedProfileKeys, src/lib/services/recentProfileMedia.ts);
+ *   it goes when it drops off the recent list and nothing uses it.
  */
 import { and, eq, or } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
@@ -31,6 +35,7 @@ import {
   serverMemberMediaFolders,
   serverMemberMediaKeys,
 } from '@/lib/profiles/memberMediaDrafts';
+import { filterUnprotectedProfileKeys } from '@/lib/services/recentProfileMedia';
 
 const DRAFTS_KEY = 'member-media:drafts';
 const SWEEP_LOCK_KEY = 'member-media:sweep-lock';
@@ -109,15 +114,28 @@ export async function sweepMemberMediaDrafts(now = Date.now()): Promise<{ claime
   const keys = [...scores.keys()];
   const claimed = keys.filter((_, i) => !results[i]?.[0] && Number(results[i]?.[1]) === 1);
 
-  const saved = await loadSavedKeys(memberPairsForKeys(claimed));
-  const plan = planDraftSweep(claimed, saved);
-  const { deleted, failed } = await deleteKeys(plan.remove, 'draft sweep');
+  let remove: string[];
+  let untracked: number;
+  try {
+    const saved = await loadSavedKeys(memberPairsForKeys(claimed));
+    const plan = planDraftSweep(claimed, saved);
+    // A draft the user reused elsewhere or still lists as a recent image stays.
+    remove = await filterUnprotectedProfileKeys(plan.remove);
+    untracked = plan.untrack.length + (plan.remove.length - remove.length);
+  } catch (err) {
+    // Couldn't tell what is in use: put the claims back and try again later.
+    const retry = redis.pipeline();
+    for (const key of claimed) retry.zadd(DRAFTS_KEY, scores.get(key) ?? now, key);
+    await retry.exec().catch(() => {});
+    throw err;
+  }
+  const { deleted, failed } = await deleteKeys(remove, 'draft sweep');
   if (failed.length > 0) {
     const retry = redis.pipeline();
     for (const key of failed) retry.zadd(DRAFTS_KEY, scores.get(key) ?? now, key);
     await retry.exec().catch(() => {});
   }
-  return { claimed: claimed.length, deleted: deleted.length, untracked: plan.untrack.length };
+  return { claimed: claimed.length, deleted: deleted.length, untracked };
 }
 
 /**
@@ -180,7 +198,10 @@ export async function deleteMemberProfileMedia(serverId: string, userId: string)
     .where(and(eq(sm.serverId, serverId.toLowerCase()), eq(sm.userId, userId.toLowerCase())))
     .limit(1);
   if (again) return;
-  const { deleted } = await deleteKeys(keys, 'member removal');
+  // Images they still use elsewhere or keep as recent avatars / banners stay.
+  const removable = await filterUnprotectedProfileKeys(keys);
+  if (removable.length === 0) return;
+  const { deleted } = await deleteKeys(removable, 'member removal');
   await untrackMemberMediaDrafts(deleted);
 }
 
@@ -206,7 +227,10 @@ export async function deleteServerProfileMedia(serverId: string): Promise<void> 
   const listed = (await Promise.all(folders.map((f) => storage.listKeys(f, MAX_KEYS_PER_FOLDER * 5)))).flat();
   const keys = serverMemberMediaKeys(listed, serverId);
   if (keys.length === 0) return;
-  const { deleted } = await deleteKeys(keys, 'server deletion');
+  // Members' recent avatars / banners (and images reused elsewhere) stay.
+  const removable = await filterUnprotectedProfileKeys(keys);
+  if (removable.length === 0) return;
+  const { deleted } = await deleteKeys(removable, 'server deletion');
   await untrackMemberMediaDrafts(deleted);
 }
 

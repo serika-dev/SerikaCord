@@ -23,6 +23,7 @@ import { discordBridgeRoutes } from './discordBridge';
 import { channelRoutes } from './channels';
 import { serverWebhookRoutes } from './serverWebhooks';
 import { uploadRoutes } from './uploads';
+import { recentMediaRoutes } from './recentMedia';
 import { dmRoutes } from './dms';
 import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
@@ -4484,6 +4485,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(authRoutes)
   .use(internalRoutes)
   .use(pushRoutes)
+  .use(recentMediaRoutes)
   .use(userRoutes)
   .use(bugReportRoutes)
   .use(notificationsRoutes)

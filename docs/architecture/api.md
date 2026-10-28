@@ -22,7 +22,8 @@ when Next runs alone.
 | `/api/servers/:serverId/messages/search`, `/api/dms/search` | `search.ts` | message search (server-wide over viewable channels, DMs + group DMs); `/api/channels/:id/messages/search` delegates to it |
 | `/api/voice` | `voice.ts` | voice rooms, batched states, `/signal/:roomId` SSE, `PATCH /servers/:serverId/members/:userId` voice moderation (server mute/deafen persisted on `server_members.mute/deaf`, move, disconnect; rules in `src/lib/voice/moderation.ts`) |
 | `/api/upload` | `uploads.ts` | uploads to B2 (type allowlist from platform settings) |
-| `/api/gifs` | `gifs.ts` | GIF search proxy |
+| `/api/users/@me/recent-media` | `recentMedia.ts` | recent avatars / banners (list, reuse on the main profile, remove) and the linked Discord avatar / banner bytes for the image picker |
+| `/api/gifs` | `gifs.ts` | GIF search proxy; `POST /gifs/import` returns a picked GIF's bytes (SSRF-guarded) for the normal crop + upload path |
 | `/api/oembed` | `oembed.ts` | link previews (YouTube, niconico, bilibili, fxtwitter, OpenGraph scrape) |
 | `/api/admin` | `admin.ts`, `staff.ts` | staff panel and delegated role management; `/access` returns the current account's effective capabilities |
 | `/api/changelogs`, `/api/admin/changelogs` | `changelogs.ts` | authenticated release history/read receipts and staff draft/publish controls |
@@ -130,6 +131,8 @@ Limiters (`rateLimiters_config`):
 | `message` | 10 / 10 s per user per channel |
 | `messageGlobal` | 50 / min per user |
 | `upload` | 10 / min |
+| `mediaImport` | 20 / min per user (GIF / Discord image fetched for the image picker) |
+| `recentMedia` | 30 / min per user (reuse / remove a recent avatar or banner) |
 | `invite` | 5 / min |
 | `serverCreate` | 10 / day |
 | `friendRequest` | 20 / day |

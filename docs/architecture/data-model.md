@@ -44,6 +44,7 @@ are in `src/lib/db/redis.ts`.
 | `applications`, `app_commands`, `app_webhooks`, `app_emojis`, `developer_teams`, `authorized_apps` | developer platform: bot apps (`bot_id`, `bot_token`, Ed25519 keys), slash commands, OAuth grants | `applications.bot_id` → a `users` row with `is_bot` |
 | `rich_presence`, `activity_history`, `user_games` | game / music / watch activity | → users |
 | `user_connections`, `user_device_sessions` | linked accounts, device sessions | → users |
+| `user_recent_media` | `user_id`, `kind` (`avatar` / `banner`) primary key, `items jsonb` (`[{ url, at }]`, newest first, max 6) | recent avatars / banners for the "Select an Image" dialog (`src/lib/services/recentProfileMedia.ts`); created on first use, mirrors `drizzle/manual_user_recent_media.sql` |
 | `discord_users` | Discord bridge identities and consent (`consent_status`) | |
 | `widget_configs`, `widget_user_data` | profile/server widgets | |
 | `bug_reports` | bug and feedback reports | |
@@ -124,6 +125,11 @@ removed at once. `src/lib/services/retentionPurge.ts` (pure rules in
 the `attachments/` files no other message row or bug report still references.
 Messages with any `message_reports` row, and those of authors with an open
 safety incident, a CSAM incident in the last year or an open appeal, are kept.
+Profile images are never touched by it: an avatar / banner file (main or
+per-server) is kept while it is in use or listed in the owner's recent
+avatars / banners, and deleted when it drops off that list and nothing uses
+it (`releaseProfileMedia`); the per-server draft sweep, member removal and
+server deletion skip listed / in-use files (`filterUnprotectedProfileKeys`).
 It needs the indexes in `drizzle/manual_retention_purge.sql`, is off unless
 `RETENTION_PURGE_ENABLED=1` and is a dry run unless `RETENTION_PURGE_DRY_RUN=0`
 (see `.env.example`); `scripts/retention-purge-report.ts` prints counts.

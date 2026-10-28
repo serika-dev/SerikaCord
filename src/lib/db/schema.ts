@@ -1318,6 +1318,19 @@ export const userNotes = pgTable('user_notes', {
   pk: primaryKey({ columns: [t.ownerId, t.targetId] }),
 }));
 
+// Recent avatars / banners for the "Select an Image" dialog: one row per
+// user and kind ('avatar' | 'banner'), `items` = [{ url, at }] newest first,
+// at most 6 (src/lib/profiles/recentMedia.ts). Created on first use by
+// ensureRecentMediaSchema() (mirrors drizzle/manual_user_recent_media.sql).
+export const userRecentMedia = pgTable('user_recent_media', {
+  userId: uuid('user_id').notNull(),
+  kind: text('kind').notNull(),
+  items: jsonb('items').$type<Array<{ url: string; at: number }>>().notNull().default([]),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.userId, t.kind] }),
+}));
+
 // Server scheduled events (Discord "Events"). entity_type: voice | stage |
 // external; status: scheduled | active | completed | canceled (lib/chat/
 // scheduledEvents). Added at boot by ensureScheduledEventSchema() (mirrors

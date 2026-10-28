@@ -8,6 +8,7 @@ import { sniffImageType } from '@/lib/safety/imageHash';
 import { ATTACHMENT_BLOB_NAME_RE, ATTACHMENT_BLOB_TYPE, hasAttachmentMagic } from '@/lib/e2ee';
 import { e2eeEnabled } from '@/lib/services/e2ee';
 import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
+import { recordProfileMediaChange } from '@/lib/services/recentProfileMedia';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { config } from '@/lib/config';
 import { getRedis } from '@/lib/db/redis';
@@ -28,7 +29,9 @@ async function getAuth(headers: Record<string, string | undefined>, cookie: Reco
 }
 
 /**
- * Best-effort, fire-and-forget delete of a replaced avatar/banner/icon. Runs
+ * Best-effort, fire-and-forget delete of a replaced server icon / banner
+ * (profile avatars and banners are kept as recent images instead, see
+ * src/lib/services/recentProfileMedia.ts). Runs
  * only after the new upload and the DB update succeeded (so a failed upload
  * never leaves the row pointing at a deleted file), handles both CDN and
  * legacy B2 URLs via keyFromUrl, and only deletes keys inside the owner's own
@@ -255,7 +258,8 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       // The 5-minute auth cache still holds the old URL; drop it so /@me,
       // refresh() and new messages pick up the new avatar right away.
       await invalidateUserCache(user.id);
-      cleanupOldMedia(user.avatar, result.url, `avatars/${user.id}/`);
+      // The replaced avatar stays as a recent avatar (deleted once it drops off that list).
+      void recordProfileMediaChange(user.id, 'avatar', { url: result.url, previous: user.avatar });
 
       return {
         success: true,
@@ -370,7 +374,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       await User.updateById(user.id, { banner: result.url });
       void accountsSyncProfile(user.email ?? '', { banner: result.url });
       await invalidateUserCache(user.id);
-      cleanupOldMedia(user.banner, result.url, `banners/${user.id}/`);
+      void recordProfileMediaChange(user.id, 'banner', { url: result.url, previous: user.banner });
 
       return {
         success: true,
@@ -424,7 +428,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       const result = await storeCheckedImage(image, 'avatars', 'avatar', { ip, userId: user.id, serverId: params.serverId });
 
       await ServerMember.updateById(member.id, { avatar: result.url });
-      cleanupOldMedia(member.avatar, result.url, `avatars/${params.serverId}/${user.id}/`);
+      void recordProfileMediaChange(user.id, 'avatar', { url: result.url, previous: member.avatar });
       void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberUpdate(params.serverId, user.id)).catch(() => {});
 
       return {
@@ -484,7 +488,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       const result = await storeCheckedImage(image, 'banners', 'banner', { ip, userId: user.id, serverId: params.serverId });
 
       await ServerMember.updateById(member.id, { banner: result.url });
-      cleanupOldMedia(member.banner, result.url, `banners/${params.serverId}/${user.id}/`);
+      void recordProfileMediaChange(user.id, 'banner', { url: result.url, previous: member.banner });
       void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberUpdate(params.serverId, user.id)).catch(() => {});
 
       return {

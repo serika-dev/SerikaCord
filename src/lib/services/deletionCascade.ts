@@ -117,7 +117,12 @@ export async function cleanupDeletedUser(userId: string): Promise<{ deletedServe
        WHERE pending_friend_requests::text ILIKE ${`%${id.toLowerCase()}%`}`);
   });
 
-  // Their per-server avatar / banner files in the servers they were in (own prefixes only).
+  // Their recent avatars / banners list goes first (it would otherwise keep
+  // those files), then their per-server avatar / banner files in the servers
+  // they were in (own prefixes only).
+  await import('@/lib/services/recentProfileMedia')
+    .then((m) => m.forgetRecentProfileMedia(id))
+    .catch(() => {});
   if (serverIds.length > 0) {
     void import('@/lib/services/memberProfileMedia')
       .then((m) => m.cleanupMemberProfileMediaInBackground(serverIds, id))

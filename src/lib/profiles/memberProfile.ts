@@ -352,7 +352,8 @@ export type MemberProfilePatchResult =
  * Validate a PATCH /servers/:id/members/@me body against the current
  * overrides. Each field: a value sets the override, null (or "") removes it,
  * absent leaves it. `reset: true` removes every override first. Images must
- * be this member's own per-server uploads (or unchanged).
+ * be this member's own per-server uploads, one of their recent images, or
+ * unchanged.
  */
 export function sanitizeMemberProfilePatch(
   raw: unknown,
@@ -363,6 +364,11 @@ export function sanitizeMemberProfilePatch(
      * nicknames, which can make them longer than the limit people typed).
      */
     storeNickname?: (nickname: string) => string;
+    /**
+     * The user's recent avatars / banners (src/lib/profiles/recentMedia.ts):
+     * already-uploaded images of theirs that may be reused here as-is.
+     */
+    recentMedia?: { avatar?: readonly string[]; banner?: readonly string[] };
   },
 ): MemberProfilePatchResult {
   if (!isObject(raw)) return { ok: false, error: "Invalid body" };
@@ -388,7 +394,8 @@ export function sanitizeMemberProfilePatch(
     if (value === null || value === "") { delete next[kind]; continue; }
     if (typeof value !== "string") return fail(kind, `${kind} must be a string`);
     if (value === current[kind]) { next[kind] = value; continue; }
-    if (!isMemberMediaUrl(value, { kind, serverId: ctx.serverId, userId: ctx.userId, cdnUrl: ctx.cdnUrl })) {
+    const recent = ctx.recentMedia?.[kind]?.includes(value) === true;
+    if (!recent && !isMemberMediaUrl(value, { kind, serverId: ctx.serverId, userId: ctx.userId, cdnUrl: ctx.cdnUrl })) {
       return fail(kind, `${kind} must be an image you uploaded for this server`);
     }
     next[kind] = value;
