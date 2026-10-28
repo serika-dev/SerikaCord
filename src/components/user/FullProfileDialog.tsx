@@ -36,6 +36,9 @@ import { useProfileMediaUpload } from "@/components/user/profileEditor/useProfil
 import { useSelfProfileSave } from "@/components/user/profileEditor/useSelfProfileSave";
 import { overlaySelfProfile, readEditorOpen, resolveSelfTag, writeEditorOpen } from "@/components/user/profileEditor/selfProfile";
 import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
+import { useServerProfileDraft, useServerProfileIndex } from "@/components/user/profileEditor/useServerProfileDraft";
+import { overriddenFields, withServerProfile, type MemberProfileOverrides } from "@/lib/profiles/memberProfile";
+import { emitMemberProfileChanged, onMemberProfileChanged } from "@/lib/profiles/memberProfileEvents";
 
 // Own-profile editing: the side panel and the full status dialog are their
 // own chunks, loaded only when you open them on your own profile.
@@ -132,17 +135,69 @@ export function FullProfileDialog({
   const { save: saveProfile } = useSelfProfileSave();
   const media = useProfileMediaUpload();
 
+  // Which profile the editor panel edits: null = main, else a server id.
+  const [editTarget, setEditTarget] = useState<string | null>(null);
+  const editingServer = isSelf && editorOpen && editTarget ? editTarget : null;
+  // Which of your servers have a server profile (the panel picker's marks).
+  const serverProfileIndex = useServerProfileIndex(isSelf && editorOpen);
+  // Draft of that server profile; this dialog is its live preview.
+  const serverDraft = useServerProfileDraft(editingServer, {
+    onSaved: (sid, stored) => serverProfileIndex.setProfile(sid, overriddenFields(stored)),
+  });
+  // The member's saved server profile in the server this was opened from:
+  // fetched here unless the caller (the profile popup) already loaded it.
+  const [fetchedOverrides, setMemberOverrides] = useState<MemberProfileOverrides | null>(null);
+  const [memberVersion, setMemberVersion] = useState(0);
+  const memberOverrides: MemberProfileOverrides | null = fetchedOverrides
+    ?? user.serverProfile ?? null;
+
   const toggleEditor = (next: boolean) => {
+    // Unsaved server profile edits live in the panel's bar: keep it open.
+    if (!next && serverDraft.dirty) {
+      toast.error(gt("Save or reset your changes first."));
+      return;
+    }
     setEditorOpen(next);
     writeEditorOpen(next);
   };
 
+  // Server profile shown: the one being edited, else (editor closed) the
+  // server this was opened from. Editing the main profile shows the main one.
+  const shownServerId = isSelf && editorOpen ? editingServer : (serverId ?? null);
+  const shownOverrides: MemberProfileOverrides | null = editingServer
+    ? (serverDraft.loading ? null : serverDraft.draft)
+    : shownServerId ? memberOverrides : null;
+
   // Your own profile shows your live AuthContext user over the fetched one,
-  // so edits here (or in settings / the status dialog) appear immediately.
-  const view = useMemo(
-    () => (isSelf && currentUser ? overlaySelfProfile(fullUser, currentUser as Parameters<typeof overlaySelfProfile>[1], servers ?? []) : fullUser),
-    [isSelf, currentUser, fullUser, servers],
-  );
+  // so edits here (or in settings / the status dialog) appear immediately;
+  // then the server profile goes on top.
+  const view = useMemo(() => {
+    const base = isSelf && currentUser ? overlaySelfProfile(fullUser, currentUser as Parameters<typeof overlaySelfProfile>[1], servers ?? []) : fullUser;
+    if (!shownServerId) return isSelf && editorOpen ? { ...base, nickname: null } : base;
+    // A nickname handed in by the caller belongs to the server it came from.
+    return withServerProfile({ ...base, nickname: shownOverrides || editingServer ? null : base.nickname }, shownOverrides);
+  }, [isSelf, currentUser, fullUser, servers, shownServerId, shownOverrides, editorOpen, editingServer]);
+
+  // Load the member's server profile (and again when it changes elsewhere).
+  const callerHasProfile = user.serverProfile !== undefined && user.serverProfile !== null;
+  useEffect(() => {
+    if (!open || !serverId || !user.id || user.isWebhook) return;
+    if (callerHasProfile && memberVersion === 0) return;
+    let active = true;
+    fetch(`/api/servers/${serverId}/members/${user.id}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { serverProfile?: MemberProfileOverrides } | null) => {
+        if (active) setMemberOverrides(data?.serverProfile ?? {});
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [open, serverId, user.id, user.isWebhook, memberVersion, callerHasProfile]);
+  useEffect(() => {
+    if (!open || !serverId || !user.id) return;
+    return onMemberProfileChanged((sid, uid) => {
+      if (sid === serverId && uid.toLowerCase() === user.id.toLowerCase()) setMemberVersion((v) => v + 1);
+    });
+  }, [open, serverId, user.id]);
   const selfTag = isSelf && currentUser ? resolveSelfTag(currentUser.customization, fullUser.customization, servers ?? []) : null;
 
   // Gate the Mod View entry on the viewer actually having moderation perms.
@@ -167,8 +222,12 @@ export function FullProfileDialog({
 
   const status = view.status ?? "offline";
   const displayName = view.nickname || view.displayName || view.username;
-  // In a server where you have a nickname, the name you see is the nickname.
-  const editsNickname = Boolean(isSelf && serverId && view.nickname);
+  // Inline edits follow what is shown: while editing a server profile they
+  // go into its draft; in a server where a field is customised (a nickname,
+  // say) they change that server's value; otherwise the main profile.
+  const serverField = (field: "nickname" | "pronouns" | "bio") =>
+    Boolean(isSelf && (editingServer || (shownServerId && shownOverrides?.[field])));
+  const editsNickname = serverField("nickname");
   // Only poll live activity / tick the clock while the dialog is open — many of
   // these dialogs are mounted at once (one per avatar/username/mention), so
   // ungated polling saturates the network and main thread. See useUserActivity.
@@ -262,27 +321,65 @@ export function FullProfileDialog({
     }
   };
 
-  const saveName = async (next: string) => {
-    if (!editsNickname || !serverId) {
-      void saveProfile({ displayName: next });
+  /** Save one server profile field: into the draft, or straight to the server. */
+  const saveServerField = async (field: "nickname" | "pronouns" | "bio", next: string) => {
+    if (editingServer) {
+      if (field === "nickname" && !serverDraft.canChangeNickname) {
+        toast.error(gt("You can't change your nickname in this server."));
+        return;
+      }
+      serverDraft.setField(field, next);
       return;
     }
-    const before = fullUser.nickname;
-    setFullUser((prev) => ({ ...prev, nickname: next || null }));
+    if (!shownServerId || !currentUser?.id) return;
+    const before = memberOverrides;
+    setMemberOverrides(() => {
+      const o = { ...(memberOverrides ?? {}) };
+      if (next) o[field] = next;
+      else delete o[field];
+      return o;
+    });
     try {
-      const res = await fetch(`/api/servers/${serverId}/members/@me`, {
+      const res = await fetch(`/api/servers/${shownServerId}/members/@me`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ nickname: next || null }),
+        body: JSON.stringify({ [field]: next || null }),
       });
-      if (!res.ok) throw new Error();
-    } catch {
-      setFullUser((prev) => ({ ...prev, nickname: before }));
-      toast.error(gt("Couldn't change your nickname"));
+      const data = await res.json().catch(() => null);
+      if (!res.ok) throw new Error(typeof data?.error === "string" ? data.error : "");
+      if (data?.profile) setMemberOverrides(data.profile);
+      emitMemberProfileChanged(shownServerId, currentUser.id);
+    } catch (err) {
+      setMemberOverrides(before);
+      toast.error((err as Error).message || gt("Couldn't save your server profile"));
     }
   };
 
+  const saveName = async (next: string) => {
+    if (editsNickname) return saveServerField("nickname", next);
+    void saveProfile({ displayName: next });
+  };
+
+  /** Avatar / banner: into the server draft while editing one; otherwise the main profile. */
+  const pickMedia = (kind: "avatar" | "banner") => {
+    if (editingServer) {
+      media.pick({ kind, serverId: editingServer, onDone: (url) => serverDraft.setField(kind, url) });
+      return;
+    }
+    // Shown from a server where this image is customised: edit it there.
+    if (shownServerId && shownOverrides?.[kind]) {
+      setEditTarget(shownServerId);
+      toggleEditor(true);
+      return;
+    }
+    media.pick({ kind });
+  };
+
   const handleSendMessage = () => {
+    if (serverDraft.dirty) {
+      toast.error(gt("Save or reset your changes first."));
+      return;
+    }
     onOpenChange(false);
     router.push(`/dm/${user.id}`);
   };
@@ -323,7 +420,17 @@ export function FullProfileDialog({
   ];
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(next) => {
+        // Closing with unsaved server profile edits: nudge to the panel's bar.
+        if (!next && serverDraft.dirty) {
+          toast.error(gt("Save or reset your changes first."));
+          return;
+        }
+        onOpenChange(next);
+      }}
+    >
       <DialogContent
         className={cn(
           "p-0 gap-0 bg-[#0c0c10] border-white/[0.06] overflow-hidden sw-scrollbars",
@@ -389,7 +496,15 @@ export function FullProfileDialog({
                 )}
               >
                 <MountWhenOpened open={editorOpen}>
-                  <ProfileEditorPanel onCollapse={() => toggleEditor(false)} serverId={serverId} media={media} />
+                  <ProfileEditorPanel
+                    onCollapse={() => toggleEditor(false)}
+                    serverId={serverId}
+                    media={media}
+                    target={editTarget}
+                    onTargetChange={setEditTarget}
+                    serverDraft={serverDraft}
+                    profileIndex={serverProfileIndex}
+                  />
                 </MountWhenOpened>
               </div>
             </aside>
@@ -412,7 +527,7 @@ export function FullProfileDialog({
               {isSelf && (
                 <button
                   type="button"
-                  onClick={() => media.pick({ kind: "banner" })}
+                  onClick={() => pickMedia("banner")}
                   aria-label={gt("Change Banner")}
                   className="group/banner absolute inset-0 z-10 flex items-center justify-center focus-visible:outline-none"
                 >
@@ -449,7 +564,7 @@ export function FullProfileDialog({
                   {isSelf && (
                     <button
                       type="button"
-                      onClick={() => media.pick({ kind: "avatar" })}
+                      onClick={() => pickMedia("avatar")}
                       aria-label={gt("Change Avatar")}
                       className="group/avatar absolute inset-[5px] z-10 flex flex-col items-center justify-center gap-0.5 rounded-full bg-black/55 text-[10px] font-semibold uppercase leading-tight text-white opacity-0 transition-opacity duration-150 hover:opacity-100 focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] pointer-coarse:opacity-0"
                     >
@@ -513,7 +628,7 @@ export function FullProfileDialog({
                     // Touch screens can't hover: a small camera badge instead.
                     <button
                       type="button"
-                      onClick={() => media.pick({ kind: "avatar" })}
+                      onClick={() => pickMedia("avatar")}
                       aria-label={gt("Change Avatar")}
                       className="hidden pointer-coarse:flex absolute top-0 right-0 z-20 size-7 items-center justify-center rounded-full border-2 border-[#0c0c10] bg-black/70 text-white"
                     >
@@ -608,7 +723,7 @@ export function FullProfileDialog({
                   <InlineEditable
                     field="pronouns"
                     value={view.pronouns || ""}
-                    onSave={(next) => void saveProfile({ pronouns: next })}
+                    onSave={(next) => void (serverField("pronouns") ? saveServerField("pronouns", next) : saveProfile({ pronouns: next }))}
                     label={gt("Edit pronouns")}
                     placeholder={gt("Add your pronouns")}
                     className="mt-0.5 w-fit max-w-full"
@@ -651,7 +766,7 @@ export function FullProfileDialog({
                   <InlineEditable
                     field="bio"
                     value={view.bio || ""}
-                    onSave={(next) => void saveProfile({ bio: next })}
+                    onSave={(next) => void (serverField("bio") ? saveServerField("bio", next) : saveProfile({ bio: next }))}
                     label={gt("Edit About Me")}
                     placeholder={gt("Tell everyone a little about yourself")}
                   >

@@ -10,9 +10,13 @@ export type ProfileMediaKind = "avatar" | "banner";
 
 interface PickTarget {
   kind: ProfileMediaKind;
-  /** Per-server profile; omitted for the main profile. */
+  /**
+   * Per-server profile; omitted for the main profile. Server images are only
+   * uploaded (not applied): `onDone` puts them in the editor's draft and the
+   * draft's Save applies them.
+   */
   serverId?: string;
-  /** Called with the stored URL (server profile tiles keep their own state). */
+  /** Called with the uploaded URL. */
   onDone?: (url: string) => void;
 }
 
@@ -20,7 +24,7 @@ const MAX_IMAGE = 8 * 1024 * 1024;
 const MAX_GIF_BANNER = 50 * 1024 * 1024;
 
 function endpointFor({ kind, serverId }: PickTarget): string {
-  if (serverId) return kind === "avatar" ? `/api/upload/server/${serverId}/avatar` : `/api/upload/server/${serverId}/member-banner`;
+  if (serverId) return `/api/servers/${serverId}/members/@me/profile-media/${kind}`;
   return kind === "avatar" ? "/api/upload/avatar" : "/api/upload/banner";
 }
 
@@ -28,8 +32,9 @@ function endpointFor({ kind, serverId }: PickTarget): string {
  * Avatar / banner upload for the profile editor, the same flow as User
  * Settings: pick a file, crop it when it isn't the right shape (animated
  * images can skip the crop to keep their animation), upload to the endpoint
- * that also stores it. The main profile
- * shows the cropped image at once and rolls back if the upload fails.
+ * that also stores it (server profiles: upload only, see PickTarget). The
+ * main profile shows the cropped image at once and rolls back if the upload
+ * fails.
  * Render `element` once; call `pick` from any button.
  */
 export function useProfileMediaUpload(): {
@@ -72,7 +77,8 @@ export function useProfileMediaUpload(): {
       }
       if (main) updateUser(kind === "avatar" ? { avatar: data.url } : { banner: data.url });
       target.onDone?.(data.url);
-      toast.success(gt("{type} updated!", { type: label }));
+      // Server images wait for the editor's Save; only the main profile is updated now.
+      if (main) toast.success(gt("{type} updated!", { type: label }));
     } catch {
       if (main) updateUser(kind === "avatar" ? { avatar: previous } : { banner: previous });
       toast.error(gt("Failed to upload {type}", { type: label }));

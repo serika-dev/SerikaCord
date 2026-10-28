@@ -7,6 +7,7 @@
 ## Unreleased
 
 ### Features
+- **More advanced server profiles** — besides a nickname, avatar and banner you can now give yourself different pronouns, About Me, display name style, nameplate and profile colours in each server. The server profile editor (Settings → Profiles, the pen on your own profile, and Profiles in the phone settings) has a server picker with search and icons that marks the servers you've customised, a live preview of how you look there, a "Use main profile" button and a Customised / Main profile label on every field, "Copy from main profile" and "Reset all for this server", and an unsaved-changes bar so nothing is applied until you save. Animated avatars and banners work like on your main profile, and bots can set a server bio too.
 - **Choose who can DM you, per server too** — direct messages can now be limited to Everyone, Server members (people you share a server with) or Friends only, and each server has its own switch: turn a server off so its members can't DM you because of it, or on to let its members in while you only take DMs from friends. Calls follow the same rules.
 - **Finer activity sharing and typing privacy** — share games & apps, serika.moe Now Watching and Last.fm music separately, and turn off "is typing…" so nobody (people or bots) sees when you're writing.
 
@@ -20,6 +21,7 @@
 - **Status rings always show** — the dark ring around the online, idle and Do Not Disturb icons on avatars no longer disappears with gradient or picture themes until you hover; it's always there, like on Discord.
 - **Big animated banners upload** — GIF profile, per-server and server banners between 10 MB and 50 MB now upload instead of failing with a server error, and a banner that is too big now says what the limit is.
 - **Discord bridge: real names and bot replies** — mentions sent from SerikaCord to Discord now show the person's, role's or channel's real name (people and bots who are in the Discord server get a proper Discord mention, bridged channels link to their Discord channel) instead of "@user", and replies and messages from SerikaCord bots, apps and webhooks now reach Discord too, with their embeds, under the bot's name and avatar. The per-channel "bot messages" option now covers both directions, and @everyone, @here and roles still never ping on Discord.
+- **Server profiles show everywhere** — your server avatar, name style, nameplate and colours now appear on your messages, replies, profile cards, the full profile and voice tiles in that server instead of your main profile, and other members see a server profile change straight away. Changing your own nickname now follows the server's Change Nickname permission.
 - **DM calls follow your DM settings** — people who aren't your friends can call you exactly when they're allowed to DM you; before, calls were refused for anyone who had never changed their privacy settings.
 
 ### Performance

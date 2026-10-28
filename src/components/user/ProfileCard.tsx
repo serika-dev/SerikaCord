@@ -45,6 +45,7 @@ import { RoleIcon } from "@/components/chat/RoleIcon";
 import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 import { isVerifiedBotUser } from "@/lib/appDirectory/official";
 import { BotAppProfileSection } from "@/components/apps/BotAppProfileSection";
+import type { MemberProfileOverrides } from "@/lib/profiles/memberProfile";
 
 export interface ProfileCardUser {
   id: string;
@@ -75,6 +76,11 @@ export interface ProfileCardUser {
   isDiscord?: boolean;
   /** A channel webhook's post: the id is the webhook's, not a user's. */
   isWebhook?: boolean;
+  /**
+   * Server profile overrides already loaded for the server this was opened
+   * from (src/lib/profiles/memberProfile.ts); saves the full profile a fetch.
+   */
+  serverProfile?: MemberProfileOverrides | null;
   connections?: Array<{
     provider: string;
     accountId: string;

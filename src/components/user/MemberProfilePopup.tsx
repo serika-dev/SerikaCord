@@ -13,6 +13,8 @@ import {
 import type { ProfileCardUser } from "@/components/user/ProfileCard";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useServerMembersOptional } from "@/contexts/ServerContext";
+import { withServerProfile, type MemberProfileOverrides } from "@/lib/profiles/memberProfile";
+import { onMemberProfileChanged } from "@/lib/profiles/memberProfileEvents";
 
 // The card (with its activity/game presets) is only shown on click; it used to
 // sit in the startup bundle of every chat page. Its chunk starts loading when
@@ -151,6 +153,15 @@ function MemberProfilePopupBody({
     );
   }, [member]);
 
+  // Their server profile changed while the card is open: load it again.
+  const [profileVersion, setProfileVersion] = useState(0);
+  useEffect(() => {
+    if (!serverId || (!open && !fullProfileOpen)) return;
+    return onMemberProfileChanged((sid, uid) => {
+      if (sid === serverId && uid.toLowerCase() === member.id.toLowerCase()) setProfileVersion((v) => v + 1);
+    });
+  }, [serverId, open, fullProfileOpen, member.id]);
+
   useEffect(() => {
     // A webhook's id isn't a user: there is no profile to load.
     if ((!open && !fullProfileOpen) || !member.id || member.isWebhook) return;
@@ -164,20 +175,34 @@ function MemberProfilePopupBody({
             fetch(`/api/servers/${serverId}/members/${member.id}`),
           ]);
           if (cancelled) return;
-          const merged: Partial<ProfileCardUser> = {};
+          let merged: Partial<ProfileCardUser> = {};
           if (userRes.ok) {
             const userData = await userRes.json();
             Object.assign(merged, userData);
           }
           if (memberRes.ok) {
             const memberData = await memberRes.json();
+            // The user fetch carries the main profile; this server's profile
+            // (avatar, banner, bio, pronouns, styles) goes on top of it.
+            const overrides = (memberData.serverProfile ?? null) as MemberProfileOverrides | null;
+            if (userRes.ok) {
+              merged = withServerProfile({ ...merged, nickname: null } as ProfileCardUser, overrides);
+            } else if (overrides) {
+              // Main profile unknown: take the member's effective fields.
+              merged.avatar = memberData.avatar ?? merged.avatar;
+              merged.banner = memberData.banner ?? merged.banner;
+              merged.bio = memberData.bio ?? merged.bio;
+              merged.pronouns = memberData.pronouns ?? merged.pronouns;
+              merged.customization = memberData.customization ?? merged.customization;
+            }
             merged.roles = (memberData.roles || []).map((r: { id: string; name: string; color?: string }) => ({
               id: r.id,
               name: r.name,
               color: r.color,
             }));
             merged.joinedAt = memberData.joinedAt;
-            if (memberData.nickname) merged.nickname = memberData.nickname;
+            merged.nickname = memberData.nickname || null;
+            merged.serverProfile = overrides ?? {};
             if (memberData.isOwner) merged.isOwner = true;
           }
           setFullProfile((prev) => ({ ...prev, ...merged }));
@@ -197,7 +222,7 @@ function MemberProfilePopupBody({
     return () => {
       cancelled = true;
     };
-  }, [open, fullProfileOpen, member.id, serverId]);
+  }, [open, fullProfileOpen, member.id, serverId, profileVersion]);
 
   // On mobile, tapping the avatar/name opens the full profile as a bottom
   // sheet that slides up — no intermediate popover card.

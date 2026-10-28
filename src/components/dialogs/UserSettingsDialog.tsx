@@ -41,6 +41,11 @@ import { DisplayNameStyleEditor, NameplateEditor, ProfileColourEditor } from "@/
 import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
 import { useImageCropper } from "@/components/ui/useImageCropper";
 import { ProfileCard } from "@/components/user/ProfileCard";
+import { ServerProfileEditor } from "@/components/user/profileEditor/ServerProfileEditor";
+import { ServerProfilePicker } from "@/components/user/profileEditor/ServerProfilePicker";
+import { useServerProfileDraft, useServerProfileIndex } from "@/components/user/profileEditor/useServerProfileDraft";
+import { useProfileMediaUpload } from "@/components/user/profileEditor/useProfileMediaUpload";
+import { overriddenFields } from "@/lib/profiles/memberProfile";
 import {
   User,
   Bell,
@@ -305,7 +310,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const confirmDialog = useConfirm();
   const { list: badgeDefinitions } = useBadges();
   const { settings: themeSettings, applyUserSettingsPatch, updateSettings } = useTheme();
-  const { servers } = useServer();
+  const { servers, currentServer } = useServer();
   // The sidebar follows `navTab` at once; the page itself renders from the
   // deferred `activeTab`, so a heavy page renders in the background instead
   // of freezing clicks while it mounts.
@@ -330,15 +335,17 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   };
   const [displayName, setDisplayName] = useState("");
   const [profileTab, setProfileTab] = useState<"main" | "server">("main");
-  const [selectedServerId, setSelectedServerId] = useState<string>("");
-  const [serverNickname, setServerNickname] = useState("");
-  const [serverAvatar, setServerAvatar] = useState<string | null>(null);
-  const [serverBanner, setServerBanner] = useState<string | null>(null);
-  const [serverMemberLoading, setServerMemberLoading] = useState(false);
-
-  const [initialServerNickname, setInitialServerNickname] = useState("");
-  const [initialServerAvatar, setInitialServerAvatar] = useState<string | null>(null);
-  const [initialServerBanner, setInitialServerBanner] = useState<string | null>(null);
+  const [pickedServerId, setSelectedServerId] = useState<string>("");
+  // Per-server profile: the picked server, else the one you're in, else the first.
+  const selectedServerId = (pickedServerId && servers.some((s) => s.id === pickedServerId) ? pickedServerId : "")
+    || (currentServer && servers.some((s) => s.id === currentServer.id) ? currentServer.id : "")
+    || servers[0]?.id
+    || "";
+  const serverProfileIndex = useServerProfileIndex(open && profileTab === "server");
+  const serverProfile = useServerProfileDraft(open && profileTab === "server" && selectedServerId ? selectedServerId : null, {
+    onSaved: (sid, stored) => serverProfileIndex.setProfile(sid, overriddenFields(stored)),
+  });
+  const serverMedia = useProfileMediaUpload();
   const [bio, setBio] = useState("");
   const [pronouns, setPronouns] = useState("");
   const [timezone, setTimezone] = useState("");
@@ -365,13 +372,12 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const [nameplate, setNameplate] = useState<NameplateCustomization>({ type: 'none' });
 
   const previewUser = useMemo(() => {
-    const isServer = profileTab === "server";
     return {
       id: user?.id || "preview-id",
       username: user?.username || "username",
-      displayName: isServer ? (serverNickname || displayName || user?.username || "") : (displayName || user?.username || ""),
-      avatar: isServer ? (serverAvatar || user?.avatar) : (user?.avatar),
-      banner: isServer ? (serverBanner || user?.banner) : (user?.banner),
+      displayName: displayName || user?.username || "",
+      avatar: user?.avatar,
+      banner: user?.banner,
       bio: bio,
       pronouns: pronouns,
       timezone: timezone,
@@ -399,11 +405,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     };
   }, [
     user,
-    profileTab,
-    serverNickname,
     displayName,
-    serverAvatar,
-    serverBanner,
     bio,
     pronouns,
     timezone,
@@ -754,53 +756,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     applyUserSettingsPatch(userSettings);
   }, [userSettings, applyUserSettingsPatch]);
 
-  // Initialize selected server when profile tab is opened or servers change
-  useEffect(() => {
-    if (servers.length > 0 && !selectedServerId) {
-      setSelectedServerId(servers[0].id);
-    }
-  }, [servers, selectedServerId]);
-
-  // Fetch server-specific profile whenever selectedServerId or profileTab changes
-  useEffect(() => {
-    const fetchServerProfile = async () => {
-      if (profileTab !== "server" || !selectedServerId || !user?.id) return;
-      setServerMemberLoading(true);
-      try {
-        const res = await fetch(`/api/servers/${selectedServerId}/members/${user.id}`);
-        if (res.ok) {
-          const member = await res.json();
-          const nick = member.nickname || "";
-          const av = member.avatarOverride || null;
-          const ban = member.banner || null;
-
-          setServerNickname(nick);
-          setServerAvatar(av);
-          setServerBanner(ban);
-
-          setInitialServerNickname(nick);
-          setInitialServerAvatar(av);
-          setInitialServerBanner(ban);
-        }
-      } catch (err) {
-        console.error("Failed to fetch server profile:", err);
-      } finally {
-        setServerMemberLoading(false);
-      }
-    };
-    fetchServerProfile();
-  }, [profileTab, selectedServerId, user?.id]);
-
   // Unsaved profile edits, derived during render (was an effect that set
   // state after every keystroke, rendering this whole dialog twice per key).
   const hasChanges = useMemo(() => {
-    if (profileTab === "server") {
-      return (
-        serverNickname !== initialServerNickname ||
-        serverAvatar !== initialServerAvatar ||
-        serverBanner !== initialServerBanner
-      );
-    }
+    if (profileTab === "server") return serverProfile.dirty;
     if (!user) return false;
     return (
       displayName !== (user.displayName || "") ||
@@ -829,12 +788,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     nameplate,
     user,
     profileTab,
-    serverNickname,
-    initialServerNickname,
-    serverAvatar,
-    initialServerAvatar,
-    serverBanner,
-    initialServerBanner,
+    serverProfile.dirty,
   ]);
 
 
@@ -924,9 +878,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         setProfileCardBorderWidth(user.customization?.profileCardBorderWidth ?? 1);
       }
     } else {
-      setServerNickname(initialServerNickname);
-      setServerAvatar(initialServerAvatar);
-      setServerBanner(initialServerBanner);
+      serverProfile.discard();
     }
   };
 
@@ -998,27 +950,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           toast.error(gt("Failed to save profile"));
         }
       } else {
-        // Save server profile
-        const response = await fetch(`/api/servers/${selectedServerId}/members/@me`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            nickname: serverNickname || null,
-            avatar: serverAvatar || null,
-            banner: serverBanner || null,
-          }),
-        });
-
-        if (response.ok) {
-          setInitialServerNickname(serverNickname);
-          setInitialServerAvatar(serverAvatar);
-          setInitialServerBanner(serverBanner);
-          toast.success(gt("Server profile saved!"));
-          await refresh();
-        } else {
-          const data = await response.json();
-          toast.error(data.error || gt("Failed to save server profile"));
-        }
+        // Server profile: only the changed fields (the hook toasts the result).
+        await serverProfile.save();
       }
     } catch (error) {
       console.error("Failed to save settings:", error);
@@ -1104,16 +1037,12 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => void handleImageSelect(e, "avatar");
   const handleBannerSelect = (e: React.ChangeEvent<HTMLInputElement>) => void handleImageSelect(e, "banner");
 
+  // Main profile only: server profile images go through the server profile
+  // editor's draft (uploaded, applied on Save).
   const handleCropComplete = async (cropperType: "avatar" | "banner", croppedBlob: File) => {
     const isAvatar = cropperType === "avatar";
     const setUploading = isAvatar ? setIsUploadingAvatar : setIsUploadingBanner;
-    
-    let endpoint = isAvatar ? "/api/upload/avatar" : "/api/upload/banner";
-    if (profileTab === "server" && selectedServerId) {
-      endpoint = isAvatar 
-        ? `/api/upload/server/${selectedServerId}/avatar`
-        : `/api/upload/server/${selectedServerId}/member-banner`;
-    }
+    const endpoint = isAvatar ? "/api/upload/avatar" : "/api/upload/banner";
 
     setUploading(true);
     const formData = new FormData();
@@ -1125,15 +1054,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     const localUrl = URL.createObjectURL(croppedBlob);
     const prevAvatar = user?.avatar;
     const prevBanner = user?.banner;
-    const prevServerAvatar = serverAvatar;
-    const prevServerBanner = serverBanner;
-    if (profileTab === "main") {
-      if (isAvatar) updateUser({ avatar: localUrl });
-      else updateUser({ banner: localUrl });
-    } else {
-      if (isAvatar) setServerAvatar(localUrl);
-      else setServerBanner(localUrl);
-    }
+    if (isAvatar) updateUser({ avatar: localUrl });
+    else updateUser({ banner: localUrl });
 
     try {
       const response = await fetch(endpoint, {
@@ -1143,19 +1065,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
       if (response.ok) {
         const data = await response.json();
-        if (profileTab === "main") {
-          if (isAvatar) {
-            updateUser({ avatar: data.url });
-          } else {
-            updateUser({ banner: data.url });
-          }
-        } else {
-          if (isAvatar) {
-            setServerAvatar(data.url);
-          } else {
-            setServerBanner(data.url);
-          }
-        }
+        if (isAvatar) updateUser({ avatar: data.url });
+        else updateUser({ banner: data.url });
         URL.revokeObjectURL(localUrl);
         toast.success(gt("{type} updated!", { type: isAvatar ? gt("Avatar") : gt("Banner") }));
         // Fire-and-forget: the optimistic + confirmed URL already reflects the
@@ -1164,25 +1075,15 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
       } else {
         // Revert the optimistic preview on failure.
         URL.revokeObjectURL(localUrl);
-        if (profileTab === "main") {
-          if (isAvatar) updateUser({ avatar: prevAvatar });
-          else updateUser({ banner: prevBanner });
-        } else {
-          if (isAvatar) setServerAvatar(prevServerAvatar);
-          else setServerBanner(prevServerBanner);
-        }
+        if (isAvatar) updateUser({ avatar: prevAvatar });
+        else updateUser({ banner: prevBanner });
         const data = await response.json();
         toast.error(data.error || gt("Failed to upload {type}", { type: cropperType }));
       }
-    } catch (error) {
+    } catch {
       URL.revokeObjectURL(localUrl);
-      if (profileTab === "main") {
-        if (isAvatar) updateUser({ avatar: prevAvatar });
-        else updateUser({ banner: prevBanner });
-      } else {
-        if (isAvatar) setServerAvatar(prevServerAvatar);
-        else setServerBanner(prevServerBanner);
-      }
+      if (isAvatar) updateUser({ avatar: prevAvatar });
+      else updateUser({ banner: prevBanner });
       toast.error(gt("Failed to upload {type}", { type: cropperType }));
     } finally {
       setUploading(false);
@@ -1883,9 +1784,41 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                     ]}
                   />
 
+                  {profileTab === "server" ? (
+                    <div key="server" className="settings-page-enter min-w-0">
+                      {servers.length === 0 ? (
+                        <SettingsEmptyState
+                          title={gt("You're not in any servers yet.")}
+                          description={gt("Join a server to give yourself a different profile there.")}
+                        />
+                      ) : (
+                        <ServerProfileEditor
+                          layout="page"
+                          draft={serverProfile}
+                          serverName={servers.find((srv) => srv.id === selectedServerId)?.name ?? ""}
+                          media={serverMedia}
+                          picker={
+                            <ServerProfilePicker
+                              servers={servers}
+                              value={selectedServerId || null}
+                              onChange={(id) => { if (id) setSelectedServerId(id); }}
+                              profiled={serverProfileIndex.profiles}
+                              preferredId={currentServer?.id}
+                              canChange={() => {
+                                if (!serverProfile.dirty) return true;
+                                shakeUnsaved();
+                                toast.error(gt("Save or reset your changes before switching servers."));
+                                return false;
+                              }}
+                            />
+                          }
+                        />
+                      )}
+                      {serverMedia.element}
+                    </div>
+                  ) : (
                   <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]">
                     <div key={profileTab} className="settings-page-enter min-w-0 space-y-8">
-                      {profileTab === "main" ? (
                         <>
                           <SettingsSection title={gt("Avatar & Banner")}>
                             <div className={FORM_CARD}>
@@ -2007,95 +1940,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                           {/* Profile widgets from other Serika apps (saved instantly) */}
                           <SerikaWishlistSettingsCard />
                         </>
-                      ) : (
-                        <>
-                          <SettingsSection
-                            title={gt("Select Server")}
-                            action={hasChanges ? (
-                              <span className="text-xs font-medium text-amber-600 dark:text-amber-400">{gt("Save changes before switching servers")}</span>
-                            ) : undefined}
-                          >
-                            <select
-                              value={selectedServerId}
-                              onChange={(e) => setSelectedServerId(e.target.value)}
-                              disabled={hasChanges}
-                              aria-label={gt("Select Server")}
-                              className={cn(SELECT_CLASS, "font-medium disabled:cursor-not-allowed disabled:opacity-50")}
-                            >
-                              {servers.map((srv) => (
-                                <option key={srv.id} value={srv.id}>{srv.name}</option>
-                              ))}
-                            </select>
-                          </SettingsSection>
-
-                          {serverMemberLoading ? (
-                            <SettingsSkeleton variant="rows" count={3} />
-                          ) : (
-                            <>
-                              <SettingsSection title={gt("Server Identity")}>
-                                <div className={FORM_CARD}>
-                                  <label className="block">
-                                    <span className={FIELD_LABEL}>{gt("Server Nickname")}</span>
-                                    <Input
-                                      value={serverNickname}
-                                      onChange={(e) => setServerNickname(e.target.value)}
-                                      className={FIELD_INPUT}
-                                      placeholder={displayName || user?.username || ""}
-                                      maxLength={32}
-                                    />
-                                  </label>
-                                  <div>
-                                    <span className={FIELD_LABEL}>{gt("Server Avatar Override")}</span>
-                                    <div className="flex items-center gap-4">
-                                      <MediaPickTile
-                                        shape="avatar"
-                                        src={serverAvatar || user?.avatar}
-                                        alt={gt("Avatar")}
-                                        uploading={isUploadingAvatar}
-                                        onPick={() => avatarInputRef.current?.click()}
-                                      />
-                                      <SettingsButton size="sm" onClick={() => avatarInputRef.current?.click()}>{gt("Change Avatar")}</SettingsButton>
-                                      {serverAvatar && (
-                                        <SettingsButton variant="ghost" size="sm" onClick={() => setServerAvatar(null)} className="text-red-500 hover:text-red-500">
-                                          {gt("Reset to Global")}
-                                        </SettingsButton>
-                                      )}
-                                    </div>
-                                    <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
-                                  </div>
-                                </div>
-                              </SettingsSection>
-
-                              <SettingsSection title={gt("Server Banner Override")}>
-                                <div className={FORM_CARD}>
-                                  <MediaPickTile
-                                    shape="banner"
-                                    src={serverBanner || user?.banner}
-                                    alt={gt("Banner")}
-                                    uploading={isUploadingBanner}
-                                    onPick={() => bannerInputRef.current?.click()}
-                                  />
-                                  <div className="flex flex-wrap gap-2">
-                                    <SettingsButton variant="secondary" size="sm" onClick={() => bannerInputRef.current?.click()}>{gt("Change Banner")}</SettingsButton>
-                                    {serverBanner && (
-                                      <SettingsButton variant="ghost" size="sm" onClick={() => setServerBanner(null)} className="text-red-500 hover:text-red-500">
-                                        {gt("Reset to Global")}
-                                      </SettingsButton>
-                                    )}
-                                  </div>
-                                  <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleBannerSelect} />
-                                </div>
-                              </SettingsSection>
-
-                              <div className="space-y-1 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-app)] p-4 text-[13px] leading-relaxed text-[var(--text-secondary)]">
-                                <p className="font-semibold text-[var(--text-primary)]">{gt("About Server Profiles")}</p>
-                                <p>{gt("Custom nickname, avatar overrides, and banners apply only to the selected server.")}</p>
-                                <p>{gt("Global attributes (about me, custom status, and name styles) will fall back to your main profile settings.")}</p>
-                              </div>
-                            </>
-                          )}
-                        </>
-                      )}
                     </div>
 
                     {/* Live preview */}
@@ -2104,6 +1948,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                       <ProfileCard user={previewUser} isCurrentUser={true} />
                     </aside>
                   </div>
+                  )}
                 </div>
               )}
 

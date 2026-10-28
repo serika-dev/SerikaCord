@@ -34,6 +34,15 @@ import dynamic from "next/dynamic";
 import { StatusIcon } from "@/components/user/StatusBadge";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 import { useImageCropper } from "@/components/ui/useImageCropper";
+// Per-server profiles editor (own chunk, loaded when opened).
+const StandaloneServerProfileEditor = dynamic(() => import("@/components/user/profileEditor/StandaloneServerProfileEditor"), {
+  ssr: false,
+  loading: () => (
+    <div className="flex justify-center py-8">
+      <Loader size={24} />
+    </div>
+  ),
+});
 // End-to-end encryption settings (own chunk).
 const E2eeSettingsPanel = dynamic(() => import("@/components/e2ee/E2eeSettingsPanel"), { ssr: false });
 
@@ -180,6 +189,7 @@ export default function MobileSettingsSectionPage() {
   const [disabledProviders, setDisabledProviders] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [serverProfilesOpen, setServerProfilesOpen] = useState(false);
 
   // Profiles states
   const [displayName, setDisplayName] = useState("");
@@ -1584,6 +1594,26 @@ export default function MobileSettingsSectionPage() {
               {isSaving && <Loader size={16} />}
               {gt("Save Changes")}
             </button>
+
+            {/* Per-server profiles: a different look in each server */}
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4 space-y-4">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0 flex-1">
+                  <h3 className="text-xs font-bold uppercase text-[var(--text-muted)] tracking-wider">{gt("Server Profiles")}</h3>
+                  <p className="mt-1 text-xs text-[var(--text-secondary)]">{gt("Use a different nickname, avatar, banner, bio and style in each server.")}</p>
+                </div>
+                {!serverProfilesOpen && (
+                  <button
+                    type="button"
+                    onClick={() => setServerProfilesOpen(true)}
+                    className="shrink-0 rounded-lg border border-[var(--border-subtle)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
+                  >
+                    {gt("Edit server profiles")}
+                  </button>
+                )}
+              </div>
+              {serverProfilesOpen && <StandaloneServerProfileEditor />}
+            </div>
           </div>
         )}
 

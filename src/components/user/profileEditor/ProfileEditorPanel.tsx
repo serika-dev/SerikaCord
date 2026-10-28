@@ -1,17 +1,9 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useGT } from "gt-next";
 import { toast } from "sonner";
-import { Camera, Check, ChevronDown, ChevronsLeft, ImagePlus, Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from "@/components/ui/dropdown-menu";
+import { Camera, Check, ChevronsLeft, ImagePlus, Loader2, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { NameplateImagePicker } from "@/components/settings/NameplateImagePicker";
 import { ServerTagPill } from "@/components/user/ServerTagPill";
 import { useAuth } from "@/contexts/AuthContext";
@@ -20,7 +12,11 @@ import { NAMEPLATE_PRESETS, getNameplateBackground, type NameplateCustomization 
 import { getDisplayNameStyleClasses, getDisplayNameStyleInline, type DisplayNameStyle } from "@/lib/userDisplayNameStyle";
 import { cn, cdnImage } from "@/lib/utils";
 import { useSelfProfileSave } from "@/components/user/profileEditor/useSelfProfileSave";
-import { PROFILE_LIMITS, resolveSelfTag } from "@/components/user/profileEditor/selfProfile";
+import { resolveSelfTag } from "@/components/user/profileEditor/selfProfile";
+import { ServerProfileEditor } from "@/components/user/profileEditor/ServerProfileEditor";
+import { ServerProfilePicker } from "@/components/user/profileEditor/ServerProfilePicker";
+import type { ServerProfileDraft } from "@/components/user/profileEditor/useServerProfileDraft";
+import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
 import type { ProfileMediaKind } from "@/components/user/profileEditor/useProfileMediaUpload";
 import {
   DEFAULT_THEME_PAIR,
@@ -37,9 +33,16 @@ export interface ProfileEditorMedia {
 
 interface ProfileEditorPanelProps {
   onCollapse: () => void;
-  /** Server the profile was opened from; preselected in the server list. */
+  /** Server the profile was opened from; listed first in the server picker. */
   serverId?: string;
   media: ProfileEditorMedia;
+  /** Profile being edited: null = main profile, else a server id (owned by the dialog, which previews it). */
+  target: string | null;
+  onTargetChange: (serverId: string | null) => void;
+  /** Draft of the server profile in `target`. */
+  serverDraft: ServerProfileDraft;
+  /** Which servers have a server profile (kept by the dialog, updated on save). */
+  profileIndex: { profiles: Record<string, string[]> };
 }
 
 const TILE = cn(
@@ -484,210 +487,45 @@ function MainProfileSections({ media }: { media: ProfileEditorMedia }) {
   );
 }
 
-// ─── Per-server profile ──────────────────────────────────────────────────────
-
-interface MemberProfile {
-  nickname: string;
-  avatar: string | null;
-  banner: string | null;
-}
-
-function ServerProfileSections({ serverId, serverName, media }: { serverId: string; serverName: string; media: ProfileEditorMedia }) {
-  const gt = useGT();
-  const { user } = useAuth();
-  const [member, setMember] = useState<MemberProfile | null>(null);
-  const [nickDraft, setNickDraft] = useState<string | null>(null);
-  const userId = user?.id;
-
-  useEffect(() => {
-    if (!userId) return;
-    let active = true;
-    fetch(`/api/servers/${serverId}/members/${userId}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (!active) return;
-        setMember({
-          nickname: data?.nickname || "",
-          avatar: data?.avatarOverride || null,
-          banner: data?.banner || null,
-        });
-      })
-      .catch(() => { if (active) setMember({ nickname: "", avatar: null, banner: null }); });
-    return () => { active = false; };
-  }, [serverId, userId]);
-
-  const patch = async (changes: Partial<MemberProfile>) => {
-    if (!member) return;
-    const before = member;
-    setMember({ ...member, ...changes });
-    try {
-      const res = await fetch(`/api/servers/${serverId}/members/@me`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          ...(changes.nickname !== undefined ? { nickname: changes.nickname || null } : {}),
-          ...(changes.avatar !== undefined ? { avatar: changes.avatar } : {}),
-          ...(changes.banner !== undefined ? { banner: changes.banner } : {}),
-        }),
-      });
-      if (!res.ok) {
-        const data = await res.json().catch(() => null);
-        setMember(before);
-        toast.error(data?.error || gt("Failed to save server profile"));
-      }
-    } catch {
-      setMember(before);
-      toast.error(gt("Failed to save server profile"));
-    }
-  };
-
-  const commitNick = () => {
-    if (nickDraft === null || !member) return;
-    const next = nickDraft.trim().slice(0, PROFILE_LIMITS.nickname);
-    setNickDraft(null);
-    if (next !== member.nickname) void patch({ nickname: next });
-  };
-
-  if (!member) {
-    return (
-      <div className="space-y-3" aria-busy>
-        <div className="h-9 rounded-lg bg-[var(--bg-hover)] animate-pulse" />
-        <div className="grid grid-cols-2 gap-2">
-          <div className="aspect-square rounded-xl bg-[var(--bg-hover)] animate-pulse" />
-          <div className="aspect-square rounded-xl bg-[var(--bg-hover)] animate-pulse" />
-        </div>
-      </div>
-    );
-  }
-
-  const shownAvatar = member.avatar || user?.avatar;
-
-  return (
-    <>
-      <p className="text-xs leading-snug text-[var(--text-muted)]">
-        {gt("Your server profile replaces your main profile in {server}.", { server: serverName })}
-      </p>
-      <Section title={gt("Server Nickname")}>
-        <input
-          value={nickDraft ?? member.nickname}
-          onChange={(e) => setNickDraft(e.target.value)}
-          onBlur={commitNick}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") { e.preventDefault(); commitNick(); }
-            if (e.key === "Escape" && nickDraft !== null) { e.preventDefault(); e.stopPropagation(); setNickDraft(null); }
-          }}
-          data-inline-editor={nickDraft !== null ? "" : undefined}
-          maxLength={PROFILE_LIMITS.nickname}
-          placeholder={user?.displayName || user?.username || ""}
-          aria-label={gt("Server Nickname")}
-          className="w-full h-9 px-2.5 rounded-lg bg-[var(--bg-input,var(--bg-hover))] border border-[var(--border-subtle)] text-sm text-[var(--text-primary)] placeholder:text-[var(--text-muted)] outline-none focus:border-[var(--app-accent)] transition-colors duration-150"
-        />
-      </Section>
-      <Section title={gt("Avatar & Banner")}>
-        <div className="grid grid-cols-2 gap-2">
-          {(["avatar", "banner"] as const).map((kind) => {
-            const own = kind === "avatar" ? member.avatar : member.banner;
-            const label = kind === "avatar" ? gt("Change Avatar") : gt("Change Banner");
-            return (
-              <div key={kind} className="relative">
-                <button
-                  type="button"
-                  onClick={() => media.pick({ kind, serverId, onDone: (url) => setMember((m) => (m ? { ...m, [kind]: url } : m)) })}
-                  aria-label={label}
-                  className={cn(TILE, "group w-full aspect-square flex items-center justify-center", !own && "border-dashed")}
-                >
-                  {kind === "avatar" ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={cdnImage(shownAvatar || undefined)} alt="" className={cn("size-[72%] rounded-full object-cover", !member.avatar && "opacity-50")} />
-                  ) : member.banner ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img src={cdnImage(member.banner)} alt="" className="absolute inset-0 size-full object-cover" />
-                  ) : (
-                    <ImagePlus className="w-6 h-6 text-[var(--text-muted)]" />
-                  )}
-                  <span className="absolute inset-0 flex flex-col items-center justify-center gap-1 bg-black/55 text-white text-[11px] font-semibold opacity-0 group-hover:opacity-100 group-focus-visible:opacity-100 pointer-coarse:opacity-100 pointer-coarse:bg-black/30 transition-opacity duration-150">
-                    {media.uploading[kind] ? <Loader2 className="w-5 h-5 animate-spin" /> : <Camera className="w-5 h-5" />}
-                    {label}
-                  </span>
-                </button>
-                {own && (
-                  <button
-                    type="button"
-                    onClick={() => void patch({ [kind]: null })}
-                    aria-label={kind === "avatar" ? gt("Use main avatar") : gt("Remove server banner")}
-                    title={kind === "avatar" ? gt("Use main avatar") : gt("Remove server banner")}
-                    className="absolute top-1.5 right-1.5 inline-flex size-7 items-center justify-center rounded-md bg-black/55 text-white/90 hover:bg-black/75 hover:text-white transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-                  >
-                    <Trash2 className="w-3.5 h-3.5" />
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </Section>
-    </>
-  );
-}
-
 // ─── Panel ───────────────────────────────────────────────────────────────────
 
 /**
  * The editor that slides out of the left edge of your own full profile
- * (Discord-style): main profile tiles, or a per-server profile picked from
- * the header menu. Every change saves immediately.
+ * (Discord-style): main profile tiles (saved as you go), or a per-server
+ * profile picked from the header (edited as a draft with its own save bar,
+ * previewed live by the profile next to it).
  */
-export default function ProfileEditorPanel({ onCollapse, serverId, media }: ProfileEditorPanelProps) {
+export default function ProfileEditorPanel({ onCollapse, serverId, media, target, onTargetChange, serverDraft, profileIndex }: ProfileEditorPanelProps) {
   const gt = useGT();
   const servers = useServerOptional()?.servers ?? [];
-  const [target, setTarget] = useState<string | null>(null);
   const server = target ? servers.find((s) => s.id === target) : undefined;
+  const [shakeSignal, shake] = useUnsavedShake();
+  const blockSwitch = () => {
+    if (!serverDraft.dirty) return true;
+    shake();
+    toast.error(gt("Save or reset your changes before switching servers."));
+    return false;
+  };
 
   return (
     <div className="flex h-full flex-col bg-[var(--app-surface)] text-[var(--text-primary)]">
       <div className="flex h-14 shrink-0 items-center justify-between gap-2 border-b border-[var(--border-subtle)] px-3 max-md:mt-3">
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <button
-              type="button"
-              className="group flex min-w-0 items-center gap-1 rounded-md px-1.5 py-1 text-[15px] font-semibold hover:bg-[var(--bg-hover)] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
-            >
-              <span className="truncate">{server ? server.name : gt("Main Profile")}</span>
-              <ChevronDown className="w-4 h-4 shrink-0 text-[var(--text-muted)] transition-transform duration-150 group-data-[state=open]:rotate-180" />
-            </button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" className="w-60 max-h-80 overflow-y-auto bg-[var(--app-surface)] border-[var(--border-subtle)] text-[var(--text-primary)]">
-            <DropdownMenuItem onSelect={() => setTarget(null)} className="gap-2">
-              <span className="flex-1">{gt("Main Profile")}</span>
-              {!target && <Check className="w-4 h-4 text-[var(--app-accent)]" />}
-            </DropdownMenuItem>
-            {servers.length > 0 && (
-              <>
-                <DropdownMenuSeparator />
-                <DropdownMenuLabel className="text-[11px] uppercase tracking-wide text-[var(--text-muted)]">{gt("Server Profiles")}</DropdownMenuLabel>
-                {[...servers]
-                  .sort((a, b) => (a.id === serverId ? -1 : b.id === serverId ? 1 : 0))
-                  .map((s) => (
-                    <DropdownMenuItem key={s.id} onSelect={() => setTarget(s.id)} className="gap-2">
-                      {s.icon ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img src={cdnImage(s.icon)} alt="" className="size-5 rounded-full object-cover shrink-0" />
-                      ) : (
-                        <span className="size-5 rounded-full shrink-0 flex items-center justify-center bg-[var(--app-accent)] text-white text-[10px] font-bold">
-                          {s.name.charAt(0).toUpperCase()}
-                        </span>
-                      )}
-                      <span className="flex-1 truncate">{s.name}</span>
-                      {target === s.id && <Check className="w-4 h-4 text-[var(--app-accent)]" />}
-                    </DropdownMenuItem>
-                  ))}
-              </>
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <ServerProfilePicker
+          variant="header"
+          includeMain
+          servers={servers}
+          value={server ? server.id : null}
+          onChange={onTargetChange}
+          profiled={profileIndex.profiles}
+          preferredId={serverId}
+          canChange={blockSwitch}
+        />
         <button
           type="button"
-          onClick={onCollapse}
+          onClick={() => {
+            if (serverDraft.dirty) shake();
+            onCollapse();
+          }}
           aria-label={gt("Close profile editor")}
           title={gt("Close profile editor")}
           className="inline-flex size-8 shrink-0 items-center justify-center rounded-md text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]"
@@ -697,11 +535,24 @@ export default function ProfileEditorPanel({ onCollapse, serverId, media }: Prof
       </div>
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain px-3 py-4 space-y-5 pb-[calc(1rem+var(--safe-area-bottom,0px))]">
         {server ? (
-          <ServerProfileSections key={server.id} serverId={server.id} serverName={server.name} media={media} />
+          <ServerProfileEditor key={server.id} layout="panel" draft={serverDraft} serverName={server.name} media={media} picker={null} />
         ) : (
           <MainProfileSections media={media} />
         )}
       </div>
+      {server && (
+        <div className="shrink-0 px-2 pb-[calc(0.5rem+var(--safe-area-bottom,0px))] empty:hidden">
+          <UnsavedChangesBar
+            visible={serverDraft.dirty}
+            isSaving={serverDraft.saving}
+            onSave={() => void serverDraft.save()}
+            onDiscard={serverDraft.discard}
+            changeCount={serverDraft.dirtyFields.length}
+            shakeSignal={shakeSignal}
+            className="mt-2"
+          />
+        </div>
+      )}
     </div>
   );
 }

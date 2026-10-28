@@ -9,6 +9,7 @@ import { BoundedMap } from "@/lib/utils/boundedMap";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { notifyServersChanged } from "@/lib/notifyServersChanged";
 import { onThreadsChanged } from "@/lib/chat/threadPanelStore";
+import { onMemberProfileChanged } from "@/lib/profiles/memberProfileEvents";
 import type { ServerTheme } from "@/lib/appearance/customization";
 
 interface Server {
@@ -693,6 +694,40 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       lastMembersServerIdRef.current = null;
     }
   }, [currentServerId, fetchChannels]);
+
+  // Someone changed their server profile: refresh just that member's row in
+  // the open server (the sidebar, mentions and cards read it). The saver's
+  // own tab gets both its local signal and the server echo, so one request
+  // per member is kept in flight.
+  const memberRefreshRef = useRef<Set<string>>(new Set());
+  useEffect(
+    () =>
+      onMemberProfileChanged((serverId, userId) => {
+        if (lastMembersServerIdRef.current !== serverId) return;
+        const key = `${serverId}:${userId.toLowerCase()}`;
+        if (memberRefreshRef.current.has(key)) return;
+        memberRefreshRef.current.add(key);
+        fetch(`/api/servers/${serverId}/members/${userId}`)
+          .then((res) => (res.ok ? res.json() : null))
+          .then((data: { id?: string; displayName?: string; avatar?: string | null; customization?: unknown } | null) => {
+            if (!data?.id || lastMembersServerIdRef.current !== serverId) return;
+            const id = data.id.toLowerCase();
+            setMembers((prev) => {
+              let changed = false;
+              const next = prev.map((m) => {
+                if (String(m.id).toLowerCase() !== id) return m;
+                changed = true;
+                return { ...m, displayName: data.displayName ?? m.displayName, avatar: data.avatar ?? null, customization: data.customization ?? null };
+              });
+              if (changed) membersCacheRef.current.set(serverId, next);
+              return changed ? next : prev;
+            });
+          })
+          .catch(() => {})
+          .finally(() => memberRefreshRef.current.delete(key));
+      }),
+    [],
+  );
 
   // Joined / left / created / archived a thread (here or on another device):
   // the sidebar's thread rows come from the channel list.

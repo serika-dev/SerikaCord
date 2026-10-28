@@ -86,6 +86,7 @@ import {
 import { isReadingLive } from "@/lib/unread/attentionTracker";
 import { groupDmHref } from "@/lib/chat/groupDm";
 import { emitThreadsChanged } from "@/lib/chat/threadPanelStore";
+import { emitMemberProfileChanged } from "@/lib/profiles/memberProfileEvents";
 import { emitScheduledEventChange, type ScheduledEventSignal } from "@/lib/chat/scheduledEventsBus";
 import { alertEventStarted } from "@/lib/notifications/eventStart";
 import type { MarkUnreadPlan } from "@/lib/chat/unreadMarker";
@@ -847,6 +848,13 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       if (data.type === "thread_members_update") {
         const serverId = (data as { serverId?: string }).serverId;
         if (serverId) emitThreadsChanged(serverId);
+        return;
+      }
+
+      // A member changed their server profile (nickname, avatar, style...).
+      if (data.type === "member_profile_update") {
+        const { serverId, userId } = data as { serverId?: string; userId?: string };
+        if (serverId && userId) emitMemberProfileChanged(serverId, userId);
         return;
       }
 
