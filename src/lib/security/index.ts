@@ -80,6 +80,10 @@ export const rateLimiters_config = {
   oauthAuthorize: { points: 30, duration: 600 },
   // Public App Directory reads (/api/apps/directory*), per IP.
   appDirectory: { points: 120, duration: 60 },
+  // Server integrations (YouTube / Twitch): latest-item previews and test
+  // notifications, per user (each one may call YouTube / Twitch).
+  integrationPreview: { points: 30, duration: 60 },
+  integrationTest: { points: 5, duration: 60 },
   // Owner App Directory edits, cover uploads and verification applications, per user.
   appDirectoryEdit: { points: 30, duration: 600 },
   // Bot profile edits (PATCH /users/@me): Discord allows 2 username changes

@@ -114,6 +114,7 @@ import { EmojiPage } from "@/components/dialogs/serverSettings/EmojiPage";
 import { StickersPage } from "@/components/dialogs/serverSettings/StickersPage";
 import { AppDiscoveryPage } from "@/components/dialogs/serverSettings/AppDiscoveryPage";
 import { IntegrationCard } from "@/components/dialogs/serverSettings/IntegrationCard";
+import { IntegrationNotificationSettings } from "@/components/dialogs/serverSettings/IntegrationNotificationSettings";
 import { UploadRequirements } from "@/components/dialogs/serverSettings/UploadRequirements";
 
 /** Skeleton shown while a lazily loaded settings page's code arrives. */
@@ -401,53 +402,6 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   // Integrations overview: which card is expanded.
   const [openIntegration, setOpenIntegration] = useState<"twitch" | "youtube" | "webhooks" | null>(null);
 
-  const [isTriggeringTwitch, setIsTriggeringTwitch] = useState(false);
-  const [isTriggeringYoutube, setIsTriggeringYoutube] = useState(false);
-  const [, setIsTriggeringDiscord] = useState(false);
-
-  const handleMockTrigger = async (type: "twitch" | "youtube" | "discord") => {
-    if (!currentServer) return;
-    let channelId = "";
-    if (type === "twitch") {
-      channelId = draftString("integrations.twitchNotificationChannelId", "");
-      setIsTriggeringTwitch(true);
-    } else if (type === "youtube") {
-      channelId = draftString("integrations.youtubeNotificationChannelId", "");
-      setIsTriggeringYoutube(true);
-    } else if (type === "discord") {
-      channelId = textChannels[0]?.id || "";
-      setIsTriggeringDiscord(true);
-    }
-
-    if (!channelId) {
-      toast.error(gt("Please configure and select a notification channel first"));
-      setIsTriggeringTwitch(false);
-      setIsTriggeringYoutube(false);
-      setIsTriggeringDiscord(false);
-      return;
-    }
-
-    try {
-      const res = await fetch(`/api/servers/${currentServer.id}/integrations/${type}/mock-trigger`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ channelId }),
-      });
-      if (res.ok) {
-        toast.success(gt("Mock alert triggered successfully!"));
-      } else {
-        const err = await res.json().catch(() => null);
-        toast.error(err?.error || gt("Failed to trigger mock alert"));
-      }
-    } catch {
-      toast.error(gt("Failed to trigger mock alert"));
-    } finally {
-      setIsTriggeringTwitch(false);
-      setIsTriggeringYoutube(false);
-      setIsTriggeringDiscord(false);
-    }
-  };
-
   const [isUploadingEmoji, setIsUploadingEmoji] = useState(false);
   const [isUploadingSticker, setIsUploadingSticker] = useState(false);
 
@@ -496,9 +450,15 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         "integrations.twitch": false,
         "integrations.twitchChannel": "",
         "integrations.twitchNotificationChannelId": "",
+        "integrations.twitchMention": "none",
+        "integrations.twitchMentionRoleId": "",
+        "integrations.twitchMessage": "",
         "integrations.youtube": false,
         "integrations.youtubeChannel": "",
         "integrations.youtubeNotificationChannelId": "",
+        "integrations.youtubeMention": "none",
+        "integrations.youtubeMentionRoleId": "",
+        "integrations.youtubeMessage": "",
         "integrations.webhooks": false,
         "soundboard.enabled": true,
         "soundboard.volume": 100,
@@ -545,6 +505,12 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           base["integrations.youtube"] = Boolean(s.integrations?.youtube);
           base["integrations.youtubeChannel"] = s.integrations?.youtubeChannel || "";
           base["integrations.youtubeNotificationChannelId"] = s.integrations?.youtubeNotificationChannelId || "";
+          for (const kind of ["twitch", "youtube"] as const) {
+            const mention = s.integrations?.[`${kind}Mention`];
+            base[`integrations.${kind}Mention`] = typeof mention === "string" && ["none", "everyone", "here", "role"].includes(mention) ? mention : "none";
+            base[`integrations.${kind}MentionRoleId`] = typeof s.integrations?.[`${kind}MentionRoleId`] === "string" ? s.integrations[`${kind}MentionRoleId`] : "";
+            base[`integrations.${kind}Message`] = typeof s.integrations?.[`${kind}Message`] === "string" ? decodeHtmlEntities(s.integrations[`${kind}Message`]) : "";
+          }
           base["integrations.webhooks"] = Boolean(s.integrations?.webhooks);
           base["soundboard.enabled"] = s.soundboard?.enabled ?? true;
           base["soundboard.volume"] = s.soundboard?.volume ?? 100;
@@ -629,6 +595,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           case "onboarding":
           case "audit-log":
           case "automod":
+          case "integrations":
             await fetchRolesData();
             break;
           case "invites": {
@@ -873,6 +840,16 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     "integrations.discord": gt("Discord integration"),
     "integrations.twitch": gt("Twitch integration"),
     "integrations.youtube": gt("YouTube integration"),
+    "integrations.twitchChannel": gt("Twitch channel"),
+    "integrations.youtubeChannel": gt("YouTube channel"),
+    "integrations.twitchNotificationChannelId": gt("Twitch notification channel"),
+    "integrations.youtubeNotificationChannelId": gt("YouTube notification channel"),
+    "integrations.twitchMention": gt("Twitch ping"),
+    "integrations.youtubeMention": gt("YouTube ping"),
+    "integrations.twitchMentionRoleId": gt("Twitch ping"),
+    "integrations.youtubeMentionRoleId": gt("YouTube ping"),
+    "integrations.twitchMessage": gt("Twitch message"),
+    "integrations.youtubeMessage": gt("YouTube message"),
     "integrations.webhooks": gt("Webhooks integration"),
     "soundboard.enabled": gt("Soundboard"),
     "soundboard.volume": gt("Soundboard volume"),
@@ -2945,42 +2922,38 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     const isWebhooksEnabled = draftBool("integrations.webhooks");
     const toggleCard = (id: "twitch" | "youtube" | "webhooks") => setOpenIntegration((cur) => (cur === id ? null : id));
     const enabledLabel = (on: boolean) => (on ? gt("Enabled") : gt("Disabled"));
-    const notificationFields = (
-      kind: "twitch" | "youtube",
-      channelLabel: string,
-      placeholder: string,
-      channelKey: string,
-      notifyKey: string,
-    ) => (
-      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">{channelLabel}</span>
-          <Input
-            type="text"
-            placeholder={placeholder}
-            value={draftString(channelKey, "")}
-            onChange={(e) => settingsDraft.update(channelKey, e.target.value)}
-            className={inputClass}
-          />
-        </label>
-        <label className="block">
-          <span className="mb-1.5 block text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]">{gt("NOTIFICATION CHANNEL")}</span>
-          <select
-            value={draftString(notifyKey, "")}
-            onChange={(e) => settingsDraft.update(notifyKey, e.target.value)}
-            className={selectClass}
-            aria-label={kind === "twitch" ? gt("Twitch notification channel") : gt("YouTube notification channel")}
-          >
-            <option value="">{gt("Select a channel")}</option>
-            {textChannels.map((channel) => (
-              <option key={channel.id} value={channel.id}>
-                #{channel.name}
-              </option>
-            ))}
-          </select>
-        </label>
-      </div>
-    );
+    const canMentionEveryone = can("MENTION_EVERYONE");
+    const notificationFields = (kind: "twitch" | "youtube") => {
+      const key = (field: string) => `integrations.${kind}${field}`;
+      const fieldKeys = {
+        channel: key("Channel"),
+        notifyChannelId: key("NotificationChannelId"),
+        mention: key("Mention"),
+        mentionRoleId: key("MentionRoleId"),
+        message: key("Message"),
+      } as const;
+      return (
+        <IntegrationNotificationSettings
+          kind={kind}
+          serverId={currentServer.id}
+          values={{
+            channel: draftString(fieldKeys.channel, ""),
+            notifyChannelId: draftString(fieldKeys.notifyChannelId, ""),
+            mention: draftString(fieldKeys.mention, "none"),
+            mentionRoleId: draftString(fieldKeys.mentionRoleId, ""),
+            message: draftString(fieldKeys.message, ""),
+          }}
+          onChange={(field, value) => settingsDraft.update(fieldKeys[field], value)}
+          textChannels={textChannels}
+          roles={roles}
+          canMentionEveryone={canMentionEveryone}
+          fieldError={(field) => fieldError(fieldKeys[field]) ?? (field === "mention" ? fieldError(fieldKeys.mentionRoleId) : null)}
+          labelClass="mb-1.5 block text-xs font-bold uppercase tracking-[0.04em] text-[var(--text-secondary)]"
+          inputClass={inputClass}
+          selectClass={selectClass}
+        />
+      );
+    };
 
     return (
       <div className="space-y-8">
@@ -3016,10 +2989,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 </SettingsCard>
                 {isTwitchEnabled && (
                   <>
-                    {notificationFields("twitch", gt("TWITCH CHANNEL NAME"), gt("e.g. shroud"), "integrations.twitchChannel", "integrations.twitchNotificationChannelId")}
-                    <SettingsButton variant="secondary" onClick={() => void handleMockTrigger("twitch")} disabled={isTriggeringTwitch}>
-                      {isTriggeringTwitch ? <><Loader size={14} />{gt("Triggering...")}</> : gt("Trigger Mock Stream Live Alert")}
-                    </SettingsButton>
+                    {notificationFields("twitch")}
                   </>
                 )}
               </div>
@@ -3046,10 +3016,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
                 </SettingsCard>
                 {isYoutubeEnabled && (
                   <>
-                    {notificationFields("youtube", gt("YOUTUBE CHANNEL ID OR NAME"), gt("e.g. MrBeast"), "integrations.youtubeChannel", "integrations.youtubeNotificationChannelId")}
-                    <SettingsButton variant="secondary" onClick={() => void handleMockTrigger("youtube")} disabled={isTriggeringYoutube}>
-                      {isTriggeringYoutube ? <><Loader size={14} />{gt("Triggering...")}</> : gt("Trigger Mock Video Upload Alert")}
-                    </SettingsButton>
+                    {notificationFields("youtube")}
                   </>
                 )}
               </div>

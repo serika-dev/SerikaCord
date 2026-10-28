@@ -72,6 +72,19 @@ async function getAccessToken(): Promise<string | null> {
   return inflightToken;
 }
 
+/**
+ * The Twitch app access token (client credentials), shared with the YouTube /
+ * Twitch server notifications (src/lib/integrations). Null without credentials.
+ */
+export function getTwitchAppToken(): Promise<string | null> {
+  return getAccessToken();
+}
+
+/** Forget the cached app token (Helix answered 401). */
+export function invalidateTwitchAppToken(): void {
+  tokenState = null;
+}
+
 /** Upgrade an IGDB image reference to a full https cover URL. */
 function coverUrlFromImageId(imageId: string | undefined): string | null {
   if (!imageId) return null;

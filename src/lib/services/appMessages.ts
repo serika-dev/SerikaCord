@@ -47,6 +47,12 @@ export interface AppMessageContent {
   poll?: StoredPoll | null;
   /** Read aloud (tts), when the sender may. */
   tts?: boolean;
+  /**
+   * Pings the caller already checked (server integration notifications):
+   * @everyone / @here and role mentions. Webhooks and interactions leave them out.
+   */
+  mentionEveryone?: boolean;
+  mentionedRoleIds?: string[];
 }
 
 /** An ephemeral message as kept in the interaction store. */
@@ -173,6 +179,8 @@ function clientMessage(opts: {
     pinned: false,
     reactions: [],
     mentionedUserIds: opts.body.mentionedUserIds,
+    ...(opts.body.mentionEveryone ? { mentionEveryone: true } : {}),
+    ...(opts.body.mentionedRoleIds?.length ? { mentionedRoleIds: opts.body.mentionedRoleIds } : {}),
     type: 'default',
     ...(opts.interaction ? { interaction: { id: opts.interaction.id, name: opts.interaction.name, user: opts.interaction.user } } : {}),
     ...(opts.ephemeral ? { ephemeral: true } : {}),
@@ -268,6 +276,8 @@ export async function createAppMessage(opts: {
     flags,
     type: 'default',
     mentionedUserIds: body.mentionedUserIds,
+    ...(body.mentionEveryone ? { mentionEveryone: true } : {}),
+    ...(body.mentionedRoleIds?.length ? { mentionedRoleIds: body.mentionedRoleIds } : {}),
     interaction: interaction ?? null,
     ...(webhookAuthor ? { webhookAuthor } : {}),
     ...((flags & 4) !== 0 ? { suppressEmbeds: true } : {}),
@@ -322,6 +332,8 @@ async function signalAppMessage(channel: IChannel, row: IMessage, author: Client
         authorAvatar: author.avatar,
         content: preview,
         mentionedUserIds: body.mentionedUserIds,
+        ...(body.mentionEveryone ? { mentionEveryone: true } : {}),
+        ...(body.mentionedRoleIds?.length ? { mentionedRoleIds: body.mentionedRoleIds } : {}),
         createdAt: row.createdAt,
         silent,
       });

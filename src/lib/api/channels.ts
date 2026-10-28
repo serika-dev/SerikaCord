@@ -457,7 +457,7 @@ async function loadManageableWebhook(
  * @everyone, then the member's roles together, then the member. Owners and administrators
  * always may.
  */
-async function canMentionEveryoneInChannel(
+export async function canMentionEveryoneInChannel(
   channel: { permissionOverwrites?: any[]; serverId?: string | null },
   userId: string,
 ): Promise<boolean> {

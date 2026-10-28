@@ -296,6 +296,13 @@ async function main() {
   import('@/lib/services/retentionPurge')
     .then((m) => m.startRetentionPurgeScheduler())
     .catch((err) => console.error('[retention] Scheduler init failed:', err));
+
+  // YouTube upload / Twitch go-live notifications for servers with the
+  // integration on (one instance per pass, Redis lock). Off with
+  // INTEGRATION_NOTIFICATIONS_DISABLED=1. See src/lib/integrations/poller.ts.
+  import('@/lib/integrations/poller')
+    .then((m) => m.startIntegrationPoller())
+    .catch((err) => console.error('[integrations] Poller init failed:', err));
 }
 
 main().catch((err: unknown) => {

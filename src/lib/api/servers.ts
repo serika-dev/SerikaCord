@@ -18,6 +18,7 @@ import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
 import { computeChannelPermissions, DEFAULT_EVERYONE_PERMISSIONS, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
 import { publicServerSettings, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
 import { pickClientIntegrations } from '@/lib/discord/bridgeConfig';
+import { INTEGRATION_KINDS, MENTION_TYPES, MESSAGE_TEMPLATE_MAX, integrationKeys, normalizeMention, parseTwitchLogin, parseYouTubeChannelInput } from '@/lib/integrations/notifications';
 import { settingsKeepingBridge } from '@/lib/discord/bridgeStore';
 import { getRolePermissions, getActorRoleContext, hasServerPermission, invalidateRolePerms, primeRolePermissions } from '@/lib/permissions/serverPermissions';
 import { canAssignRole, canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type ActorRoleContext, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
@@ -1229,7 +1230,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const VERIFICATION_LEVELS = ['none', 'low', 'medium', 'high', 'very_high'];
     const CONTENT_FILTERS = ['disabled', 'members_without_roles', 'all_members'];
     const JOIN_MODES = ['invite_only', 'apply_to_join', 'discoverable'];
-    const CHANNEL_FIELDS = ['systemChannelId', 'rulesChannelId', 'afkChannelId', 'widget.channelId'];
+    const CHANNEL_FIELDS = [
+      'systemChannelId', 'rulesChannelId', 'afkChannelId', 'widget.channelId',
+      'integrations.twitchNotificationChannelId', 'integrations.youtubeNotificationChannelId',
+    ];
 
     const expectString = (key: string, max: number, min = 0): string | undefined => {
       const value = changes[key];
@@ -1441,10 +1445,44 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
           break;
         }
         case 'integrations.twitchChannel':
+        case 'integrations.youtubeChannel': {
+          const v = expectString(key, 300);
+          if (v === undefined) break;
+          const isYouTube = key === 'integrations.youtubeChannel';
+          if (v && !(isYouTube ? parseYouTubeChannelInput(v) : parseTwitchLogin(v))) {
+            fieldErrors[key] = isYouTube ? 'Enter a YouTube channel URL, @handle or channel ID' : 'Enter a Twitch channel name or twitch.tv link';
+            break;
+          }
+          staged.push(() => { section('integrations')[key.split('.')[1]] = v; });
+          break;
+        }
         case 'integrations.twitchNotificationChannelId':
-        case 'integrations.youtubeChannel':
         case 'integrations.youtubeNotificationChannelId': {
           const v = expectString(key, 1024);
+          if (v !== undefined) staged.push(() => { section('integrations')[key.split('.')[1]] = v; });
+          break;
+        }
+        case 'integrations.twitchMention':
+        case 'integrations.youtubeMention': {
+          const v = expectEnum(key, [...MENTION_TYPES]);
+          if (v !== undefined) staged.push(() => { section('integrations')[key.split('.')[1]] = v; });
+          break;
+        }
+        case 'integrations.twitchMentionRoleId':
+        case 'integrations.youtubeMentionRoleId': {
+          const value = changes[key];
+          if (value === null || value === '') {
+            staged.push(() => { section('integrations')[key.split('.')[1]] = ''; });
+          } else if (typeof value !== 'string' || !isValidObjectId(value)) {
+            fieldErrors[key] = 'Invalid role';
+          } else {
+            staged.push(() => { section('integrations')[key.split('.')[1]] = value; });
+          }
+          break;
+        }
+        case 'integrations.twitchMessage':
+        case 'integrations.youtubeMessage': {
+          const v = expectString(key, MESSAGE_TEMPLATE_MAX);
           if (v !== undefined) staged.push(() => { section('integrations')[key.split('.')[1]] = v; });
           break;
         }
@@ -1595,6 +1633,26 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         default:
           fieldErrors[key] = 'Unknown setting';
       }
+    }
+
+    // YouTube / Twitch ping: a role of this server; @everyone, @here and roles
+    // that aren't mentionable need Mention @everyone in the notification channel.
+    for (const kind of INTEGRATION_KINDS) {
+      const keys = integrationKeys(kind);
+      const touched = [keys.mention, keys.mentionRoleId].some((k) => `integrations.${k}` in changes);
+      if (!touched || fieldErrors[`integrations.${keys.mention}`] || fieldErrors[`integrations.${keys.mentionRoleId}`]) continue;
+      const current = ((server.settings as IServerSettings | undefined)?.integrations || {}) as Record<string, unknown>;
+      const pick = (k: string) => (`integrations.${k}` in changes ? changes[`integrations.${k}`] : current[k]);
+      const mention = normalizeMention(pick(keys.mention), pick(keys.mentionRoleId));
+      if (pick(keys.mention) === 'role' && mention.type !== 'role') {
+        fieldErrors[`integrations.${keys.mention}`] = 'Choose a role to ping';
+        continue;
+      }
+      const notifyChannelId = pick(keys.notifyChannel);
+      const { loadNotificationChannel, checkMentionSetting } = await import('@/lib/integrations/post');
+      const notifyChannel = await loadNotificationChannel(server.id, typeof notifyChannelId === 'string' ? notifyChannelId : null);
+      const check = await checkMentionSetting({ server, userId: user.id, mention, channel: notifyChannel });
+      if (!check.ok) fieldErrors[`integrations.${keys.mention}`] = check.error;
     }
 
     if (Object.keys(fieldErrors).length > 0) {
@@ -5873,6 +5931,45 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       sounds: t.Optional(t.Boolean()),
     })
   })
+  // Latest real item for an integration card preview (YouTube upload / Twitch
+  // stream or broadcast). `channel` is the unsaved input from the card.
+  .get('/:serverId/integrations/:type/latest', async ({ headers, cookie, params, query, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const { isIntegrationKind } = await import('@/lib/integrations/notifications');
+    if (!isIntegrationKind(params.type)) {
+      set.status = 400;
+      return { error: 'Invalid integration type' };
+    }
+    const server = await Server.findById(params.serverId);
+    if (!server) {
+      set.status = 404;
+      return { error: 'Server not found' };
+    }
+    if (!(await canManageServer(server, user.id))) {
+      set.status = 403;
+      return { error: 'You do not have permission to manage integrations' };
+    }
+    const limit = await checkRateLimit('integrationPreview', user.id);
+    if (!limit.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: limit.retryAfter };
+    }
+    const input = typeof query.channel === 'string' ? query.channel.slice(0, 300) : '';
+    try {
+      const latest = await fetchIntegrationLatest(params.type, input);
+      return { item: latest.item, source: latest.source };
+    } catch (err) {
+      return integrationSourceFailure(err, set);
+    }
+  }, {
+    query: t.Object({ channel: t.Optional(t.String({ maxLength: 300 })) }),
+  })
+  // Test notification with the real latest item and the card's (unsaved)
+  // channel, ping and message, posted like a real notification.
   .post('/:serverId/integrations/:type/mock-trigger', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
@@ -5891,44 +5988,91 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       set.status = 403;
       return { error: 'You do not have permission to manage integrations' };
     }
-    const payload = body as { channelId?: string; [key: string]: unknown };
+    const payload = body as { channelId?: string; channel?: string; mention?: string; mentionRoleId?: string; message?: string };
     const channelId = payload.channelId;
     if (!channelId) {
       set.status = 400;
       return { error: 'Missing channelId' };
+    }
+    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
+
+    if (params.type === 'youtube' || params.type === 'twitch') {
+      const kind = params.type;
+      const { loadNotificationChannel, checkMentionSetting, postIntegrationNotification } = await import('@/lib/integrations/post');
+      const { normalizeMention, readIntegrationConfig, MESSAGE_TEMPLATE_MAX } = await import('@/lib/integrations/notifications');
+      const channel = await loadNotificationChannel(server.id, channelId);
+      if (!channel) {
+        set.status = 404;
+        return { error: 'Target channel not found in this server' };
+      }
+      const stored = readIntegrationConfig(integrations, kind);
+      const input = typeof payload.channel === 'string' ? payload.channel.trim().slice(0, 300) : stored.channelInput;
+      if (!input) {
+        set.status = 400;
+        return { error: kind === 'youtube' ? 'Enter a YouTube channel first' : 'Enter a Twitch channel first' };
+      }
+      const mention = payload.mention !== undefined ? normalizeMention(payload.mention, payload.mentionRoleId) : stored.mention;
+      const mentionCheck = await checkMentionSetting({ server, userId: user.id, mention, channel });
+      if (!mentionCheck.ok) {
+        set.status = 403;
+        return { error: mentionCheck.error };
+      }
+      // Content is sanitized when posted (sanitizeMessageContent), like stored templates.
+      const template = typeof payload.message === 'string' ? payload.message.trim().slice(0, MESSAGE_TEMPLATE_MAX) : stored.template;
+      const limit = await checkRateLimit('integrationTest', user.id);
+      if (!limit.success) {
+        set.status = 429;
+        return { error: 'Too many test notifications. Try again in a minute.', retryAfter: limit.retryAfter };
+      }
+      let latest: Awaited<ReturnType<typeof fetchIntegrationLatest>>;
+      try {
+        latest = await fetchIntegrationLatest(kind, input);
+      } catch (err) {
+        return integrationSourceFailure(err, set);
+      }
+      const sampleNote = latest.source === 'sample'
+        ? 'Twitch API access is not set up on this SerikaCord instance, so this test uses sample stream details.'
+        : latest.source === 'vod'
+          ? 'The channel is offline, so this test uses its latest broadcast.'
+          : latest.source === 'offline'
+            ? 'The channel is offline and has no past broadcasts, so this test uses sample details.'
+            : undefined;
+      try {
+        const posted = await postIntegrationNotification({
+          channel,
+          item: latest.item,
+          mention: mentionCheck.mention,
+          template,
+          test: true,
+          sampleNote,
+        });
+        return { success: true, message: { id: posted.id }, item: latest.item, source: latest.source };
+      } catch (err) {
+        console.error('[integrations] Test notification failed:', (err as Error)?.message ?? err);
+        set.status = 500;
+        return { error: 'Failed to post the test notification' };
+      }
+    }
+
+    if (params.type !== 'discord') {
+      set.status = 400;
+      return { error: 'Invalid integration type' };
     }
     const channel = await Channel.findById(channelId);
     if (!channel || channel.serverId !== server.id) {
       set.status = 404;
       return { error: 'Target channel not found in this server' };
     }
-    const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
-    let senderUsername = '';
-    let senderAvatar = '';
-    let notificationText = '';
-    let isDiscord = false;
-    if (params.type === 'twitch') {
-      const channelName = integrations.twitchChannel || 'SerikaStreamer';
-      senderUsername = `${channelName} (Twitch)`;
-      senderAvatar = 'https://cdn.pixabay.com/photo/2021/12/10/16/38/twitch-6860918_1280.png';
-      notificationText = `🔴 **Live Now!** ${channelName} is live playing **Retro Games**! Come watch: https://twitch.tv/${channelName}`;
-    } else if (params.type === 'youtube') {
-      const channelName = integrations.youtubeChannel || 'SerikaGaming';
-      senderUsername = `${channelName} (YouTube)`;
-      senderAvatar = 'https://cdn.pixabay.com/photo/2016/11/19/03/08/youtube-1837872_1280.png';
-      notificationText = `🎥 **New Upload!** ${channelName} just uploaded a new video: *"Building SerikaCord in 2026!"* check it out: https://youtube.com/watch?v=mock_video_id`;
-    } else if (params.type === 'discord') {
-      senderUsername = 'Wumpus (Discord)';
-      senderAvatar = 'https://cdn.pixabay.com/photo/2021/11/24/05/19/discord-6820244_1280.png';
-      notificationText = `Hello! This is a mock bridged message sent from our Discord server guild. Sync is fully functional.`;
-      isDiscord = true;
-    } else {
-      set.status = 400;
-      return { error: 'Invalid integration type' };
-    }
+    const senderUsername = 'Wumpus (Discord)';
+    const senderAvatar = 'https://cdn.pixabay.com/photo/2021/11/24/05/19/discord-6820244_1280.png';
+    const notificationText = `Hello! This is a mock bridged message sent from our Discord server guild. Sync is fully functional.`;
     const { encryptForStorage } = await import('@/lib/security');
     const encryptedContent = await encryptForStorage(notificationText);
     let integrationUser = await User.findOne({ username: `${params.type}-integration-user` });
+    if (integrationUser && !integrationUser.isBot) {
+      set.status = 500;
+      return { error: 'Integration account unavailable' };
+    }
     if (!integrationUser) {
       integrationUser = await User.create({
         username: `${params.type}-integration-user`,
@@ -5957,7 +6101,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
         status: 'online',
         isBot: true,
         isSystem: false,
-        isDiscord: isDiscord,
+        isDiscord: true,
       },
       channelId: channel.id,
       serverId: server.id,
@@ -5978,7 +6122,40 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       success: true,
       message: messageResponse,
     };
+  }, {
+    body: t.Object({
+      channelId: t.Optional(t.String({ maxLength: 64 })),
+      channel: t.Optional(t.String({ maxLength: 300 })),
+      mention: t.Optional(t.String({ maxLength: 16 })),
+      mentionRoleId: t.Optional(t.String({ maxLength: 64 })),
+      message: t.Optional(t.String({ maxLength: 1000 })),
+    }),
   });
+
+/** Latest item for an integration (YouTube upload, Twitch stream / broadcast). */
+async function fetchIntegrationLatest(kind: 'youtube' | 'twitch', input: string): Promise<{
+  item: import('@/lib/integrations/notifications').IntegrationItem;
+  source: 'video' | 'live' | 'vod' | 'offline' | 'sample';
+}> {
+  const sources = await import('@/lib/integrations/sources');
+  if (!input.trim()) throw new sources.IntegrationSourceError('invalid_channel', kind === 'youtube' ? 'Enter a YouTube channel first' : 'Enter a Twitch channel first');
+  if (kind === 'youtube') {
+    const { item } = await sources.fetchLatestYouTubeItem(input);
+    return { item, source: 'video' };
+  }
+  return sources.fetchLatestTwitchItem(input);
+}
+
+function integrationSourceFailure(err: unknown, set: { status?: number | string }): { error: string; code?: string } {
+  const e = err as { name?: string; code?: string; message?: string };
+  if (e?.name === 'IntegrationSourceError') {
+    set.status = e.code === 'invalid_channel' ? 400 : e.code === 'not_found' ? 404 : 502;
+    return { error: e.message || 'Could not load the channel', code: e.code };
+  }
+  console.error('[integrations] Latest item lookup failed:', e?.message ?? err);
+  set.status = 502;
+  return { error: 'Could not load the channel. Try again in a moment.' };
+}
 
 // Resolve an invite code to a server: normal invite docs first, then partnered
 // vanity URLs stored on the server itself (e.g. serika.cc/my-community).
