@@ -16,8 +16,23 @@ import crypto from 'crypto';
 import { sanitizeSvgBuffer } from '../security/svgSanitizer';
 import { ContentBlockedError, scanUploadedImage } from '@/lib/services/trustSafety';
 import { sniffImageType } from '@/lib/safety/imageHash';
+import { bannerMaxBytes } from '@/lib/media/imageUploadLimits';
 
 export { ContentBlockedError };
+
+/**
+ * storage.upload refused the file before storing it (type not allowed for
+ * the category, or too large). The message is safe to show; routes answer
+ * with `status` instead of a 500.
+ */
+export class UploadRejectedError extends Error {
+  readonly status: 400 | 413;
+  constructor(message: string, status: 400 | 413) {
+    super(message);
+    this.name = 'UploadRejectedError';
+    this.status = status;
+  }
+}
 
 // Initialize S3 client for Backblaze B2
 const s3Client = new S3Client({
@@ -99,7 +114,7 @@ function validateFileType(category: UploadCategory, contentType: string): boolea
     backgrounds: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     nameplates: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
     emojis: ['image/jpeg', 'image/png', 'image/gif', 'image/webp'],
-    stickers: ['image/png', 'image/apng', 'image/gif', 'application/json'], // JSON for Lottie
+    stickers: ['image/png', 'image/apng', 'image/gif', 'image/webp', 'application/json'], // JSON for Lottie
     audio: ['audio/mpeg', 'audio/mp3', 'audio/wav', 'audio/x-wav', 'audio/ogg', 'audio/webm'],
   };
 
@@ -108,13 +123,15 @@ function validateFileType(category: UploadCategory, contentType: string): boolea
   return allowed.includes(contentType);
 }
 
-// Get max file size for category
-function getMaxSize(category: UploadCategory): number {
+// Get max file size for category. Banners: animated GIFs get the larger cap
+// (src/lib/media/imageUploadLimits.ts, the same rule the upload routes apply).
+function getMaxSize(category: UploadCategory, contentType: string): number {
+  const banner = bannerMaxBytes(contentType.toLowerCase().split(';')[0].trim(), config.MAX_BANNER_SIZE);
   const categorySizes: Record<UploadCategory, number> = {
     avatars: config.MAX_AVATAR_SIZE,
-    banners: config.MAX_BANNER_SIZE,
+    banners: banner,
     'server-icons': config.MAX_AVATAR_SIZE,
-    'server-banners': config.MAX_BANNER_SIZE,
+    'server-banners': banner,
     attachments: config.MAX_FILE_SIZE,
     emojis: 20 * 1024 * 1024, // 20MB
     stickers: 20 * 1024 * 1024, // 20MB
@@ -206,13 +223,13 @@ export class StorageService {
 
     // Validate file type
     if (!validateFileType(category, contentType)) {
-      throw new Error(`Invalid file type: ${contentType} is not allowed for ${category}`);
+      throw new UploadRejectedError(`Invalid file type: ${contentType} is not allowed for ${category}`, 400);
     }
 
     // Validate file size
-    const maxSize = getMaxSize(category);
+    const maxSize = getMaxSize(category, contentType);
     if (size > maxSize) {
-      throw new Error(`File too large: ${size} bytes exceeds maximum of ${maxSize} bytes for ${category}`);
+      throw new UploadRejectedError(`File too large. Maximum size is ${Math.round((maxSize / 1024 / 1024) * 10) / 10}MB.`, 413);
     }
 
     const secureFilename = generateSecureFilename(filename, category);

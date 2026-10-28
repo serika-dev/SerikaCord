@@ -14,12 +14,14 @@
 
 ### Bug Fixes
 - **Status rings always show** — the dark ring around the online, idle and Do Not Disturb icons on avatars no longer disappears with gradient or picture themes until you hover; it's always there, like on Discord.
+- **Big animated banners upload** — GIF profile, per-server and server banners between 10 MB and 50 MB now upload instead of failing with a server error, and a banner that is too big now says what the limit is.
 
 ### Performance
 
 ### Security
 
 - **Safer app emoji and image uploads** — application emojis added in the Developer Portal are now checked like server emojis (PNG, JPEG, GIF or WebP up to 256 KB, real image contents only, scanned by Trust & Safety and stored on the CDN), and app icons, App Directory covers and bot avatars and banners are checked by their actual contents instead of the file name or type the browser reports. Team icons can no longer be set to an embedded image or a link to another site. Existing emojis and images keep working.
+- **Avatar, banner, icon, emoji and sticker uploads are checked by their contents** — profile and server images are now accepted only when the file really is a PNG, JPEG, GIF or WebP image, whatever name or type the browser reports, and are stored with the real type.
 
 ### Removed
 

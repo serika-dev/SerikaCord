@@ -3,7 +3,8 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { Application, DeveloperTeam, AppWebhook, AppEmoji, User, WidgetConfig, type ITeamMember, type IApplication } from '@/lib/models';
 import * as crypto from 'crypto';
 import { config } from '@/lib/config';
-import { storage, ContentBlockedError } from '@/lib/services/storage';
+import { storage, ContentBlockedError, UploadRejectedError } from '@/lib/services/storage';
+import { checkImageUploadFor, imageTooLargeMessageFor, imageUploadCeiling } from '@/lib/media/imageUploadLimits';
 import { checkImageUpload, imageTooLargeMessage, type BotImageType } from '@/lib/botapi/imageData';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { adjustServerMemberCount } from '@/lib/services/serverMembership';
@@ -1464,14 +1465,15 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   const { file } = body as { file?: File };
   if (!file) { set.status = 400; return { error: 'No file provided' }; }
-  // GIF banners get the larger cap; whether it is a GIF comes from the bytes.
-  const gifBannerMax = 50 * 1024 * 1024;
-  const image = await readImageUpload(file, kind === 'banner' ? Math.max(gifBannerMax, config.MAX_BANNER_SIZE) : config.MAX_AVATAR_SIZE);
-  if (!image.ok) { set.status = 400; return { error: image.message }; }
-  if (kind === 'banner' && image.contentType !== 'image/gif' && image.data.length > config.MAX_BANNER_SIZE) {
-    set.status = 400;
-    return { error: imageTooLargeMessage(config.MAX_BANNER_SIZE) };
-  }
+  // Checked by its bytes. GIF banners get the animated cap; the limits are the
+  // ones storage.upload applies too (src/lib/media/imageUploadLimits.ts).
+  const sizes = { avatarMax: config.MAX_AVATAR_SIZE, bannerMax: config.MAX_BANNER_SIZE };
+  const limitKind = kind === 'banner' ? 'banner' : 'avatar';
+  if (file.size > imageUploadCeiling(limitKind, sizes)) { set.status = 413; return { error: imageTooLargeMessageFor(limitKind, sizes) }; }
+  const data = Buffer.from(await file.arrayBuffer());
+  const checked = checkImageUploadFor(data, limitKind, sizes);
+  if (!checked.ok) { set.status = checked.status; return { error: checked.message }; }
+  const image = { data, contentType: checked.contentType, ext: checked.ext };
 
   try {
     const current = kind === 'banner' ? botUser.banner : botUser.avatar;
@@ -1495,6 +1497,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     return { success: true, url: result.url };
   } catch (error: unknown) {
     if (error instanceof ContentBlockedError) { set.status = 403; return { error: error.message }; }
+    if (error instanceof UploadRejectedError) { set.status = error.status; return { error: error.message }; }
     const message = error instanceof Error ? error.message : `Failed to upload ${kind}`;
     console.error(`Bot ${kind} upload error:`, error);
     set.status = 500;

@@ -1,7 +1,9 @@
 import { Elysia, t } from 'elysia';
 import { checkAttachmentWhitelist, storedAttachmentType } from '@/lib/chat/uploadPolicy';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
-import { storage, keyFromUrl, ContentBlockedError } from '@/lib/services/storage';
+import { storage, keyFromUrl, ContentBlockedError, UploadRejectedError, type UploadCategory } from '@/lib/services/storage';
+import { checkImageUploadFor, imageTooLargeMessageFor, imageUploadCeiling, type ImageSizeConfig, type ImageUploadKind } from '@/lib/media/imageUploadLimits';
+import type { BotImageType } from '@/lib/botapi/imageData';
 import { sniffImageType } from '@/lib/safety/imageHash';
 import { ATTACHMENT_BLOB_NAME_RE, ATTACHMENT_BLOB_TYPE, hasAttachmentMagic } from '@/lib/e2ee';
 import { e2eeEnabled } from '@/lib/services/e2ee';
@@ -39,9 +41,42 @@ function cleanupOldMedia(oldUrl: string | null | undefined, newUrl: string, owne
   void storage.delete(oldKey).catch((e) => console.error('Failed to delete replaced media:', e));
 }
 
-// Type guard for file validation
-function isValidImageType(type: string): type is "image/jpeg" | "image/png" | "image/gif" | "image/webp" {
-  return config.ALLOWED_IMAGE_TYPES.includes(type as typeof config.ALLOWED_IMAGE_TYPES[number]);
+const imageSizeConfig = (): ImageSizeConfig => ({ avatarMax: config.MAX_AVATAR_SIZE, bannerMax: config.MAX_BANNER_SIZE });
+
+type CheckedImage = { data: Buffer; contentType: BotImageType; ext: string };
+
+/**
+ * Read a multipart image upload and check it by its bytes
+ * (src/lib/media/imageUploadLimits.ts): PNG / JPEG / GIF / WebP only, with
+ * the size limit of the type the bytes really are (GIF banners get the
+ * animated cap). The declared type and file name are never trusted, so an
+ * HTML or SVG file sent as image/png is refused, and the caller stores the
+ * sniffed type under a generated name with a matching extension.
+ */
+async function readCheckedImage(file: File, kind: ImageUploadKind): Promise<({ ok: true } & CheckedImage) | { ok: false; status: 400 | 413; message: string }> {
+  const cfg = imageSizeConfig();
+  if (file.size > imageUploadCeiling(kind, cfg)) return { ok: false, status: 413, message: imageTooLargeMessageFor(kind, cfg) };
+  const data = Buffer.from(await file.arrayBuffer());
+  const checked = checkImageUploadFor(data, kind, cfg);
+  if (!checked.ok) return checked;
+  return { ok: true, data, contentType: checked.contentType, ext: checked.ext };
+}
+
+/** storage.upload for a checked image (Trust & Safety scan runs inside). */
+function storeCheckedImage(
+  image: CheckedImage,
+  category: UploadCategory,
+  name: string,
+  opts: { ip?: string; userId?: string; scanUserId?: string; serverId?: string },
+) {
+  return storage.upload({
+    category,
+    contentType: image.contentType,
+    data: image.data,
+    size: image.data.length,
+    filename: `${name}.${image.ext}`,
+    ...opts,
+  });
 }
 
 /**
@@ -108,8 +143,13 @@ function tooLargeError(maxSize: number, premium: boolean): string {
   return `File too large. The maximum size is ${maxMB >= 1024 ? `${maxMB / 1024}GB` : `${maxMB}MB`}${premium ? ' (Serika+)' : ', or more with Serika+'}.`;
 }
 
-/** Blocked by Trust & Safety scanning → 403 (the message is safe to show); otherwise 500. */
-const uploadErrorStatus = (error: unknown) => (error instanceof ContentBlockedError ? 403 : 500);
+/**
+ * Blocked by Trust & Safety scanning → 403, refused by storage (type / size)
+ * → its 400 / 413; both messages are safe to show. Otherwise 500.
+ */
+const uploadErrorStatus = (error: unknown) => (
+  error instanceof ContentBlockedError ? 403 : error instanceof UploadRejectedError ? error.status : 500
+);
 
 export interface StoredChatAttachment {
   id: string;
@@ -199,24 +239,15 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    // Validate file type
-    if (!isValidImageType(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-
-    // Validate file size
-    if (file.size > config.MAX_AVATAR_SIZE) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
+    const image = await readCheckedImage(file, 'avatar');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
       // Upload new avatar
-      const result = await storage.uploadFromFormData(file, 'avatars', {
-        ip: getClientIP(request),
-        userId: user.id,
-      });
+      const result = await storeCheckedImage(image, 'avatars', 'avatar', { ip, userId: user.id });
 
       // Update user, mirroring the change to the accounts service
       await User.updateById(user.id, { avatar: result.url });
@@ -268,28 +299,16 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       set.status = 400;
       return { error: 'No file provided' };
     }
-    if (!isValidImageType(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-    if (file.size > config.MAX_BANNER_SIZE) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${config.MAX_BANNER_SIZE / 1024 / 1024}MB.` };
+    const image = await readCheckedImage(file, 'appearance');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
-      // The stored name's extension comes from the checked type, never the
+      // The stored name's extension comes from the sniffed type, never the
       // client's filename, so the URL always matches the appearance URL rule.
-      const ext = file.type === 'image/jpeg' ? 'jpg' : file.type.slice('image/'.length);
-      const result = await storage.upload({
-        category,
-        contentType: file.type,
-        data: Buffer.from(await file.arrayBuffer()),
-        size: file.size,
-        filename: `image.${ext}`,
-        userId: user.id,
-        ip,
-      });
+      const result = await storeCheckedImage(image, category, 'image', { ip, userId: user.id });
       return { success: true, url: result.url };
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Failed to upload image';
@@ -336,25 +355,16 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    // Validate file type
-    if (!isValidImageType(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-
-    // Validate file size (GIFs get a higher limit to preserve animation)
-    const maxBannerSize = file.type === 'image/gif' ? 50 * 1024 * 1024 : config.MAX_BANNER_SIZE;
-    if (file.size > maxBannerSize) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${maxBannerSize / 1024 / 1024}MB.` };
+    // Checked by its bytes; GIFs get a higher limit to preserve animation.
+    const image = await readCheckedImage(file, 'banner');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
       // Upload new banner
-      const result = await storage.uploadFromFormData(file, 'banners', {
-        ip: getClientIP(request),
-        userId: user.id,
-      });
+      const result = await storeCheckedImage(image, 'banners', 'banner', { ip, userId: user.id });
 
       // Update user, mirroring the change to the accounts service
       await User.updateById(user.id, { banner: result.url });
@@ -404,22 +414,14 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    if (!isValidImageType(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-
-    if (file.size > config.MAX_AVATAR_SIZE) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
+    const image = await readCheckedImage(file, 'avatar');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
-      const result = await storage.uploadFromFormData(file, 'avatars', {
-        ip: getClientIP(request),
-        userId: user.id,
-        serverId: params.serverId,
-      });
+      const result = await storeCheckedImage(image, 'avatars', 'avatar', { ip, userId: user.id, serverId: params.serverId });
 
       await ServerMember.updateById(member.id, { avatar: result.url });
       cleanupOldMedia(member.avatar, result.url, `avatars/${params.serverId}/${user.id}/`);
@@ -471,24 +473,15 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    if (!isValidImageType(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-
-    // Validate file size (GIFs get a higher limit to preserve animation)
-    const maxMemberBannerSize = file.type === 'image/gif' ? 50 * 1024 * 1024 : config.MAX_BANNER_SIZE;
-    if (file.size > maxMemberBannerSize) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${maxMemberBannerSize / 1024 / 1024}MB.` };
+    // Checked by its bytes; GIFs get a higher limit to preserve animation.
+    const image = await readCheckedImage(file, 'banner');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
-      const result = await storage.uploadFromFormData(file, 'banners', {
-        ip: getClientIP(request),
-        userId: user.id,
-        serverId: params.serverId,
-      });
+      const result = await storeCheckedImage(image, 'banners', 'banner', { ip, userId: user.id, serverId: params.serverId });
 
       await ServerMember.updateById(member.id, { banner: result.url });
       cleanupOldMedia(member.banner, result.url, `banners/${params.serverId}/${user.id}/`);
@@ -546,25 +539,15 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    // Validate file type
-    if (!isValidImageType(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-
-    // Validate file size
-    if (file.size > config.MAX_AVATAR_SIZE) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
+    const image = await readCheckedImage(file, 'avatar');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
       // Upload new icon
-      const result = await storage.uploadFromFormData(file, 'server-icons', {
-        ip: getClientIP(request),
-        scanUserId: user.id,
-        serverId: params.serverId,
-      });
+      const result = await storeCheckedImage(image, 'server-icons', 'icon', { ip, scanUserId: user.id, serverId: params.serverId });
 
       // Update server
       await Server.updateById(server.id, { icon: result.url });
@@ -623,24 +606,15 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    if (!isValidImageType(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-
-    // Validate file size (GIFs get a higher limit to preserve animation)
-    const maxServerBannerSize = file.type === 'image/gif' ? 50 * 1024 * 1024 : config.MAX_BANNER_SIZE;
-    if (file.size > maxServerBannerSize) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${maxServerBannerSize / 1024 / 1024}MB.` };
+    // Checked by its bytes; GIFs get a higher limit to preserve animation.
+    const image = await readCheckedImage(file, 'banner');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
-      const result = await storage.uploadFromFormData(file, 'server-banners', {
-        ip: getClientIP(request),
-        scanUserId: user.id,
-        serverId: params.serverId,
-      });
+      const result = await storeCheckedImage(image, 'server-banners', 'banner', { ip, scanUserId: user.id, serverId: params.serverId });
 
       await Server.updateById(server.id, { banner: result.url });
       cleanupOldMedia(server.banner, result.url, `server-banners/${params.serverId}/`);
@@ -916,24 +890,15 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    const allowedTypes = ['image/png', 'image/apng', 'image/gif', 'image/webp'];
-    if (!allowedTypes.includes(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Stickers must be PNG/APNG/GIF/WebP.' };
-    }
-
-    const MAX_STICKER_SIZE = 20 * 1024 * 1024;
-    if (file.size > MAX_STICKER_SIZE) {
-      set.status = 400;
-      return { error: 'Sticker must be less than 20MB.' };
+    // PNG (APNG is stored as image/png) / GIF / WebP, by the bytes.
+    const image = await readCheckedImage(file, 'sticker');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
-      const result = await storage.uploadFromFormData(file, 'stickers', {
-        ip: getClientIP(request),
-        serverId: params.serverId,
-        userId: user.id,
-      });
+      const result = await storeCheckedImage(image, 'stickers', 'sticker', { ip, serverId: params.serverId, userId: user.id });
 
       return {
         success: true,
@@ -976,24 +941,15 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'No file provided' };
     }
 
-    // Validate file type (emoji can be PNG, GIF, JPEG, WebP)
-    if (!isValidImageType(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-
-    // Validate file size (20MB max for emoji)
-    const MAX_EMOJI_SIZE = 20 * 1024 * 1024;
-    if (file.size > MAX_EMOJI_SIZE) {
-      set.status = 400;
-      return { error: 'Emoji must be less than 20MB.' };
+    // Emoji can be PNG, GIF, JPEG or WebP (by the bytes), 20MB max.
+    const image = await readCheckedImage(file, 'emoji');
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
 
     try {
-      const result = await storage.uploadFromFormData(file, 'emojis', {
-        ip: getClientIP(request),
-        userId: user.id,
-      });
+      const result = await storeCheckedImage(image, 'emojis', 'emoji', { ip, userId: user.id });
 
       return {
         success: true,
