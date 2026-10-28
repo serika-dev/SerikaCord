@@ -3,6 +3,8 @@
 import type { ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { usePathname } from "next/navigation";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import { TitleTooltips } from "./TitleTooltips";
 
 // Loaded only on app routes, so the landing and auth pages don't ship the
 // server/chat state code.
@@ -18,6 +20,12 @@ const AppShellProviders = dynamic(() => import("./AppShellProviders"));
 export function AppProviders({ children }: { children: ReactNode }) {
   const pathname = usePathname() || "";
   const inApp = /^\/(channels|dm)(\/|$)/.test(pathname);
-  if (!inApp) return <>{children}</>;
-  return <AppShellProviders>{children}</AppShellProviders>;
+  // One tooltip delay group for every page (the first tooltip waits a beat,
+  // neighbours then open instantly), plus the global native-`title` upgrade.
+  return (
+    <TooltipProvider>
+      {inApp ? <AppShellProviders>{children}</AppShellProviders> : children}
+      <TitleTooltips />
+    </TooltipProvider>
+  );
 }

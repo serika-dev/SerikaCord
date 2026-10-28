@@ -5,7 +5,6 @@ import { ServerProvider } from "@/contexts/ServerContext";
 import { ServerThemeSync } from "@/components/boot/ServerThemeSync";
 import { UnreadProvider } from "@/contexts/UnreadContext";
 import { ConfirmProvider } from "@/components/ui/confirm-dialog";
-import { TooltipProvider } from "@/components/ui/tooltip";
 import { NotificationHosts } from "@/components/notifications/NotificationHosts";
 import { NativeAppBridge } from "@/components/native/NativeAppBridge";
 import { ForwardDialogHost } from "@/components/chat/ForwardDialogHost";
@@ -67,14 +66,11 @@ export default function AppShellProviders({ children }: { children: ReactNode })
     <ServerProvider>
       <UnreadProvider>
         <ConfirmProvider>
-          {/* One tooltip delay group for the app: the first tooltip waits a
-              beat, moving along a row of icons then shows each instantly. */}
-          <TooltipProvider delayDuration={200} skipDelayDuration={400}>
-            {/* One app shell for /channels/* and /dm/*: switching between a
-                DM and a server keeps the sidebars, voice audio and dialogs
-                mounted and only swaps the page. */}
-            <ChannelsLayoutClient>{children}</ChannelsLayoutClient>
-          </TooltipProvider>
+          {/* One app shell for /channels/* and /dm/*: switching between a
+              DM and a server keeps the sidebars, voice audio and dialogs
+              mounted and only swaps the page. (The tooltip delay group is
+              app-wide, in AppProviders.) */}
+          <ChannelsLayoutClient>{children}</ChannelsLayoutClient>
           <ServerThemeSync />
           <NotificationHosts />
           <ForwardDialogHost />

@@ -975,17 +975,20 @@ html.native-app body {
   --motion-ease-standard: cubic-bezier(0.2, 0.8, 0.2, 1);
   --motion-ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
 
-  /* Tooltip surface: a dark chip in every dark theme, a white card in light. */
-  --tooltip-bg: color-mix(in srgb, var(--app-bg) 70%, #000000 30%);
+  /* Tooltip surface: the theme's solid card colour lifted a touch toward the
+     raised surface, so it reads on gradient / image themes too (the *-solid
+     tokens never carry alpha). Shared by the Radix Tooltip and the global
+     `title` upgrade (.tooltip-surface below). */
+  --tooltip-bg: color-mix(in srgb, var(--bg-card-solid) 78%, var(--app-surface-alt-solid) 22%);
   --tooltip-fg: var(--app-text);
-  --tooltip-border: color-mix(in srgb, var(--app-border) 70%, transparent);
-  --tooltip-shadow: 0 6px 20px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.3);
+  --tooltip-muted: var(--app-muted);
+  --tooltip-border: color-mix(in srgb, var(--app-border) 82%, var(--app-text) 18%);
+  --tooltip-shadow: 0 10px 28px -6px rgba(0, 0, 0, 0.55), 0 2px 6px rgba(0, 0, 0, 0.28);
 }
 .theme-light {
-  --tooltip-bg: #ffffff;
-  --tooltip-fg: var(--app-text);
+  --tooltip-bg: var(--bg-card-solid);
   --tooltip-border: var(--app-border);
-  --tooltip-shadow: 0 8px 24px rgba(23, 35, 58, 0.14), 0 1px 3px rgba(23, 35, 58, 0.1);
+  --tooltip-shadow: 0 10px 28px -6px rgba(23, 35, 58, 0.2), 0 2px 6px rgba(23, 35, 58, 0.08);
 }
 @media (prefers-reduced-motion: reduce) {
   :root {
@@ -1026,6 +1029,136 @@ html.reduce-motion {
 }
 [data-slot="tooltip-content"] {
   animation-duration: var(--motion-fast, 150ms);
+}
+
+/* ─── Tooltips ───
+   One look for the Radix Tooltip (default variant) and the global `title`
+   upgrade (components/boot/TitleTooltips). In @layer components so a caller's
+   Tailwind utilities (px-3, max-w-xs, ...) still win. */
+@layer components {
+  .tooltip-surface {
+    max-width: min(280px, calc(100vw - 1.5rem));
+    padding: 0.375rem 0.625rem;
+    border: 1px solid var(--tooltip-border);
+    border-radius: 0.5rem;
+    background-color: var(--tooltip-bg);
+    color: var(--tooltip-fg);
+    box-shadow: var(--tooltip-shadow);
+    font-size: 0.8125rem;
+    font-weight: 500;
+    line-height: 1.35;
+    letter-spacing: 0.005em;
+    text-wrap: balance;
+    overflow-wrap: anywhere;
+    --tooltip-arrow: var(--tooltip-bg);
+  }
+  .tooltip-body {
+    display: flex;
+    flex-direction: column;
+    gap: 0.125rem;
+  }
+  .tooltip-label-row {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .tooltip-label {
+    min-width: 0;
+  }
+  .tooltip-secondary {
+    color: var(--tooltip-muted);
+    font-size: 0.75rem;
+    font-weight: 400;
+  }
+  .tooltip-kbd-row {
+    display: inline-flex;
+    flex-shrink: 0;
+    align-items: center;
+    gap: 0.1875rem;
+    margin-inline-start: auto;
+  }
+  .tooltip-kbd {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 1.25rem;
+    height: 1.125rem;
+    padding: 0 0.3125rem;
+    border: 1px solid color-mix(in srgb, var(--tooltip-fg) 16%, transparent);
+    border-radius: 0.3125rem;
+    background-color: color-mix(in srgb, var(--tooltip-fg) 8%, transparent);
+    box-shadow: inset 0 -1px 0 color-mix(in srgb, var(--tooltip-fg) 14%, transparent);
+    color: var(--tooltip-muted);
+    font-family: inherit;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    line-height: 1;
+    white-space: nowrap;
+  }
+}
+
+/* Arrow: fill matches the surface and covers the 1px border seam; the two
+   slanted sides carry the border colour. */
+.tooltip-arrow {
+  overflow: visible;
+  translate: 0 -1px;
+}
+.tooltip-arrow-fill {
+  fill: var(--tooltip-arrow, var(--tooltip-bg));
+}
+.tooltip-arrow-edge {
+  fill: none;
+  stroke: var(--tooltip-arrow-border, var(--tooltip-border));
+  stroke-width: 1px;
+}
+/* Moving between tooltips inside the skip-delay window: no re-animation. */
+[data-slot="tooltip-content"][data-state="instant-open"] {
+  animation: none;
+}
+
+/* Global `title` tooltip (one fixed element, positioned from JS). */
+.title-tooltip {
+  position: fixed;
+  top: 0;
+  left: 0;
+  z-index: 2147483000;
+  width: max-content;
+  white-space: pre-line;
+  pointer-events: none;
+  user-select: none;
+}
+.title-tooltip[hidden] {
+  display: none;
+}
+.title-tooltip[data-animate] {
+  animation: title-tooltip-in var(--motion-fast, 150ms) var(--motion-ease-out, ease-out);
+}
+.title-tooltip .title-tooltip-arrow {
+  position: absolute;
+  width: 12px;
+  height: 6px;
+  display: block;
+  overflow: visible;
+}
+/* --tt-arrow is the arrow centre from the tooltip's outer edge (set from JS);
+   offsets are from the padding box, so the fill sits over the border line. */
+.title-tooltip[data-side="top"] .title-tooltip-arrow { top: 100%; left: calc(var(--tt-arrow, 50%) - 7px); }
+.title-tooltip[data-side="bottom"] .title-tooltip-arrow { bottom: 100%; left: calc(var(--tt-arrow, 50%) - 7px); rotate: 180deg; }
+.title-tooltip[data-side="left"] .title-tooltip-arrow { left: calc(100% - 3px); top: calc(var(--tt-arrow, 50%) - 4px); rotate: -90deg; }
+.title-tooltip[data-side="right"] .title-tooltip-arrow { left: -9px; top: calc(var(--tt-arrow, 50%) - 4px); rotate: 90deg; }
+@keyframes title-tooltip-in {
+  from {
+    opacity: 0;
+    transform: translate(var(--tt-dx, 0), var(--tt-dy, 2px)) scale(0.96);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .title-tooltip[data-animate] {
+    animation: none;
+  }
+}
+html.reduce-motion .title-tooltip[data-animate] {
+  animation: none;
 }
 
 /* ─── Settings (user + server settings dialogs) ─── */

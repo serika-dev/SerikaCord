@@ -11,6 +11,7 @@
 ### Changes
 
 - **Long command lists on bot pages start collapsed** — a bot page now shows the first 8 commands with a "View all" button instead of one very long list, and bots with more than 12 commands get a filter box that searches command names and descriptions.
+- **Nicer tooltips** — tooltips are a little more polished (solid themed surface that stays readable on gradient themes, soft border and shadow, matching arrow, quick fade-in, keyboard shortcuts shown as keycaps), and the plain browser tooltips on icons, badges, timestamps and buttons across the app now use the same style.
 
 ### Bug Fixes
 - **Status rings always show** — the dark ring around the online, idle and Do Not Disturb icons on avatars no longer disappears with gradient or picture themes until you hover; it's always there, like on Discord.
