@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { Camera, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Loader } from "@/components/ui/Loader";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 import { GROUP_DM_NAME_MAX } from "@/lib/chat/groupDm";
 import { GroupDmIcon, type GroupIconMember } from "./GroupDmIcon";
 
@@ -37,6 +38,7 @@ export function EditGroupDmDialog({
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cropper = useImageCropper();
 
   const save = async () => {
     if (saving) return;
@@ -63,15 +65,17 @@ export function EditGroupDmDialog({
     }
   };
 
-  const uploadIcon = async (file: File) => {
-    if (!IMAGE_TYPES.includes(file.type)) {
+  const uploadIcon = async (picked: File) => {
+    if (!IMAGE_TYPES.includes(picked.type)) {
       toast.error(gt("Only JPEG, PNG, GIF and WebP images can be used."));
       return;
     }
+    const file = await cropper.prepare(picked, "groupIcon");
+    if (!file) return;
     setUploading(true);
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", file, file.name);
       const res = await fetch(`/api/group-dms/${channelId}/icon`, { method: "POST", body: form });
       const data = await res.json().catch(() => null);
       if (!res.ok) toast.error(data?.error || gt("Couldn't change the group icon"));
@@ -146,6 +150,7 @@ export function EditGroupDmDialog({
               if (file) void uploadIcon(file);
             }}
           />
+          {cropper.element}
         </div>
 
         <label className="flex flex-col gap-1.5">

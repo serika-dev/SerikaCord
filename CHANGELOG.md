@@ -22,6 +22,7 @@
 - **Better bot profiles** — a bot's profile card now says whether it is a verified or official app, with an "Add to Server" button for public bots and a link to its page in the bot library.
 - **Bot pages show more at a glance** — each /bots page has a summary card with the server count, verification status and creation date.
 - **Staff bot tools** — staff can find any app (listed or not, by name, username or ID), verify any bot directly whatever its server count, mark apps as official, feature, delist and fix a listing's description, categories and tags. Every action asks for confirmation and is written to the activity log.
+- **Crop every uploaded image to fit** — avatars, profile and server banners, nameplates, app backgrounds, server and group icons, emoji, stickers, role icons, event covers, webhook avatars and the app and bot images in the Developer Portal now open a crop window when the picture isn't the right shape, so nothing gets stretched or cut off at random. Drag, pinch or scroll to zoom, rotate, and see the exact circle or strip it will be shown in; it works full screen on phones. Pictures that already fit upload as they are, very large ones are scaled down for you, and animated GIFs keep their animation unless you choose to crop them into a still image.
 
 ### Changes
 - **Nicer spoilers** — spoilered images and videos have a stronger blur and a clear SPOILER pill, and they look the same whether a person or a bot or webhook posted them.

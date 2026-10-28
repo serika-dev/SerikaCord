@@ -7,6 +7,7 @@ import { Copy, Check, Save, Upload, Trash2, Hash, FileText, Tag, Shield } from "
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 
 export default function InformationPage() {
   const gt = useGT();
@@ -21,6 +22,7 @@ export default function InformationPage() {
   const [uploadingIcon, setUploadingIcon] = useState(false);
   const [applyingVerification, setApplyingVerification] = useState(false);
   const iconInputRef = useRef<HTMLInputElement>(null);
+  const cropper = useImageCropper();
 
   useEffect(() => {
     if (app) {
@@ -49,11 +51,13 @@ export default function InformationPage() {
     }
   };
 
-  const handleIconUpload = async (file: File) => {
+  const handleIconUpload = async (picked: File) => {
+    const file = await cropper.prepare(picked, "appIcon");
+    if (!file) return;
     setUploadingIcon(true);
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", file, file.name);
       const res = await fetch(`/api/developers/applications/${appId}/icon`, {
         method: "POST",
         body: form,
@@ -163,6 +167,7 @@ export default function InformationPage() {
                 className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleIconUpload(f); e.target.value = ""; }}
               />
+              {cropper.element}
               {displayIcon && (
                 <button
                   onClick={handleRemoveIcon}

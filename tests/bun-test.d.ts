@@ -23,6 +23,7 @@ declare module "bun:test" {
     toBeLessThan(expected: number | bigint): void;
     toBeGreaterThanOrEqual(expected: number | bigint): void;
     toBeLessThanOrEqual(expected: number | bigint): void;
+    toBeCloseTo(expected: number, numDigits?: number): void;
     toMatch(expected: RegExp | string): void;
     toThrow(expected?: unknown): void;
     toBeInstanceOf(expected: unknown): void;

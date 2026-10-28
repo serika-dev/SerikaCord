@@ -7,6 +7,7 @@ import { useGT } from "gt-next";
 import { RoleIcon } from "@/components/chat/RoleIcon";
 import { isValidUnicodeEmoji } from "@/lib/roles/roleIcon";
 import { Loader } from "@/components/ui/Loader";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 
 const MAX_ROLE_ICON_BYTES = 256 * 1024;
 const QUICK_EMOJIS = ["⭐", "🛡️", "👑", "🔥", "💎", "🎨", "🎮", "🎵", "🌸", "⚡", "🤖", "❤️"];
@@ -34,12 +35,15 @@ export function RoleIconEditor({
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
   const [emojiInput, setEmojiInput] = useState("");
+  const cropper = useImageCropper();
 
-  const upload = async (file: File) => {
-    if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(file.type)) {
+  const upload = async (picked: File) => {
+    if (!["image/png", "image/jpeg", "image/gif", "image/webp"].includes(picked.type)) {
       toast.error(gt("Role icons must be PNG, JPEG, GIF or WebP images"));
       return;
     }
+    const file = await cropper.prepare(picked, "roleIcon");
+    if (!file) return;
     if (file.size > MAX_ROLE_ICON_BYTES) {
       toast.error(gt("Role icons must be smaller than 256 KB"));
       return;
@@ -47,7 +51,7 @@ export function RoleIconEditor({
     setUploading(true);
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", file, file.name);
       const res = await fetch("/api/upload/emoji", { method: "POST", body: form });
       const data = await res.json().catch(() => null);
       if (!res.ok || !data?.url) throw new Error(data?.error || gt("Failed to upload role icon"));
@@ -105,6 +109,7 @@ export function RoleIconEditor({
               if (file) void upload(file);
             }}
           />
+          {cropper.element}
           <button
             type="button"
             disabled={disabled || uploading}

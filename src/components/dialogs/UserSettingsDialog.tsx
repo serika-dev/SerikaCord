@@ -39,7 +39,7 @@ import { NotificationsPage } from "@/components/settings/user/NotificationsPage"
 import { AppearancePage } from "@/components/settings/user/AppearancePage";
 import { DisplayNameStyleEditor, NameplateEditor, ProfileColourEditor } from "@/components/settings/user/ProfileStyleEditors";
 import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
-import { ImageCropper } from "@/components/ui/image-cropper";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 import { ProfileCard } from "@/components/user/ProfileCard";
 import {
   User,
@@ -436,9 +436,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const bannerInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
-  const [cropperOpen, setCropperOpen] = useState(false);
-  const [cropperImage, setCropperImage] = useState<string>("");
-  const [cropperType, setCropperType] = useState<"avatar" | "banner">("avatar");
+  const cropper = useImageCropper();
 
   // Admin state
   const [adminUserSearch, setAdminUserSearch] = useState("");
@@ -1073,8 +1071,10 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     return { lines, isCanary, isProd, environment, isTauri };
   }, []);
 
-  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Pick → crop when the shape is off (animated images may skip it) → upload.
+  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>, kind: "avatar" | "banner") => {
     const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file) return;
 
     if (!file.type.startsWith("image/")) {
@@ -1082,102 +1082,25 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
       return;
     }
 
-    if (file.size > 8 * 1024 * 1024) {
-      toast.error(gt("Image must be less than 8MB"));
-      return;
-    }
+    const ready = await cropper.prepare(file, kind === "avatar" ? "avatar" : "profileBanner");
+    if (!ready) return;
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCropperImage(reader.result as string);
-      setCropperType("avatar");
-      setCropperOpen(true);
-    };
-    reader.readAsDataURL(file);
-
-    if (avatarInputRef.current) {
-      avatarInputRef.current.value = "";
-    }
-  };
-
-  const handleBannerSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error(gt("Please select an image file"));
-      return;
-    }
-
-    // GIFs bypass the cropper to preserve animation
-    if (file.type === "image/gif") {
-      if (file.size > 50 * 1024 * 1024) {
+    if (kind === "banner" && ready.type === "image/gif") {
+      if (ready.size > 50 * 1024 * 1024) {
         toast.error(gt("GIF must be less than 50MB"));
         return;
       }
-      handleGifBannerUpload(file);
-      if (bannerInputRef.current) {
-        bannerInputRef.current.value = "";
-      }
-      return;
-    }
-
-    if (file.size > 8 * 1024 * 1024) {
+    } else if (ready.size > 8 * 1024 * 1024) {
       toast.error(gt("Image must be less than 8MB"));
       return;
     }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCropperImage(reader.result as string);
-      setCropperType("banner");
-      setCropperOpen(true);
-    };
-    reader.readAsDataURL(file);
-
-    if (bannerInputRef.current) {
-      bannerInputRef.current.value = "";
-    }
+    void handleCropComplete(kind, ready);
   };
+  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => void handleImageSelect(e, "avatar");
+  const handleBannerSelect = (e: React.ChangeEvent<HTMLInputElement>) => void handleImageSelect(e, "banner");
 
-  const handleGifBannerUpload = async (file: File) => {
-    const isAvatar = false;
-    let endpoint = "/api/upload/banner";
-    if (profileTab === "server" && selectedServerId) {
-      endpoint = `/api/upload/server/${selectedServerId}/member-banner`;
-    }
-
-    setIsUploadingBanner(true);
-    const formData = new FormData();
-    formData.append("file", file, file.name);
-
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (profileTab === "main") {
-          updateUser({ banner: data.url });
-        } else {
-          setServerBanner(data.url);
-        }
-        toast.success(gt("Banner updated!"));
-        void refresh();
-      } else {
-        const data = await response.json();
-        toast.error(data.error || gt("Failed to upload banner"));
-      }
-    } catch {
-      toast.error(gt("Failed to upload banner"));
-    } finally {
-      setIsUploadingBanner(false);
-    }
-  };
-
-  const handleCropComplete = async (croppedBlob: Blob) => {
+  const handleCropComplete = async (cropperType: "avatar" | "banner", croppedBlob: File) => {
     const isAvatar = cropperType === "avatar";
     const setUploading = isAvatar ? setIsUploadingAvatar : setIsUploadingBanner;
     
@@ -1190,7 +1113,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
     setUploading(true);
     const formData = new FormData();
-    formData.append("file", croppedBlob, `${cropperType}.png`);
+    formData.append("file", croppedBlob, croppedBlob.name);
 
     // Optimistically show the cropped image immediately from a local object URL
     // so the preview updates instantly instead of waiting on the network round
@@ -3553,21 +3476,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         </SettingsContent>
       </div>
 
-      {/* Image Cropper */}
-      <ImageCropper
-        open={cropperOpen}
-        onOpenChange={setCropperOpen}
-        imageUrl={cropperImage}
-        aspectRatio={cropperType === "avatar" ? 1 : 3}
-        onCropComplete={handleCropComplete}
-        title={cropperType === "avatar" ? gt("Crop Avatar") : gt("Crop Banner")}
-        description={
-          cropperType === "avatar"
-            ? gt("Adjust the crop area to select the portion of the image for your avatar.")
-            : gt("Adjust the crop area to select the portion of the image for your profile banner.")
-        }
-        circular={cropperType === "avatar"}
-      />
+      {cropper.element}
     </div>
   );
 }

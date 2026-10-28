@@ -5,6 +5,7 @@ import { useGT } from "gt-next";
 import { toast } from "sonner";
 import { ImagePlus, Loader2 } from "lucide-react";
 import { uploadAppearanceImage } from "@/lib/appearance/uploadAppearanceImage";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 
 /**
  * Nameplate "Image" option (CORD-44): uploads through
@@ -15,8 +16,13 @@ export function NameplateImagePicker({ hasImage, onUploaded }: { hasImage: boole
   const gt = useGT();
   const fileRef = useRef<HTMLInputElement>(null);
   const [uploading, setUploading] = useState(false);
+  const cropper = useImageCropper();
 
-  const onPick = async (file: File | undefined) => {
+  const onPick = async (picked: File | undefined) => {
+    if (fileRef.current) fileRef.current.value = "";
+    if (!picked) return;
+    // Crop to the nameplate strip so it isn't squashed or cut off at random.
+    const file = await cropper.prepare(picked, "nameplate");
     if (!file) return;
     setUploading(true);
     try {
@@ -25,7 +31,6 @@ export function NameplateImagePicker({ hasImage, onUploaded }: { hasImage: boole
       toast.error(gt("Upload failed: {error}", { error: error instanceof Error ? error.message : "" }));
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
@@ -38,6 +43,7 @@ export function NameplateImagePicker({ hasImage, onUploaded }: { hasImage: boole
         className="hidden"
         onChange={(e) => void onPick(e.target.files?.[0])}
       />
+      {cropper.element}
       <button
         type="button"
         disabled={uploading}
@@ -47,7 +53,7 @@ export function NameplateImagePicker({ hasImage, onUploaded }: { hasImage: boole
         {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <ImagePlus className="w-3.5 h-3.5" />}
         {hasImage ? gt("Replace image") : gt("Upload image")}
       </button>
-      <span className="text-xs text-[var(--text-muted)]">{gt("JPEG, PNG, GIF or WebP. Wide images work best.")}</span>
+      <span className="text-xs text-[var(--text-muted)]">{gt("JPEG, PNG, GIF or WebP. You can crop it to fit.")}</span>
     </div>
   );
 }

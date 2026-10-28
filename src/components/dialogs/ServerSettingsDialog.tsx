@@ -9,7 +9,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ImageCropper } from "@/components/ui/image-cropper";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 import { toast } from "sonner";
 import {
   Settings,
@@ -345,9 +345,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
 
   // Image cropper state
-  const [cropperOpen, setCropperOpen] = useState(false);
-  const [cropperImage, setCropperImage] = useState<string>("");
-  const [cropperType, setCropperType] = useState<"icon" | "banner">("icon");
+  const cropper = useImageCropper();
 
   // Icon/banner are uploaded immediately (not part of the draft transaction)
   const [serverIcon, setServerIcon] = useState<string | null>(null);
@@ -781,39 +779,11 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     }
   }, [roles, selectedRoleId]);
 
-  const handleIconUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Pick → crop when the shape is off (animated images may skip it) → upload.
+  const handleServerImageSelect = async (e: React.ChangeEvent<HTMLInputElement>, kind: "icon" | "banner") => {
     const file = e.target.files?.[0];
-    if (!file || !currentServer) return;
-
-    // Validate file type
-    if (!file.type.startsWith("image/")) {
-      toast.error(gt("Please select an image file"));
-      return;
-    }
-
-    // Validate file size (8MB max)
-    if (file.size > 8 * 1024 * 1024) {
-      toast.error(gt("Image must be less than 8MB"));
-      return;
-    }
-
-    // Open cropper with the selected image
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCropperImage(reader.result as string);
-      setCropperType("icon");
-      setCropperOpen(true);
-    };
-    reader.readAsDataURL(file);
-
     // Clear input so the same file can be selected again
-    if (iconInputRef.current) {
-      iconInputRef.current.value = "";
-    }
-  };
-
-  const handleBannerUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+    e.target.value = "";
     if (!file || !currentServer) return;
 
     if (!file.type.startsWith("image/")) {
@@ -821,61 +791,25 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       return;
     }
 
-    // GIFs bypass the cropper to preserve animation
-    if (file.type === "image/gif") {
-      if (file.size > 50 * 1024 * 1024) {
+    const ready = await cropper.prepare(file, kind === "icon" ? "serverIcon" : "serverBanner");
+    if (!ready) return;
+
+    if (kind === "banner" && ready.type === "image/gif") {
+      if (ready.size > 50 * 1024 * 1024) {
         toast.error(gt("GIF must be less than 50MB"));
         return;
       }
-      setIsUploadingBanner(true);
-      const formData = new FormData();
-      formData.append("file", file, file.name);
-      try {
-        const response = await fetch(`/api/upload/server/${currentServer.id}/banner`, {
-          method: "POST",
-          body: formData,
-        });
-        if (response.ok) {
-          const data = await response.json();
-          setServerBanner(data.url);
-          toast.success(gt("Server banner updated!"));
-          await fetchServers();
-        } else {
-          const data = await response.json();
-          toast.error(data.error || gt("Failed to upload banner"));
-        }
-      } catch {
-        toast.error(gt("Failed to upload banner"));
-      } finally {
-        setIsUploadingBanner(false);
-      }
-      if (bannerInputRef.current) {
-        bannerInputRef.current.value = "";
-      }
-      return;
-    }
-
-    if (file.size > 8 * 1024 * 1024) {
+    } else if (ready.size > 8 * 1024 * 1024) {
       toast.error(gt("Image must be less than 8MB"));
       return;
     }
 
-    // Open cropper with the selected image
-    const reader = new FileReader();
-    reader.onload = () => {
-      setCropperImage(reader.result as string);
-      setCropperType("banner");
-      setCropperOpen(true);
-    };
-    reader.readAsDataURL(file);
-
-    // Clear input
-    if (bannerInputRef.current) {
-      bannerInputRef.current.value = "";
-    }
+    await handleCropComplete(kind, ready);
   };
+  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => void handleServerImageSelect(e, "icon");
+  const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => void handleServerImageSelect(e, "banner");
 
-  const handleCropComplete = async (croppedBlob: Blob) => {
+  const handleCropComplete = async (cropperType: "icon" | "banner", croppedBlob: File) => {
     if (!currentServer) return;
 
     const isIcon = cropperType === "icon";
@@ -887,7 +821,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
 
     setUploading(true);
     const formData = new FormData();
-    formData.append("file", croppedBlob, `${cropperType}.png`);
+    formData.append("file", croppedBlob, croppedBlob.name);
 
     try {
       const response = await fetch(endpoint, {
@@ -1365,8 +1299,15 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       return;
     }
 
+    // Square it up (or fit it) and scale it to emoji size when needed
+    const ready = await cropper.prepare(file, "emoji");
+    if (!ready) {
+      e.target.value = "";
+      return;
+    }
+
     // Validate file size (256KB max for emoji)
-    if (file.size > 256 * 1024) {
+    if (ready.size > 256 * 1024) {
       toast.error(gt("Emoji must be less than 256KB"));
       return;
     }
@@ -1376,7 +1317,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
 
     setIsUploadingEmoji(true);
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", ready, ready.name);
 
     try {
       // First upload the image
@@ -1493,14 +1434,20 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
       return;
     }
 
-    if (file.size > 512 * 1024) {
+    const ready = await cropper.prepare(file, "sticker");
+    if (!ready) {
+      e.target.value = "";
+      return;
+    }
+
+    if (ready.size > 512 * 1024) {
       toast.error(gt("Sticker must be less than 512KB"));
       return;
     }
 
     const stickerName = file.name.replace(/\.[^/.]+$/, "").replace(/[^a-zA-Z0-9_ ]/g, "").trim().slice(0, 30) || "sticker";
     const formData = new FormData();
-    formData.append("file", file);
+    formData.append("file", ready, ready.name);
     setIsUploadingSticker(true);
 
     try {
@@ -3240,21 +3187,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
 
   const overlays = (
     <>
-      {/* Image Cropper */}
-      <ImageCropper
-        open={cropperOpen}
-        onOpenChange={setCropperOpen}
-        imageUrl={cropperImage}
-        aspectRatio={cropperType === "icon" ? 1 : 2}
-        onCropComplete={handleCropComplete}
-        title={cropperType === "icon" ? gt("Crop Server Icon") : gt("Crop Server Banner")}
-        description={
-          cropperType === "icon"
-            ? gt("Adjust the crop area to select the portion of the image for your server icon.")
-            : gt("Adjust the crop area to select the portion of the image for your server banner.")
-        }
-        circular={cropperType === "icon"}
-      />
+      {cropper.element}
 
       {/* Audio Trimmer (soundboard sounds over 30 seconds) */}
       <AudioTrimmerDialog

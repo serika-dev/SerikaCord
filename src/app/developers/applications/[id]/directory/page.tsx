@@ -6,6 +6,7 @@ import { AlertTriangle, BadgeCheck, Check, Circle, ExternalLink, ImagePlus, Save
 import { toast } from "sonner";
 import { useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { AppDirectoryCard, formatCount } from "@/components/apps/AppDirectoryCard";
 import { APP_CATEGORIES, appCategoryLabel, LISTING_LIMITS, type AppCategory } from "@/lib/appDirectory/listing";
@@ -105,6 +106,7 @@ export default function DirectoryPage() {
   const [applying, setApplying] = useState(false);
   const [newTag, setNewTag] = useState("");
   const coverInput = useRef<HTMLInputElement>(null);
+  const cropper = useImageCropper();
 
   const apply = useCallback((d: DirectoryData) => {
     setData(d);
@@ -181,11 +183,13 @@ export default function DirectoryPage() {
     } : { listed: false }, listed ? gt("Your app is now listed") : gt("Your app was removed from the directory"));
   };
 
-  const uploadCover = async (file: File) => {
+  const uploadCover = async (picked: File) => {
+    const file = await cropper.prepare(picked, "appCover");
+    if (!file) return;
     setUploading(true);
     try {
       const fd = new FormData();
-      fd.append("file", file);
+      fd.append("file", file, file.name);
       const res = await fetch(`/api/developers/applications/${appId}/cover`, { method: "POST", body: fd });
       const body = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(body.error || gt("Failed to upload cover image"));
@@ -504,6 +508,7 @@ export default function DirectoryPage() {
                   if (f) void uploadCover(f);
                 }}
               />
+              {cropper.element}
               <button type="button" onClick={() => coverInput.current?.click()} disabled={uploading} className="inline-flex items-center gap-1.5 rounded-md border border-white/[0.1] px-3 py-1.5 text-xs hover:bg-white/[0.04] disabled:opacity-40">
                 {uploading ? <Loader size={14} className="size-3.5" /> : <ImagePlus className="size-3.5" aria-hidden />}
                 {gt("Upload cover")}

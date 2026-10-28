@@ -33,6 +33,7 @@ import { maskEmail } from "@/lib/streamer/streamerMode";
 import dynamic from "next/dynamic";
 import { StatusIcon } from "@/components/user/StatusBadge";
 import { statusLabelInvisible } from "@/lib/statusLabels";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 // End-to-end encryption settings (own chunk).
 const E2eeSettingsPanel = dynamic(() => import("@/components/e2ee/E2eeSettingsPanel"), { ssr: false });
 
@@ -199,6 +200,7 @@ export default function MobileSettingsSectionPage() {
 
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
+  const cropper = useImageCropper();
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
 
@@ -788,7 +790,14 @@ export default function MobileSettingsSectionPage() {
                       accept="image/*"
                       className="hidden"
                       onChange={async (e) => {
-                        const file = e.target.files?.[0];
+                        const picked = e.target.files?.[0];
+                        e.target.value = "";
+                        if (!picked) return;
+                        if (!picked.type.startsWith("image/")) {
+                          toast.error(gt("Please select an image file"));
+                          return;
+                        }
+                        const file = await cropper.prepare(picked, "avatar");
                         if (!file) return;
                         setIsUploadingAvatar(true);
                         // Optimistically preview from a local object URL so the
@@ -797,7 +806,7 @@ export default function MobileSettingsSectionPage() {
                         const prevAvatar = user?.avatar;
                         updateUser({ avatar: localUrl });
                         const formData = new FormData();
-                        formData.append("file", file);
+                        formData.append("file", file, file.name);
                         try {
                           const res = await fetch("/api/upload/avatar", {
                             method: "POST",
@@ -858,7 +867,14 @@ export default function MobileSettingsSectionPage() {
                     accept="image/*"
                     className="hidden"
                     onChange={async (e) => {
-                      const file = e.target.files?.[0];
+                      const picked = e.target.files?.[0];
+                      e.target.value = "";
+                      if (!picked) return;
+                      if (!picked.type.startsWith("image/")) {
+                        toast.error(gt("Please select an image file"));
+                        return;
+                      }
+                      const file = await cropper.prepare(picked, "profileBanner");
                       if (!file) return;
                       setIsUploadingBanner(true);
                       // Optimistically preview from a local object URL so the
@@ -867,7 +883,7 @@ export default function MobileSettingsSectionPage() {
                       const prevBanner = user?.banner;
                       updateUser({ banner: localUrl });
                       const formData = new FormData();
-                      formData.append("file", file);
+                      formData.append("file", file, file.name);
                       try {
                         const res = await fetch("/api/upload/banner", {
                           method: "POST",
@@ -893,6 +909,7 @@ export default function MobileSettingsSectionPage() {
                       }
                     }}
                   />
+                  {cropper.element}
                 </div>
               </div>
             </div>

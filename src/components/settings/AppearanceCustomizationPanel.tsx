@@ -24,6 +24,7 @@ import {
   type UserThemeGradient,
 } from "@/lib/appearance/customization";
 import { uploadAppearanceImage } from "@/lib/appearance/uploadAppearanceImage";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 
 type LocalFontData = { family: string };
 type QueryLocalFonts = () => Promise<LocalFontData[]>;
@@ -92,6 +93,7 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
   const [loadingFonts, setLoadingFonts] = useState(false);
   const [uploading, setUploading] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cropper = useImageCropper();
 
   const supportsLocalFonts = typeof window !== "undefined" && typeof (window as unknown as { queryLocalFonts?: QueryLocalFonts }).queryLocalFonts === "function";
   const draftValid = sanitizeFontFamily(fontDraft) !== null;
@@ -122,7 +124,11 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
     }
   };
 
-  const onPickBackground = async (file: File | undefined) => {
+  const onPickBackground = async (picked: File | undefined) => {
+    if (fileRef.current) fileRef.current.value = "";
+    if (!picked) return;
+    // Landscape (desktop) or portrait (phone) crop when the shape is off.
+    const file = await cropper.prepare(picked, "background");
     if (!file) return;
     setUploading(true);
     try {
@@ -132,7 +138,6 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
       toast.error(gt("Upload failed: {error}", { error: error instanceof Error ? error.message : "" }));
     } finally {
       setUploading(false);
-      if (fileRef.current) fileRef.current.value = "";
     }
   };
 
@@ -247,6 +252,7 @@ export function AppearanceCustomizationPanel({ values, profileBanner, save }: Pr
             className="hidden"
             onChange={(e) => void onPickBackground(e.target.files?.[0])}
           />
+          {cropper.element}
           <button
             type="button"
             disabled={uploading}

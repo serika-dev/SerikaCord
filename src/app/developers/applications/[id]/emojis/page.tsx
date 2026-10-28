@@ -8,6 +8,7 @@ import { Plus, Trash2, Upload, Smile } from "lucide-react";
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 
 interface Emoji {
   id: string;
@@ -24,6 +25,7 @@ export default function EmojisPage() {
   const [emojis, setEmojis] = useState<Emoji[]>([]);
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState("");
+  const cropper = useImageCropper();
   const [uploading, setUploading] = useState(false);
 
   useEffect(() => {
@@ -42,11 +44,13 @@ export default function EmojisPage() {
     }
   };
 
-  const handleUpload = async (file: File) => {
+  const handleUpload = async (picked: File) => {
     if (!newName.trim()) {
       toast.error(gt("Enter an emoji name first"));
       return;
     }
+    const file = await cropper.prepare(picked, "emoji");
+    if (!file) return;
     setUploading(true);
     try {
       const reader = new FileReader();
@@ -139,10 +143,12 @@ export default function EmojisPage() {
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
-                  if (file) handleUpload(file);
+                  e.target.value = "";
+                  if (file) void handleUpload(file);
                 }}
               />
             </label>
+            {cropper.element}
           </div>
           <p className="text-xs text-[#666] mt-2">
             {gt("PNG, GIF, or JPEG. Max 256KB. Names must be unique.")}

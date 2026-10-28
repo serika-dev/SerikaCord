@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Loader } from "@/components/ui/Loader";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 import {
   Select,
   SelectContent,
@@ -68,6 +69,7 @@ export function WebhookCard({
   const locale = useLocale();
   const confirmDialog = useConfirm();
   const fileRef = useRef<HTMLInputElement>(null);
+  const cropper = useImageCropper();
   const nameId = useId();
   const [open, setOpen] = useState(defaultOpen);
   // Drafts are null until edited, so a saved change shows through without syncing state.
@@ -131,11 +133,13 @@ export function WebhookCard({
     }
   };
 
-  const uploadAvatar = async (file: File) => {
-    if (!AVATAR_TYPES.includes(file.type)) {
+  const uploadAvatar = async (picked: File) => {
+    if (!AVATAR_TYPES.includes(picked.type)) {
       toast.error(gt("Use a JPG, PNG, GIF or WebP image."));
       return;
     }
+    const file = await cropper.prepare(picked, "avatar");
+    if (!file) return;
     if (file.size > MAX_AVATAR_BYTES) {
       toast.error(gt("That image is too big. The limit is 5 MB."));
       return;
@@ -145,7 +149,7 @@ export function WebhookCard({
     setUploading(true);
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", file, file.name);
       const res = await fetch(`${base}/avatar`, { method: "POST", body: form });
       if (!res.ok) throw new Error(await errorOf(res, gt("Failed to upload avatar")));
       const data = (await res.json()) as { avatar?: string };
@@ -300,6 +304,7 @@ export function WebhookCard({
                       if (file) void uploadAvatar(file);
                     }}
                   />
+                  {cropper.element}
                   {shownAvatar && (
                     <button
                       type="button"

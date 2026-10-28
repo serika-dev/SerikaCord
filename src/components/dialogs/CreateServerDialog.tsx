@@ -18,6 +18,7 @@ import { Upload, Users, ArrowRight, Hash, ImagePlus, Lock, Globe, Mail, Check, R
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
 import dynamic from "next/dynamic";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 
 const CreateFromTemplate = dynamic(() => import("@/components/server/community/CreateFromTemplate"), { ssr: false });
 
@@ -42,8 +43,12 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
   const [onboardDesc, setOnboardDesc] = useState("");
   const [onboardJoinMode, setOnboardJoinMode] = useState<"invite_only" | "apply_to_join" | "discoverable">("invite_only");
 
-  const handleIconChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
+  const cropper = useImageCropper();
+
+  const handleIconChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const picked = e.target.files?.[0];
+    e.target.value = "";
+    const file = picked ? await cropper.prepare(picked, "serverIcon") : null;
     if (file) {
       setServerIcon(file);
       const reader = new FileReader();
@@ -231,7 +236,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
                   <input
                     type="file"
                     accept="image/*"
-                    onChange={handleIconChange}
+                    onChange={(e) => void handleIconChange(e)}
                     className="hidden"
                   />
                   {iconPreview ? (
@@ -438,6 +443,7 @@ export function CreateServerDialog({ open, onOpenChange }: CreateServerDialogPro
             </div>
           </>
         )}
+        {cropper.element}
       </DialogContent>
     </Dialog>
   );

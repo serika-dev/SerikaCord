@@ -18,6 +18,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 import { cdnImage, cn } from "@/lib/utils";
 import {
   MAX_EVENT_DESCRIPTION_LENGTH, MAX_EVENT_LOCATION_LENGTH, MAX_EVENT_NAME_LENGTH, defaultEventStart, fromLocalInputValue, isStartingSoon,
@@ -406,6 +407,7 @@ function EventForm({ serverId, editing, onDone }: { serverId: string; editing: S
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  const cropper = useImageCropper();
 
   const options = useMemo(
     () => (same(channelsServerId, serverId) ? channels : []).filter((c) => c.type === (entityType === "stage" ? "stage" : "voice")),
@@ -413,7 +415,9 @@ function EventForm({ serverId, editing, onDone }: { serverId: string; editing: S
   );
   const chosenChannel = options.some((c) => same(c.id, channelId)) ? channelId : options[0]?.id ?? "";
 
-  const upload = async (file: File) => {
+  const upload = async (picked: File) => {
+    const file = await cropper.prepare(picked, "eventCover");
+    if (!file) return;
     setUploading(true);
     const form = new FormData();
     form.append("file", file, file.name);
@@ -555,6 +559,7 @@ function EventForm({ serverId, editing, onDone }: { serverId: string; editing: S
             if (f) void upload(f);
           }}
         />
+        {cropper.element}
       </div>
 
       <div className="flex justify-end gap-2 border-t border-[var(--border-subtle)] pt-3">

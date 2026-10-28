@@ -8,6 +8,7 @@ import { Copy, Check, RefreshCw, Eye, EyeOff, AlertTriangle, Bot as BotIcon, Upl
 import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
+import { useImageCropper } from "@/components/ui/useImageCropper";
 import { DiscordLinkCard } from "./DiscordLinkCard";
 
 const INTENTS = [
@@ -56,6 +57,7 @@ export default function BotPage() {
   const [uploadingBanner, setUploadingBanner] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement>(null);
   const bannerInputRef = useRef<HTMLInputElement>(null);
+  const cropper = useImageCropper();
 
   const hasBotUser = !!app?.botId;
 
@@ -107,12 +109,14 @@ export default function BotPage() {
     }
   };
 
-  const handleImageUpload = async (kind: "avatar" | "banner", file: File) => {
+  const handleImageUpload = async (kind: "avatar" | "banner", picked: File) => {
+    const file = await cropper.prepare(picked, kind === "avatar" ? "avatar" : "profileBanner");
+    if (!file) return;
     const setUploading = kind === "avatar" ? setUploadingAvatar : setUploadingBanner;
     setUploading(true);
     try {
       const form = new FormData();
-      form.append("file", file);
+      form.append("file", file, file.name);
       const res = await fetch(`/api/developers/applications/${appId}/bot/${kind}`, {
         method: "POST",
         body: form,
@@ -387,6 +391,7 @@ export default function BotPage() {
                 className="hidden"
                 onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload("avatar", f); e.target.value = ""; }}
               />
+              {cropper.element}
             </div>
 
             {/* Fields */}
