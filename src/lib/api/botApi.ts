@@ -4,7 +4,7 @@ import { messagesBotRoutes } from './botApi/messages';
 import { guildsBotRoutes } from './botApi/guilds';
 import { socialBotRoutes } from './botApi/social';
 import { buildPollView, fromDiscordPollRequest, isPollClosed, normalizePollInput, parseStoredPoll, type StoredPoll } from '@/lib/chat/polls';
-import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
+import { dmAllowedFromNonFriend } from '@/lib/settings/privacy';
 import { ChannelWebhook, type IApplication } from '@/lib/models';
 import { addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { Channel, Message, Server, ServerMember, Role, User, ServerEmoji, ServerSticker, Invite, ServerBan, type IMessage, type IChannel } from '@/lib/models';
@@ -4688,7 +4688,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 
   if (!dm) {
     // A bot may only open a DM with someone who shares a server with it, has
-    // not blocked it, and accepts DMs from non-friends.
+    // not blocked it, and whose DM privacy lets members of that server in.
     const recipient = await User.findById(recipient_id);
     if (!recipient) { set.status = 404; return { code: 10013, message: 'Unknown User' }; }
     // Bots can't DM other bots (Discord 50007).
@@ -4699,8 +4699,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
       ServerMember.find({ userId: recipient_id }),
     ]);
     const botServers = new Set(botMemberships.map((m: { serverId: string }) => String(m.serverId)));
-    const sharesServer = recipientMemberships.some((m: { serverId: string }) => botServers.has(String(m.serverId)));
-    if (blocked || !sharesServer || !acceptsDmsFromNonFriends(recipient.settings as Parameters<typeof acceptsDmsFromNonFriends>[0])) {
+    const shared = recipientMemberships.map((m: { serverId: string }) => String(m.serverId)).filter((id: string) => botServers.has(id));
+    // DM privacy ("server members" mode and per-server overrides) counts only
+    // the servers the bot actually shares with the user.
+    if (blocked || shared.length === 0 || !dmAllowedFromNonFriend(recipient.settings, shared)) {
       set.status = 403; return { code: 50007, message: 'Cannot send messages to this user' };
     }
     dm = await Channel.create({

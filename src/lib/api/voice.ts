@@ -4,12 +4,14 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { config } from '@/lib/config';
 import { cache, getPublisher } from '@/lib/db';
 import { randomUUID } from 'crypto';
-import { Channel, Server, ServerMember, User, type IServerSettings, type IUserSettings } from '@/lib/models';
+import { Channel, Server, ServerMember, User, type IServerSettings } from '@/lib/models';
 import { checkRateLimit, isValidObjectId } from '@/lib/security';
 import { checkVoiceModeration, channelIdOfRoom, roomsContainingUser } from '@/lib/voice/moderation';
 import { verificationDenial } from '@/lib/services/serverGate';
 import { dmCallPeers } from '@/lib/chat/dmCall';
 import { isSystemUser } from '@/lib/services/systemUsers';
+import { dmSharedServers } from '@/lib/services/dmPrivacy';
+import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
 import { fanoutToUsers } from './activity';
 import { checkChannelAccess, getMemberChannelPermissions } from './channels';
 import { BoundedMap } from '@/lib/utils/boundedMap';
@@ -274,17 +276,15 @@ async function groupRingTargets(caller: CallingUser, recipientIds: string[] | nu
 
 type CallingUser = { id: string; friends?: string[] | null; blockedUsers?: string[] | null };
 
-// Same rule as sending a DM: nobody blocked either way, and either friends or
-// the callee accepts DMs from everyone. Returns the callee's stored id (the
-// exact key their activity stream is registered under), or null.
+// Same rule as sending a DM (dmSendDenyReason): nobody blocked either way,
+// and either friends or the callee's DM privacy lets the caller in. Returns
+// the callee's stored id (the exact key their activity stream is registered
+// under), or null.
 async function canCall(caller: CallingUser, calleeId: string): Promise<string | null> {
   const callee = await User.findById(calleeId);
   if (!callee || callee.isSystem || isSystemUser(callee.id)) return null;
-  const has = (list: string[] | null | undefined, id: string) => (list || []).some((x) => x.toLowerCase() === id.toLowerCase());
-  if (has(caller.blockedUsers, callee.id) || has(callee.blockedUsers, caller.id)) return null;
-  const allowed = has(caller.friends, callee.id)
-    || (callee.settings as IUserSettings | undefined)?.privacy?.directMessages === 'everyone';
-  return allowed ? callee.id : null;
+  const denied = dmSendDenyReason(caller, callee, { sharedServerIds: await dmSharedServers(caller, callee) });
+  return denied ? null : callee.id;
 }
 
 /** Remove a user from a room and tell everyone (and stop a now-pointless ring). */

@@ -18,6 +18,7 @@ import { and, eq, sql } from 'drizzle-orm';
 import { Message, ServerMember, User } from '@/lib/models';
 import { db, schema } from '@/lib/db/postgres';
 import { cache } from '@/lib/db';
+import { typingIndicatorsEnabled } from '@/lib/settings/privacy';
 import { config } from '@/lib/config';
 import { authenticateRequest } from '@/lib/services/auth';
 import { storage, keyFromUrl } from '@/lib/services/storage';
@@ -573,6 +574,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
     if (!typingLimit.success) return { success: true };
     const channel = await loadGroupForMember(params.channelId, user.id);
     if (!channel) return { success: true };
+    if (!typingIndicatorsEnabled(user.settings)) return { success: true };
     void cache.setTyping(channel.id, user.id).catch(() => {});
     publishToDm(channel.id, { type: 'typing', userId: user.id, username: user.username });
     emitDmListUpdate(channel.recipientIds || [], { type: 'typing', channelId: channel.id, userId: user.id, username: user.username });

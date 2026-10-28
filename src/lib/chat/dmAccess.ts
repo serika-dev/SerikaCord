@@ -1,10 +1,10 @@
-import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
+import { dmAllowedFromNonFriend, dmAudience, type DmAudience } from '@/lib/settings/privacy';
 // Pure DM access rules shared by the DM routes (src/lib/api/dms.ts), the raw
 // SSE fast path (server.ts) and the generic channel send route (channels.ts).
 // No DB access here so the rules can be unit-tested.
 import { normalizeId } from '@/lib/db/normalizeId';
 
-export type DmPrivacy = 'everyone' | 'friends' | 'servers';
+export type DmPrivacy = DmAudience;
 
 function sameId(a: string | null | undefined, b: string | null | undefined): boolean {
   if (!a || !b) return false;
@@ -18,8 +18,7 @@ function sameId(a: string | null | undefined, b: string | null | undefined): boo
  * reports to the client ('everyone').
  */
 export function dmPrivacy(settings: unknown): DmPrivacy {
-  const value = (settings as { privacy?: { directMessages?: unknown } } | null | undefined)?.privacy?.directMessages;
-  return value === 'friends' || value === 'servers' || value === 'everyone' ? value : 'everyone';
+  return dmAudience(settings);
 }
 
 export interface DmParty {
@@ -39,18 +38,30 @@ export function isDmBlocked(a: DmParty, b: DmParty): boolean {
 /**
  * Whether `sender` may message `recipient` under the recipient's privacy
  * setting (blocks are checked separately so callers can return distinct
- * errors). System users are always reachable.
+ * errors). System users are always reachable. `sharedServerIds` (servers both
+ * are in) is needed when the recipient limits DMs to server members or uses
+ * per-server overrides; resolve it with `dmSharedServers` (services/dmPrivacy).
  */
-export function dmPrivacyAllows(sender: DmParty, recipient: DmParty, recipientIsSystem = false): boolean {
+export function dmPrivacyAllows(
+  sender: DmParty,
+  recipient: DmParty,
+  recipientIsSystem = false,
+  sharedServerIds?: readonly string[] | null,
+): boolean {
   if (recipientIsSystem || recipient.isSystem) return true;
   if ((sender.friends || []).some((id) => sameId(id, recipient.id))) return true;
-  return acceptsDmsFromNonFriends(recipient.settings as Parameters<typeof acceptsDmsFromNonFriends>[0]);
+  return dmAllowedFromNonFriend(recipient.settings, sharedServerIds);
 }
 
 /** Whether `sender` may open a brand-new DM with `recipient`. */
-export function canStartDm(sender: DmParty, recipient: DmParty, recipientIsSystem = false): boolean {
+export function canStartDm(
+  sender: DmParty,
+  recipient: DmParty,
+  recipientIsSystem = false,
+  sharedServerIds?: readonly string[] | null,
+): boolean {
   if (isDmBlocked(sender, recipient)) return false;
-  return dmPrivacyAllows(sender, recipient, recipientIsSystem);
+  return dmPrivacyAllows(sender, recipient, recipientIsSystem, sharedServerIds);
 }
 
 export interface DmChannelLike {

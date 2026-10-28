@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { readServerTagConfig, stripServerTagWrite, withoutServerTag } from '@/lib/servers/serverProfile';
 import { resolveCustomization } from '@/lib/services/serverTags';
-import { acceptsFriendRequests, friendRequestAllowedFrom, friendRequestSources } from '@/lib/settings/privacy';
+import { acceptsFriendRequests, activityHiddenByStatus, activitySharing, friendRequestAllowedFrom, friendRequestSources, sanitizePrivacyPatch } from '@/lib/settings/privacy';
 import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
@@ -193,6 +193,15 @@ function normalizeUserSettingsShape(settings: Record<string, any>) {
 
 function normalizeSettingsPatch(patch: Record<string, any>, userId: string) {
   const nextPatch: Record<string, any> = mergeDeep({}, patch || {});
+  if (patch && patch.privacy !== undefined) {
+    // Typed and validated (DM audience, per-server lists, booleans). Arrays
+    // replace the stored list, so take them from the raw patch.
+    const cleaned = sanitizePrivacyPatch(patch.privacy);
+    if ('error' in cleaned) {
+      return { error: cleaned.error, patch: null as typeof nextPatch | null };
+    }
+    nextPatch.privacy = cleaned.patch;
+  }
   if (nextPatch.appearance && typeof nextPatch.appearance === 'object') {
     // Background image, font and server-theme opt-out reach CSS: validate them.
     const cleaned = sanitizeAppearanceSettingsPatch(nextPatch.appearance, { userId, cdnUrl: config.CDN_URL });
@@ -878,10 +887,10 @@ async function loadUserActivities(userIds: string[]): Promise<Map<string, Record
   if (misses.length === 0) return out;
 
   const [userRows, presenceRows, lastfmRows] = await Promise.all([
-    db.select({ id: schema.users.id, settings: schema.users.settings })
+    db.select({ id: schema.users.id, settings: schema.users.settings, status: schema.users.status })
       .from(schema.users)
       .where(inArray(schema.users.id, misses))
-      .catch(() => [] as { id: string; settings: unknown }[]),
+      .catch(() => [] as { id: string; settings: unknown; status: string | null }[]),
     RichPresence.find({ userId: { in: misses } }).catch(() => [] as IRichPresence[]),
     UserConnection.find({ userId: { in: misses }, provider: 'lastfm' }).catch(() => []),
   ]);
@@ -900,16 +909,18 @@ async function loadUserActivities(userIds: string[]): Promise<Map<string, Record
   }
 
   const computed = await Promise.all(userRows.map(async (row) => {
-    const showActivity = (row.settings as IUserSettings | undefined)?.privacy?.showActivity ?? true;
-    if (!showActivity) return [row.id, { ...EMPTY_ACTIVITY }] as const;
+    // Privacy: the master switch, each source's own switch, and Invisible
+    // (shown as offline, so no live activity either).
+    const sharing = activitySharing(row.settings);
+    if (!sharing.enabled || activityHiddenByStatus(row.status)) return [row.id, { ...EMPTY_ACTIVITY }] as const;
 
-    const lastfmAccount = lastfmByUser.get(row.id);
+    const lastfmAccount = sharing.music ? lastfmByUser.get(row.id) : undefined;
     const [watchActivity, music] = await Promise.all([
-      getMoeActivity(row.id).catch(() => null),
+      sharing.watching ? getMoeActivity(row.id).catch(() => null) : Promise.resolve(null),
       lastfmAccount ? getLastFmNowPlaying(lastfmAccount).catch(() => null) : Promise.resolve(null),
     ]);
 
-    const activities = sortActivitiesByPriority((presenceByUser.get(row.id) || []).map((doc) => ({
+    const activities = sortActivitiesByPriority((sharing.games ? presenceByUser.get(row.id) || [] : []).map((doc) => ({
       type: doc.type,
       name: doc.name,
       details: doc.details ?? null,
@@ -1717,6 +1728,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       if (customStatus !== undefined) updateFields.customStatus = customStatus;
       if (status !== undefined) {
         updateFields.status = status;
+        // Going Invisible hides live activity: drop the cached snapshot.
+        void cache.del(`activity:${user.id}`).catch(() => {});
         if (status === 'offline' || status === 'invisible') {
           updateFields.presenceLastDisconnectAt = new Date();
         } else {
@@ -1875,6 +1888,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       if (customStatus !== undefined) updateFields.customStatus = customStatus;
       if (status !== undefined) {
         updateFields.status = status;
+        // Going Invisible hides live activity: drop the cached snapshot.
+        void cache.del(`activity:${user.id}`).catch(() => {});
         if (status === 'offline' || status === 'invisible') {
           updateFields.presenceLastDisconnectAt = new Date();
         } else {
@@ -2103,6 +2118,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const newSettings = normalizeUserSettingsShape(mergeDeep(currentSettings, normalizedPatch.patch || {}));
     const updatedUser = await User.updateById(user.id, { settings: newSettings });
     await invalidateUserCache(user.id);
+    // Activity privacy changes show up at once instead of after the cache TTL.
+    if (normalizedPatch.patch?.privacy) await cache.del(`activity:${user.id}`).catch(() => {});
 
     return {
       success: true,
@@ -2855,15 +2872,16 @@ const userRoutes = new Elysia({ prefix: '/users' })
     query: t.Object({ ids: t.String() }),
   })
   // Public recent-activity history for a user's profile. Respects the target
-  // user's "show activity" privacy setting (same gate as live activity).
+  // user's activity privacy (games & apps switch) and Invisible status.
   .get('/:userId/activity-history', async ({ params, query, set }) => {
     const targetUser = await User.findById(params.userId);
     if (!targetUser) {
       set.status = 404;
       return { error: 'User not found' };
     }
-    const showActivity = (targetUser.settings as IUserSettings | undefined)?.privacy?.showActivity ?? true;
-    if (!showActivity) {
+    // History is games and apps, so it follows that switch; hidden while
+    // Invisible too (its "last seen" times would give you away).
+    if (!activitySharing(targetUser.settings).games || activityHiddenByStatus(targetUser.status)) {
       return { activities: [] };
     }
     const rawLimit = Number((query as Record<string, string | undefined>).limit);

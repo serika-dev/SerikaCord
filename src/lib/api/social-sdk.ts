@@ -1,6 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { authenticateRequest } from '@/lib/services/auth';
 import { User, RichPresence, WidgetConfig, WidgetUserData, Application, type IUser, type IRichPresence } from '@/lib/models';
+import { activityHiddenByStatus, activitySharing } from '@/lib/settings/privacy';
 import {
   getUserLibrary, getUserCategory, isValidCategory, addGame, removeGame, updateGame,
 } from '@/lib/services/gamesLibrary';
@@ -159,12 +160,13 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
     const targetId = params.id === '@me' ? user.id : params.id;
     if (targetId !== user.id) {
-      // Honor the target's "Share activity status" and blocks either way.
+      // Honor the target's activity privacy (games & apps), Invisible and
+      // blocks either way.
       const target = await User.findById(targetId) as IUser | null;
-      const targetSettings = target?.settings as { privacy?: { showActivity?: boolean } } | undefined;
       if (
         !target ||
-        targetSettings?.privacy?.showActivity === false ||
+        !activitySharing(target.settings).games ||
+        activityHiddenByStatus(target.status) ||
         (target.blockedUsers ?? []).includes(user.id) ||
         ((user as IUser).blockedUsers ?? []).includes(targetId)
       ) {

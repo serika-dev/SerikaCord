@@ -1,4 +1,4 @@
-import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
+import { dmAllowedFromNonFriend } from '@/lib/settings/privacy';
 import { normalizeId } from '@/lib/db/normalizeId';
 
 /**
@@ -21,7 +21,11 @@ const same = (a: string, b: string) => normalizeId(a) === normalizeId(b);
 export function dmSendDenyReason(
   sender: DmPolicyUser,
   recipient: DmPolicyUser,
-  opts: { recipientIsSystem?: boolean } = {},
+  opts: {
+    recipientIsSystem?: boolean;
+    /** Servers both are in; needed for "server members" DM privacy (see dmSharedServers). */
+    sharedServerIds?: readonly string[] | null;
+  } = {},
 ): string | null {
   if ((sender.blockedUsers || []).some((b) => same(b, recipient.id))) {
     return 'You have blocked this user';
@@ -32,7 +36,7 @@ export function dmSendDenyReason(
   const recipientIsSystem = Boolean(opts.recipientIsSystem || recipient.isSystem);
   if (recipientIsSystem) return null;
   const isFriend = (sender.friends || []).some((f) => same(f, recipient.id));
-  if (!isFriend && !acceptsDmsFromNonFriends(recipient.settings as Parameters<typeof acceptsDmsFromNonFriends>[0])) {
+  if (!isFriend && !dmAllowedFromNonFriend(recipient.settings, opts.sharedServerIds)) {
     return 'You cannot message this user';
   }
   return null;

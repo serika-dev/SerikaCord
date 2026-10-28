@@ -102,6 +102,16 @@ export interface IUserSettings {
     showActivity: boolean;
     allowDataCollection: boolean;
     storeActivityHistory?: boolean;
+    /** New DMs from non-friends go to Message Requests. Default true. */
+    messageRequests?: boolean;
+    /** Others see "is typing…". Default true. */
+    typingIndicators?: boolean;
+    /** Per-source activity sharing under `showActivity`. Each defaults to true. */
+    activitySharing?: { games?: boolean; watching?: boolean; music?: boolean };
+    /** Servers whose members may DM you even in "friends" mode. */
+    dmAllowedServerIds?: string[];
+    /** Servers that don't count as shared in "servers" mode. */
+    dmBlockedServerIds?: string[];
   };
   accessibility: {
     reducedMotion: boolean;

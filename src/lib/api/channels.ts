@@ -25,6 +25,8 @@ import { DEFAULT_SERVER_SAFETY, exceedsMentionLimit, resolveServerSafety, type S
 import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
 import { computeChannelPermissions, hasBit as hasPermissionBit, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
 import { isSystemUser } from '@/lib/services/systemUsers';
+import { dmSharedServers } from '@/lib/services/dmPrivacy';
+import { typingIndicatorsEnabled } from '@/lib/settings/privacy';
 import { dmSendDenyReason, type DmPolicyUser } from '@/lib/chat/dmPolicy';
 import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
 import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
@@ -386,7 +388,10 @@ export async function checkCanPostInChannel(
     if (!otherId) return null;
     const recipient = await User.findById(otherId);
     if (!recipient) return null;
-    const reason = dmSendDenyReason(user, recipient, { recipientIsSystem: isSystemUser(recipient.id) });
+    const reason = dmSendDenyReason(user, recipient, {
+      recipientIsSystem: isSystemUser(recipient.id),
+      sharedServerIds: await dmSharedServers(user, recipient),
+    });
     if (reason) return { status: 403, body: { error: reason } };
   }
   return null;
@@ -4422,6 +4427,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       set.status = 403;
       return { error: error || 'Access denied' };
     }
+    // "Show when I'm typing" off: accepted, but nobody is told.
+    if (!typingIndicatorsEnabled(user.settings)) return { success: true };
 
     // Set typing in Redis
     void cache.setTyping(params.channelId, user.id).catch(() => {});

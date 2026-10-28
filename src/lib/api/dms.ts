@@ -6,7 +6,8 @@ import { Channel, Message, User, ServerMember, ServerSticker, type IUserSettings
 import { ChannelReadState } from '@/lib/models/ChannelReadState';
 import { db, schema } from '@/lib/db/postgres';
 import { canStartDm, dmPairKey, dmPrivacy, isDmBlocked, isDmListedFor, pickDmChannel } from '@/lib/chat/dmAccess';
-import { acceptsDmsFromNonFriends } from '@/lib/settings/privacy';
+import { dmSharedServers } from '@/lib/services/dmPrivacy';
+import { typingIndicatorsEnabled } from '@/lib/settings/privacy';
 import { authenticateRequest } from '@/lib/services/auth';
 import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
@@ -340,7 +341,7 @@ export async function openDMChannelForViewer(
   const recipient = await User.findById(recipientId);
   if (!recipient) return { channel: null, status: 404, error: 'User not found' };
   const recipientIsSystem = Boolean(recipient.isSystem) || isSystemUser(recipient.id);
-  if (!canStartDm(user, recipient, recipientIsSystem)) {
+  if (!canStartDm(user, recipient, recipientIsSystem, await dmSharedServers(user, recipient))) {
     return { channel: null, status: 403, error: 'You cannot message this user' };
   }
   return { channel: await getOrCreateDMChannel(user.id, recipientId) };
@@ -1520,7 +1521,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     let channel = existingChannel;
     if (!channel) {
       const recipientIsSystem = Boolean(recipient.isSystem) || isSystemUser(recipient.id);
-      if (!canStartDm(user, recipient, recipientIsSystem)) {
+      if (!canStartDm(user, recipient, recipientIsSystem, await dmSharedServers(user, recipient))) {
         set.status = 403;
         return { error: 'You cannot message this user' };
       }
@@ -1576,7 +1577,10 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
 
     // Blocks + DM privacy (skipped for system users). Shared with the generic
     // /channels/:dmChannelId routes so neither path can bypass it.
-    const dmDenied = dmSendDenyReason(user, recipient, { recipientIsSystem: isSystemUser(recipient.id) });
+    const dmDenied = dmSendDenyReason(user, recipient, {
+      recipientIsSystem: isSystemUser(recipient.id),
+      sharedServerIds: await dmSharedServers(user, recipient),
+    });
     if (dmDenied) {
       set.status = 403;
       return { error: dmDenied };
@@ -1771,6 +1775,8 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     if (!channel || !recipient || isDmBlocked(user, recipient)) {
       return { success: true };
     }
+    // "Show when I'm typing" off: accepted, but nobody is told.
+    if (!typingIndicatorsEnabled(user.settings)) return { success: true };
 
     // Set typing in Redis
     void cache.setTyping(channel.id, user.id).catch(() => {});

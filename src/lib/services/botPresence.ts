@@ -8,6 +8,7 @@
  * The mapping functions are pure (tests/bot-presence.test.ts).
  */
 import { resolveEffectiveStatus } from './presence';
+import { activitySharing } from '@/lib/settings/privacy';
 
 /** Discord activity types. */
 export const ACTIVITY_TYPE = { PLAYING: 0, STREAMING: 1, LISTENING: 2, WATCHING: 3, CUSTOM: 4, COMPETING: 5 } as const;
@@ -86,10 +87,11 @@ export function buildPresences(
   for (const u of users) {
     const status = resolveEffectiveStatus(u, now);
     if (status === 'offline') continue;
-    const showActivity = ((u.settings as { privacy?: { showActivity?: boolean } } | null)?.privacy?.showActivity ?? true) !== false;
+    // Rich presence rows are games/apps: the user's "games & apps" switch.
+    const showGames = activitySharing(u.settings).games;
     const activities = [
       ...presenceActivitiesOf(u),
-      ...(showActivity ? richPresenceToActivities(richByUser.get(u.id) ?? []) : []),
+      ...(showGames ? richPresenceToActivities(richByUser.get(u.id) ?? []) : []),
     ];
     out.push({ user: { id: u.id }, status, activities, client_status: { web: status } });
   }

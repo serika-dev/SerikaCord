@@ -20,6 +20,7 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit, encryptForStorage, isValidObjectId, rejectInvalidObjectIdParams } from '@/lib/security';
 import { normalizeEmojiFormat } from '@/lib/services/emoji';
 import { isSystemUser } from '@/lib/services/systemUsers';
+import { dmSharedServers } from '@/lib/services/dmPrivacy';
 import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
 import { canStartDm } from '@/lib/chat/dmAccess';
 import { getRolePermissions } from '@/lib/permissions/serverPermissions';
@@ -117,13 +118,14 @@ async function resolveDmDestination(user: AuthUser, recipientId: string): Promis
   if (!recipient) return { status: 404, error: 'User not found' };
   const restricted = await chatRestrictionDenial(user.id);
   if (restricted) return { status: 403, error: String(restricted.body.error) };
-  const denied = dmSendDenyReason(user, recipient, { recipientIsSystem: isSystemUser(recipient.id) });
+  const sharedServerIds = await dmSharedServers(user, recipient);
+  const denied = dmSendDenyReason(user, recipient, { recipientIsSystem: isSystemUser(recipient.id), sharedServerIds });
   if (denied) return { status: 403, error: denied };
   const { findDMChannel, getOrCreateDMChannel } = await import('@/lib/api/dms');
   let channel = await findDMChannel(user.id, recipientId);
   if (!channel) {
     const recipientIsSystem = Boolean(recipient.isSystem) || isSystemUser(recipient.id);
-    if (!canStartDm(user, recipient, recipientIsSystem)) return { status: 403, error: 'You cannot message this user' };
+    if (!canStartDm(user, recipient, recipientIsSystem, sharedServerIds)) return { status: 403, error: 'You cannot message this user' };
     channel = await getOrCreateDMChannel(user.id, recipientId);
   }
   if (isEncryptedConversation(channel as { e2ee?: boolean | null })) return E2EE_REFUSED;
@@ -315,6 +317,10 @@ async function listForwardTargets(user: AuthUser): Promise<ForwardTarget[]> {
   for (const c of dmChannels) for (const id of c.recipientIds || []) if (!sameId(id, user.id)) otherIds.add(id);
   const people = otherIds.size ? await User.find({ id: { in: [...otherIds] } }) : [];
   const personById = new Map(people.map((u) => [u.id.toLowerCase(), u]));
+  // Shared servers only for the people whose DM privacy needs them.
+  const sharedByPerson = new Map<string, string[] | undefined>(
+    await Promise.all(people.map(async (p) => [p.id.toLowerCase(), await dmSharedServers(user, p)] as const)),
+  );
   for (const c of dmChannels) {
     const others = (c.recipientIds || []).filter((id) => !sameId(id, user.id));
     // Forwards can't go into end-to-end encrypted conversations.
@@ -323,7 +329,7 @@ async function listForwardTargets(user: AuthUser): Promise<ForwardTarget[]> {
       const other = others[0] ? personById.get(others[0].toLowerCase()) : null;
       if (!other) continue;
       // Skip DMs you can no longer post in (blocked / privacy).
-      if (dmSendDenyReason(user, other, { recipientIsSystem: isSystemUser(other.id) })) continue;
+      if (dmSendDenyReason(user, other, { recipientIsSystem: isSystemUser(other.id), sharedServerIds: sharedByPerson.get(other.id.toLowerCase()) })) continue;
       out.push({ id: c.id, kind: 'dm', name: other.displayName || other.username, username: other.username, icon: other.avatar ?? null, recipientId: other.id });
     } else {
       const names = others.map((id) => personById.get(id.toLowerCase())).filter(Boolean).map((u) => u!.displayName || u!.username);
