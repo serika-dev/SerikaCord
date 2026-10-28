@@ -288,6 +288,14 @@ async function main() {
   void startBotIfLeader();
   })(); // end async IIFE
   } // end else (DISABLE_DISCORD_BOT check)
+
+  // Deleted-content retention purge (Privacy Policy: things you delete are
+  // erased within 30 days). Off unless RETENTION_PURGE_ENABLED=1, and only
+  // logs what it would delete unless RETENTION_PURGE_DRY_RUN=0 too. Hourly,
+  // small batches, one instance at a time (Redis lock). See .env.example.
+  import('@/lib/services/retentionPurge')
+    .then((m) => m.startRetentionPurgeScheduler())
+    .catch((err) => console.error('[retention] Scheduler init failed:', err));
 }
 
 main().catch((err: unknown) => {

@@ -113,6 +113,21 @@ Several scripts in `scripts/` write to the database (`merge-users.ts`,
 `migrate-mongo-to-postgres.ts`). Read a script before running it, and only run
 one when the owner asks; prefer its `--dry` mode where it has one.
 
+## Deleted content and retention
+
+Deleting a message, channel, thread or server soft-deletes the messages
+(`is_deleted = true`, `deleted_at`); channel and server rows themselves are
+removed at once. `src/lib/services/retentionPurge.ts` (pure rules in
+`src/lib/privacy/retention.ts`) hard-deletes messages deleted more than
+`RETENTION_PURGE_DAYS` (30) ago, their side rows (`poll_votes`,
+`message_search_index`, `e2ee_envelope_history`, `app_message_moderation`) and
+the `attachments/` files no other message row or bug report still references.
+Messages with any `message_reports` row, and those of authors with an open
+safety incident, a CSAM incident in the last year or an open appeal, are kept.
+It needs the indexes in `drizzle/manual_retention_purge.sql`, is off unless
+`RETENTION_PURGE_ENABLED=1` and is a dry run unless `RETENTION_PURGE_DRY_RUN=0`
+(see `.env.example`); `scripts/retention-purge-report.ts` prints counts.
+
 ## Redis keys (selection)
 
 | Key / channel | Use |
@@ -124,6 +139,7 @@ one when the owner asks; prefer its `--dry` mode where it has one.
 | `serikacord:discord-bot-lock` | Discord bridge leader lock |
 | `discordbridge:health:<serverId>` (hash), `discordbridge:bot` | Discord bridge per-link health (last mirror each way, last error; 30 days) and bot presence (150 s TTL) |
 | `search:backfill:v1:lock`, `:state`, `:done` | message search index backfill leader lock, resume cursor, finished flag |
+| `retention:purge:lock`, `retention:purge:last` | deleted-content retention purge lock (token, released by compare-and-delete) and last run summary (7 days) |
 | `sse:channel`, `sse:dm`, `sse:dmlist`, `sse:activity`, `sse:user-fanout`, `voice:sse`, `voice:members`, `gateway:dispatch` | pub/sub buses (see `realtime.md`) |
 
 `CacheService.delPattern` uses `SCAN`, never `KEYS`. Keep it that way.

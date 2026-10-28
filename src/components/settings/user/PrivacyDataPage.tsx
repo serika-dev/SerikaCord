@@ -570,7 +570,7 @@ export const PrivacyDataPage = memo(function PrivacyDataPage({
               />
               <SettingsRow
                 label={gt("Deleted messages")}
-                description={gt("Deleting a message removes it for everyone right away. How long deleted data stays in backups is set out in the Privacy Policy.")}
+                description={gt("Deleting a message removes it for everyone right away. 30 days later it's permanently erased from our servers along with its files, unless it's needed for a report or an open safety case. A forwarded copy keeps its files until it's deleted too. How long copies stay in backups is set out in the Privacy Policy.")}
               />
               <SettingsRow
                 label={gt("Signed-in devices")}

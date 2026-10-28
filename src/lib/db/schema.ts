@@ -308,6 +308,17 @@ export const messages = pgTable('messages', {
   channelDeletedCreatedIdx: index('messages_channel_id_is_deleted_created_at_idx').on(t.channelId, t.isDeleted, t.createdAt),
   channelAuthorCreatedIdx: index('messages_channel_id_author_id_created_at_idx').on(t.channelId, t.authorId, t.createdAt),
   referencedIdx: index('messages_referenced_message_id_idx').on(t.referencedMessageId),
+  // Retention purge (src/lib/services/retentionPurge.ts): hand-applied with
+  // CREATE INDEX CONCURRENTLY from drizzle/manual_retention_purge.sql.
+  retentionPurgeIdx: index('messages_retention_purge_idx')
+    .on(sql`(COALESCE(${t.deletedAt}, ${t.updatedAt}, ${t.createdAt}))`, t.id)
+    .where(sql`${t.isDeleted} = true`),
+  attachmentsGinIdx: index('messages_attachments_gin_idx')
+    .using('gin', t.attachments.op('jsonb_path_ops'))
+    .where(sql`${t.attachments} IS NOT NULL AND ${t.attachments} <> '[]'::jsonb`),
+  snapshotAttachmentsGinIdx: index('messages_snapshot_attachments_gin_idx')
+    .using('gin', sql`(${t.messageSnapshot} -> 'attachments') jsonb_path_ops`)
+    .where(sql`${t.messageSnapshot} IS NOT NULL`),
 }));
 
 // One row per (poll message, voter, answer). Added at boot by

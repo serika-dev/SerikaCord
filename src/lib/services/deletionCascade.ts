@@ -18,11 +18,20 @@ export async function deleteServerCascade(serverId: string): Promise<void> {
     const ids = (await tx.select({ id: schema.channels.id }).from(schema.channels).where(eq(schema.channels.serverId, id)))
       .map((r) => r.id);
 
+    // Messages are soft-deleted, not removed here: the retention purge
+    // (src/lib/services/retentionPurge.ts) erases them and their uploaded
+    // files after the retention window, and keeps reported ones for Trust &
+    // Safety. A hard delete here would orphan their files in storage forever.
+    const now = new Date();
     if (ids.length > 0) {
-      await tx.delete(schema.messages).where(inArray(schema.messages.channelId, ids));
+      await tx.update(schema.messages)
+        .set({ isDeleted: true, deletedAt: now })
+        .where(and(inArray(schema.messages.channelId, ids), sql`${schema.messages.isDeleted} IS NOT TRUE`));
       await tx.delete(schema.channelWebhooks).where(inArray(schema.channelWebhooks.channelId, ids));
     }
-    await tx.delete(schema.messages).where(eq(schema.messages.serverId, id));
+    await tx.update(schema.messages)
+      .set({ isDeleted: true, deletedAt: now })
+      .where(and(eq(schema.messages.serverId, id), sql`${schema.messages.isDeleted} IS NOT TRUE`));
     await tx.delete(schema.channelWebhooks).where(eq(schema.channelWebhooks.serverId, id));
     await tx.delete(schema.invites).where(eq(schema.invites.serverId, id));
     await tx.delete(schema.serverBans).where(eq(schema.serverBans.serverId, id));
