@@ -11367,7 +11367,7 @@
   "f277d7f5fe9eb519": "Files and images",
   "53591f5dc330051c": "Stored on our file storage and served from cdn.serika.chat under a long random link. Anyone who has the link can open the file.",
   "87070d0300332d3b": "Deleted messages",
-  "ee484253820ec1e0": "Deleting a message removes it for everyone right away. How long deleted data stays in backups is set out in the Privacy Policy.",
+  "43f7506c09c2464a": "Deleting a message removes it for everyone right away. 30 days later it's permanently erased from our servers along with its files, unless it's needed for a report or an open safety case. A forwarded copy keeps its files until it's deleted too. How long copies stay in backups is set out in the Privacy Policy.",
   "7dacbf1f5761b612": "Signed-in devices",
   "08db4fffc1109699": "Each device you sign in on keeps its name, platform and a shortened IP address (with the last part removed).",
   "ebaae7de39adba3d": "Account and sign-in",
