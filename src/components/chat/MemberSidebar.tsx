@@ -243,7 +243,7 @@ function MemberItemImpl({ member, serverId }: MemberItemProps) {
   const timeout = useTimeoutRemaining(member.communicationDisabledUntil);
 
   return (
-    <MemberProfilePopup member={member} serverId={serverId} side="left" align="start">
+    <MemberProfilePopup member={member} serverId={serverId} surface="rightPanel">
       <div
         className="relative mt-1"
         onContextMenu={(e) => openUserMenu(e, member)}

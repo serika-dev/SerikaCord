@@ -413,8 +413,10 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
             side="top"
             align="start"
             sideOffset={8}
+            collisionPadding={12}
             className={cn(
-              "w-[300px] p-0 border border-[var(--border-subtle)] rounded-lg overflow-hidden shadow-xl",
+              // Short windows: cap at the room above the user panel and scroll.
+              "w-[300px] p-0 border border-[var(--border-subtle)] rounded-lg overflow-x-hidden overflow-y-auto overscroll-contain scrollbar-thin max-h-[var(--radix-popover-content-available-height,calc(100dvh-24px))] shadow-xl",
               !hasCardBg && "bg-[var(--bg-card)]"
             )}
             style={hasCardBg ? cardBgStyle : undefined}

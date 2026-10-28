@@ -50,8 +50,6 @@ export const GroupAvatar = memo(function GroupAvatar({ author, serverId }: Group
         isDiscord: author.isDiscord,
       }}
       serverId={serverId}
-      side="right"
-      align="start"
     >
       <button
         className="block rounded-full focus-visible:outline-2 focus-visible:outline-[#8B5CF6] cursor-pointer hover:opacity-90 transition-opacity"
@@ -114,8 +112,6 @@ export const GroupHeader = memo(function GroupHeader({ author, formattedTimestam
             isDiscord: author.isDiscord,
           }}
           serverId={serverId}
-          side="right"
-          align="start"
         >
           <button onContextMenu={(e) => openUserMenu(e, { ...author, id: author.id!, username: author.username || "unknown" })} className={cn("!text-[0.8rem] font-medium leading-tight whitespace-nowrap hover:underline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded flex items-center gap-1", styleClasses)} style={chatInline}>
             <span>{name}</span>

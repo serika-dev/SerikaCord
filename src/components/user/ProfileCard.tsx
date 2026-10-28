@@ -141,6 +141,13 @@ interface ProfileCardProps {
   /** Called after a successful role change with the member's full next role
    *  objects, so the member sidebar can update optimistically. */
   onRolesUpdated?: (roles: Array<{ id: string; name: string; color?: string; hoist?: boolean; position?: number; isDefault?: boolean }>) => void;
+  /**
+   * Inside a Radix popover: cap the card at the popover's available height
+   * (viewport minus collision padding) and scroll the middle of the card, so
+   * the banner, name and "View Full Profile" stay visible and nothing is cut
+   * off at the bottom of a short window.
+   */
+  fitToViewport?: boolean;
 }
 
 /**
@@ -161,6 +168,7 @@ export function ProfileCard({
   noRoundedCorners = false,
   onOpenModView,
   onRolesUpdated,
+  fitToViewport = false,
 }: ProfileCardProps) {
   const router = useRouter();
   const { user: currentUser } = useAuth();
@@ -344,6 +352,9 @@ export function ProfileCard({
     <div
       className={cn(
         "w-[min(340px,calc(100vw-1.5rem))] max-h-[100dvh] overflow-y-auto overflow-x-hidden border border-white/[0.06] shadow-2xl transition-all duration-300 bg-[#0c0c10]",
+        // The fallback matches the collision padding (12px a side) so the very
+        // first measurement, before Radix sets the variable, already fits.
+        fitToViewport && "flex flex-col overscroll-contain scrollbar-thin max-h-[var(--radix-popover-content-available-height,calc(100dvh-24px))]",
         !noRoundedCorners && "rounded-xl",
         isHolographic && "holographic-animation",
         className
@@ -351,7 +362,7 @@ export function ProfileCard({
       style={bgStyle}
     >
       {/* Banner — tall, Discord-profile style */}
-      <div className="relative h-[120px]">
+      <div className="relative h-[120px] shrink-0">
         {user.banner ? (
           <div
             className="absolute inset-0 bg-cover bg-center"
@@ -407,7 +418,7 @@ export function ProfileCard({
         </div>
 
         {/* Actions */}
-        <div className="flex justify-end gap-2 pt-3 min-h-[44px]">
+        <div className="flex justify-end gap-2 pt-3 min-h-[44px] shrink-0">
           {!isSelf && user.id && (
             <>
               {!hideMessageButton && !limited && (
@@ -444,7 +455,7 @@ export function ProfileCard({
         </div>
 
         {/* Identity */}
-        <div className="mt-4">
+        <div className="mt-4 shrink-0">
           <div className="flex items-center gap-2 flex-wrap">
             <h3
               className={cn("text-xl font-bold text-white leading-tight truncate", getDisplayNameStyleClasses(user.customization?.displayNameStyle))}
@@ -496,6 +507,13 @@ export function ProfileCard({
           )}
         </div>
 
+        {/* Everything between the name and "View Full Profile" scrolls when
+            the card is capped to the viewport; otherwise this wrapper has no box. */}
+        <div
+          className={fitToViewport
+            ? "flex-1 min-h-24 -mx-4 px-4 overflow-y-auto overflow-x-hidden overscroll-contain scrollbar-thin"
+            : "contents"}
+        >
         {/* Badges (a bot's "official app" badge is said by the app card below) */}
         {shownBadges.length > 0 && (
           <div className="mt-3">
@@ -675,10 +693,11 @@ export function ProfileCard({
         {!isSelf && user.id && !limited && (
           <UserNoteField userId={user.id} className="mt-3" />
         )}
+        </div>
 
         {/* View Full Profile button */}
         {user.id && !limited && (
-          <div className="mt-auto pt-4">
+          <div className="mt-auto pt-4 shrink-0">
             <button
               onClick={() => {
                 if (onViewFullProfile) {

@@ -327,8 +327,6 @@ function MessageGroupInner<M extends ChatMessage>({
                                 isWebhook: message.referencedMessage.author.isWebhook,
                               }}
                               serverId={serverId}
-                              side="right"
-                              align="start"
                             >
                               <span
                                 onClick={(e) => e.stopPropagation()}

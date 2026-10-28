@@ -142,8 +142,6 @@ function UserMentionPill({ mentionId, user, currentUserId, serverId, onUserMenu 
           displayName: user.displayName,
         }}
         serverId={serverId}
-        side="top"
-        align="center"
       >
         <button
           type="button"

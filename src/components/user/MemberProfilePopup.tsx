@@ -4,6 +4,7 @@ import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 
 import { useState, useEffect, useRef } from "react";
+import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import {
   Popover,
@@ -15,6 +16,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useServerMembersOptional } from "@/contexts/ServerContext";
 import { withServerProfile, type MemberProfileOverrides } from "@/lib/profiles/memberProfile";
 import { onMemberProfileChanged } from "@/lib/profiles/memberProfileEvents";
+import { profilePopoverPositioning, type ProfilePopoverSurface } from "@/lib/profiles/profilePopoverPlacement";
 
 // The card (with its activity/game presets) is only shown on click; it used to
 // sit in the startup bundle of every chat page. Its chunk starts loading when
@@ -30,8 +32,12 @@ interface MemberProfilePopupProps {
   children: React.ReactNode;
   member: ProfileCardUser;
   serverId?: string;
-  side?: "left" | "right" | "top" | "bottom";
-  align?: "start" | "center" | "end";
+  /**
+   * Where the trigger sits: "chat" (names, avatars, mentions) opens the card
+   * to the right of the trigger, "rightPanel" (member list) to the left. Both
+   * top-align the card with the trigger and keep it inside the viewport.
+   */
+  surface?: ProfilePopoverSurface;
 }
 
 /**
@@ -51,8 +57,7 @@ export function MemberProfilePopup({
   children,
   member,
   serverId,
-  side = "left",
-  align = "start",
+  surface = "chat",
 }: MemberProfilePopupProps) {
   const [armed, setArmed] = useState(false);
   // Touch users have no hover to pre-arm on, so a tap must open immediately.
@@ -109,8 +114,7 @@ export function MemberProfilePopup({
     <MemberProfilePopupBody
       member={member}
       serverId={serverId}
-      side={side}
-      align={align}
+      surface={surface}
       initialOpen={autoOpenRef.current}
     >
       {children}
@@ -122,8 +126,7 @@ function MemberProfilePopupBody({
   children,
   member,
   serverId,
-  side = "left",
-  align = "start",
+  surface = "chat",
   initialOpen,
 }: MemberProfilePopupProps & { initialOpen: boolean }) {
   const { user: currentUser } = useAuth();
@@ -137,7 +140,13 @@ function MemberProfilePopupBody({
         serverMembers?.applyMemberRoles(member.id, roles);
       }
     : undefined;
-  const [open, setOpen] = useState(!initialOpen ? false : !isMobile);
+  // The card is open for the route it was opened on: navigating anywhere
+  // (Message button, a link in the bio, a channel switch that keeps this
+  // trigger mounted) closes it without an effect.
+  const pathname = usePathname();
+  const [openOnPath, setOpenOnPath] = useState<string | null>(initialOpen && !isMobile ? pathname : null);
+  const open = openOnPath !== null && openOnPath === pathname;
+  const setOpen = (next: boolean) => setOpenOnPath(next ? pathname : null);
   const [fullProfileOpen, setFullProfileOpen] = useState(initialOpen && isMobile);
   const [modViewOpen, setModViewOpen] = useState(false);
   const [fullProfile, setFullProfile] = useState<ProfileCardUser>(member);
@@ -264,13 +273,11 @@ function MemberProfilePopupBody({
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>{children}</PopoverTrigger>
       <PopoverContent
-        side={side}
-        align={align}
-        sideOffset={8}
-        collisionPadding={12}
+        {...profilePopoverPositioning(surface)}
         className="w-auto p-0 border-none bg-transparent shadow-none"
       >
         <ProfileCard
+          fitToViewport
           user={fullProfile}
           isCurrentUser={currentUser?.id === member.id}
           isFriend={fullProfile.isFriend}
