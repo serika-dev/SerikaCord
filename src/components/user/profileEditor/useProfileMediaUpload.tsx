@@ -1,10 +1,12 @@
 "use client";
 
-import { useCallback, useRef, useState, type ReactNode } from "react";
+import { useCallback, useState, type ReactNode } from "react";
 import { useGT } from "gt-next";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/AuthContext";
 import { useImageCropper } from "@/components/ui/useImageCropper";
+import { useSelectImage } from "@/components/ui/useSelectImage";
+import { applyRecentMedia } from "@/lib/profiles/recentMediaClient";
 
 export type ProfileMediaKind = "avatar" | "banner";
 
@@ -29,12 +31,16 @@ function endpointFor({ kind, serverId }: PickTarget): string {
 }
 
 /**
- * Avatar / banner upload for the profile editor, the same flow as User
- * Settings: pick a file, crop it when it isn't the right shape (animated
- * images can skip the crop to keep their animation), upload to the endpoint
- * that also stores it (server profiles: upload only, see PickTarget). The
- * main profile shows the cropped image at once and rolls back if the upload
- * fails.
+ * Avatar / banner change for every profile surface (User Settings, the
+ * profile editor, the full profile, mobile settings, server profiles):
+ * the "Select an Image" dialog (useSelectImage) offers Upload Image, Choose
+ * GIF and the recent avatars / banners (+ the linked Discord image). A file
+ * (upload, GIF, Discord) is cropped when it isn't the right shape (animated
+ * images can skip the crop to keep their animation) and uploaded to the
+ * endpoint that also stores it (server profiles: upload only, see
+ * PickTarget). A recent image is reused without uploading: the main profile
+ * applies it at once, server profiles put it in the draft. The main profile
+ * shows the new image at once and rolls back if the change fails.
  * Render `element` once; call `pick` from any button.
  */
 export function useProfileMediaUpload(): {
@@ -44,18 +50,9 @@ export function useProfileMediaUpload(): {
 } {
   const gt = useGT();
   const { user, updateUser } = useAuth();
-  const inputRef = useRef<HTMLInputElement>(null);
-  const targetRef = useRef<PickTarget | null>(null);
   const cropper = useImageCropper();
+  const selectImage = useSelectImage();
   const [uploading, setUploading] = useState<Record<ProfileMediaKind, boolean>>({ avatar: false, banner: false });
-
-  const pick = useCallback((target: PickTarget) => {
-    targetRef.current = target;
-    const input = inputRef.current;
-    if (!input) return;
-    input.value = "";
-    input.click();
-  }, []);
 
   const upload = useCallback(async (target: PickTarget, file: Blob, filename: string) => {
     const { kind, serverId } = target;
@@ -88,9 +85,31 @@ export function useProfileMediaUpload(): {
     }
   }, [user?.avatar, user?.banner, updateUser, gt]);
 
-  const onFile = async (file: File | undefined) => {
-    const target = targetRef.current;
-    if (!file || !target) return;
+  // A recent image: main profile → applied now; server profile → the draft.
+  const applyRecent = useCallback(async (target: PickTarget, url: string) => {
+    const { kind, serverId } = target;
+    if (serverId) {
+      target.onDone?.(url);
+      return;
+    }
+    const previous = kind === "avatar" ? user?.avatar : user?.banner;
+    updateUser(kind === "avatar" ? { avatar: url } : { banner: url });
+    setUploading((u) => ({ ...u, [kind]: true }));
+    const label = kind === "avatar" ? gt("Avatar") : gt("Banner");
+    const result = await applyRecentMedia(kind, url);
+    setUploading((u) => ({ ...u, [kind]: false }));
+    if ("url" in result) {
+      updateUser(kind === "avatar" ? { avatar: result.url } : { banner: result.url });
+      target.onDone?.(result.url);
+      toast.success(gt("{type} updated!", { type: label }));
+    } else {
+      updateUser(kind === "avatar" ? { avatar: previous } : { banner: previous });
+      toast.error(result.error || gt("Could not use that image"));
+    }
+  }, [user?.avatar, user?.banner, updateUser, gt]);
+
+  const onFile = async (file: File | undefined, target: PickTarget) => {
+    if (!file) return;
     if (!file.type.startsWith("image/")) {
       toast.error(gt("Please select an image file"));
       return;
@@ -109,17 +128,17 @@ export function useProfileMediaUpload(): {
     void upload(target, ready, ready.name);
   };
 
+  const pick = (target: PickTarget) => {
+    selectImage.open({
+      recents: target.kind,
+      onFile: (file) => void onFile(file, target),
+      onRecent: (url) => void applyRecent(target, url),
+    });
+  };
+
   const element = (
     <>
-      <input
-        ref={inputRef}
-        type="file"
-        accept="image/png,image/jpeg,image/gif,image/webp"
-        className="hidden"
-        aria-hidden
-        tabIndex={-1}
-        onChange={(e) => void onFile(e.target.files?.[0])}
-      />
+      {selectImage.element}
       {cropper.element}
     </>
   );

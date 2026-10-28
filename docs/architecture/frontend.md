@@ -116,6 +116,11 @@ Channels and DMs run on the same code:
 - **Lazy dialogs**: heavy dialogs and mobile views are `next/dynamic`.
   Wrap them in `<MountWhenOpened open={...}>` so a closed dialog doesn't even
   fetch its chunk; it stays mounted after first open for close animations.
+- **Image picker**: every avatar / banner / icon change opens
+  `SelectImageDialog` through `useSelectImage()` (Upload Image, Choose GIF,
+  recent avatars / banners + the linked Discord image); profile surfaces go
+  through `useProfileMediaUpload()`, which adds the crop + upload. GIFs and
+  Discord images are fetched by the server and uploaded like any file.
 - **No per-message pollers**: `MemberProfilePopup` lazy-mounts its popover and
   `FullProfileDialog` only on first hover/focus/press; hooks like
   `useUserActivity` and `useCurrentTime` take an enabled/open gate. Never

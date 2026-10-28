@@ -10,6 +10,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useImageCropper } from "@/components/ui/useImageCropper";
+import { useSelectImage } from "@/components/ui/useSelectImage";
 import { toast } from "sonner";
 import {
   Settings,
@@ -340,13 +341,12 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
     }
   }
   const [isSaving, setIsSaving] = useState(false);
-  const iconInputRef = useRef<HTMLInputElement>(null);
-  const bannerInputRef = useRef<HTMLInputElement>(null);
   const [isUploadingIcon, setIsUploadingIcon] = useState(false);
   const [isUploadingBanner, setIsUploadingBanner] = useState(false);
 
   // Image cropper state
   const cropper = useImageCropper();
+  const imagePicker = useSelectImage();
 
   // Icon/banner are uploaded immediately (not part of the draft transaction)
   const [serverIcon, setServerIcon] = useState<string | null>(null);
@@ -747,11 +747,8 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   }, [roles, selectedRoleId]);
 
   // Pick → crop when the shape is off (animated images may skip it) → upload.
-  const handleServerImageSelect = async (e: React.ChangeEvent<HTMLInputElement>, kind: "icon" | "banner") => {
-    const file = e.target.files?.[0];
-    // Clear input so the same file can be selected again
-    e.target.value = "";
-    if (!file || !currentServer) return;
+  const handleServerImageFile = async (file: File, kind: "icon" | "banner") => {
+    if (!currentServer) return;
 
     if (!file.type.startsWith("image/")) {
       toast.error(gt("Please select an image file"));
@@ -773,8 +770,9 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
 
     await handleCropComplete(kind, ready);
   };
-  const handleIconUpload = (e: React.ChangeEvent<HTMLInputElement>) => void handleServerImageSelect(e, "icon");
-  const handleBannerUpload = (e: React.ChangeEvent<HTMLInputElement>) => void handleServerImageSelect(e, "banner");
+  // "Select an Image" (upload or GIF) first, then the crop + upload above.
+  const pickServerIcon = () => imagePicker.open({ onFile: (file) => void handleServerImageFile(file, "icon") });
+  const pickServerBanner = () => imagePicker.open({ onFile: (file) => void handleServerImageFile(file, "banner") });
 
   const handleCropComplete = async (cropperType: "icon" | "banner", croppedBlob: File) => {
     if (!currentServer) return;
@@ -1926,15 +1924,13 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
         <SettingsPageHeader title={gt("Server Overview")} description={gt("Customize your server's identity")} className="mb-0" />
 
         {/* Hidden file inputs */}
-        <input type="file" ref={iconInputRef} onChange={handleIconUpload} accept="image/*" className="hidden" />
-        <input type="file" ref={bannerInputRef} onChange={handleBannerUpload} accept="image/*" className="hidden" />
 
         {/* Icon uploader + name side by side (Discord) */}
         <div className="grid gap-6 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
           <div className="flex items-center gap-4">
             <button
               type="button"
-              onClick={() => iconInputRef.current?.click()}
+              onClick={pickServerIcon}
               disabled={isUploadingIcon}
               aria-label={gt("Change server icon")}
               className="group relative h-[88px] w-[88px] shrink-0 rounded-2xl disabled:cursor-not-allowed"
@@ -1951,7 +1947,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
               <p className="text-[13px] leading-snug text-[var(--text-secondary)]">
                 {gt("We recommend an image of at least 512x512 for the server.")}
               </p>
-              <SettingsButton variant="secondary" onClick={() => iconInputRef.current?.click()} disabled={isUploadingIcon}>
+              <SettingsButton variant="secondary" onClick={pickServerIcon} disabled={isUploadingIcon}>
                 {gt("Upload Image")}
               </SettingsButton>
             </div>
@@ -2078,7 +2074,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
           <div className="flex flex-col gap-4 sm:flex-row sm:items-start">
             <button
               type="button"
-              onClick={() => bannerInputRef.current?.click()}
+              onClick={pickServerBanner}
               disabled={isUploadingBanner}
               aria-label={gt("Change server banner")}
               className="group relative aspect-[2/1] w-full max-w-[320px] overflow-hidden rounded-lg border border-[var(--border-subtle)] bg-gradient-to-br from-[var(--app-accent)] to-[var(--accent-hover)] disabled:cursor-not-allowed"
@@ -2098,7 +2094,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
               <p className="text-[13px] leading-snug text-[var(--text-secondary)]">
                 {gt("We recommend an image of at least 960x480. Images up to 8MB, GIFs up to 50MB.")}
               </p>
-              <SettingsButton variant="secondary" onClick={() => bannerInputRef.current?.click()} disabled={isUploadingBanner}>
+              <SettingsButton variant="secondary" onClick={pickServerBanner} disabled={isUploadingBanner}>
                 {gt("Upload Banner")}
               </SettingsButton>
             </div>
@@ -3155,6 +3151,7 @@ export function ServerSettingsDialog({ open, onOpenChange, initialTab = null }: 
   const overlays = (
     <>
       {cropper.element}
+      {imagePicker.element}
 
       {/* Audio Trimmer (soundboard sounds over 30 seconds) */}
       <AudioTrimmerDialog

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import { cdnImage } from "@/lib/utils";
 import { useParams } from "next/navigation";
 import { useApplication } from "../useApplication";
@@ -9,6 +9,7 @@ import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { useImageCropper } from "@/components/ui/useImageCropper";
+import { useSelectImage } from "@/components/ui/useSelectImage";
 import { DiscordLinkCard } from "./DiscordLinkCard";
 
 const INTENTS = [
@@ -55,9 +56,9 @@ export default function BotPage() {
   const [savingProfile, setSavingProfile] = useState(false);
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   const [uploadingBanner, setUploadingBanner] = useState(false);
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  const bannerInputRef = useRef<HTMLInputElement>(null);
   const cropper = useImageCropper();
+  // "Select an Image" (upload or GIF) before the crop + upload.
+  const imagePicker = useSelectImage();
 
   const hasBotUser = !!app?.botId;
 
@@ -354,7 +355,7 @@ export default function BotPage() {
             <div className="relative">
               <button
                 type="button"
-                onClick={() => bannerInputRef.current?.click()}
+                onClick={() => imagePicker.open({ onFile: (f) => void handleImageUpload("banner", f) })}
                 className="group relative block w-full h-28 bg-gradient-to-br from-[#8B5CF6]/30 to-[#6366f1]/30 overflow-hidden"
                 aria-label={gt("Upload banner")}
               >
@@ -364,16 +365,9 @@ export default function BotPage() {
                   {gt("Change banner")}
                 </span>
               </button>
-              <input
-                ref={bannerInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload("banner", f); e.target.value = ""; }}
-              />
               <button
                 type="button"
-                onClick={() => avatarInputRef.current?.click()}
+                onClick={() => imagePicker.open({ onFile: (f) => void handleImageUpload("avatar", f) })}
                 className="group absolute -bottom-8 left-5 size-16 rounded-full border-4 border-[#0d0d0d] bg-[#1a1a1a] overflow-hidden"
                 aria-label={gt("Upload avatar")}
               >
@@ -384,14 +378,8 @@ export default function BotPage() {
                   {uploadingAvatar ? <Loader size={24} className="size-4" /> : <Upload className="size-4" />}
                 </span>
               </button>
-              <input
-                ref={avatarInputRef}
-                type="file"
-                accept="image/jpeg,image/png,image/gif,image/webp"
-                className="hidden"
-                onChange={(e) => { const f = e.target.files?.[0]; if (f) handleImageUpload("avatar", f); e.target.value = ""; }}
-              />
               {cropper.element}
+              {imagePicker.element}
             </div>
 
             {/* Fields */}

@@ -11,6 +11,7 @@
 - **Choose who can DM you, per server too** — direct messages can now be limited to Everyone, Server members (people you share a server with) or Friends only, and each server has its own switch: turn a server off so its members can't DM you because of it, or on to let its members in while you only take DMs from friends. Calls follow the same rules.
 - **Finer activity sharing and typing privacy** — share games & apps, serika.moe Now Watching and Last.fm music separately, and turn off "is typing…" so nobody (people or bots) sees when you're writing.
 - **Real YouTube and Twitch notifications with ping options** — Server Settings → Integrations now shows the channel's latest upload or stream, and "Send test notification" posts that real video or stream (with thumbnail and a Watch button) instead of made-up content. Choose whether each notification pings nobody, @everyone, @here or a role, and optionally write your own message. New YouTube uploads and Twitch go-lives are now posted automatically.
+- **Select an Image** — changing an avatar, banner, server icon or bot image now opens a Discord-style picker: upload a file, choose a GIF, or reuse one of your 6 most recent avatars or banners (with a small x to remove one). If you linked Discord, your current Discord avatar and banner show up there too. Old avatars and banners stay available while they're in your recent list.
 
 ### Changes
 

@@ -33,7 +33,7 @@ import { maskEmail } from "@/lib/streamer/streamerMode";
 import dynamic from "next/dynamic";
 import { StatusIcon } from "@/components/user/StatusBadge";
 import { statusLabelInvisible } from "@/lib/statusLabels";
-import { useImageCropper } from "@/components/ui/useImageCropper";
+import { useProfileMediaUpload } from "@/components/user/profileEditor/useProfileMediaUpload";
 // Per-server profiles editor (own chunk, loaded when opened).
 const StandaloneServerProfileEditor = dynamic(() => import("@/components/user/profileEditor/StandaloneServerProfileEditor"), {
   ssr: false,
@@ -218,11 +218,8 @@ export default function MobileSettingsSectionPage() {
   const [profileCardBorderWidth, setProfileCardBorderWidth] = useState(1);
   const [nameplate, setNameplate] = useState<NameplateCustomization>({ type: 'none' });
 
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  const bannerInputRef = useRef<HTMLInputElement>(null);
-  const cropper = useImageCropper();
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
+  // Avatar / banner changes through the "Select an Image" dialog (upload, GIF, recent images).
+  const profileMedia = useProfileMediaUpload();
 
 
   useEffect(() => {
@@ -760,10 +757,11 @@ export default function MobileSettingsSectionPage() {
                       </AvatarFallback>
                     </Avatar>
                     <button
-                      onClick={() => avatarInputRef.current?.click()}
-                      className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center opacity-0 hover:opacity-100 transition-opacity"
+                      onClick={() => profileMedia.pick({ kind: "avatar" })}
+                      aria-label={gt("Change Avatar")}
+                      className="absolute inset-0 bg-black/60 rounded-full flex items-center justify-center opacity-0 hover:opacity-100 focus-visible:opacity-100 transition-opacity"
                     >
-                      {isUploadingAvatar ? (
+                      {profileMedia.uploading.avatar ? (
                         <Loader size={20} />
                       ) : (
                         <Camera className="w-5 h-5 text-white" />
@@ -773,54 +771,6 @@ export default function MobileSettingsSectionPage() {
                   <div>
                     <h4 className="text-sm font-semibold text-[var(--text-primary)]">{gt("Profile Avatar")}</h4>
                     <p className="text-xs text-[var(--text-muted)] mt-0.5">{gt("Click image to upload new avatar")}</p>
-                    <input
-                      ref={avatarInputRef}
-                      type="file"
-                      accept="image/*"
-                      className="hidden"
-                      onChange={async (e) => {
-                        const picked = e.target.files?.[0];
-                        e.target.value = "";
-                        if (!picked) return;
-                        if (!picked.type.startsWith("image/")) {
-                          toast.error(gt("Please select an image file"));
-                          return;
-                        }
-                        const file = await cropper.prepare(picked, "avatar");
-                        if (!file) return;
-                        setIsUploadingAvatar(true);
-                        // Optimistically preview from a local object URL so the
-                        // avatar updates instantly instead of waiting on upload.
-                        const localUrl = URL.createObjectURL(file);
-                        const prevAvatar = user?.avatar;
-                        updateUser({ avatar: localUrl });
-                        const formData = new FormData();
-                        formData.append("file", file, file.name);
-                        try {
-                          const res = await fetch("/api/upload/avatar", {
-                            method: "POST",
-                            body: formData,
-                          });
-                          if (res.ok) {
-                            const data = await res.json();
-                            updateUser({ avatar: data.url });
-                            URL.revokeObjectURL(localUrl);
-                            toast.success(gt("Avatar updated!"));
-                          } else {
-                            const data = await res.json();
-                            updateUser({ avatar: prevAvatar });
-                            URL.revokeObjectURL(localUrl);
-                            toast.error(data.error || gt("Failed to upload avatar"));
-                          }
-                        } catch {
-                          updateUser({ avatar: prevAvatar });
-                          URL.revokeObjectURL(localUrl);
-                          toast.error(gt("Failed to upload avatar"));
-                        } finally {
-                          setIsUploadingAvatar(false);
-                        }
-                      }}
-                    />
                   </div>
                 </div>
 
@@ -831,7 +781,7 @@ export default function MobileSettingsSectionPage() {
                     <p className="text-xs text-[var(--text-muted)]">{gt("Click banner to upload")}</p>
                   </div>
                   <div
-                    onClick={() => bannerInputRef.current?.click()}
+                    onClick={() => profileMedia.pick({ kind: "banner" })}
                     className="relative w-full h-24 rounded-lg overflow-hidden bg-[var(--bg-sidebar-elevated)] border-2 border-dashed border-[var(--border-subtle)] hover:border-[var(--app-accent)] cursor-pointer transition-all group flex items-center justify-center"
                   >
                     {user?.banner ? (
@@ -843,62 +793,14 @@ export default function MobileSettingsSectionPage() {
                       </div>
                     )}
                     <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                      {isUploadingBanner ? (
+                      {profileMedia.uploading.banner ? (
                         <Loader size={20} />
                       ) : (
                         <Camera className="w-5 h-5 text-white" />
                       )}
                     </div>
                   </div>
-                  <input
-                    ref={bannerInputRef}
-                    type="file"
-                    accept="image/*"
-                    className="hidden"
-                    onChange={async (e) => {
-                      const picked = e.target.files?.[0];
-                      e.target.value = "";
-                      if (!picked) return;
-                      if (!picked.type.startsWith("image/")) {
-                        toast.error(gt("Please select an image file"));
-                        return;
-                      }
-                      const file = await cropper.prepare(picked, "profileBanner");
-                      if (!file) return;
-                      setIsUploadingBanner(true);
-                      // Optimistically preview from a local object URL so the
-                      // banner updates instantly instead of waiting on upload.
-                      const localUrl = URL.createObjectURL(file);
-                      const prevBanner = user?.banner;
-                      updateUser({ banner: localUrl });
-                      const formData = new FormData();
-                      formData.append("file", file, file.name);
-                      try {
-                        const res = await fetch("/api/upload/banner", {
-                          method: "POST",
-                          body: formData,
-                        });
-                        if (res.ok) {
-                          const data = await res.json();
-                          updateUser({ banner: data.url });
-                          URL.revokeObjectURL(localUrl);
-                          toast.success(gt("Banner updated!"));
-                        } else {
-                          const data = await res.json();
-                          updateUser({ banner: prevBanner });
-                          URL.revokeObjectURL(localUrl);
-                          toast.error(data.error || gt("Failed to upload banner"));
-                        }
-                      } catch {
-                        updateUser({ banner: prevBanner });
-                        URL.revokeObjectURL(localUrl);
-                        toast.error(gt("Failed to upload banner"));
-                      } finally {
-                        setIsUploadingBanner(false);
-                      }
-                    }}
-                  />
-                  {cropper.element}
+                  {profileMedia.element}
                 </div>
               </div>
             </div>

@@ -39,7 +39,6 @@ import { NotificationsPage } from "@/components/settings/user/NotificationsPage"
 import { AppearancePage } from "@/components/settings/user/AppearancePage";
 import { DisplayNameStyleEditor, NameplateEditor, ProfileColourEditor } from "@/components/settings/user/ProfileStyleEditors";
 import { UnsavedChangesBar, useUnsavedShake } from "@/components/ui/unsaved-changes-bar";
-import { useImageCropper } from "@/components/ui/useImageCropper";
 import { ProfileCard } from "@/components/user/ProfileCard";
 import { ServerProfileEditor } from "@/components/user/profileEditor/ServerProfileEditor";
 import { ServerProfilePicker } from "@/components/user/profileEditor/ServerProfilePicker";
@@ -345,7 +344,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const serverProfile = useServerProfileDraft(open && profileTab === "server" && selectedServerId ? selectedServerId : null, {
     onSaved: (sid, stored) => serverProfileIndex.setProfile(sid, overriddenFields(stored)),
   });
-  const serverMedia = useProfileMediaUpload();
+  // Avatar / banner changes (main profile and server profiles) through the "Select an Image" dialog.
+  const profileMedia = useProfileMediaUpload();
   const [bio, setBio] = useState("");
   const [pronouns, setPronouns] = useState("");
   const [timezone, setTimezone] = useState("");
@@ -436,13 +436,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   const [userConnections, setUserConnections] = useState<UserConnection[]>([]);
   const [connectionsEnabled, setConnectionsEnabled] = useState(true);
   const [disabledProviders, setDisabledProviders] = useState<string[]>([]);
-
-  // Avatar/Banner upload state
-  const avatarInputRef = useRef<HTMLInputElement>(null);
-  const bannerInputRef = useRef<HTMLInputElement>(null);
-  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
-  const [isUploadingBanner, setIsUploadingBanner] = useState(false);
-  const cropper = useImageCropper();
 
   // Admin state
   const [adminUserSearch, setAdminUserSearch] = useState("");
@@ -1007,88 +1000,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
 
     return { lines, isCanary, isProd, environment, isTauri };
   }, []);
-
-  // Pick → crop when the shape is off (animated images may skip it) → upload.
-  const handleImageSelect = async (e: React.ChangeEvent<HTMLInputElement>, kind: "avatar" | "banner") => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-
-    if (!file.type.startsWith("image/")) {
-      toast.error(gt("Please select an image file"));
-      return;
-    }
-
-    const ready = await cropper.prepare(file, kind === "avatar" ? "avatar" : "profileBanner");
-    if (!ready) return;
-
-    if (kind === "banner" && ready.type === "image/gif") {
-      if (ready.size > 50 * 1024 * 1024) {
-        toast.error(gt("GIF must be less than 50MB"));
-        return;
-      }
-    } else if (ready.size > 8 * 1024 * 1024) {
-      toast.error(gt("Image must be less than 8MB"));
-      return;
-    }
-
-    void handleCropComplete(kind, ready);
-  };
-  const handleAvatarSelect = (e: React.ChangeEvent<HTMLInputElement>) => void handleImageSelect(e, "avatar");
-  const handleBannerSelect = (e: React.ChangeEvent<HTMLInputElement>) => void handleImageSelect(e, "banner");
-
-  // Main profile only: server profile images go through the server profile
-  // editor's draft (uploaded, applied on Save).
-  const handleCropComplete = async (cropperType: "avatar" | "banner", croppedBlob: File) => {
-    const isAvatar = cropperType === "avatar";
-    const setUploading = isAvatar ? setIsUploadingAvatar : setIsUploadingBanner;
-    const endpoint = isAvatar ? "/api/upload/avatar" : "/api/upload/banner";
-
-    setUploading(true);
-    const formData = new FormData();
-    formData.append("file", croppedBlob, croppedBlob.name);
-
-    // Optimistically show the cropped image immediately from a local object URL
-    // so the preview updates instantly instead of waiting on the network round
-    // trip + image load. Swapped for the real URL on success, reverted on error.
-    const localUrl = URL.createObjectURL(croppedBlob);
-    const prevAvatar = user?.avatar;
-    const prevBanner = user?.banner;
-    if (isAvatar) updateUser({ avatar: localUrl });
-    else updateUser({ banner: localUrl });
-
-    try {
-      const response = await fetch(endpoint, {
-        method: "POST",
-        body: formData,
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        if (isAvatar) updateUser({ avatar: data.url });
-        else updateUser({ banner: data.url });
-        URL.revokeObjectURL(localUrl);
-        toast.success(gt("{type} updated!", { type: isAvatar ? gt("Avatar") : gt("Banner") }));
-        // Fire-and-forget: the optimistic + confirmed URL already reflects the
-        // change, so don't block the UI on a full profile refetch.
-        void refresh();
-      } else {
-        // Revert the optimistic preview on failure.
-        URL.revokeObjectURL(localUrl);
-        if (isAvatar) updateUser({ avatar: prevAvatar });
-        else updateUser({ banner: prevBanner });
-        const data = await response.json();
-        toast.error(data.error || gt("Failed to upload {type}", { type: cropperType }));
-      }
-    } catch {
-      URL.revokeObjectURL(localUrl);
-      if (isAvatar) updateUser({ avatar: prevAvatar });
-      else updateUser({ banner: prevBanner });
-      toast.error(gt("Failed to upload {type}", { type: cropperType }));
-    } finally {
-      setUploading(false);
-    }
-  };
 
   // Admin handlers
   const searchAdminUsers = async () => {
@@ -1796,7 +1707,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                           layout="page"
                           draft={serverProfile}
                           serverName={servers.find((srv) => srv.id === selectedServerId)?.name ?? ""}
-                          media={serverMedia}
+                          media={profileMedia}
                           picker={
                             <ServerProfilePicker
                               servers={servers}
@@ -1814,7 +1725,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                           }
                         />
                       )}
-                      {serverMedia.element}
                     </div>
                   ) : (
                   <div className="grid grid-cols-1 gap-8 lg:grid-cols-[minmax(0,1fr)_300px] xl:grid-cols-[minmax(0,1fr)_340px]">
@@ -1828,26 +1738,24 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                     shape="avatar"
                                     src={user?.avatar}
                                     alt={gt("Avatar")}
-                                    uploading={isUploadingAvatar}
-                                    onPick={() => avatarInputRef.current?.click()}
+                                    uploading={profileMedia.uploading.avatar}
+                                    onPick={() => profileMedia.pick({ kind: "avatar" })}
                                   />
-                                  <SettingsButton size="sm" onClick={() => avatarInputRef.current?.click()}>{gt("Change Avatar")}</SettingsButton>
+                                  <SettingsButton size="sm" onClick={() => profileMedia.pick({ kind: "avatar" })}>{gt("Change Avatar")}</SettingsButton>
                                 </div>
                                 <div className="flex min-w-0 flex-1 flex-col gap-2 max-sm:w-full">
                                   <MediaPickTile
                                     shape="banner"
                                     src={user?.banner}
                                     alt={gt("Banner")}
-                                    uploading={isUploadingBanner}
-                                    onPick={() => bannerInputRef.current?.click()}
+                                    uploading={profileMedia.uploading.banner}
+                                    onPick={() => profileMedia.pick({ kind: "banner" })}
                                   />
                                   <div>
-                                    <SettingsButton variant="secondary" size="sm" onClick={() => bannerInputRef.current?.click()}>{gt("Change Banner")}</SettingsButton>
+                                    <SettingsButton variant="secondary" size="sm" onClick={() => profileMedia.pick({ kind: "banner" })}>{gt("Change Banner")}</SettingsButton>
                                   </div>
                                 </div>
                               </div>
-                              <input ref={avatarInputRef} type="file" accept="image/*" className="hidden" onChange={handleAvatarSelect} />
-                              <input ref={bannerInputRef} type="file" accept="image/*" className="hidden" onChange={handleBannerSelect} />
                             </div>
                           </SettingsSection>
 
@@ -3215,7 +3123,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         </SettingsContent>
       </div>
 
-      {cropper.element}
+      {profileMedia.element}
     </div>
   );
 }
