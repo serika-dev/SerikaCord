@@ -26,7 +26,7 @@ import { toServerStatus } from "@/lib/presenceChoice";
 import { DeviceSelect, InputSensitivity } from "@/components/settings/VoiceDeviceSettings";
 import { DEFAULT_SENSITIVITY_DB } from "@/lib/voice/voiceActivity";
 import { voiceService } from "@/lib/services/voiceService";
-import { ActivityPrivacySettings, FriendRequestSettings, MessageRequestSettings } from "@/components/settings/SocialPrivacySettings";
+import { PrivacyDataPage, type PrivacyLinkTarget } from "@/components/settings/user/PrivacyDataPage";
 import { StreamerModeSettings } from "@/components/settings/StreamerModeSettings";
 import { useStreamerHides } from "@/hooks/useStreamerMode";
 import { maskEmail } from "@/lib/streamer/streamerMode";
@@ -150,6 +150,16 @@ function connectionProviderHint(id: string, gt: GTFunc): string {
 const statusOptions = ["online", "idle", "dnd", "offline"] as const;
 
 type SettingsObject = Record<string, any>;
+
+/** Where Data & Privacy's links go on this mobile settings route. */
+const MOBILE_PRIVACY_LINKS: Record<PrivacyLinkTarget, string> = {
+  profiles: "profiles",
+  connections: "connections",
+  devices: "account",
+  "authorized-apps": "apps",
+  encryption: "encryption",
+  "bug-reports": "bug-report",
+};
 
 export default function MobileSettingsSectionPage() {
   const params = useParams();
@@ -448,43 +458,12 @@ export default function MobileSettingsSectionPage() {
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 pb-20">
-        {section === "privacy" && settings && (
-          <div className="space-y-4">
-            <ToggleRow
-              label={gt("Allow direct messages")}
-              checked={settings.privacy?.directMessages === "everyone"}
-              onChange={(checked) =>
-                saveSettings({ privacy: { ...(settings.privacy || {}), directMessages: checked ? "everyone" : "friends" }, friendRequests: { ...(settings.friendRequests || {}), allowServerMembers: checked } })
-              }
-            />
-            <ToggleRow
-              label={gt("Allow friend requests")}
-              checked={settings.privacy?.friendRequests !== "none"}
-              onChange={(checked) =>
-                saveSettings({ privacy: { ...(settings.privacy || {}), friendRequests: checked ? "everyone" : "none", friendRequestSources: { everyone: checked, friendsOfFriends: checked, serverMembers: checked } }, friendRequests: { ...(settings.friendRequests || {}), allowEveryone: checked } })
-              }
-            />
-            <ToggleRow
-              label={gt("Activity status")}
-              checked={settings.privacy?.showActivity !== false}
-              onChange={(checked) => saveSettings({ privacy: { ...(settings.privacy || {}), showActivity: checked } })}
-            />
-            <div className="rounded-xl bg-[var(--bg-card)] overflow-hidden">
-              <MessageRequestSettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
-            </div>
-            <div className="rounded-xl bg-[var(--bg-card)] overflow-hidden">
-              <FriendRequestSettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
-            </div>
-            <div className="rounded-xl bg-[var(--bg-card)] overflow-hidden">
-              <p className="px-4 pt-3.5 text-xs font-bold uppercase tracking-wide text-[var(--text-secondary)]">{gt("Activity Privacy")}</p>
-              <ActivityPrivacySettings settings={settings} save={(patch) => void saveSettings(patch as SettingsObject)} />
-            </div>
-            <ToggleRow
-              label={gt("Crash reports")}
-              checked={Boolean(settings.dataPrivacy?.allowCrashReports)}
-              onChange={(checked) => saveSettings({ dataPrivacy: { ...(settings.dataPrivacy || {}), allowCrashReports: checked } })}
-            />
-          </div>
+        {section === "privacy" && (
+          <PrivacyDataPage
+            userSettings={settings}
+            save={(patch) => void saveSettings(patch as SettingsObject)}
+            onNavigate={(target) => router.push(`/channels/settings/${MOBILE_PRIVACY_LINKS[target]}`)}
+          />
         )}
 
         {section === "notifications" && settings && (

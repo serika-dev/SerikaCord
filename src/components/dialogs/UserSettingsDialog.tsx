@@ -89,11 +89,10 @@ import {
   Search,
   ShieldAlert,
   MessageSquareHeart,
-  UserPlus,
   Gavel,
   type LucideIcon,
 } from "lucide-react";
-import { ActivityPrivacySettings, FriendRequestSettings, MessageRequestSettings } from "@/components/settings/SocialPrivacySettings";
+import { PrivacyDataPage, type PrivacyLinkTarget } from "@/components/settings/user/PrivacyDataPage";
 import { setUserNotificationSettings } from "@/lib/services/notificationUX";
 import { voiceService } from "@/lib/services/voiceService";
 import { cn, cdnImage } from "@/lib/utils";
@@ -294,6 +293,10 @@ type SettingsTab =
   | "admin-apps";
 
 
+/** Pages folded into Data & Privacy; old deep links to them land there. */
+const MERGED_PRIVACY_TABS: ReadonlySet<string> = new Set(["content-social", "friend-requests", "activity-privacy"]);
+const canonicalSettingsTab = (tab: SettingsTab): SettingsTab => (MERGED_PRIVACY_TABS.has(tab) ? "data-privacy" : tab);
+
 export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSettingsDialogProps) {
   const { user, logout, updateUser, refresh } = useAuth();
   const gt = useGT();
@@ -306,7 +309,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   // The sidebar follows `navTab` at once; the page itself renders from the
   // deferred `activeTab`, so a heavy page renders in the background instead
   // of freezing clicks while it mounts.
-  const [navTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab | null | undefined) || "profiles");
+  const [rawNavTab, setActiveTab] = useState<SettingsTab>((initialTab as SettingsTab | null | undefined) || "profiles");
+  const navTab = canonicalSettingsTab(rawNavTab);
   const activeTab = useDeferredValue(navTab);
   // Jump to the requested tab each time the dialog opens (state adjusted
   // during render rather than in an effect).
@@ -1572,10 +1576,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
         items: [
           { id: "account" as SettingsTab, label: gt("My Account"), icon: UserCog, keywords: gt("email, username, password, passkeys, delete account") },
           { id: "profiles" as SettingsTab, label: gt("Profiles"), icon: User, keywords: gt("avatar, banner, display name, bio, pronouns, status, nameplate, server profile") },
-          { id: "content-social" as SettingsTab, label: gt("Content & Social"), icon: MessageSquare, keywords: gt("direct messages, DMs, message requests, privacy") },
-          { id: "friend-requests" as SettingsTab, label: gt("Friend Requests"), icon: UserPlus },
-          { id: "activity-privacy" as SettingsTab, label: gt("Activity Privacy"), icon: Activity },
-          { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock, keywords: gt("analytics, crash reports, activity history, personalization") },
+          { id: "data-privacy" as SettingsTab, label: gt("Data & Privacy"), icon: Lock, keywords: gt("privacy, safety, content and social, direct messages, DMs, message requests, friend requests, blocked, server privacy, activity privacy, activity status, now watching, music, games, invisible, typing, read receipts, timezone, connections, analytics, crash reports, tracking, activity history, Discord bridge, data export, download data, delete account") },
           { id: "account-standing" as SettingsTab, label: gt("Account Standing"), icon: ShieldCheck },
           { id: "authorized-apps" as SettingsTab, label: gt("Authorized Apps"), icon: Plug },
           { id: "devices" as SettingsTab, label: gt("Devices"), icon: Smartphone, keywords: gt("sessions, log out, passkeys, security") },
@@ -1673,6 +1674,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   );
   const openProfiles = useCallback(() => selectTab("profiles"), [selectTab]);
   const openDevices = useCallback(() => selectTab("devices"), [selectTab]);
+  const savePrivacyPatch = useCallback((patch: SettingsPatch) => stableSaveSettingsPatch(patch, "data-privacy"), [stableSaveSettingsPatch]);
+  const openPrivacyLink = useCallback((target: PrivacyLinkTarget) => selectTab(target), [selectTab]);
 
   if (!open) return null;
 
@@ -2212,123 +2215,14 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                 </div>
               )}
 
-              {/* Social & privacy: toggle-row pages */}
-              {activeTab === "content-social" && (
-                <div className="space-y-8">
-                  <SettingsPageHeader title={gt("Content & Social")} description={gt("Control who can reach you and what others see.")} actions={savingIndicator} />
-                  {!userSettings ? (
-                    <SettingsSkeleton variant="rows" count={4} />
-                  ) : (
-                    <SettingsSection title={gt("Social Permissions")}>
-                      <SettingsCard>
-                        <SettingsToggleRow
-                          label={gt("Allow DMs from non-friends")}
-                          description={gt("When off, only friends can start a new direct message with you.")}
-                          checked={userSettings.privacy?.directMessages === "everyone" && userSettings.friendRequests?.allowServerMembers !== false}
-                          onCheckedChange={(checked) => saveSettingsPatch({ privacy: { directMessages: checked ? "everyone" : "friends" }, friendRequests: { allowServerMembers: checked } }, "content-social")}
-                        />
-                        <MessageRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "content-social")} />
-                        <SettingsToggleRow
-                          label={gt("Allow friend requests")}
-                          description={gt("When off, nobody can send you a friend request.")}
-                          checked={userSettings.privacy?.friendRequests !== "none" && userSettings.friendRequests?.allowEveryone !== false}
-                          onCheckedChange={(checked) => saveSettingsPatch({ privacy: { friendRequests: checked ? "everyone" : "none", friendRequestSources: { everyone: checked, friendsOfFriends: checked, serverMembers: checked } }, friendRequests: { allowEveryone: checked } }, "content-social")}
-                        />
-                        <SettingsToggleRow
-                          label={gt("Share activity status")}
-                          description={gt("Show what you're playing or watching to others.")}
-                          checked={userSettings.privacy?.showActivity !== false}
-                          onCheckedChange={(checked) => saveSettingsPatch({ privacy: { showActivity: checked } }, "content-social")}
-                        />
-                      </SettingsCard>
-                    </SettingsSection>
-                  )}
-                </div>
-              )}
-
-              {activeTab === "friend-requests" && (
-                <div className="space-y-8">
-                  <SettingsPageHeader title={gt("Friend Requests")} actions={savingIndicator} />
-                  {!userSettings ? (
-                    <SettingsSkeleton variant="rows" count={3} />
-                  ) : (
-                    <SettingsCard>
-                      <FriendRequestSettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "friend-requests")} />
-                    </SettingsCard>
-                  )}
-                </div>
-              )}
-
-              {activeTab === "activity-privacy" && (
-                <div className="space-y-8">
-                  <SettingsPageHeader title={gt("Activity Privacy")} actions={savingIndicator} />
-                  {!userSettings ? (
-                    <SettingsSkeleton variant="rows" count={2} />
-                  ) : (
-                    <SettingsCard>
-                      <ActivityPrivacySettings settings={userSettings} save={(patch) => saveSettingsPatch(patch, "activity-privacy")} />
-                    </SettingsCard>
-                  )}
-                </div>
-              )}
-
               {activeTab === "data-privacy" && (
-                <div className="space-y-8">
-                  <SettingsPageHeader title={gt("Data & Privacy")} description={gt("Decide how your data is used.")} actions={savingIndicator} />
-                  {!userSettings ? (
-                    <SettingsSkeleton variant="rows" count={5} />
-                  ) : (
-                    <>
-                      <SettingsSection title={gt("Discord Bridge")}>
-                        <SettingsCard>
-                          <SettingsToggleRow
-                            label={gt("Allow data processing by Discord")}
-                            description={gt("Required for your messages to sync to bridged Discord servers. When off, your messages are never sent to Discord and your data is not shared with it.")}
-                            checked={Boolean(userSettings.dataPrivacy?.discordBridgeOutbound)}
-                            onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), discordBridgeOutbound: checked, discordBridgePrompted: true } }, "data-privacy")}
-                          />
-                        </SettingsCard>
-                      </SettingsSection>
-                      <SettingsSection title={gt("How we use your data")}>
-                        <SettingsCard>
-                          <SettingsToggleRow
-                            label={gt("Allow data personalization")}
-                            checked={Boolean(userSettings.dataPrivacy?.allowPersonalization)}
-                            onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowPersonalization: checked } }, "data-privacy")}
-                          />
-                          <SettingsToggleRow
-                            label={gt("Allow crash reports")}
-                            checked={Boolean(userSettings.dataPrivacy?.allowCrashReports)}
-                            onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowCrashReports: checked } }, "data-privacy")}
-                          />
-                          <SettingsToggleRow
-                            label={gt("Allow analytics")}
-                            checked={Boolean(userSettings.dataPrivacy?.allowAnalytics)}
-                            onCheckedChange={(checked) => saveSettingsPatch({ dataPrivacy: { ...(userSettings.dataPrivacy || {}), allowAnalytics: checked } }, "data-privacy")}
-                          />
-                          <SettingsToggleRow
-                            label={gt("Store recent activity")}
-                            description={gt("Keep a private history of games and apps the desktop app detects. Turn off to stop recording.")}
-                            checked={userSettings.privacy?.storeActivityHistory ?? true}
-                            onCheckedChange={(checked) => saveSettingsPatch({ privacy: { ...(userSettings.privacy || {}), storeActivityHistory: checked } }, "data-privacy")}
-                          >
-                            <SettingsButton
-                              variant="secondary"
-                              size="sm"
-                              onClick={async () => {
-                                try {
-                                  await fetch("/api/users/me/activity-history", { method: "DELETE", credentials: "include" });
-                                } catch { /* ignore */ }
-                              }}
-                            >
-                              {gt("Clear activity history")}
-                            </SettingsButton>
-                          </SettingsToggleRow>
-                        </SettingsCard>
-                      </SettingsSection>
-                    </>
-                  )}
-                </div>
+                <PrivacyDataPage
+                  userSettings={userSettings}
+                  save={savePrivacyPatch}
+                  onNavigate={openPrivacyLink}
+                  e2eeAvailable={e2eeVisible}
+                  headerActions={savingIndicator}
+                />
               )}
 
               {activeTab === "accessibility" && (

@@ -7,16 +7,20 @@
 ## Unreleased
 
 ### Features
+- **Choose who can DM you, per server too** — direct messages can now be limited to Everyone, Server members (people you share a server with) or Friends only, and each server has its own switch: turn a server off so its members can't DM you because of it, or on to let its members in while you only take DMs from friends. Calls follow the same rules.
+- **Finer activity sharing and typing privacy** — share games & apps, serika.moe Now Watching and Last.fm music separately, and turn off "is typing…" so nobody (people or bots) sees when you're writing.
 
 ### Changes
 
 - **Long command lists on bot pages start collapsed** — a bot page now shows the first 8 commands with a "View all" button instead of one very long list, and bots with more than 12 commands get a filter box that searches command names and descriptions.
 - **Nicer tooltips** — tooltips are a little more polished (solid themed surface that stays readable on gradient themes, soft border and shadow, matching arrow, quick fade-in, keyboard shortcuts shown as keycaps), and the plain browser tooltips on icons, badges, timestamps and buttons across the app now use the same style.
+- **Data & Privacy, rebuilt** — Settings → Data & Privacy (Privacy & Safety on the phone) now holds every privacy choice in one place: who can message you, message and friend requests, safety protections, activity sharing, typing, profile visibility, sharing outside SerikaCord and what SerikaCord stores about you. Every option has a plain description and a "What this does" section that spells out exactly who it affects, and an "At a glance" summary shows your current choices. Content & Social, Friend Requests and Activity Privacy moved into it (search still finds them).
 
 ### Bug Fixes
 - **Status rings always show** — the dark ring around the online, idle and Do Not Disturb icons on avatars no longer disappears with gradient or picture themes until you hover; it's always there, like on Discord.
 - **Big animated banners upload** — GIF profile, per-server and server banners between 10 MB and 50 MB now upload instead of failing with a server error, and a banner that is too big now says what the limit is.
 - **Discord bridge: real names and bot replies** — mentions sent from SerikaCord to Discord now show the person's, role's or channel's real name (people and bots who are in the Discord server get a proper Discord mention, bridged channels link to their Discord channel) instead of "@user", and replies and messages from SerikaCord bots, apps and webhooks now reach Discord too, with their embeds, under the bot's name and avatar. The per-channel "bot messages" option now covers both directions, and @everyone, @here and roles still never ping on Discord.
+- **DM calls follow your DM settings** — people who aren't your friends can call you exactly when they're allowed to DM you; before, calls were refused for anyone who had never changed their privacy settings.
 
 ### Performance
 
@@ -24,8 +28,10 @@
 
 - **Safer app emoji and image uploads** — application emojis added in the Developer Portal are now checked like server emojis (PNG, JPEG, GIF or WebP up to 256 KB, real image contents only, scanned by Trust & Safety and stored on the CDN), and app icons, App Directory covers and bot avatars and banners are checked by their actual contents instead of the file name or type the browser reports. Team icons can no longer be set to an embedded image or a link to another site. Existing emojis and images keep working.
 - **Avatar, banner, icon, emoji and sticker uploads are checked by their contents** — profile and server images are now accepted only when the file really is a PNG, JPEG, GIF or WebP image, whatever name or type the browser reports, and are stored with the real type.
+- **Invisible hides your activity** — while your status is Invisible, your live activity and Recent activity no longer show on your profile, in member lists or to apps, so they can't give away that you're online.
 
 ### Removed
+- **Placebo data switches** — the Analytics, Crash reports and Personalization switches never did anything (SerikaCord doesn't collect any of it) and are gone; Data & Privacy now says so plainly.
 
 ---
 
