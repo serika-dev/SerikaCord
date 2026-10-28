@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.3.0.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.4.0.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.4.0 — 2026-10-28
+
+**Tag:** `v2.4.0` · **Commit:** `c6bfc231`
 
 ### Features
 - **Docs MCP server speaks every MCP version** — the SerikaCord docs MCP endpoint now uses the latest protocol (2026-07-28, no handshake, server/discover) by default and still serves 2025-11-25, 2025-06-18, 2025-03-26 and 2024-11-05 clients. Add ?v=2024-11-05 (or any version) to the URL to pin one. The MCP docs page explains it and has working setup for Claude Code, Cursor and Claude Desktop.
@@ -43,13 +61,9 @@
 - **Discord bridge sees a Discord account linked in Serika Accounts** — step 1 of the bridge setup now completes as soon as Discord is linked in Serika Accounts (no sign-out needed), "I've connected it" re-checks without reloading the page, and the button takes you to Serika Accounts where Discord is actually linked.
 - **Connections explains what Serika Accounts manages** — on desktop, Settings → Connections now has a clear Serika Accounts card for Discord and SerikaMoe with an Open Serika Accounts button and a refresh, separate from the accounts you link right in SerikaCord; on mobile the Managed labels open Serika Accounts.
 
-### Performance
-
 ### Security
 - **Safer bot uploads and lobby invites** — activity uploads only accept the app's own bot token, lobby invites re-check that the inviter can still create invites in that channel, and apps can only add people to group DMs they created.
 - **Fewer secrets on the page** — the developer portal's app list no longer sends client secrets or bot tokens; each app's own page still shows them.
-
-### Removed
 
 ---
 
