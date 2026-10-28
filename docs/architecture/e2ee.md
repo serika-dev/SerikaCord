@@ -20,7 +20,7 @@ Code map:
 
 | Path | What |
 |------|------|
-| `src/lib/e2ee/` | Isomorphic core: `keys`, `envelope`, `payload`, `attachments`, `backup`, `safetyNumber` (+ `sha256`, a synchronous SHA-256 for its hash chain), `dtls`, `franking`, `policy` (pure server rules), `conversation` (pure client binding rules: URL targets, member checks, plaintext rows and the on / off timeline, payload URLs), `passphrase` (strength), `link` (device linking: codes, commitment, SAS, sealed keys), `keysVersion` (key-set versions), `notifyKeys` (notification keys, push blocks, recipient cap), `previewText` (preview line + mention detection), `pin` (PIN derivation, bundle seal / open, commit + removal signatures, easy-PIN rules), `pinVault` (server half with the pepper: verifier hash, sealed server secret, attempt rules), `conversationState` (signed "turned off" records and the downgrade rules), `constants`, `encoding` |
+| `src/lib/e2ee/` | Isomorphic core: `keys`, `envelope`, `payload`, `attachments`, `backup`, `safetyNumber` (+ `sha256`, a synchronous SHA-256 for its hash chain), `dtls`, `franking`, `policy` (pure server rules), `conversation` (pure client binding rules: URL targets, member checks, plaintext rows and the on / off timeline, payload URLs), `passphrase` (strength), `link` (device linking: codes, commitment, SAS, sealed keys), `keysVersion` (key-set versions), `notifyKeys` (notification keys, push blocks, recipient cap), `previewText` (preview line + mention detection), `pin` (PIN derivation, bundle seal / open, commit + removal signatures, easy-PIN rules), `pinVault` (server half with the pepper: verifier hash, sealed server secret, attempt rules), `conversationState` (signed "turned off" records and the downgrade rules), `trust` (identity pins: trust on first use, accept / verify), `constants`, `encoding` |
 | `src/lib/e2ee/client/` | Browser only: `keyStore` (IndexedDB, incl. "seen encrypted" memory, archived keys, link escrow), `session` (setup, linking, trust, encrypt/decrypt, caches; lazy-loaded), `plainCache` (decrypted-message cache: memory + encrypted IndexedDB; cached key bundles), `view` (payload → rendered message, crypto-free), `fileCrypto` + `fileWorker` (attachments in a module Web Worker), `state` (crypto-free snapshot for React), `chatGlue` (useChatSession helpers), `callGuard` (does a call room need verified signatures), `previews` (notification / DM-list previews), `notifyKey` (Android: notification key + trusted senders for native code) |
 | `src/lib/services/e2ee.ts` | Server: flag, boot DDL, key lookups, key-set versions, key-change notifications, send gate, franking reports, "turned off" record checks |
 | `src/lib/services/e2eePin.ts` | Server: PIN backups (pepper, begin / commit, unlock with atomic attempt counting, lockout + system DM, removal) |
@@ -68,7 +68,18 @@ lower-cased UUIDs.
   changed" banner; sending in that conversation is blocked until the viewer
   accepts the new code (or verifies the safety number). Every acknowledged
   key is remembered (`seen`) so the contact's older devices still verify old
-  messages.
+  messages. The pin rules are pure (`lib/e2ee/trust.ts`): only a bundle from
+  the server sets or clears a pending change; a copy cached on this device
+  never does, and a cached copy that disagrees with the trusted key waits for
+  the server instead of showing a change. "Accept new code" stores exactly
+  the key the banner showed (`acknowledgeIdentityChange(uid, pendingKey)`),
+  never a newer one that arrived unseen; "Mark as verified" in the safety
+  number dialog verifies the key it displayed (a pending one is accepted as
+  verified). Pins are per device (IndexedDB) and written per contact in one
+  read-modify-write transaction, so a tab with an older copy never
+  overwrites another tab's decision; a `BroadcastChannel` tells the other
+  tabs to reload them. Key sets checked against older pins are never cached
+  (a trust epoch).
 - **Safety number:** per user, `h = frame("serika-e2ee-safety-v1", userId, identityPub)`
   then 5200 rounds of `h = SHA-256(h ‖ identityPub)`; 30 bytes → 6 groups of 5
   digits (each 5-byte chunk mod 100000). The two halves are ordered by user id,
@@ -259,9 +270,14 @@ as a 1:1 DM's.
   IndexedDB (`conversationStates`), plaintext sends allowed, no
   "Not encrypted – can't verify sender" flags. Anything else (no record,
   unknown device, bad signature, replay) → the conversation stays encrypted
-  here (the server then refuses this device's envelopes) and a red strip says
-  "The server says encryption was turned off here, but no one in this
-  conversation confirmed it…" with "Turn on encryption". Seeing the
+  here (the server then refuses this device's envelopes) and the banner says
+  "Encryption was turned off by the server, but no member's confirmation
+  checks out on this device. Sending is paused." with "Turn on encryption"
+  (when everyone has keys) and "Turn off here too" (confirmed: this device
+  signs its own record and accepts it). When the record is signed by a
+  member whose security code changed and isn't accepted yet (their new
+  device isn't trusted here), that member's "security code changed" line
+  says so instead: accepting the code makes the record verify. Seeing the
   conversation encrypted again (server flag, `e2ee_enabled`) clears the off
   state and moves `seenEncryptedAt` forward.
 - **History**: plain rows are judged against the on / off timeline of the

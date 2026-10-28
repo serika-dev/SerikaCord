@@ -2,11 +2,12 @@
 
 import { useEffect, useState } from "react";
 import { useGT } from "gt-next";
-import { ShieldCheck } from "lucide-react";
+import { AlertTriangle, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { loadE2eeSession } from "@/lib/e2ee/client/state";
 import { useE2ee } from "@/hooks/useE2ee";
+import { toast } from "sonner";
 
 interface SafetyNumberDialogProps {
   /** The contact to compare with (null = closed). */
@@ -16,12 +17,15 @@ interface SafetyNumberDialogProps {
 
 /**
  * The 60-digit safety number shared with one contact. Compare it in person or
- * over another channel; if it matches, mark the contact verified.
+ * over another channel; if it matches, mark the contact verified. When their
+ * security code changed it shows the number for the new code, and marking it
+ * verified accepts that exact code.
  */
 export function SafetyNumberDialog({ user, onClose }: SafetyNumberDialogProps) {
   const gt = useGT();
   const { pinsVersion } = useE2ee();
-  const [result, setResult] = useState<{ userId: string; groups: string[] | null; verified: boolean } | null>(null);
+  const [result, setResult] = useState<{ userId: string; groups: string[] | null; identityPub: string | null; verified: boolean; changed: boolean } | null>(null);
+  const [saving, setSaving] = useState(false);
   const userId = user?.id ?? null;
 
   useEffect(() => {
@@ -30,8 +34,8 @@ export function SafetyNumberDialog({ user, onClose }: SafetyNumberDialogProps) {
     void (async () => {
       const session = await loadE2eeSession();
       await session.getUserKeys(userId).catch(() => null);
-      const groups = await session.safetyNumberWith(userId).catch(() => null);
-      if (!cancelled) setResult({ userId, groups, verified: Boolean(session.getPin(userId)?.verified) });
+      const code = await session.safetyCodeFor(userId).catch(() => null);
+      if (!cancelled) setResult({ userId, groups: code?.groups ?? null, identityPub: code?.identityPub ?? null, verified: Boolean(code?.verified), changed: Boolean(code?.changed) });
     })();
     return () => {
       cancelled = true;
@@ -41,9 +45,17 @@ export function SafetyNumberDialog({ user, onClose }: SafetyNumberDialogProps) {
   const current = result && result.userId === userId ? result : null;
 
   const toggleVerified = async () => {
-    if (!userId || !current) return;
-    const session = await loadE2eeSession();
-    await session.markVerified(userId, !current.verified);
+    if (!userId || !current?.identityPub || saving) return;
+    setSaving(true);
+    try {
+      const session = await loadE2eeSession();
+      // The key whose number is shown (a changed code is accepted as verified).
+      await session.markVerified(userId, !current.verified, current.identityPub);
+    } catch {
+      toast.error(gt("Couldn't save that on this device. Try again."));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -58,6 +70,12 @@ export function SafetyNumberDialog({ user, onClose }: SafetyNumberDialogProps) {
             {gt("Compare these numbers with {name} in person or on a call. If they match on both devices, your conversation is end-to-end encrypted with no one in the middle.", { name: user?.name ?? "" })}
           </DialogDescription>
         </DialogHeader>
+        {current?.changed && (
+          <p className="flex items-start gap-1.5 text-sm text-[var(--text-secondary)]">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+            {gt("{name}'s security code changed. This is the safety number for their new code: marking it as verified also accepts it.", { name: user?.name ?? "" })}
+          </p>
+        )}
         {current?.groups ? (
           <div className="grid grid-cols-4 gap-2 rounded-md border border-[var(--border-subtle)] bg-[var(--app-surface-alt)] p-3 font-mono text-base tracking-wider text-center select-all">
             {current.groups.map((g, i) => (
@@ -80,7 +98,7 @@ export function SafetyNumberDialog({ user, onClose }: SafetyNumberDialogProps) {
             {gt("Close")}
           </Button>
           {current?.groups && (
-            <Button onClick={() => void toggleVerified()}>
+            <Button disabled={saving} onClick={() => void toggleVerified()}>
               {current.verified ? gt("Clear verification") : gt("Mark as verified")}
             </Button>
           )}

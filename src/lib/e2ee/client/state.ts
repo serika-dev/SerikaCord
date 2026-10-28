@@ -52,6 +52,12 @@ export interface E2eeSnapshot {
    */
   keysVersion: number;
   /**
+   * Bumped when this device changed a conversation's on / off state itself
+   * (e.g. confirmed "turned off" while the server already reported it off, so
+   * no live event follows): open chats re-check.
+   */
+  conversationsVersion: number;
+  /**
    * This browser had encryption keys for the account before and they are
    * gone (cleared site data, storage eviction): guide to linking / restoring.
    */
@@ -92,6 +98,7 @@ const INITIAL: E2eeSnapshot = {
   resetElsewhere: false,
   keysExtractable: false,
   keysVersion: 0,
+  conversationsVersion: 0,
   keysLost: false,
   pinAvailable: false,
   hasPin: false,

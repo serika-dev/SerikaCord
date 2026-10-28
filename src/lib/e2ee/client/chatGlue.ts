@@ -16,7 +16,7 @@ import {
 } from "@/lib/e2ee/conversation";
 import { noticeTimeMatches } from "@/lib/e2ee/conversationState";
 import { getConversationStateMemory, isConversationRememberedEncrypted, rememberConversationEncrypted } from "./keyStore";
-import { loadE2eeSession } from "./state";
+import { getE2eeSnapshot, loadE2eeSession } from "./state";
 import type { DecryptContext } from "./session";
 import { peekPlain, plainCacheKey, validatedChannelOf } from "./plainCache";
 import { applyPayload } from "./view";
@@ -49,9 +49,21 @@ export interface ConversationEncryption {
    * stays encrypted here (sends are refused by the server) — show a warning.
    */
   unverifiedOff: boolean;
+  /**
+   * With `unverifiedOff`: the member the server's record names, when there is
+   * one (e.g. signed on their new device whose security code isn't accepted
+   * here yet). Null when there is no record at all.
+   */
+  unverifiedOffBy?: string | null;
 }
 
-const resolutions = new Map<string, { channelId: string | null; serverE2ee: boolean; value: Promise<ConversationEncryption> }>();
+const resolutions = new Map<string, { channelId: string | null; serverE2ee: boolean; trust: string; value: Promise<ConversationEncryption> }>();
+
+/** Trust / local state this answer depends on: accepting a security code or confirming an "off" re-checks at once. */
+function trustToken(): string {
+  const snap = getE2eeSnapshot();
+  return `${snap.pinsVersion}|${snap.conversationsVersion}`;
+}
 
 /** Forget cached answers for a conversation (live on / off events). */
 export function forgetConversationEncryption(userId: string | null | undefined, target: E2eeTarget | null): void {
@@ -74,10 +86,11 @@ export function conversationEncryptionHere(userId: string | null | undefined, ta
     return Promise.resolve({ encrypted: true, off: null, unverifiedOff: false });
   }
   const channelId = meta?.channelId ?? null;
+  const trust = trustToken();
   const cached = resolutions.get(key);
-  if (cached && cached.channelId === channelId && cached.serverE2ee === Boolean(meta?.e2ee)) return cached.value;
+  if (cached && cached.channelId === channelId && cached.serverE2ee === Boolean(meta?.e2ee) && cached.trust === trust) return cached.value;
   const value = resolveEncryption(userId, target, meta).catch((): ConversationEncryption => ({ encrypted: true, off: null, unverifiedOff: false }));
-  resolutions.set(key, { channelId, serverE2ee: Boolean(meta?.e2ee), value });
+  resolutions.set(key, { channelId, serverE2ee: Boolean(meta?.e2ee), trust, value });
   // Only "stay encrypted" answers outlive the request (never a downgrade: an
   // "off" is re-checked against the current memory every time, which is a
   // local read once accepted). "Unknown yet" (no meta) is retried at once,
@@ -102,7 +115,8 @@ async function resolveEncryption(userId: string, target: E2eeTarget, meta: Conve
   const session = await loadE2eeSession();
   const check = await session.verifyConversationOff(target, meta.channelId);
   if (check.ok) return { encrypted: false, off: { by: check.record.userId, at: check.record.ts }, unverifiedOff: false };
-  return { encrypted: true, off: null, unverifiedOff: check.reason !== "keys_unavailable" && check.reason !== "not_ready" };
+  const unverifiedOff = check.reason !== "keys_unavailable" && check.reason !== "not_ready";
+  return { encrypted: true, off: null, unverifiedOff, unverifiedOffBy: unverifiedOff ? check.by ?? null : null };
 }
 
 /** A raw API / SSE message still carrying its envelope (not yet decrypted). */

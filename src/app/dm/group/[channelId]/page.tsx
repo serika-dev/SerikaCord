@@ -685,6 +685,7 @@ export default function GroupDMPage() {
             memberIds={e2eeMemberIds}
             off={chat.e2eeOff}
             unverifiedOff={chat.e2eeUnverifiedOff}
+            unverifiedOffBy={chat.e2eeUnverifiedOffBy}
           />
           <MessageBar
             ref={messageBarRef}

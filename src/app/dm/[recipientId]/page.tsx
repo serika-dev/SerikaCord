@@ -766,6 +766,7 @@ export default function DMConversationPage() {
             target={e2eeTarget}
             off={chat.e2eeOff}
             unverifiedOff={chat.e2eeUnverifiedOff}
+            unverifiedOffBy={chat.e2eeUnverifiedOffBy}
           />
           {pendingRequest ? (
             <MessageRequestBar channelId={pendingRequest.channelId} userId={pendingRequest.user.id} name={recipientName || pendingRequest.user.username} />

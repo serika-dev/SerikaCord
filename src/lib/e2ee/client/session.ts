@@ -88,6 +88,7 @@ import {
   signRecoveryRemoval,
 } from "@/lib/e2ee/pin";
 import { PBKDF2_SALT_BYTES } from "@/lib/e2ee/constants";
+import { acceptIdentity, observeIdentity, samePin, setIdentityVerified } from "@/lib/e2ee/trust";
 import {
   checkOffRecord,
   dmPair,
@@ -135,6 +136,14 @@ let identity: StoredIdentity | null = null;
 let backupKey: StoredIdentity | null = null;
 let device: StoredDevice | null = null;
 let pins: Record<string, IdentityPin> = {};
+/**
+ * Bumped whenever trust in a contact changes (a security code accepted or
+ * verified, here or in another tab): key sets checked against older pins are
+ * never cached.
+ */
+let trustEpoch = 0;
+/** Tells this account's other tabs that pins changed (they reload them). */
+let pinsChannel: BroadcastChannel | null = null;
 /** Keys from before an encryption reset: decrypt / verify old history only. */
 let archived: ArchivedKeys[] = [];
 let resetElsewhere = false;
@@ -280,6 +289,12 @@ function resetModuleState() {
   linkApprovePoll = null;
   proofAt = 0;
   offChecks.clear();
+  try {
+    pinsChannel?.close();
+  } catch {
+    /* already closed */
+  }
+  pinsChannel = null;
 }
 
 /** Forget everything in memory (sign-out / account switch). Keys stay in IndexedDB. */
@@ -439,6 +454,7 @@ async function runInit(markLocal: () => void): Promise<void> {
   store = new KeyStore(uid);
   // This device's keys first, in one transaction: decryption can start now.
   await loadLocalKeys(true);
+  listenForPinChanges();
   void purgeExpiredEscrow();
   const keysLost = !identity && !device && archived.length === 0 && hadKeysHere(uid);
   markLocal();
@@ -1088,9 +1104,84 @@ async function cachedVerifyNotifyKey(signPub: string, uid: string, k: PublicNoti
   return ok;
 }
 
-async function savePins() {
-  if (store) await store.put("pins", pins);
+/** Banners and dialogs re-check trust. */
+function pinsChanged() {
   setE2eeSnapshot({ pinsVersion: getE2eeSnapshot().pinsVersion + 1 });
+}
+
+/**
+ * Trust in a contact changed: key sets, decryptions and "turned off" checks
+ * made against the old pins are re-done.
+ */
+function trustChanged() {
+  trustEpoch++;
+  clearKeyCaches();
+  decryptCache.clear();
+  forgetPlainMemory();
+  offChecks.clear();
+}
+
+function listenForPinChanges() {
+  if (pinsChannel || typeof window === "undefined" || typeof BroadcastChannel === "undefined") return;
+  try {
+    const channel = new BroadcastChannel("serika-e2ee-pins");
+    channel.onmessage = (e: MessageEvent) => {
+      void reloadPinsFromStore(e.data);
+    };
+    pinsChannel = channel;
+  } catch {
+    pinsChannel = null;
+  }
+}
+
+/** Another tab accepted / verified a security code: take its pins. */
+async function reloadPinsFromStore(data: unknown) {
+  const from = (data as { userId?: unknown } | null)?.userId;
+  const s = store;
+  if (!s || !userId || typeof from !== "string" || lower(from) !== lower(userId)) return;
+  const stored = await s.get("pins").catch(() => null);
+  if (s !== store || !stored) return;
+  pins = stored;
+  trustChanged();
+  pinsChanged();
+}
+
+/**
+ * Apply `op` to one contact's pin in IndexedDB, in a single read-modify-write
+ * transaction (another tab's decision is never overwritten by this tab's
+ * older copy), and adopt the stored result here. `explicit`: the user changed
+ * trust (accept / verify), so everything derived from the old pin is re-done
+ * and the other tabs are told.
+ */
+async function persistPin(uid: string, op: (stored: IdentityPin | null) => IdentityPin | null, explicit = false): Promise<IdentityPin | null> {
+  const s = store;
+  const out: { pin: IdentityPin | null } = { pin: null };
+  if (s) {
+    await s.update("pins", (current) => {
+      const all = { ...(current ?? {}) };
+      const next = op(all[uid] ?? null);
+      if (next) all[uid] = next;
+      out.pin = all[uid] ?? null;
+      return all;
+    });
+    if (s !== store) return out.pin;
+  } else {
+    out.pin = op(pins[uid] ?? null);
+  }
+  const before = pins[uid] ?? null;
+  if (out.pin) pins[uid] = out.pin;
+  if (explicit || !samePin(before, out.pin)) {
+    trustChanged();
+    if (explicit && userId) {
+      try {
+        pinsChannel?.postMessage({ userId: lower(userId) });
+      } catch {
+        /* other tabs pick it up on their next load */
+      }
+    }
+  }
+  pinsChanged();
+  return out.pin;
 }
 
 /** Our own identity keys: the current one and the ones from before a reset (old devices still verify). */
@@ -1104,7 +1195,7 @@ function ownIdentityKeys(): string[] {
  * asked for: a bundle for anyone else is refused (the server can't answer a
  * lookup for Alice with Mallory's keys).
  */
-async function processBundle(b: Bundle, expectedUserId?: string, opts: { cachedOnly?: boolean } = {}): Promise<MemberKeys> {
+async function processBundle(b: Bundle, expectedUserId?: string, opts: { cachedOnly?: boolean; stale?: boolean } = {}): Promise<MemberKeys> {
   if (!b || typeof b.userId !== "string" || !UUID_RE.test(b.userId)) throw new E2eeFormatError("Malformed key bundle");
   if (expectedUserId !== undefined && lower(b.userId) !== lower(expectedUserId)) {
     throw new E2eeFormatError("The server sent keys for the wrong person");
@@ -1130,27 +1221,19 @@ async function processBundle(b: Bundle, expectedUserId?: string, opts: { cachedO
       // only keys already accepted count.
       trust = pin && pin.key === b.identityPub ? (pin.verified ? "verified" : "trusted") : pin ? "changed" : "missing";
       currentKey = pin && pin.key === b.identityPub ? b.identityPub : null;
-    } else if (!pin) {
-      pins[uid] = { key: b.identityPub, seen: [b.identityPub], verified: false, pending: null, updatedAt: Date.now() };
-      void savePins();
-      trust = "new";
-      currentKey = b.identityPub;
-    } else if (pin.key === b.identityPub) {
-      if (pin.pending) {
-        pins[uid] = { ...pin, pending: null, updatedAt: Date.now() };
-        void savePins();
-      }
-      trust = pin.verified ? "verified" : "trusted";
-      currentKey = b.identityPub;
     } else {
-      if (pin.pending !== b.identityPub) {
-        pins[uid] = { ...pin, pending: b.identityPub, updatedAt: Date.now() };
-        void savePins();
+      // Trust on first use (lib/e2ee/trust.ts). A copy cached on this device
+      // never changes what is pending: it may simply be old.
+      const stale = opts.stale === true;
+      const announced = b.identityPub;
+      const seen = observeIdentity(pin, announced, Date.now(), { stale });
+      trust = seen.trust;
+      currentKey = seen.currentKey;
+      pendingKey = seen.pendingKey;
+      if (seen.dirty) {
+        pins[uid] = seen.pin;
+        void persistPin(uid, (stored) => observeIdentity(stored, announced, Date.now(), { stale }).pin).catch(() => pinsChanged());
       }
-      trust = "changed";
-      pendingKey = b.identityPub;
-      // Until acknowledged, only devices vouched for by keys we already trusted count.
-      currentKey = null;
     }
     historyKeys = [...new Set([...(currentKey ? [currentKey] : []), ...(pins[uid]?.seen ?? [])])];
   }
@@ -1360,13 +1443,13 @@ function seedUserKeys(m: MemberKeys) {
   userKeyCache.set(m.userId, { value: Promise.resolve(m), at: Date.now() });
 }
 
-async function processChannelKeys(data: RawChannelKeys, key: string, opts: { cachedOnly?: boolean } = {}): Promise<ChannelKeys> {
+async function processChannelKeys(data: RawChannelKeys, key: string, opts: { cachedOnly?: boolean; stale?: boolean } = {}): Promise<ChannelKeys> {
   if (!data || typeof data.channelId !== "string" || lower(data.channelId) !== key) throw new E2eeFormatError("The server sent keys for another conversation");
   if (!Array.isArray(data.members) || hasDuplicateIds(data.members.map((m) => String(m?.userId ?? "")))) {
     throw new E2eeFormatError("The server sent a malformed member list");
   }
   const members = await Promise.all(data.members.map((m) => processBundle(m, undefined, opts)));
-  if (!opts.cachedOnly) for (const m of members) seedUserKeys(m);
+  if (!opts.cachedOnly) for (const m of members) if (!(opts.stale && m.trust === "changed")) seedUserKeys(m);
   return { channelId: key, e2ee: data.e2ee === true, members, at: Date.now(), version: typeof data.version === "string" ? data.version : null };
 }
 
@@ -1384,19 +1467,32 @@ function refreshChannelKeys(key: string): Promise<ChannelKeys> {
   if (running) return running;
   const known = channelKeysSettled.get(key) ?? null;
   const p = (async () => {
-    const query = known?.version ? `?v=${encodeURIComponent(known.version)}` : "";
-    const data = await api<RawChannelKeys & { unchanged?: boolean }>(`/channels/${encodeURIComponent(key)}/keys${query}`);
-    let next: ChannelKeys;
-    if (data.unchanged === true && known && typeof data.channelId === "string" && lower(data.channelId) === key && data.version === known.version) {
-      next = { ...known, e2ee: data.e2ee === true, at: Date.now() };
-    } else {
-      next = await processChannelKeys(data, key);
-      void putCachedBundles<RawChannelKeys>(userId, key, { channelId: data.channelId, e2ee: data.e2ee === true, version: data.version ?? null, members: data.members });
+    for (let attempt = 0; ; attempt++) {
+      const epoch = trustEpoch;
+      // Settled sets are dropped when trust changes: an older one's member trust is never reused.
+      const base = attempt === 0 ? known : channelKeysSettled.get(key) ?? null;
+      const query = base?.version ? `?v=${encodeURIComponent(base.version)}` : "";
+      const data = await api<RawChannelKeys & { unchanged?: boolean }>(`/channels/${encodeURIComponent(key)}/keys${query}`);
+      let next: ChannelKeys;
+      if (data.unchanged === true && base && typeof data.channelId === "string" && lower(data.channelId) === key && data.version === base.version) {
+        next = { ...base, e2ee: data.e2ee === true, at: Date.now() };
+      } else {
+        next = await processChannelKeys(data, key);
+        void putCachedBundles<RawChannelKeys>(userId, key, { channelId: data.channelId, e2ee: data.e2ee === true, version: data.version ?? null, members: data.members });
+      }
+      if (epoch !== trustEpoch) {
+        // A security code was accepted / verified meanwhile: this was checked
+        // against the old pins. Check again (never cache the old verdict).
+        if (attempt < 2) continue;
+        return next;
+      }
+      channelKeyCache.set(key, { value: Promise.resolve(next), at: Date.now() });
+      channelKeysSettled.set(key, next);
+      // Compared with the set this refresh started from (open views re-check a changed one).
+      const prev = base ?? known;
+      if (prev && prev.version !== next.version) keySetChanged(key);
+      return next;
     }
-    channelKeyCache.set(key, { value: Promise.resolve(next), at: Date.now() });
-    channelKeysSettled.set(key, next);
-    if (known && known.version !== next.version) keySetChanged(key);
-    return next;
   })();
   channelKeysInflight.set(key, p);
   const clear = () => {
@@ -1422,13 +1518,23 @@ export function getChannelKeys(channelId: string, fresh = false): Promise<Channe
   const value = (async () => {
     const cached = await getCachedBundles<RawChannelKeys>(userId, key);
     if (cached) {
+      let keys: ChannelKeys | null = null;
+      const epoch = trustEpoch;
       try {
-        const keys = await processChannelKeys(cached.data, key);
-        channelKeysSettled.set(key, keys);
-        void refreshChannelKeys(key).catch(() => {});
-        return keys;
+        keys = await processChannelKeys(cached.data, key, { stale: true });
       } catch {
         /* unusable copy: ask the server */
+      }
+      if (keys) {
+        // The copy disagrees with a key trusted here: it may just be old (from
+        // before a code was accepted), so the server decides what to show.
+        if (keys.members.some((m) => m.trust === "changed")) {
+          const fallback = keys;
+          return refreshChannelKeys(key).catch(() => fallback);
+        }
+        if (epoch === trustEpoch) channelKeysSettled.set(key, keys);
+        void refreshChannelKeys(key).catch(() => {});
+        return keys;
       }
     }
     return refreshChannelKeys(key);
@@ -1471,29 +1577,32 @@ export function onRemoteKeysChanged(changedUserId: string): void {
   if (userId && id === lower(userId)) void refreshStatus().catch(() => {});
 }
 
-/** Accept a contact's new identity key ("security code changed"). */
-export async function acknowledgeIdentityChange(uid: string): Promise<void> {
+/**
+ * Accept a contact's new identity key ("security code changed"):
+ * `identityPub` is the key the user was shown (MemberKeys.pendingKey), so a
+ * newer change that arrived meanwhile is never accepted unseen. Stored in the
+ * same trust store "Verify" writes to (not marked verified), for every tab of
+ * this device. Messages from their new devices that failed as unknown
+ * devices are checked again. False when there was nothing to accept.
+ */
+export async function acknowledgeIdentityChange(uid: string, identityPub?: string | null): Promise<boolean> {
   const key = lower(uid);
-  const pin = pins[key];
-  if (!pin?.pending) return;
-  pins[key] = { key: pin.pending, seen: [...new Set([...pin.seen, pin.pending])], verified: false, pending: null, updatedAt: Date.now() };
-  await savePins();
-  clearKeyCaches();
-  // Messages from their new devices failed as unknown devices: verify again.
-  decryptCache.clear();
-  forgetPlainMemory();
+  const accepted = identityPub ?? pins[key]?.pending ?? null;
+  if (!accepted) return false;
+  await persistPin(key, (stored) => acceptIdentity(stored, accepted, Date.now()), true);
+  return true;
 }
 
-/** Mark a contact's current key as verified in person (safety number matched). */
-export async function markVerified(uid: string, verified = true): Promise<void> {
+/**
+ * Mark the safety number of `identityPub` (the key the dialog showed; by
+ * default the trusted one) as verified in person, or clear it. Verifying a
+ * pending new key also accepts it.
+ */
+export async function markVerified(uid: string, verified = true, identityPub?: string | null): Promise<void> {
   const key = lower(uid);
-  const pin = pins[key];
-  if (!pin) return;
-  pins[key] = { ...pin, verified, updatedAt: Date.now() };
-  await savePins();
-  clearKeyCaches();
-  decryptCache.clear();
-  forgetPlainMemory();
+  const shown = identityPub ?? pins[key]?.key ?? null;
+  if (!shown) return;
+  await persistPin(key, (stored) => setIdentityVerified(stored, shown, verified, Date.now()), true);
 }
 
 export function getPin(uid: string): IdentityPin | null {
@@ -1502,6 +1611,23 @@ export function getPin(uid: string): IdentityPin | null {
 
 export function listPins(): Array<{ userId: string } & IdentityPin> {
   return Object.entries(pins).map(([uid, p]) => ({ userId: uid, ...p }));
+}
+
+/**
+ * What the safety-number dialog shows for `uid`: the number for their pending
+ * new key when their code changed (else the trusted one), which key that is,
+ * and whether that exact key was verified here.
+ */
+export async function safetyCodeFor(uid: string): Promise<{ groups: string[] | null; identityPub: string | null; verified: boolean; changed: boolean }> {
+  const pin = pins[lower(uid)];
+  const shown = pin?.pending ?? pin?.key ?? null;
+  const groups = shown ? await safetyNumberWith(uid, shown) : null;
+  return {
+    groups,
+    identityPub: shown,
+    verified: Boolean(pin && shown === pin.key && pin.verified),
+    changed: Boolean(pin?.pending && shown === pin.pending),
+  };
 }
 
 /** The 60-digit safety number between us and `uid` (their trusted key, or the pending one). */
@@ -1567,12 +1693,15 @@ export async function disableChannelEncryption(channelId: string, target: E2eeTa
   const res = await api<{ changed?: boolean }>(`/channels/${encodeURIComponent(bound)}/disable`, { method: "POST", body: JSON.stringify({ record }) });
   await acceptConversationOff(userId, conversationKey(target), { ts: record.ts, by: record.userId, deviceId: record.deviceId, channelId: bound }).catch(() => {});
   noteConversationPlain(bound);
+  offChecks.clear();
+  // Open chats re-check (the server may have been off already: no live event then).
+  setE2eeSnapshot({ conversationsVersion: getE2eeSnapshot().conversationsVersion + 1 });
   return { changed: res.changed !== false };
 }
 
 export type OffVerification =
   | { ok: true; record: ConversationStateRecord }
-  | { ok: false; reason: OffRejection | "no_record" | "keys_unavailable" | "not_ready" };
+  | { ok: false; reason: OffRejection | "no_record" | "keys_unavailable" | "not_ready"; by?: string };
 
 /** Checks in flight only (results are never reused: every check runs against the current memory). */
 const offChecks = new Map<string, Promise<OffVerification>>();
@@ -1644,7 +1773,8 @@ async function runOffCheck(target: E2eeTarget, channelId: string, given: Convers
     acceptedOffTs: memory?.lastOffTs ?? null,
     consumedOffTs: memory?.consumedOffTs ?? null,
   });
-  if (!verdict.ok) return verdict;
+  // Who the record names (the banner can say "from a device you haven't accepted yet").
+  if (!verdict.ok) return { ...verdict, by: record.userId };
   await acceptConversationOff(uid, conversationKey(target), { ts: record.ts, by: record.userId, deviceId: record.deviceId, channelId: bound });
   noteConversationPlain(bound);
   return { ok: true, record };

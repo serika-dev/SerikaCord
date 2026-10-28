@@ -195,6 +195,9 @@ export function installFakeIndexedDb() {
     /** Every value stored in one object store (tests inspect what reached "disk"). */
     peek: (dbName: string, store: string) => [...(dbs.get(dbName)?.stores.get(store)?.rows.values() ?? [])],
     uninstall: () => {
+      // Like the browser dropping the connections: modules that cache one
+      // (keyStore, plainCache) reopen against the next test file's database.
+      for (const db of dbs.values()) db.onclose?.();
       delete g.indexedDB;
       delete g.IDBKeyRange;
     },

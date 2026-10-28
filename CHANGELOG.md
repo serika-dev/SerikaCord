@@ -26,6 +26,7 @@
 - **Server profiles show everywhere** — your server avatar, name style, nameplate and colours now appear on your messages, replies, profile cards, the full profile and voice tiles in that server instead of your main profile, and other members see a server profile change straight away. Changing your own nickname now follows the server's Change Nickname permission.
 - **DM calls follow your DM settings** — people who aren't your friends can call you exactly when they're allowed to DM you; before, calls were refused for anyone who had never changed their privacy settings.
 - **Mentions in reply previews show real names** — the "Replying to" line above a reply now shows @names (including bots), roles and channels instead of "@Unknown User", in servers, DMs and group DMs. Thread previews, pinned messages and the reply bar above the message box name mentions too.
+- **Accepting a changed security code works again** — "Accept new code" in encrypted DMs and groups now saves the new code, clears the warning right away and unblocks sending, in every open tab and after a reload (an old cached copy of someone's keys could undo it before). "Verify" now shows the new code's safety number and marking it verified accepts it. Encryption notices are tidier: one compact, collapsible area with a single line for everyone who hasn't set up encryption (dismissible), one "Review" list when several codes changed, and a clearer explanation when the server reports encryption off without a member's confirmation.
 
 ### Performance
 

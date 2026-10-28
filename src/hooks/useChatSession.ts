@@ -258,7 +258,9 @@ export function useChatSession<M extends ChatMessage>({
       if (!cancelled) setEncryption({ key, e2ee: Boolean(meta?.e2ee), value });
     });
     return () => { cancelled = true; };
-  }, [encryptedChat, e2eeTarget, e2eeUid, encryptionKey, conversation, e2ee.phase, e2ee.keysVersion, checkEncryption]);
+    // pinsVersion / conversationsVersion: an accepted security code can make a
+    // member's "turned off" record verify; confirming "off" here changes it too.
+  }, [encryptedChat, e2eeTarget, e2eeUid, encryptionKey, conversation, e2ee.phase, e2ee.keysVersion, e2ee.pinsVersion, e2ee.conversationsVersion, checkEncryption]);
   /** DMs / group DMs: flag plaintext rows of an encrypted conversation and decrypt envelopes (no-op otherwise). */
   const decodeRaw = useCallback(
     async (raw: RawMessagePayload[], data?: unknown): Promise<RawMessagePayload[]> => {
@@ -1486,6 +1488,8 @@ export function useChatSession<M extends ChatMessage>({
      */
     e2eeOff: encryptedChat && !e2eeActive ? encryptionNow?.off ?? null : null,
     e2eeUnverifiedOff: encryptedChat && encryptionNow?.unverifiedOff === true,
+    /** With e2eeUnverifiedOff: the member the server's record names (null: no record). */
+    e2eeUnverifiedOffBy: encryptedChat && encryptionNow?.unverifiedOff === true ? encryptionNow.unverifiedOffBy ?? null : null,
     isLoading,
     isSending,
     hasMoreOlder,
