@@ -135,6 +135,20 @@ export function buildTypedInvocation(text: string, leaves: AppLeafCommand[]): Bu
   return { ok: true, leaf, options, attachmentOptions };
 }
 
+/** Upload one file like a chat attachment (for an attachment option). */
+export async function uploadCommandFile(file: File, channelId: string): Promise<Record<string, unknown> | null> {
+  const form = new FormData();
+  form.append("file", file);
+  form.append("channelId", channelId);
+  try {
+    const res = await fetch("/api/upload/attachment", { method: "POST", body: form, credentials: "include" });
+    const data = await res.json().catch(() => null);
+    return res.ok && data?.attachment ? (data.attachment as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
 /** Ask the user for one file and upload it like a chat attachment. */
 export function pickAndUploadFile(channelId: string): Promise<Record<string, unknown> | null> {
   return new Promise((resolve) => {
@@ -151,16 +165,7 @@ export function pickAndUploadFile(channelId: string): Promise<Record<string, unk
     input.addEventListener("change", async () => {
       const file = input.files?.[0];
       if (!file) return done(null);
-      const form = new FormData();
-      form.append("file", file);
-      form.append("channelId", channelId);
-      try {
-        const res = await fetch("/api/upload/attachment", { method: "POST", body: form, credentials: "include" });
-        const data = await res.json().catch(() => null);
-        done(res.ok && data?.attachment ? (data.attachment as Record<string, unknown>) : null);
-      } catch {
-        done(null);
-      }
+      done(await uploadCommandFile(file, channelId));
     });
     input.addEventListener("cancel", () => done(null));
     document.body.appendChild(input);
@@ -170,7 +175,7 @@ export function pickAndUploadFile(channelId: string): Promise<Record<string, unk
 
 export type InvokeOutcome =
   | { status: "not_command" }
-  | { status: "sent" }
+  | { status: "sent"; interactionId?: string }
   | { status: "error"; reason: "missing" | "invalid" | "attachment" | "server"; option?: string; code?: string; message?: string };
 
 /**
@@ -192,14 +197,75 @@ export async function invokeAppCommandText(text: string, channelId: string, leav
     attachments.push(uploaded);
     options.push({ name: opt.name, type: OPT.ATTACHMENT, value: String(uploaded.id) });
   }
-  const r = await postInteraction("commands", {
+  const r = await postInteraction<{ interactionId?: string }>("commands", {
     channelId,
     commandId: built.leaf.commandId,
     options: nestOptions(built.leaf, options),
     ...(attachments.length ? { attachments } : {}),
   });
   if (!r.ok) return { status: "error", reason: "server", code: r.code, message: r.error };
-  return { status: "sent" };
+  return { status: "sent", interactionId: r.data?.interactionId };
+}
+
+/**
+ * Typed options from the command composer's values (by option name, choice
+ * names already resolved). Empty values are left out; a missing required or
+ * invalid value fails like the text path.
+ */
+export function typedOptionsFromValues(
+  leaf: AppLeafCommand,
+  values: Record<string, string>,
+): { ok: true; options: TypedOption[] } | { ok: false; reason: "missing" | "invalid"; option: string } {
+  const options: TypedOption[] = [];
+  for (const opt of leaf.options) {
+    if (opt.type === OPT.SUB_COMMAND || opt.type === OPT.SUB_COMMAND_GROUP || opt.type === OPT.ATTACHMENT) continue;
+    const raw = (values[opt.name] ?? "").trim();
+    if (!raw) {
+      if (opt.required) return { ok: false, reason: "missing", option: opt.name };
+      continue;
+    }
+    const value = coerceOptionValue(opt, raw);
+    if (value === null) return { ok: false, reason: "invalid", option: opt.name };
+    options.push({ name: opt.name, type: opt.type, value });
+  }
+  return { ok: true, options };
+}
+
+/**
+ * Run an app command straight from the composer's values and picked files
+ * (no text parsing, so quotes and spaces in values survive). Files are
+ * uploaded first; the app's answer arrives over the normal streams.
+ */
+export async function invokeAppCommandValues(
+  channelId: string,
+  leaf: AppLeafCommand,
+  values: Record<string, string>,
+  files: Record<string, File>,
+): Promise<InvokeOutcome> {
+  const built = typedOptionsFromValues(leaf, values);
+  if (!built.ok) return { status: "error", reason: built.reason, option: built.option };
+  const options = [...built.options];
+  const attachments: Record<string, unknown>[] = [];
+  for (const opt of leaf.options) {
+    if (opt.type !== OPT.ATTACHMENT) continue;
+    const file = files[opt.name];
+    if (!file) {
+      if (opt.required) return { status: "error", reason: "attachment", option: opt.name };
+      continue;
+    }
+    const uploaded = await uploadCommandFile(file, channelId);
+    if (!uploaded) return { status: "error", reason: "attachment", option: opt.name, code: "upload_failed" };
+    attachments.push(uploaded);
+    options.push({ name: opt.name, type: OPT.ATTACHMENT, value: String(uploaded.id) });
+  }
+  const r = await postInteraction<{ interactionId?: string }>("commands", {
+    channelId,
+    commandId: leaf.commandId,
+    options: nestOptions(leaf, options),
+    ...(attachments.length ? { attachments } : {}),
+  });
+  if (!r.ok) return { status: "error", reason: "server", code: r.code, message: r.error };
+  return { status: "sent", interactionId: r.data?.interactionId };
 }
 
 /** Run a user / message context-menu command on a target. */
@@ -208,32 +274,33 @@ export async function invokeContextCommand(channelId: string, commandId: string,
   return { ok: r.ok, code: r.code };
 }
 
-/**
- * Autocomplete: the options typed so far with `focused` on the one being
- * typed. Returns the app's choices (empty on any failure).
- */
-export async function fetchAutocomplete(
-  channelId: string,
-  leaf: AppLeafCommand,
-  typedBefore: string,
-  focused: AppCommandOption,
-  partial: string,
-): Promise<Array<{ name: string; value: string | number }>> {
-  const tokens = tokenizeInput(typedBefore.startsWith("/") ? typedBefore.slice(1) : typedBefore).slice(leaf.path.length);
-  const assigned = assignOptionTokens(leaf.options, tokens);
-  const options: TypedOption[] = [];
-  for (const opt of leaf.options) {
-    if (opt.name === focused.name) continue;
-    const raw = assigned.get(opt.name);
-    if (raw === undefined || raw === "") continue;
-    const value = coerceOptionValue(opt, raw);
-    if (value !== null) options.push({ name: opt.name, type: opt.type, value });
-  }
-  options.push({ name: focused.name, type: focused.type, value: partial, focused: true });
+async function requestAutocomplete(channelId: string, leaf: AppLeafCommand, options: TypedOption[]): Promise<Array<{ name: string; value: string | number }>> {
   const r = await postInteraction<{ choices?: Array<{ name: string; value: string | number }> }>("autocomplete", {
     channelId,
     commandId: leaf.commandId,
     options: nestOptions(leaf, options),
   });
   return r.ok && Array.isArray(r.data?.choices) ? r.data!.choices! : [];
+}
+
+/** Autocomplete from the command composer's values (the focused option's partial text is sent as typed). */
+export async function fetchAutocompleteValues(
+  channelId: string,
+  leaf: AppLeafCommand,
+  values: Record<string, string>,
+  focusedName: string,
+  partial: string,
+): Promise<Array<{ name: string; value: string | number }>> {
+  const focused = leaf.options.find((o) => o.name === focusedName);
+  if (!focused) return [];
+  const options: TypedOption[] = [];
+  for (const opt of leaf.options) {
+    if (opt.name === focused.name || opt.type === OPT.ATTACHMENT) continue;
+    const raw = (values[opt.name] ?? "").trim();
+    if (!raw) continue;
+    const value = coerceOptionValue(opt, raw);
+    if (value !== null) options.push({ name: opt.name, type: opt.type, value });
+  }
+  options.push({ name: focused.name, type: focused.type, value: partial, focused: true });
+  return requestAutocomplete(channelId, leaf, options);
 }

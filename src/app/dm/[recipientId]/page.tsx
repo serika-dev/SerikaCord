@@ -34,7 +34,8 @@ import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { useChatSession } from "@/hooks/useChatSession";
 import { useComposerSuggestions } from "@/hooks/useComposerSuggestions";
 import { useAppCommandRunner, useAppCommands } from "@/hooks/useAppCommands";
-import { useSlashCommands } from "@/hooks/useSlashCommands";
+import { useCommandRunner } from "@/hooks/useCommandRunner";
+import { lastOwnMessageAt } from "@/lib/chat/commandHistory";
 import { playTts } from "@/lib/chat/tts";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -216,58 +217,19 @@ export default function DMConversationPage() {
   }, [dmChannelId, markChannelRead]);
   const dmMuted = dmChannelId ? isChannelMuted(dmChannelId) : false;
 
-  const { executeCommand } = useSlashCommands({});
   // Typed app commands with the bot in this DM (picker leaves; cached per channel).
   const dmAppCommands = useAppCommands(recipient?.isBot ? dmChannelId : null);
   const runAppCommand = useAppCommandRunner(dmChannelId, dmAppCommands.leaves);
+  // Built-in and app commands from the composer (shared with server channels).
+  const { runCommand, runBuiltinText } = useCommandRunner({ chat, channelId: dmChannelId, user });
 
   const handleSend = useCallback(async () => {
     const composer = messageBarRef.current?.getComposer();
     const rawContent = composer?.getText() ?? "";
     const trimmed = rawContent.trim();
 
-    if (trimmed.startsWith("/")) {
-      const result = await executeCommand(trimmed);
-      if (result.handled) {
-        if (result.ttsText) {
-          composer?.clear();
-          void playTts({
-            content: result.ttsText,
-            ...ttsPlaybackOptions(user?.settings?.accessibility),
-          });
-          await chat.sendMessage({ contentOverride: `/tts ${result.ttsText}` });
-        } else if (result.sendAsMessage) {
-          composer?.clear();
-          if (result.ephemeral) {
-            chat.resetTyping();
-            chat.addEphemeralMessage({
-              id: `eph-local-${Date.now()}`,
-              content: result.sendAsMessage,
-              authorId: user?.id,
-              author: user
-                ? {
-                    id: user.id,
-                    username: user.username,
-                    displayName: user.displayName || user.username,
-                    avatar: user.avatar,
-                  }
-                : null,
-              channelId: dmChannelId ?? undefined,
-              createdAt: new Date().toISOString(),
-              ephemeral: true,
-              type: "default",
-            });
-          } else {
-            await chat.sendMessage({ contentOverride: result.sendAsMessage });
-          }
-        } else {
-          composer?.clear();
-          chat.resetTyping();
-        }
-        return;
-      }
-    }
-
+    // Typed commands (`/roll 20`): built-ins first, then the bot's.
+    if (trimmed.startsWith("/") && (await runBuiltinText(trimmed, () => composer?.clear()))) return;
     if (trimmed.startsWith("/") && (await runAppCommand(trimmed))) {
       composer?.clear();
       chat.resetTyping();
@@ -275,7 +237,7 @@ export default function DMConversationPage() {
     }
 
     void chat.sendMessage();
-  }, [executeCommand, chat, user?.settings?.accessibility?.ttsRate, user?.settings?.accessibility?.ttsVoice, runAppCommand]);
+  }, [chat, runAppCommand, runBuiltinText]);
 
   const lightbox = useMediaLightbox(chat.mediaGallery);
 
@@ -299,6 +261,10 @@ export default function DMConversationPage() {
     }
     return entries;
   }, [recipient, user]);
+
+  // Member options in slash commands: you and the other person.
+  const commandPickers = useMemo(() => ({ users: mentionUsers, roles: [], channels: [] }), [mentionUsers]);
+  const getLastOwnMessageAt = useCallback(() => lastOwnMessageAt(chat.messages, user?.id), [chat.messages, user?.id]);
 
   // Clear server context when entering a DM
   useEffect(() => {
@@ -493,9 +459,7 @@ export default function DMConversationPage() {
 
   // Emoji `:` / slash `/` / `@user` autocomplete for the DM composer.
   const composerSuggestions = useComposerSuggestions({
-    appLeaves: dmAppCommands.leaves,
     getComposer: () => messageBarRef.current?.getComposer() ?? null,
-    isServer: false,
     customEmojis: availableServerEmojis,
     recipient: recipientId ? { id: recipientId, username: recipient?.username || "", displayName: recipient?.displayName } : null,
     onAfterInsert: (text) => chat.signalTyping(text),
@@ -835,6 +799,11 @@ export default function DMConversationPage() {
               pollApiBase={chat.e2eeActive ? undefined : apiBase ?? undefined}
               draftKey={recipientId ? `dm:${recipientId}` : undefined}
               onSendVoice={chat.e2eeActive ? undefined : chat.handleVoiceSend}
+              onRunCommand={runCommand}
+              appLeaves={dmAppCommands.leaves}
+              commandPickers={commandPickers}
+              getLastOwnMessageAt={getLastOwnMessageAt}
+              commandChannelId={dmChannelId ?? undefined}
             />
           )}
 

@@ -52,6 +52,7 @@ export type HotkeyAction =
   | "decline-call"
   | "return-to-voice"
   | "edit-last-message"
+  | "recall-command"
   | "reply-prev"
   | "reply-next"
   | "edit-prev"
@@ -71,6 +72,11 @@ export interface Hotkey {
   category: "Navigation" | "Chat" | "Voice" | "Application";
   /** If true, the binding cannot be remapped by the user. */
   locked?: boolean;
+  /**
+   * Listed in the shortcuts overlay only: the composer handles the key itself
+   * (with conditions), so the global hotkey listener never matches it.
+   */
+  docOnly?: boolean;
 }
 
 /** Shape stored in localStorage for user overrides. */
@@ -117,6 +123,8 @@ export const HOTKEYS: Hotkey[] = [
   { action: "search-channel", key: "f", ctrl: true, worksWhileTyping: true, label: "Search within current channel", category: "Chat" },
   { action: "search-all", key: "f", ctrl: true, shift: true, worksWhileTyping: true, label: "Search across all channels", category: "Chat" },
   { action: "edit-last-message", key: "arrowup", shift: true, worksWhileTyping: false, label: "Edit your last message", category: "Chat" },
+  // Plain ↑ in an empty message box (handled by the composer, see lib/chat/commandHistory).
+  { action: "recall-command", key: "arrowup", worksWhileTyping: true, locked: true, docOnly: true, label: "Empty message box: re-run your last slash command if it came after your last message (↑↓ browse older/newer), otherwise edit your last message", category: "Chat" },
   { action: "reply-prev", key: "arrowup", ctrl: true, worksWhileTyping: true, label: "Reply to the previous message", category: "Chat" },
   { action: "reply-next", key: "arrowdown", ctrl: true, worksWhileTyping: true, label: "Reply to the next message (past the newest cancels)", category: "Chat" },
   { action: "edit-prev", key: "arrowup", ctrl: true, shift: true, worksWhileTyping: true, label: "Edit your previous message", category: "Chat" },
@@ -143,7 +151,7 @@ export function matchHotkey(e: KeyboardEvent): Hotkey | null {
   const ctrl = e.ctrlKey || e.metaKey;
   const overrides = loadKeybindOverrides();
   // Build the effective binding list: defaults patched with user overrides.
-  const effective = HOTKEYS.map((hk) => {
+  const effective = HOTKEYS.filter((hk) => !hk.docOnly).map((hk) => {
     const ov = overrides[hk.action];
     if (!ov || hk.locked) return hk;
     return { ...hk, key: ov.key, ctrl: ov.ctrl, shift: ov.shift, alt: ov.alt };

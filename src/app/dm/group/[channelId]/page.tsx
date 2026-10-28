@@ -51,7 +51,9 @@ import {
 } from "@/lib/chat/groupDmClient";
 import { useChatSession } from "@/hooks/useChatSession";
 import { useComposerSuggestions, type ComposerSuggestion } from "@/hooks/useComposerSuggestions";
-import { useSlashCommands } from "@/hooks/useSlashCommands";
+import { useCommandRunner } from "@/hooks/useCommandRunner";
+import { useAppCommandRunner, useAppCommands } from "@/hooks/useAppCommands";
+import { lastOwnMessageAt } from "@/lib/chat/commandHistory";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { isTouchOnlyInput, useCoarsePointer } from "@/hooks/useVisualViewport";
@@ -218,49 +220,25 @@ export default function GroupDMPage() {
   }, [channelId, markChannelRead]);
   const muted = channelId ? isChannelMuted(channelId) : false;
 
-  const { executeCommand } = useSlashCommands({});
+  // Bots in the group bring their slash commands (one cached request per group).
+  const hasBotMember = !!group?.members?.some((m) => m.isBot);
+  const groupAppCommands = useAppCommands(hasBotMember ? channelId : null);
+  const runAppCommand = useAppCommandRunner(channelId, groupAppCommands.leaves);
+  // Built-in and app commands from the composer (shared with server channels and DMs).
+  const { runCommand, runBuiltinText } = useCommandRunner({ chat, channelId, user });
 
   const handleSend = useCallback(async () => {
     const composer = messageBarRef.current?.getComposer();
     const trimmed = (composer?.getText() ?? "").trim();
-    if (trimmed.startsWith("/")) {
-      const result = await executeCommand(trimmed);
-      if (result.handled) {
-        if (result.ttsText) {
-          composer?.clear();
-          void playTts({
-            content: result.ttsText,
-            ...ttsPlaybackOptions(user?.settings?.accessibility),
-          });
-          await chat.sendMessage({ contentOverride: `/tts ${result.ttsText}` });
-        } else if (result.sendAsMessage) {
-          composer?.clear();
-          if (result.ephemeral) {
-            chat.resetTyping();
-            chat.addEphemeralMessage({
-              id: `eph-local-${Date.now()}`,
-              content: result.sendAsMessage,
-              authorId: user?.id,
-              author: user
-                ? { id: user.id, username: user.username, displayName: user.displayName || user.username, avatar: user.avatar }
-                : null,
-              channelId,
-              createdAt: new Date().toISOString(),
-              ephemeral: true,
-              type: "default",
-            });
-          } else {
-            await chat.sendMessage({ contentOverride: result.sendAsMessage });
-          }
-        } else {
-          composer?.clear();
-          chat.resetTyping();
-        }
-        return;
-      }
+    // Typed commands (`/roll 20`): built-ins first, then a bot's.
+    if (trimmed.startsWith("/") && (await runBuiltinText(trimmed, () => composer?.clear()))) return;
+    if (trimmed.startsWith("/") && (await runAppCommand(trimmed))) {
+      composer?.clear();
+      chat.resetTyping();
+      return;
     }
     void chat.sendMessage();
-  }, [executeCommand, chat, user, channelId]);
+  }, [chat, runAppCommand, runBuiltinText]);
 
   const lightbox = useMediaLightbox(chat.mediaGallery);
 
@@ -291,6 +269,9 @@ export default function GroupDMPage() {
     () => members.map((m) => ({ id: m.id, username: m.username, displayName: m.displayName || m.username, avatar: m.avatar ?? undefined })),
     [members],
   );
+  // Member options in slash commands: everyone in the group.
+  const commandPickers = useMemo(() => ({ users: mentionUsers, roles: [], channels: [] }), [mentionUsers]);
+  const getLastOwnMessageAt = useCallback(() => lastOwnMessageAt(chat.messages, user?.id), [chat.messages, user?.id]);
   const suggestionRecipients = useMemo(
     () => others.map((m) => ({ id: m.id, username: m.username, displayName: m.displayName ?? undefined })),
     [others],
@@ -435,7 +416,6 @@ export default function GroupDMPage() {
 
   const composerSuggestions = useComposerSuggestions({
     getComposer: () => messageBarRef.current?.getComposer() ?? null,
-    isServer: false,
     customEmojis: availableServerEmojis,
     recipients: suggestionRecipients,
     onAfterInsert: (text) => chat.signalTyping(text),
@@ -730,6 +710,11 @@ export default function GroupDMPage() {
             pollApiBase={channelId && !chat.e2eeActive ? `/api/group-dms/${channelId}` : undefined}
             draftKey={channelId ? `gdm:${channelId}` : undefined}
             onSendVoice={chat.e2eeActive ? undefined : chat.handleVoiceSend}
+            onRunCommand={runCommand}
+            appLeaves={groupAppCommands.leaves}
+            commandPickers={commandPickers}
+            getLastOwnMessageAt={getLastOwnMessageAt}
+            commandChannelId={channelId || undefined}
           />
           <VoiceBar className="md:hidden" hideForRoomId={callRoomId} />
         </div>

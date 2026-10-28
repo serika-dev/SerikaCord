@@ -102,6 +102,12 @@ Channels and DMs run on the same code:
 - Containers: `src/components/chat/ChatArea.tsx` (channels, full mention
   engine) and `src/app/dm/[recipientId]/page.tsx` (DMs, lighter
   `useComposerSuggestions`). Container-level features need both.
+- Slash commands live in `MessageBar` for every surface: the `/` palette
+  (`components/chat/commands/CommandPalette`), the command composer with one
+  chip per option (`CommandComposer`) and ↑ re-run history. Pure model in
+  `lib/chat/commandComposer.ts` (specs, ranking, Enter rules, readiness) and
+  `lib/chat/commandHistory.ts`; containers pass `onRunCommand` from
+  `useCommandRunner` plus `appLeaves` / `commandPickers`.
 - Chat translations go through `useChatGt()` (`ChatGtContext`, provided by
   `MessageList`); interpolated strings must be in its `map`.
 

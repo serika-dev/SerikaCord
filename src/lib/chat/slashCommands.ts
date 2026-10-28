@@ -16,6 +16,8 @@ export interface SlashCommandParam {
   choices?: SlashCommandChoice[];
   /** If true, this param is free-text (just show a hint) */
   isFreeText?: boolean;
+  /** Whole-number param (validated in the command composer). */
+  integer?: { min?: number; max?: number };
 }
 
 export interface SlashCommand {
@@ -59,6 +61,7 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
         description: "Number of messages to clear (1-100)",
         required: false,
         isFreeText: true,
+        integer: { min: 1, max: 100 },
       },
       {
         name: "user",
@@ -274,6 +277,7 @@ export const BUILT_IN_COMMANDS: SlashCommand[] = [
         description: "Number of sides on the die (default: 6)",
         required: false,
         isFreeText: true,
+        integer: { min: 1 },
       },
     ],
   },
@@ -413,110 +417,3 @@ export function parseDuration(text: string): number | null {
   };
   return value * multipliers[unit];
 }
-
-/**
- * Get filtered command suggestions based on a query string.
- * If query is empty, returns all commands.
- */
-export function getCommandSuggestions(query: string, isServer: boolean): SlashCommand[] {
-  const q = query.toLowerCase();
-  return BUILT_IN_COMMANDS.filter((cmd) => {
-    if (cmd.serverOnly && !isServer) return false;
-    if (!q) return true;
-    return cmd.name.startsWith(q) || cmd.description.toLowerCase().includes(q);
-  });
-}
-
-export interface CommandParamContext {
-  command: SlashCommand;
-  /** Index of the param the user is currently filling */
-  paramIndex: number;
-  /** The param object being filled */
-  param: SlashCommandParam | null;
-  /** The text the user has typed for the current param */
-  currentArg: string;
-  /** All args parsed so far (excluding the current partial) */
-  completedArgs: string[];
-}
-
-/**
- * Parse a raw input string to determine which parameter of a command
- * the user is currently filling. Returns null if the input doesn't
- * match a known command or the cursor isn't in a param position.
- */
-export function parseCommandContext(input: string): CommandParamContext | null {
-  const trimmed = input.trim();
-  if (!trimmed.startsWith("/")) return null;
-
-  // Split into command name + args (respecting quotes)
-  const parts: string[] = [];
-  let current = "";
-  let inQuotes = false;
-  for (let i = 0; i < trimmed.length; i++) {
-    const char = trimmed[i];
-    if (char === '"') {
-      inQuotes = !inQuotes;
-      continue;
-    }
-    if (char === " " && !inQuotes) {
-      if (current) {
-        parts.push(current);
-        current = "";
-      }
-      continue;
-    }
-    current += char;
-  }
-  // The last partial (even if empty) represents the param being typed
-  const hasTrailingSpace = trimmed.endsWith(" ") && !inQuotes;
-  if (current) {
-    parts.push(current);
-  }
-
-  if (parts.length === 0) return null;
-  const name = parts[0].slice(1).toLowerCase();
-  const command = BUILT_IN_COMMANDS.find((c) => c.name === name);
-  if (!command) return null;
-
-  const allArgs = parts.slice(1);
-  let paramIndex: number;
-  let currentArg: string;
-  let completedArgs: string[];
-
-  if (hasTrailingSpace) {
-    // Cursor is at the start of a new param
-    paramIndex = allArgs.length;
-    currentArg = "";
-    completedArgs = allArgs;
-  } else {
-    // Cursor is in the middle of a param
-    paramIndex = Math.max(0, allArgs.length - 1);
-    currentArg = allArgs[allArgs.length - 1] || "";
-    completedArgs = allArgs.slice(0, -1);
-  }
-
-  const param = paramIndex < command.params.length ? command.params[paramIndex] : null;
-
-  return { command, paramIndex, param, currentArg, completedArgs };
-}
-
-/**
- * Get the category label for display.
- */
-export function getCategoryLabel(category: string): string {
-  switch (category) {
-    case "moderation":
-      return "Moderation";
-    case "utility":
-      return "Utility";
-    case "fun":
-      return "Fun";
-    default:
-      return category;
-  }
-}
-
-/**
- * Get the category order for grouping.
- */
-export const CATEGORY_ORDER = ["moderation", "utility", "fun"] as const;

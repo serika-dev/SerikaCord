@@ -61,6 +61,32 @@ export function onInteractionEvent(cb: (e: InteractionEvent) => void): () => voi
   return () => window.removeEventListener(INTERACTION_EVENT, handler);
 }
 
+/**
+ * Wait for an interaction's ack or failure notice (activity stream). Resolves
+ * "timeout" when neither arrives in time (stream down): callers treat that as
+ * sent rather than raising a false alarm.
+ */
+export function waitForInteractionOutcome(
+  interactionId: string,
+  timeoutMs = 6000,
+): Promise<{ event: "ack" | "failed" | "timeout"; reason?: string }> {
+  const done = recentOutcome(interactionId);
+  if (done) return Promise.resolve(done);
+  if (typeof window === "undefined") return Promise.resolve({ event: "timeout" });
+  return new Promise((resolve) => {
+    const off = onInteractionEvent((e) => {
+      if ((e.event !== "ack" && e.event !== "failed") || e.interactionId !== interactionId) return;
+      off();
+      clearTimeout(timer);
+      resolve(e.event === "failed" ? { event: "failed", reason: e.reason } : { event: "ack" });
+    });
+    const timer = setTimeout(() => {
+      off();
+      resolve({ event: "timeout" });
+    }, timeoutMs);
+  });
+}
+
 export interface InteractionPostResult<T = Record<string, unknown>> {
   ok: boolean;
   status: number;

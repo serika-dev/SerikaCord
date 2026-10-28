@@ -17,7 +17,7 @@ interface UseSlashCommandsOptions {
   clearMessages?: (count: number, userId?: string) => void;
 }
 
-interface SlashCommandResult {
+export interface SlashCommandResult {
   /** True if the message was consumed as a command (don't send to server) */
   handled: boolean;
   /** For TTS, the text to speak and then send as a normal message */
@@ -39,8 +39,10 @@ export function useSlashCommands({
 }: UseSlashCommandsOptions) {
   const gt = useGT();
   const executeCommand = useCallback(
-    async (rawInput: string): Promise<SlashCommandResult> => {
-      const parsed = parseSlashCommand(rawInput);
+    // Typed text is parsed; the command composer passes its args already split
+    // (the last one may hold spaces and quotes).
+    async (input: string | ParsedCommand): Promise<SlashCommandResult> => {
+      const parsed = typeof input === "string" ? parseSlashCommand(input) : input;
       if (!parsed) return { handled: false };
 
       switch (parsed.name) {

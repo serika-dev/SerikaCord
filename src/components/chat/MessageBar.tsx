@@ -5,40 +5,24 @@ import { CHUNKED_UPLOAD_THRESHOLD, uploadChunked } from "@/lib/chat/chunkedUploa
 import {
   forwardRef,
   useCallback,
+  useEffect,
+  useId,
   useImperativeHandle,
+  useMemo,
   useRef,
   useState,
-  useEffect,
 } from "react";
 import {
   PlusCircle,
-  ImageIcon,
   ImagePlay,
   Sticker,
   Smile,
-  SendHorizontal, 
+  SendHorizontal,
   X,
   FileText,
   Reply,
   Music,
   Hash,
-  Ban,
-  UserMinus,
-  Volume2,
-  Clock,
-  Eraser,
-  Shield,
-  ShieldCheck,
-  Info,
-  UserCircle,
-  Dice5,
-  MessageSquare,
-  CircleHelp,
-  Timer,
-  Gavel,
-  Gauge,
-  Megaphone,
-  Bot,
   Eye,
   EyeOff,
   BarChart3,
@@ -60,6 +44,23 @@ const CustomEmojiPicker = dynamic(
   () => import("@/components/chat/CustomEmojiPicker").then((m) => m.CustomEmojiPicker),
   { ssr: false, loading: () => <div className="w-[440px] max-w-[calc(100vw-1rem)] h-[420px]" /> }
 );
+// Slash-command palette and command composer: fetched the first time the
+// composer is focused (see preloadCommandUi), mounted only while in use.
+const CommandPalette = dynamic(
+  () => import("@/components/chat/commands/CommandPalette").then((m) => m.CommandPalette),
+  { ssr: false }
+);
+const CommandComposer = dynamic(
+  () => import("@/components/chat/commands/CommandComposer").then((m) => m.CommandComposer),
+  { ssr: false, loading: () => <div className="flex-1 min-h-[44px]" /> }
+);
+let commandUiPreloaded = false;
+function preloadCommandUi() {
+  if (commandUiPreloaded) return;
+  commandUiPreloaded = true;
+  void import("@/components/chat/commands/CommandPalette");
+  void import("@/components/chat/commands/CommandComposer");
+}
 const CreatePollDialog = dynamic(
   () => import("@/components/chat/CreatePollDialog").then((m) => m.CreatePollDialog),
   { ssr: false }
@@ -81,32 +82,36 @@ import { useAuth } from "@/contexts/AuthContext";
 import VoiceMessageRecorder, { type VoiceHoldStart } from "@/components/chat/VoiceMessageRecorder";
 import type { VoiceMessageAttachment } from "@/lib/chat/voiceMessage";
 import { MentionText } from "@/components/chat/MentionText";
-
-const COMMAND_ICONS: Record<string, React.ReactNode> = {
-  clear: <Eraser className="w-3.5 h-3.5" />,
-  kick: <UserMinus className="w-3.5 h-3.5" />,
-  ban: <Ban className="w-3.5 h-3.5" />,
-  unban: <ShieldCheck className="w-3.5 h-3.5" />,
-  timeout: <Timer className="w-3.5 h-3.5" />,
-  warn: <Megaphone className="w-3.5 h-3.5" />,
-  slowmode: <Gauge className="w-3.5 h-3.5" />,
-  nick: <Hash className="w-3.5 h-3.5" />,
-  serverinfo: <Info className="w-3.5 h-3.5" />,
-  userinfo: <UserCircle className="w-3.5 h-3.5" />,
-  avatar: <UserCircle className="w-3.5 h-3.5" />,
-  roll: <Dice5 className="w-3.5 h-3.5" />,
-  tts: <Volume2 className="w-3.5 h-3.5" />,
-  "8ball": <CircleHelp className="w-3.5 h-3.5" />,
-  me: <MessageSquare className="w-3.5 h-3.5" />,
-  shrug: <MessageSquare className="w-3.5 h-3.5" />,
-};
-
-const CATEGORY_ICONS: Record<string, React.ReactNode> = {
-  moderation: <Shield className="w-3 h-3" />,
-  utility: <Info className="w-3 h-3" />,
-  fun: <Dice5 className="w-3 h-3" />,
-};
-
+import { isTouchOnlyInput } from "@/hooks/useVisualViewport";
+import type { AppLeafCommand } from "@/lib/chat/appCommandContext";
+import {
+  autoPickOnSpace,
+  buildCommandCatalog,
+  commandReadiness,
+  flattenGroups,
+  groupRankedCommands,
+  initialDraft,
+  keepActiveKey,
+  moveActiveKey,
+  paletteQuery,
+  parseCommandText,
+  rankCommands,
+  type CommandDraft,
+  type CommandPickerData,
+  type CommandSpec,
+} from "@/lib/chat/commandComposer";
+import {
+  canRecallCommand,
+  notePlainSend,
+  readCommandHistory,
+  readLastPlainSendAt,
+  recallableHistory,
+  recordCommand,
+  stepCommandHistory,
+  type CommandHistoryEntry,
+} from "@/lib/chat/commandHistory";
+import type { CommandInvocation, CommandRunResult } from "@/hooks/useCommandRunner";
+import type { CommandExitReason } from "@/components/chat/commands/CommandComposer";
 
 // Give up on an attachment upload when no bytes moved for this long.
 const UPLOAD_STALL_MS = 60_000;
@@ -156,29 +161,15 @@ interface ServerSticker {
   serverName?: string;
 }
 
-interface MentionSuggestion {
+export interface MentionSuggestion {
   id: string;
-  kind: "user" | "role" | "everyone" | "here" | "emoji" | "unicode-emoji" | "command" | "param-user" | "param-duration" | "param-choice" | "param-hint" | "channel" | "app-command" | "app-option" | "app-choice";
+  kind: "user" | "role" | "everyone" | "here" | "emoji" | "unicode-emoji" | "channel";
   unicodeChar?: string;
   label: string;
   description?: string;
   color?: string;
   imageUrl?: string;
   animated?: boolean;
-  usage?: string;
-  paramName?: string;
-  paramRequired?: boolean;
-  paramValue?: string;
-  commandName?: string;
-  commandHint?: string;
-  category?: string;
-  appName?: string;
-  appIcon?: string | null;
-  botId?: string;
-  emoji?: string;
-  fullName?: string;
-  optionType?: number;
-  optionNames?: string[];
 }
 
 interface ReplyTarget {
@@ -246,6 +237,56 @@ interface MessageBarProps {
   /** Sends a recorded voice message. Set only where the user may attach files;
    *  shows the mic button while the composer is empty. */
   onSendVoice?: (voice: VoiceMessageAttachment) => void;
+
+  // Slash commands (palette, command composer, ↑ re-run). Enabled when
+  // `onRunCommand` is set; see useCommandRunner.
+  /** Runs a command picked in the composer. */
+  onRunCommand?: (inv: CommandInvocation) => Promise<CommandRunResult>;
+  /** Bot (app) commands available here (useAppCommands leaves). */
+  appLeaves?: AppLeafCommand[];
+  /** Offer server-only built-ins (moderation). */
+  commandsInServer?: boolean;
+  /** Members / roles / channels for user, role and channel options. */
+  commandPickers?: CommandPickerData;
+  /** Newest own message time here, for the ↑ re-run rule. */
+  getLastOwnMessageAt?: () => number | null;
+  /** Channel id for app autocomplete when `channelId` isn't set (DMs). */
+  commandChannelId?: string;
+}
+
+const EMPTY_LEAVES: AppLeafCommand[] = [];
+const EMPTY_PICKERS: CommandPickerData = { users: [], roles: [], channels: [] };
+/** A command send that hasn't answered by then is reported as timed out. */
+const COMMAND_SEND_TIMEOUT_MS = 15_000;
+
+interface CommandState {
+  /** draftKey of the conversation it belongs to. */
+  ctx: string | undefined;
+  spec: CommandSpec;
+  draft: CommandDraft;
+  files: Record<string, File>;
+  /** Index into the recallable history while browsing with ↑/↓. */
+  historyCursor: number | null;
+  sending: boolean;
+  showErrors: boolean;
+}
+
+/** An app command that was sent and hasn't been acknowledged yet. */
+interface CommandStatus {
+  ctx: string | undefined;
+  id: number;
+  name: string;
+}
+
+function historyEntry(inv: CommandInvocation): CommandHistoryEntry {
+  return {
+    key: inv.spec.key,
+    name: inv.spec.name,
+    values: { ...inv.draft.values },
+    labels: { ...inv.draft.labels },
+    shown: [...inv.draft.shown],
+    at: Date.now(),
+  };
 }
 
 const DRAFT_PREFIX = "serika:draft:";
@@ -291,6 +332,12 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       draftKey,
       secondary = false,
       onSendVoice,
+      onRunCommand,
+      appLeaves = EMPTY_LEAVES,
+      commandsInServer = false,
+      commandPickers = EMPTY_PICKERS,
+      getLastOwnMessageAt,
+      commandChannelId,
     },
     ref
   ) {
@@ -299,6 +346,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     const emojiPickerEnabled = user?.settings?.textImages?.emojiPicker !== false;
     const stickerSuggestionsEnabled = user?.settings?.textImages?.stickerSuggestions !== false;
     const composerRef = useRef<RichComposerHandle>(null);
+    // Set while a slash command is being filled in: focus goes to it instead
+    // of the (hidden) text composer.
+    const commandFocusRef = useRef<(() => void) | null>(null);
+    const commandStateRef = useRef<CommandState | null>(null);
 
     // Draft persistence: save the previous context's unsent text and restore the
     // new one whenever draftKey changes. Reads the live composer text at save
@@ -423,8 +474,9 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         const isModalOpen = document.querySelector('[role="dialog"], [role="menu"]') !== null;
         if (isModalOpen) return;
 
-        // 6. Focus the message bar input
-        composerRef.current?.focus();
+        // 6. Focus the message bar input (or the command being filled in)
+        if (commandFocusRef.current) commandFocusRef.current();
+        else composerRef.current?.focus();
       };
 
       window.addEventListener("keydown", handleGlobalKeyDown);
@@ -607,7 +659,15 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     const handleDrop = useCallback((e: React.DragEvent) => {
       e.preventDefault();
       setIsDragOver(false);
-      addFiles(Array.from(e.dataTransfer?.files || []));
+      const dropped = Array.from(e.dataTransfer?.files || []);
+      // Filling in a command with a file option: the drop goes there.
+      const st = commandStateRef.current;
+      const fileOpt = st?.spec.options.find((o) => o.kind === "attachment" && !st.files[o.name]);
+      if (st && fileOpt && dropped[0]) {
+        setCommand((c) => (c ? { ...c, files: { ...c.files, [fileOpt.name]: dropped[0] }, draft: c.draft.shown.includes(fileOpt.name) ? c.draft : { ...c.draft, shown: [...c.draft.shown, fileOpt.name] } } : c));
+        return;
+      }
+      addFiles(dropped);
     }, [addFiles]);
 
     const removeAttachment = useCallback((index: number) => {
@@ -765,16 +825,285 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         if (count > 0) removeAttachmentRef.current(count - 1);
       },
       getComposer: () => composerRef.current,
-      focus: () => composerRef.current?.focus(),
+      focus: () => {
+        if (commandFocusRef.current) commandFocusRef.current();
+        else composerRef.current?.focus();
+      },
       uploadAttachments: (opts) => uploadRef.current(opts),
     }), [attachments, spoilerFlags]);
+
+    // ---- Slash commands ----------------------------------------------------
+    // Everything here is MessageBar-local state: the palette, the command being
+    // filled in, and the ↑ history. Typing a command never re-renders the
+    // conversation (MessageList), only this bar.
+    const commandsEnabled = !!onRunCommand && !disabled;
+    const hasCommandRunner = !!onRunCommand;
+    const catalog = useMemo(
+      () => (hasCommandRunner ? buildCommandCatalog(appLeaves, commandsInServer) : []),
+      [hasCommandRunner, appLeaves, commandsInServer],
+    );
+    const [palette, setPalette] = useState<{ ctx: string | undefined; query: string; activeKey: string | null } | null>(null);
+    const [command, setCommand] = useState<CommandState | null>(null);
+    const [focusRequest, setFocusRequest] = useState<{ name: string | null; nonce: number } | null>(null);
+    const [cmdStatus, setCmdStatus] = useState<CommandStatus | null>(null);
+    const [overlayHost, setOverlayHost] = useState<HTMLDivElement | null>(null);
+    const statusSeqRef = useRef(0);
+    const paletteListId = useId();
+    // Commands belong to the conversation they were started in.
+    const activeCommand = command && command.ctx === draftKey ? command : null;
+    const paletteState = palette && palette.ctx === draftKey && !activeCommand && commandsEnabled ? palette : null;
+    const status = cmdStatus && cmdStatus.ctx === draftKey ? cmdStatus : null;
+    const paletteQueryText = paletteState?.query ?? null;
+    const paletteGroups = useMemo(
+      () => (paletteQueryText === null ? [] : groupRankedCommands(rankCommands(catalog, paletteQueryText))),
+      [catalog, paletteQueryText],
+    );
+    const paletteRows = useMemo(() => flattenGroups(paletteGroups), [paletteGroups]);
+    const paletteActiveKey = paletteState ? keepActiveKey(paletteRows, paletteState.activeKey) : null;
+
+    // Read by long-lived listeners (type-to-focus, imperative focus, async sends).
+    const draftKeyRef = useRef(draftKey);
+    useEffect(() => {
+      draftKeyRef.current = draftKey;
+    }, [draftKey]);
+
+    const requestCommandFocus = useCallback((name: string | null) => {
+      setFocusRequest((r) => ({ name, nonce: (r?.nonce ?? 0) + 1 }));
+    }, []);
+
+    const enterCommand = useCallback((spec: CommandSpec, draft?: CommandDraft, historyCursor: number | null = null) => {
+      preloadCommandUi();
+      const d = draft ?? initialDraft(spec);
+      setPalette(null);
+      setCommand({ ctx: draftKey, spec, draft: d, files: {}, historyCursor, sending: false, showErrors: false });
+      // Recalled commands focus the end (Enter re-runs); new ones the first required option.
+      const firstMissing = historyCursor !== null ? null : commandReadiness(spec, d).missing;
+      requestCommandFocus(firstMissing);
+      composerRef.current?.clear();
+    }, [draftKey, requestCommandFocus]);
+
+    // Back to the text composer once it is visible again (after the commit).
+    const refocusComposerRef = useRef<{ text: string } | null>(null);
+    useEffect(() => {
+      const pending = refocusComposerRef.current;
+      if (activeCommand || !pending) return;
+      refocusComposerRef.current = null;
+      const composer = composerRef.current;
+      if (!composer) return;
+      composer.focus();
+      if (pending.text) composer.insertTextAtCaret(pending.text);
+    }, [activeCommand]);
+
+    const exitCommand = useCallback((reason: CommandExitReason) => {
+      const name = activeCommand?.spec.name;
+      // Backspacing past the command turns it back into text, like Discord.
+      refocusComposerRef.current = { text: reason === "backspace" && name ? `/${name}` : "" };
+      setCommand(null);
+    }, [activeCommand]);
+
+    const availableKeys = useMemo(() => new Set(catalog.map((c) => c.key)), [catalog]);
+
+    const restoreFromHistory = useCallback((list: CommandHistoryEntry[], index: number) => {
+      const entry = list[index];
+      const spec = entry && catalog.find((c) => c.key === entry.key);
+      if (!spec) return false;
+      const names = new Set(spec.options.map((o) => o.name));
+      const pick = (r: Record<string, string>) => Object.fromEntries(Object.entries(r).filter(([k]) => names.has(k)));
+      const base = initialDraft(spec);
+      const shown = [...base.shown, ...entry.shown.filter((n) => names.has(n) && !base.shown.includes(n))];
+      enterCommand(spec, { values: pick(entry.values), labels: pick(entry.labels), shown }, index);
+      return true;
+    }, [catalog, enterCommand]);
+
+    /** ↑ in an empty composer: bring back the last command if it's newer than your last message. */
+    const tryRecallCommand = useCallback(() => {
+      if (!draftKey || !commandsEnabled) return false;
+      const list = recallableHistory(readCommandHistory(draftKey), availableKeys);
+      const newest = list[list.length - 1];
+      if (!newest) return false;
+      const recall = canRecallCommand({
+        lastCommandAt: newest.at,
+        lastPlainSendAt: readLastPlainSendAt(draftKey),
+        lastOwnMessageAt: getLastOwnMessageAt?.() ?? null,
+      });
+      return recall && restoreFromHistory(list, list.length - 1);
+    }, [draftKey, commandsEnabled, availableKeys, getLastOwnMessageAt, restoreFromHistory]);
+
+    const stepHistory = useCallback((dir: "up" | "down") => {
+      if (!draftKey || !activeCommand || activeCommand.historyCursor === null) return;
+      const list = recallableHistory(readCommandHistory(draftKey), availableKeys);
+      const next = stepCommandHistory(list.length, activeCommand.historyCursor, dir);
+      if (next === null) exitCommand("clear");
+      else restoreFromHistory(list, next);
+    }, [draftKey, activeCommand, availableKeys, exitCommand, restoreFromHistory]);
+
+    /** Note what a plain send was (typed command → history; message → blocks ↑ recall). */
+    const noteOutgoing = useCallback(() => {
+      const ctx = draftKey;
+      if (!ctx || !onRunCommand) return;
+      const text = (composerRef.current?.getText() ?? "").trim();
+      if (!text && attachmentsCountRef.current === 0) return;
+      const parsed = text.startsWith("/") ? parseCommandText(text, catalog) : null;
+      if (parsed) recordCommand(ctx, historyEntry({ spec: parsed.spec, draft: parsed.draft, files: {} }));
+      else notePlainSend(ctx);
+    }, [draftKey, onRunCommand, catalog]);
+
+    const runInvocationRef = useRef<(inv: CommandInvocation) => Promise<void>>(async () => {});
+    const showCommandError = useCallback((message: string, retryInv: CommandInvocation | null, ctx: string | undefined) => {
+      toast.error(message, retryInv ? {
+        duration: 8000,
+        action: {
+          label: gt("Retry"),
+          // Only in the conversation it was sent from.
+          onClick: () => {
+            if (draftKeyRef.current === ctx) void runInvocationRef.current(retryInv);
+          },
+        },
+      } : undefined);
+    }, [gt]);
+
+    // Shown while the app hasn't acknowledged yet; a failure becomes a toast with Retry.
+    const trackOutcome = useCallback((inv: CommandInvocation, outcome: Promise<{ ok: true } | { ok: false; message: string; retryable: boolean }>, ctx: string | undefined) => {
+      const id = ++statusSeqRef.current;
+      setCmdStatus({ ctx, id, name: inv.spec.name });
+      void outcome.then((o) => {
+        setCmdStatus((s) => (s?.id === id ? null : s));
+        if (!o.ok) showCommandError(o.message, o.retryable ? inv : null, ctx);
+      });
+    }, [showCommandError]);
+
+    // Run (or re-run) an invocation in this conversation: the command shows as
+    // "sending", then clears on success or stays filled in on failure.
+    const runInvocation = useCallback(async (inv: CommandInvocation) => {
+      if (!onRunCommand) return;
+      const ctx = draftKey;
+      setCmdStatus((s) => (s?.ctx === ctx ? null : s));
+      setPalette(null);
+      setCommand({ ctx, spec: inv.spec, draft: inv.draft, files: inv.files, historyCursor: null, sending: true, showErrors: false });
+      let res: CommandRunResult;
+      try {
+        res = await Promise.race([
+          onRunCommand(inv),
+          new Promise<CommandRunResult>((resolve) =>
+            setTimeout(() => resolve({ ok: false, message: gt("The command timed out. Try again."), retryable: true }), COMMAND_SEND_TIMEOUT_MS),
+          ),
+        ]);
+      } catch {
+        res = { ok: false, message: gt("Couldn't run that command."), retryable: true };
+      }
+      if (!res.ok) {
+        // The command stays filled in: Enter (or Retry) sends it again.
+        setCommand((s) => (s && s.ctx === ctx ? { ...s, sending: false, showErrors: true } : s));
+        showCommandError(res.message, res.retryable ? inv : null, ctx);
+        if (draftKeyRef.current === ctx) requestCommandFocus(null);
+        return;
+      }
+      if (ctx) recordCommand(ctx, historyEntry(inv));
+      if (draftKeyRef.current === ctx) refocusComposerRef.current = { text: "" };
+      setCommand((s) => (s && s.ctx === ctx ? null : s));
+      if (res.outcome) trackOutcome(inv, res.outcome, ctx);
+    }, [onRunCommand, draftKey, gt, requestCommandFocus, trackOutcome, showCommandError]);
+    useEffect(() => {
+      runInvocationRef.current = runInvocation;
+    }, [runInvocation]);
+
+    /** Enter / send button in command mode: send when every required option is filled, else point at the gap. */
+    const submitCommand = useCallback((draftOverride?: CommandDraft) => {
+      const st = activeCommand;
+      if (!st || st.sending) return;
+      const d = draftOverride ?? st.draft;
+      const readiness = commandReadiness(st.spec, d, st.files);
+      if (!readiness.ready) {
+        setCommand((s) => (s ? { ...s, draft: d, showErrors: true } : s));
+        requestCommandFocus(readiness.missing ?? readiness.invalid?.name ?? null);
+        return;
+      }
+      void runInvocation({ spec: st.spec, draft: d, files: st.files });
+    }, [activeCommand, requestCommandFocus, runInvocation]);
+
+    useEffect(() => {
+      commandFocusRef.current = activeCommand ? () => requestCommandFocus(null) : null;
+      commandStateRef.current = activeCommand;
+    }, [activeCommand, requestCommandFocus]);
+
+    const onCommandDraftChange = useCallback((d: CommandDraft) => {
+      setCommand((s) => (s ? { ...s, draft: d, historyCursor: null } : s));
+    }, []);
+    const onCommandFilesChange = useCallback((f: Record<string, File>) => {
+      setCommand((s) => (s ? { ...s, files: f, historyCursor: null } : s));
+    }, []);
 
     // ---- Handlers ----
     const handleComposerChange = useCallback((value: string, caret: number) => {
       latestTextRef.current = value;
       setHasText(value.trim().length > 0);
+      if (commandsEnabled && catalog.length > 0) {
+        const atEnd = caret >= value.length;
+        // `/kick ` (space after a unique full name) picks the command.
+        const picked = atEnd ? autoPickOnSpace(value, catalog) : null;
+        if (picked) {
+          enterCommand(picked);
+          return;
+        }
+        const q = atEnd ? paletteQuery(value, catalog) : null;
+        const open = q !== null && rankCommands(catalog, q).length > 0;
+        if (open) preloadCommandUi();
+        setPalette((prev) => {
+          if (!open) return prev ? null : prev;
+          if (prev && prev.query === q && prev.ctx === draftKey) return prev;
+          return { ctx: draftKey, query: q!, activeKey: prev && prev.ctx === draftKey ? prev.activeKey : null };
+        });
+      }
       onChange(value, caret);
-    }, [onChange]);
+    }, [onChange, commandsEnabled, catalog, enterCommand, draftKey]);
+
+    const handleCaretMove = useCallback((text: string, caret: number) => {
+      // Moving the caret off the end leaves the command name being edited.
+      if (caret < text.length) setPalette((prev) => (prev ? null : prev));
+      onCaretMove?.(text, caret);
+    }, [onCaretMove]);
+
+    const handleComposerKeyDown = useCallback((e: React.KeyboardEvent) => {
+      const noMods = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+      if (paletteState && paletteRows.length > 0) {
+        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          const next = moveActiveKey(paletteRows, paletteActiveKey, e.key === "ArrowDown" ? 1 : -1);
+          setPalette((p) => (p ? { ...p, activeKey: next } : p));
+          return;
+        }
+        if ((e.key === "Enter" && !e.shiftKey) || (e.key === "Tab" && !e.shiftKey)) {
+          const spec = paletteRows.find((r) => r.spec.key === paletteActiveKey)?.spec ?? paletteRows[0].spec;
+          e.preventDefault();
+          enterCommand(spec);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setPalette(null);
+          return;
+        }
+      }
+      if (
+        e.key === "ArrowUp" && noMods && mentionSuggestions.length === 0 &&
+        (composerRef.current?.getText().trim().length ?? 0) === 0 && attachmentsCountRef.current === 0 &&
+        tryRecallCommand()
+      ) {
+        e.preventDefault();
+        return;
+      }
+      if (e.key === "Enter" && !e.shiftKey && mentionSuggestions.length === 0 && !isTouchOnlyInput()) noteOutgoing();
+      onKeyDown(e);
+    }, [paletteState, paletteRows, paletteActiveKey, enterCommand, mentionSuggestions.length, tryRecallCommand, noteOutgoing, onKeyDown]);
+
+    const handleSendClick = useCallback(() => {
+      if (activeCommand) {
+        submitCommand();
+        return;
+      }
+      noteOutgoing();
+      onSend();
+    }, [activeCommand, submitCommand, noteOutgoing, onSend]);
 
     const handlePickerEmojiSelect = useCallback((
       emoji: string,
@@ -795,11 +1124,12 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       setShowEmojiPicker(false);
     }, [onStickerSelect]);
 
-    const canSend = (hasText || attachments.length > 0) && !isUploading;
+    const commandMode = !!activeCommand;
+    const canSend = commandMode ? !activeCommand.sending : (hasText || attachments.length > 0) && !isUploading;
     // Voice message recorder: open (hold = press-and-hold on the mic) or closed.
     const [voiceSession, setVoiceSession] = useState<{ hold: VoiceHoldStart | null } | null>(null);
     const closeVoice = useCallback(() => setVoiceSession(null), []);
-    const showMic = !!onSendVoice && !disabled && !canSend && !isSending && !isUploading;
+    const showMic = !!onSendVoice && !disabled && !canSend && !isSending && !isUploading && !commandMode;
 
     return (
       <>
@@ -910,6 +1240,18 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           onDragLeave={() => setIsDragOver(false)}
           onDrop={handleDrop}
         >
+          {/* Slash command status: waiting for the app to acknowledge */}
+          {status && (
+            <div
+              className="mb-2 px-3 py-1.5 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--app-muted)] flex items-center gap-2 text-xs"
+              role="status"
+              aria-live="polite"
+            >
+              <Loader size={14} />
+              <span className="truncate">{gt("Sending /{command}…", { command: status.name })}</span>
+            </div>
+          )}
+
           {/* Reply preview */}
           {replyTo && (
             <div className="mb-2 px-3 py-2 bg-[var(--app-surface)] border border-[var(--app-border)] rounded-lg flex items-start justify-between gap-3">
@@ -954,356 +1296,26 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           )}
 
           <div className="bg-[var(--app-surface)] rounded-lg border border-[var(--app-border)] shadow-[var(--app-elev-1)] overflow-hidden">
+            {/* Floating lists above the composer render here (outside the
+                clipping editor box): the slash-command palette, and the command
+                composer's value lists through a portal. */}
+            <div ref={setOverlayHost} />
+            {paletteState && paletteRows.length > 0 && (
+              <CommandPalette
+                groups={paletteGroups}
+                rows={paletteRows}
+                activeKey={paletteActiveKey}
+                listId={paletteListId}
+                onPick={(spec) => enterCommand(spec)}
+                onActivate={(key) => setPalette((p) => (p && p.activeKey !== key ? { ...p, activeKey: key } : p))}
+              />
+            )}
+
             {/* Mention suggestions overlay */}
-            {mentionSuggestions.length > 0 && (
+            {mentionSuggestions.length > 0 && !paletteState && !commandMode && (
               <div className="theme-solid absolute left-2 right-2 bottom-[calc(100%+8px)] z-20 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface-alt)] shadow-[var(--app-elev-2)] overflow-hidden max-h-80 overflow-y-auto">
-                {/* Command list — bot commands grouped by application, then
-                    built-in commands grouped by category (Discord-style). */}
-                {mentionSuggestions.length > 0 && mentionSuggestions.every(s => s.kind === "command" || s.kind === "app-command") && (() => {
-                  // Preserve first-seen order so the running index matches the
-                  // flat suggestion array used for keyboard navigation.
-                  const groups: { key: string; kind: "app" | "cat"; label: string; icon?: string | null; items: MentionSuggestion[] }[] = [];
-                  const indexOf = new Map<string, number>();
-                  const catMeta: Record<string, { label: string; color: string }> = {
-                    moderation: { label: gt("Moderation"), color: "text-red-400" },
-                    utility: { label: gt("Utility"), color: "text-blue-400" },
-                    fun: { label: gt("Fun"), color: "text-amber-400" },
-                  };
-                  for (const s of mentionSuggestions) {
-                    const key = s.kind === "app-command" ? `app:${s.appName}` : `cat:${s.category || "utility"}`;
-                    if (!indexOf.has(key)) {
-                      indexOf.set(key, groups.length);
-                      groups.push({
-                        key,
-                        kind: s.kind === "app-command" ? "app" : "cat",
-                        label: s.kind === "app-command" ? (s.appName || gt("Bot")) : catMeta[s.category || "utility"].label,
-                        icon: s.kind === "app-command" ? s.appIcon : undefined,
-                        items: [],
-                      });
-                    }
-                    groups[indexOf.get(key)!].items.push(s);
-                  }
-                  let globalIdx = 0;
-                  return groups.map((group) => (
-                    <div key={group.key}>
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[color-mix(in_srgb,var(--app-surface)_50%,var(--app-surface-alt))] border-b border-[var(--app-border)]/50 sticky top-0 z-10">
-                        {group.kind === "app" ? (
-                          group.icon ? (
-                            <img src={cdnImage(group.icon)} alt="" className="w-4 h-4 rounded-sm object-cover shrink-0" />
-                          ) : (
-                            <Bot className="w-3.5 h-3.5 text-[var(--app-accent)] shrink-0" />
-                          )
-                        ) : (
-                          <span className={cn("shrink-0", catMeta[group.key.slice(4)]?.color)}>{CATEGORY_ICONS[group.key.slice(4)]}</span>
-                        )}
-                        <span className={cn("text-[10px] font-bold uppercase tracking-wider truncate", group.kind === "app" ? "text-[var(--app-accent)]" : catMeta[group.key.slice(4)]?.color)}>{group.label}</span>
-                        <span className="text-[10px] text-[var(--app-muted)] ml-auto">{group.items.length}</span>
-                      </div>
-                      {group.items.map((suggestion) => {
-                        const idx = globalIdx++;
-                        const isApp = suggestion.kind === "app-command";
-                        const cmdIcon = isApp
-                          ? (suggestion.appIcon
-                              ? <img src={cdnImage(suggestion.appIcon)} alt="" className="w-full h-full rounded-md object-cover" />
-                              : <Bot className="w-3.5 h-3.5" />)
-                          : (COMMAND_ICONS[suggestion.id as keyof typeof COMMAND_ICONS] || <Hash className="w-3.5 h-3.5" />);
-                        return (
-                          <button
-                            key={`${suggestion.kind}-${suggestion.id}`}
-                            type="button"
-                            onMouseDown={(event) => {
-                              event.preventDefault();
-                              onMentionSelect?.(suggestion);
-                            }}
-                            className={cn(
-                              "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-                              idx === activeMentionIndex
-                                ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
-                                : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
-                            )}
-                          >
-                            <span className="flex items-center justify-center w-7 h-7 shrink-0 rounded-md bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] overflow-hidden">
-                              {cmdIcon}
-                            </span>
-                            <span className="flex flex-col min-w-0 gap-0.5">
-                              <span className="truncate font-mono text-sm text-[var(--app-accent)]">/{suggestion.label}</span>
-                              <span className="truncate text-xs text-[var(--app-muted)]">{suggestion.description}</span>
-                              {suggestion.commandHint && (
-                                <span className="truncate text-[10px] text-[var(--app-muted)]/60 italic">{suggestion.commandHint}</span>
-                              )}
-                            </span>
-                            {isApp && suggestion.appName ? (
-                              <span className="ml-auto text-[11px] text-[var(--app-muted)] truncate shrink-0 max-w-[140px]">
-                                {suggestion.appName}
-                              </span>
-                            ) : suggestion.usage ? (
-                              <span className="ml-auto text-[10px] font-mono text-[var(--app-muted)]/70 truncate shrink-0 max-w-[140px]">
-                                {suggestion.usage}
-                              </span>
-                            ) : null}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  ));
-                })()}
-
-                {/* App command OPTIONS list (screenshot: difficulty / mode / anilist) */}
-                {mentionSuggestions.length > 0 && mentionSuggestions.every(s => s.kind === "app-option") && mentionSuggestions[0].id !== "__app-option-hint__" && (
-                  <>
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">{gt("Options")}</span>
-                      <span className="font-mono text-[10px] text-[var(--app-accent)] ml-auto truncate">/{mentionSuggestions[0].commandName}</span>
-                    </div>
-                    {mentionSuggestions.map((suggestion, index) => (
-                      <button
-                        key={`${suggestion.kind}-${suggestion.id}`}
-                        type="button"
-                        onMouseDown={(event) => { event.preventDefault(); onMentionSelect?.(suggestion); }}
-                        className={cn(
-                          "w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors",
-                          index === activeMentionIndex
-                            ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
-                            : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
-                        )}
-                      >
-                        <span className="flex items-center gap-2 min-w-0">
-                          <span className="font-mono text-sm text-[var(--text-primary)] truncate">{suggestion.label}</span>
-                          {suggestion.paramRequired && (
-                            <span className="text-[9px] font-bold uppercase text-red-400/80 bg-red-500/10 px-1.5 py-0.5 rounded shrink-0">{gt("required")}</span>
-                          )}
-                        </span>
-                        {suggestion.description && (
-                          <span className="text-xs text-[var(--app-muted)] truncate shrink-0 max-w-[55%]">{suggestion.description}</span>
-                        )}
-                      </button>
-                    ))}
-                  </>
-                )}
-
-                {/* App command choice list (screenshot: 🎵 Audio — guess from theme song) */}
-                {mentionSuggestions.length > 0 && mentionSuggestions.every(s => s.kind === "app-choice") && (
-                  <>
-                    <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
-                      <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--app-muted)]">{mentionSuggestions[0].paramName}</span>
-                      <span className="font-mono text-[10px] text-[var(--app-accent)] ml-auto truncate">/{mentionSuggestions[0].commandName}</span>
-                    </div>
-                    {mentionSuggestions.map((suggestion, index) => (
-                      <button
-                        key={`${suggestion.kind}-${suggestion.id}`}
-                        type="button"
-                        onMouseDown={(event) => { event.preventDefault(); onMentionSelect?.(suggestion); }}
-                        className={cn(
-                          "w-full flex items-center gap-2.5 px-3 py-2 text-left transition-colors",
-                          index === activeMentionIndex
-                            ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
-                            : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
-                        )}
-                      >
-                        {suggestion.emoji && <span className="text-base shrink-0">{suggestion.emoji}</span>}
-                        <span className="text-sm text-[var(--text-primary)] truncate">{suggestion.label}</span>
-                        {suggestion.description && (
-                          <span className="text-xs text-[var(--app-muted)] truncate">— {suggestion.description}</span>
-                        )}
-                      </button>
-                    ))}
-                  </>
-                )}
-
-                {/* App free-text option hint (single card) */}
-                {mentionSuggestions.length === 1 && mentionSuggestions[0].kind === "app-option" && mentionSuggestions[0].id === "__app-option-hint__" && (
-                  <div className="px-4 py-3">
-                    <div className="flex items-center gap-2 mb-1.5">
-                      <span className="font-mono text-sm text-[var(--app-accent)]">/{mentionSuggestions[0].commandName}</span>
-                      <span className="text-xs text-[var(--app-muted)]">—</span>
-                      <span className="text-xs font-semibold text-[var(--text-secondary)]">{mentionSuggestions[0].paramName}</span>
-                      {mentionSuggestions[0].paramRequired && (
-                        <span className="text-[9px] font-bold uppercase text-red-400/80 bg-red-500/10 px-1.5 py-0.5 rounded">{gt("required")}</span>
-                      )}
-                    </div>
-                    <p className="text-xs text-[var(--app-muted)] leading-relaxed">{mentionSuggestions[0].description}</p>
-                    <p className="text-[10px] text-[var(--app-muted)]/60 mt-1.5">{gt("Type your value and press space…")}</p>
-                  </div>
-                )}
-
-                {/* Param hint card (single item) */}
-                {mentionSuggestions.length === 1 && mentionSuggestions[0].kind === "param-hint" && (() => {
-                  const s = mentionSuggestions[0];
-                  const cmdIcon = s.commandName ? COMMAND_ICONS[s.commandName as keyof typeof COMMAND_ICONS] : null;
-                  const isTts = s.commandName === "tts";
-                  return (
-                    <div className="px-4 py-3">
-                      <div className="flex items-center gap-2 mb-1.5">
-                        {cmdIcon && (
-                          <span className="flex items-center justify-center w-6 h-6 shrink-0 rounded-md bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)]">
-                            {cmdIcon}
-                          </span>
-                        )}
-                        <span className="font-mono text-sm text-[var(--app-accent)]">/{s.commandName}</span>
-                        <span className="text-xs text-[var(--app-muted)]">—</span>
-                        <span className="text-xs font-semibold text-[var(--text-secondary)]">{s.paramName}</span>
-                        {s.paramRequired && (
-                          <span className="text-[9px] font-bold uppercase text-red-400/80 bg-red-500/10 px-1.5 py-0.5 rounded">{gt("required")}</span>
-                        )}
-                      </div>
-                      <p className="text-xs text-[var(--app-muted)] leading-relaxed pl-8">{s.description}</p>
-                      {isTts ? (
-                        <div className="mt-2.5 pl-8 space-y-1.5">
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[f]</span>
-                            <span className="text-[var(--app-muted)]">{gt("Female voice")}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[m]</span>
-                            <span className="text-[var(--app-muted)]">{gt("Male voice")}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[2x]</span>
-                            <span className="text-[var(--app-muted)]">{gt("Speed (also: [1.5x], [slow], [fast], [turbo])")}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[vol:50]</span>
-                            <span className="text-[var(--app-muted)]">{gt("Volume 0–500% (also: [vol:BASS] bass boost, [vol:EAR] max loudness)")}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[steven]</span>
-                            <span className="text-[var(--app-muted)]">{gt("Stephen Hawking robotic voice")}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[fish:miku]</span>
-                            <span className="text-[var(--app-muted)]">{gt("FishAudio AI voice (also: [fish:model-id])")}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="shrink-0 px-1.5 py-0.5 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)] font-mono font-semibold">[f-japanese]</span>
-                            <span className="text-[var(--app-muted)]">{gt("Gender + accent (also: [m-dutch], [scottish]…)")}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <Volume2 className="w-3 h-3 shrink-0 text-emerald-400/70" />
-                            <span className="text-[var(--app-muted)]">{gt("Switch speakers mid-message: [m] hi [f] hello")}</span>
-                          </div>
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <Music className="w-3 h-3 shrink-0 text-amber-400/70" />
-                            <span className="text-[var(--app-muted)]">{gt("Trigger words auto-play sound effects mid-speech")}</span>
-                          </div>
-                          <div className="mt-2 pt-2 border-t border-[var(--app-border)]/40">
-                            <p className="text-[10px] text-[var(--app-muted)]/70 font-mono">
-                              <span className="text-[var(--app-accent)]">/tts</span> [m] whoa nice day [f] ik right
-                            </p>
-                          </div>
-                        </div>
-                      ) : (
-                        <p className="text-[10px] text-[var(--app-muted)]/60 mt-1.5 pl-8">{gt("Type your value and press space…")}</p>
-                      )}
-                    </div>
-                  );
-                })()}
-
-                {/* Param user suggestions */}
-                {mentionSuggestions.length > 0 && mentionSuggestions[0].kind === "param-user" && (() => {
-                  const cmdName = mentionSuggestions[0].commandName;
-                  const paramName = mentionSuggestions[0].paramName;
-                  const cmdIcon = cmdName ? COMMAND_ICONS[cmdName as keyof typeof COMMAND_ICONS] : null;
-                  return (
-                    <>
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
-                        {cmdIcon && (
-                          <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)]">
-                            {cmdIcon}
-                          </span>
-                        )}
-                        <span className="font-mono text-xs text-[var(--app-accent)]">/{cmdName}</span>
-                        <span className="text-[10px] text-[var(--app-muted)]">— {gt("select a member for")}</span>
-                        <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{paramName}</span>
-                      </div>
-                      {mentionSuggestions.map((suggestion, index) => (
-                        <button
-                          key={`${suggestion.kind}-${suggestion.id}`}
-                          type="button"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            onMentionSelect?.(suggestion);
-                          }}
-                          className={cn(
-                            "w-full flex items-center gap-3 px-3 py-2 text-left transition-colors",
-                            index === activeMentionIndex
-                              ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
-                              : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
-                          )}
-                        >
-                          <span
-                            className="flex items-center justify-center w-7 h-7 shrink-0 rounded-full text-xs font-bold"
-                            style={suggestion.color ? { backgroundColor: suggestion.color + "30", color: suggestion.color } : undefined}
-                          >
-                            {(suggestion.label || "?").charAt(0).toUpperCase()}
-                          </span>
-                          <span className="flex flex-col min-w-0">
-                            <span className="truncate text-sm" style={suggestion.color ? { color: suggestion.color } : undefined}>
-                              {suggestion.label}
-                            </span>
-                            {suggestion.description && (
-                              <span className="truncate text-xs text-[var(--app-muted)]">@{suggestion.description}</span>
-                            )}
-                          </span>
-                        </button>
-                      ))}
-                    </>
-                  );
-                })()}
-
-                {/* Param duration / choice suggestions */}
-                {mentionSuggestions.length > 0 && (mentionSuggestions[0].kind === "param-duration" || mentionSuggestions[0].kind === "param-choice") && (() => {
-                  const cmdName = mentionSuggestions[0].commandName;
-                  const paramName = mentionSuggestions[0].paramName;
-                  const isDuration = mentionSuggestions[0].kind === "param-duration";
-                  const cmdIcon = cmdName ? COMMAND_ICONS[cmdName as keyof typeof COMMAND_ICONS] : null;
-                  return (
-                    <>
-                      <div className="flex items-center gap-2 px-3 py-1.5 bg-[var(--app-surface)]/50 border-b border-[var(--app-border)]/50">
-                        {cmdIcon && (
-                          <span className="flex items-center justify-center w-5 h-5 shrink-0 rounded bg-[color-mix(in_srgb,var(--app-accent)_15%,transparent)] text-[var(--app-accent)]">
-                            {cmdIcon}
-                          </span>
-                        )}
-                        <span className="font-mono text-xs text-[var(--app-accent)]">/{cmdName}</span>
-                        <span className="text-[10px] text-[var(--app-muted)]">— {gt("choose")} {isDuration ? gt("a duration") : gt("an option")} {gt("for")}</span>
-                        <span className="text-[10px] font-semibold text-[var(--text-secondary)]">{paramName}</span>
-                      </div>
-                      {mentionSuggestions.map((suggestion, index) => (
-                        <button
-                          key={`${suggestion.kind}-${suggestion.id}`}
-                          type="button"
-                          onMouseDown={(event) => {
-                            event.preventDefault();
-                            onMentionSelect?.(suggestion);
-                          }}
-                          className={cn(
-                            "w-full flex items-center justify-between gap-3 px-3 py-2 text-left transition-colors",
-                            index === activeMentionIndex
-                              ? "bg-[var(--app-accent)]/15 text-[var(--text-primary)]"
-                              : "hover:bg-[var(--app-surface)]/60 text-[var(--text-primary)]"
-                          )}
-                        >
-                          <span className="flex items-center gap-2.5 min-w-0 text-sm">
-                            {isDuration ? (
-                              <Clock className="w-4 h-4 shrink-0 text-[var(--app-muted)]" />
-                            ) : (
-                              <span className="w-4 h-4 shrink-0 rounded-sm border-2 border-[var(--app-muted)]/40" />
-                            )}
-                            <span className="truncate">{suggestion.label}</span>
-                          </span>
-                          {suggestion.description && (
-                            <span className="text-xs font-mono text-[var(--app-muted)] truncate shrink-0">
-                              {suggestion.description}
-                            </span>
-                          )}
-                        </button>
-                      ))}
-                    </>
-                  );
-                })()}
-
-                {/* Regular mention/emoji suggestions (non-command, non-param) */}
-                {mentionSuggestions.length > 0 && !mentionSuggestions.some(s => s.kind === "command" || s.kind === "app-command" || s.kind === "app-option" || s.kind === "app-choice" || s.kind === "param-user" || s.kind === "param-duration" || s.kind === "param-choice" || s.kind === "param-hint") && mentionSuggestions.map((suggestion, index) => {
+                {/* Mention / channel / emoji suggestions (slash commands have their own palette) */}
+                {mentionSuggestions.map((suggestion, index) => {
                   return (
                     <button
                       key={`${suggestion.kind}-${suggestion.id}`}
@@ -1348,7 +1360,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
             {/* Editor row: upload button + composer + right buttons */}
             <div className="relative flex items-center">
               {/* Upload button / "+" menu (left side, pinned to editor row) */}
-              {pollApiBase ? (
+              {commandMode ? null : pollApiBase ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -1396,24 +1408,51 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   />
                 </MountWhenOpened>
               )}
-              {attachments.length > 0 && (
+              {attachments.length > 0 && !commandMode && (
                 <span className="absolute left-9 sm:left-11 top-1/2 -translate-y-1/2 text-xs text-[var(--app-muted)] z-10">{attachments.length}</span>
               )}
 
-              {/* Composer */}
-              <RichComposer
-                ref={composerRef}
-                onChange={handleComposerChange}
-                onCaretMove={onCaretMove}
-                onKeyDown={onKeyDown}
-                placeholder={placeholder}
-                aria-label={ariaLabel ?? placeholder}
-                disabled={disabled}
-              />
+              {/* Composer (kept mounted but hidden while a command is filled in) */}
+              <div
+                className={commandMode ? "hidden" : "contents"}
+                onFocus={commandsEnabled ? preloadCommandUi : undefined}
+              >
+                <RichComposer
+                  ref={composerRef}
+                  onChange={handleComposerChange}
+                  onCaretMove={handleCaretMove}
+                  onKeyDown={handleComposerKeyDown}
+                  placeholder={placeholder}
+                  aria-label={ariaLabel ?? placeholder}
+                  disabled={disabled}
+                />
+              </div>
+              {activeCommand && (
+                <CommandComposer
+                  key={activeCommand.spec.key}
+                  spec={activeCommand.spec}
+                  draft={activeCommand.draft}
+                  files={activeCommand.files}
+                  pickers={commandPickers}
+                  channelId={commandChannelId ?? channelId}
+                  sending={activeCommand.sending}
+                  showErrors={activeCommand.showErrors}
+                  browsingHistory={activeCommand.historyCursor !== null}
+                  focusRequest={focusRequest}
+                  overlayHost={overlayHost}
+                  onChange={onCommandDraftChange}
+                  onFilesChange={onCommandFilesChange}
+                  onSubmitRequest={submitCommand}
+                  onExit={exitCommand}
+                  onHistoryStep={stepHistory}
+                />
+              )}
 
               {/* Right-side buttons (pinned to editor row) */}
               {/* Phones: each icon sits in a 40px touch target (no gap needed). */}
               <div className="absolute right-0 sm:right-4 top-1/2 -translate-y-1/2 flex items-center gap-0 sm:gap-4 text-[var(--app-muted)]">
+              {/* Pickers insert into the text composer: hidden while filling in a command. */}
+              {!commandMode && (<>
               {/* GIF / Image picker button */}
               <button
                 type="button"
@@ -1482,6 +1521,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               </Popover>
               )}
 
+              </>)}
+
               {/* Voice message: hold to record (release sends), or tap to record hands-free */}
               {showMic && (
                 <button
@@ -1505,17 +1546,17 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               )}
 
               {/* Send button (shows spinner while sending/uploading, but stays clickable) */}
-              {(canSend || isSending || isUploading) && (
+              {(canSend || isSending || isUploading || commandMode) && (
                 <button
                   type="button"
                   // Keep focus (and the phone keyboard) in the composer when tapped.
                   onPointerDown={(e) => e.preventDefault()}
-                  onClick={onSend}
-                  disabled={isUploading}
-                  aria-label={isUploading ? gt("Uploading attachments") : isSending ? gt("Sending") : gt("Send message")}
+                  onClick={handleSendClick}
+                  disabled={commandMode ? !!activeCommand?.sending : isUploading}
+                  aria-label={commandMode ? gt("Send command") : isUploading ? gt("Uploading attachments") : isSending ? gt("Sending") : gt("Send message")}
                   className="flex h-10 w-10 items-center justify-center sm:block sm:h-auto sm:w-auto text-[var(--app-accent)] hover:text-[var(--accent-hover)] transition-colors disabled:opacity-70"
                 >
-                  {isSending || isUploading ? (
+                  {(commandMode ? activeCommand?.sending : isSending || isUploading) ? (
                     <Loader size={20} className="sm:w-6 sm:h-6" />
                   ) : (
                     <SendHorizontal className="w-5 sm:w-6 h-5 sm:h-6" />
