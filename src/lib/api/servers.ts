@@ -41,6 +41,10 @@ import { invitesPaused } from '@/lib/botapi/guildIncidentRules';
 import * as guildEvents from '@/lib/services/guildGatewayEvents';
 import { hasDiscoveryTag, isHexColor, isServerTagIcon, normalizeDiscoveryTags, normalizeServerGames, readDiscoveryTags, readServerGames, readServerTagConfig, validateServerTagText, validateTagEmoji } from '@/lib/servers/serverProfile';
 import { customizationWithTag, invalidateServerTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
+import { memberOverridesFromRow, overriddenFields, resolveMemberProfile, sanitizeMemberProfilePatch } from '@/lib/profiles/memberProfile';
+import { storage, keyFromUrl, ContentBlockedError, UploadRejectedError } from '@/lib/services/storage';
+import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
+import { checkImageUploadFor, imageTooLargeMessageFor, imageUploadCeiling } from '@/lib/media/imageUploadLimits';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -412,6 +416,41 @@ async function getNormalizedRoles(serverId: string) {
   );
 }
 
+/**
+ * Change Nickname (or Manage Nicknames) for your own nickname, like Discord.
+ * @everyone counts even when the membership row doesn't list it.
+ */
+async function canChangeOwnNickname(server: { id: string; ownerId: string }, userId: string, membership?: { roles?: string[] | null } | null): Promise<boolean> {
+  if (server.ownerId === userId) return true;
+  const member = membership ?? (await ServerMember.findOne({ serverId: server.id, userId }));
+  if (!member) return false;
+  const { getEveryoneRoleId } = await import('./channels');
+  const everyone = await getEveryoneRoleId(server.id).catch(() => null);
+  const roles = [...new Set([...((member.roles || []) as string[]), ...(everyone ? [everyone] : [])])];
+  return (await hasServerPermission(server, userId, PERMISSION_BITS.CHANGE_NICKNAME, { roles }))
+    || (await hasServerPermission(server, userId, PERMISSION_BITS.MANAGE_NICKNAMES, { roles }));
+}
+
+/** Member timeout still running (communication disabled). */
+function isTimedOut(member: { communicationDisabledUntil?: Date | string | null }): boolean {
+  const until = member.communicationDisabledUntil ? new Date(member.communicationDisabledUntil).getTime() : 0;
+  return Number.isFinite(until) && until > Date.now();
+}
+
+/** Delete a replaced per-server image when it lives in this member's own folder. */
+function cleanupMemberMedia(oldUrl: string | null | undefined, newUrl: string | null | undefined, kind: 'avatar' | 'banner', serverId: string, userId: string): void {
+  if (!oldUrl || oldUrl === newUrl) return;
+  const key = keyFromUrl(oldUrl);
+  const prefix = `${kind === 'avatar' ? 'avatars' : 'banners'}/${normalizeId(serverId)}/${normalizeId(userId)}/`;
+  if (!isOwnedMediaKey(key, prefix)) return;
+  void storage.delete(key).catch((e) => console.error('Failed to delete replaced member media:', e));
+}
+
+/** Tell the server's connected members (web clients) that someone's server profile changed. */
+function notifyMemberProfileChange(serverId: string, userId: string) {
+  void fanoutToUsers({ serverId: normalizeId(serverId) }, { type: 'member_profile_update', serverId: normalizeId(serverId), userId: normalizeId(userId) }).catch(() => {});
+}
+
 function normalizeMemberDto(member: {
   id: string;
   userId?: PopulatedMemberUser | null;
@@ -420,6 +459,7 @@ function normalizeMemberDto(member: {
   nickname?: string | null;
   avatar?: string | null;
   banner?: string | null;
+  profileOverrides?: unknown;
   communicationDisabledUntil?: Date | string | null;
 }, ownerId?: string | null) {
   const memberRoles = (member.roles || [])
@@ -433,13 +473,19 @@ function normalizeMemberDto(member: {
     ? { id: iconRoleFull.id, name: iconRoleFull.name, icon: iconRoleFull.icon, unicodeEmoji: iconRoleFull.unicodeEmoji }
     : null;
   const userData = member.userId;
+  // Per-server profile over the main one (nickname, avatar, name style,
+  // nameplate, theme); the member list and mentions render these directly.
+  const effective = resolveMemberProfile(
+    { displayName: userData?.displayName, username: userData?.username, avatar: userData?.avatar, customization: (userData?.customization ?? null) as Record<string, unknown> | null },
+    memberOverridesFromRow(member),
+  );
 
   return {
     id: userData?.id || '',
     membershipId: member.id,
     username: userData?.username || 'Unknown',
-    displayName: member.nickname || userData?.displayName || userData?.username || 'Unknown',
-    avatar: member.avatar || userData?.avatar || null,
+    displayName: effective.displayName || 'Unknown',
+    avatar: effective.avatar,
     status: resolveEffectiveStatus({
       status: userData?.status || 'offline',
       presenceLastHeartbeatAt: userData?.presenceLastHeartbeatAt || null,
@@ -450,7 +496,7 @@ function normalizeMemberDto(member: {
     isSystem: Boolean(userData?.isSystem),
     isVerified: Boolean(userData?.isVerified),
     isOwner: ownerId ? ownerId === userData?.id : false,
-    customization: userData?.customization || null,
+    customization: effective.customization,
     joinedAt: member.joinedAt || null,
     accountCreatedAt: userData?.createdAt || null,
     communicationDisabledUntil: member.communicationDisabledUntil || null,
@@ -2026,7 +2072,17 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
     const isSelf = normalizeId(params.memberUserId) === normalizeId(user.id);
-    if (!isSelf) {
+    if (isSelf) {
+      if (!(await canChangeOwnNickname(server, user.id))) {
+        set.status = 403;
+        return { error: 'You need Change Nickname permission to change your nickname' };
+      }
+      const self = await ServerMember.findOne({ serverId: params.serverId, userId: user.id });
+      if (self && isTimedOut(self)) {
+        set.status = 403;
+        return { error: "You can't change your nickname while you're timed out" };
+      }
+    } else {
       if (!(await hasServerPermission(server, user.id, PERMISSION_BITS.MANAGE_NICKNAMES))) {
         set.status = 403;
         return { error: 'You need Manage Nicknames permission to change nicknames' };
@@ -2107,14 +2163,23 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       banner?: string | null;
     });
 
-    const userData = populatedUser as { bio?: string; banner?: string; badges?: string[] } | null;
+    const userData = populatedUser as { displayName?: string | null; username?: string; avatar?: string | null; bio?: string | null; pronouns?: string | null; banner?: string | null; badges?: string[]; customization?: Record<string, unknown> | null } | null;
+    // How this member looks here: per-server overrides over the main profile.
+    const overrides = memberOverridesFromRow(rawMember);
+    const effective = resolveMemberProfile(userData ?? {}, overrides);
 
     return {
       ...normalized,
       nickname: rawMember.nickname || null,
       avatarOverride: rawMember.avatar || null,
-      bio: userData?.bio || null,
-      banner: rawMember.banner || userData?.banner || null,
+      bannerOverride: rawMember.banner || null,
+      bio: effective.bio,
+      pronouns: effective.pronouns,
+      banner: effective.banner,
+      customization: effective.customization,
+      // The raw overrides (absent = uses the main profile) and which fields they cover.
+      serverProfile: overrides,
+      overriddenFields: overriddenFields(overrides),
       badges: userData?.badges || [],
       communicationDisabledUntil: rawMember.communicationDisabledUntil || null,
       isOwner: server ? server.ownerId === rawMember.userId : false,
@@ -2125,7 +2190,132 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       memberUserId: t.String(),
     }),
   })
-  // Update server member profile for current user
+  // Your own server profile in this server: the overrides (absent = uses the
+  // main profile) and whether you may change your nickname here.
+  .get('/:serverId/members/@me/profile', async ({ headers, cookie, params, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const [server, member] = await Promise.all([
+      Server.findById(params.serverId),
+      ServerMember.findOne({ serverId: params.serverId, userId: user.id }),
+    ]);
+    if (!server || !member) {
+      set.status = 404;
+      return { error: 'You are not a member of this server' };
+    }
+    const overrides = memberOverridesFromRow(member);
+    return {
+      serverId: server.id,
+      profile: overrides,
+      overriddenFields: overriddenFields(overrides),
+      canChangeNickname: await canChangeOwnNickname(server, user.id, member),
+      timedOutUntil: isTimedOut(member) ? member.communicationDisabledUntil : null,
+    };
+  }, {
+    params: t.Object({ serverId: t.String() }),
+  })
+  // Which of your servers have a server profile (for the editor's server picker).
+  .get('/@me/profiles', async ({ headers, cookie, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const rows = await db
+      .select({
+        serverId: schema.serverMembers.serverId,
+        nickname: schema.serverMembers.nickname,
+        avatar: schema.serverMembers.avatar,
+        banner: schema.serverMembers.banner,
+        profileOverrides: schema.serverMembers.profileOverrides,
+      })
+      .from(schema.serverMembers)
+      .where(eq(schema.serverMembers.userId, normalizeId(user.id)));
+    const profiles: Record<string, string[]> = {};
+    for (const row of rows) {
+      const fields = overriddenFields(memberOverridesFromRow(row));
+      if (fields.length > 0) profiles[row.serverId] = fields;
+    }
+    return { profiles };
+  })
+  // Upload an avatar / banner for your server profile WITHOUT applying it:
+  // the editor saves it with the rest of its draft (PATCH /members/@me).
+  // Stored under <avatars|banners>/<serverId>/<userId>/ (the only place the
+  // PATCH accepts), type checked by its bytes, Trust & Safety scanned inside
+  // storage.upload. Animated GIFs are allowed, like the main profile.
+  .post('/:serverId/members/@me/profile-media/:kind', async ({ headers, cookie, params, body, request, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const kind = params.kind === 'avatar' ? 'avatar' : params.kind === 'banner' ? 'banner' : null;
+    if (!kind) {
+      set.status = 404;
+      return { error: 'Unknown upload kind' };
+    }
+    const member = await ServerMember.findOne({ serverId: params.serverId, userId: user.id });
+    if (!member) {
+      set.status = 404;
+      return { error: 'You are not a member of this server' };
+    }
+    if (isTimedOut(member)) {
+      set.status = 403;
+      return { error: "You can't change your server profile while you're timed out" };
+    }
+    const ip = getClientIP(request);
+    const rl = await checkRateLimit('upload', `${user.id}:${ip}`);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Upload rate limited', retryAfter: rl.retryAfter };
+    }
+    const file = body.file;
+    if (!file) {
+      set.status = 400;
+      return { error: 'No file provided' };
+    }
+    // Same byte check and limits as the main profile uploads (GIF banners get the animated cap).
+    const sizes = { avatarMax: config.MAX_AVATAR_SIZE, bannerMax: config.MAX_BANNER_SIZE };
+    if (file.size > imageUploadCeiling(kind, sizes)) {
+      set.status = 413;
+      return { error: imageTooLargeMessageFor(kind, sizes) };
+    }
+    const data = Buffer.from(await file.arrayBuffer());
+    const checked = checkImageUploadFor(data, kind, sizes);
+    if (!checked.ok) {
+      set.status = checked.status;
+      return { error: checked.message };
+    }
+    try {
+      const result = await storage.upload({
+        category: kind === 'avatar' ? 'avatars' : 'banners',
+        contentType: checked.contentType,
+        data,
+        size: data.length,
+        filename: `${kind}.${checked.ext}`,
+        userId: normalizeId(user.id),
+        serverId: normalizeId(member.serverId),
+        ip,
+      });
+      return { success: true, url: result.url };
+    } catch (error) {
+      // Trust & Safety block → 403, storage refusal → its 400 / 413 (messages safe to show).
+      const status = error instanceof ContentBlockedError ? 403 : error instanceof UploadRejectedError ? error.status : 500;
+      set.status = status;
+      if (status === 500) console.error('Member profile media upload error:', error);
+      return { error: status === 500 ? 'Failed to upload image' : (error as Error).message };
+    }
+  }, {
+    params: t.Object({ serverId: t.String(), kind: t.String() }),
+    body: t.Object({ file: t.File() }),
+  })
+  // Update your own server profile. Each field: a value overrides the main
+  // profile here, null removes the override, absent leaves it; `reset: true`
+  // removes them all. Validated like the main profile (src/lib/profiles/memberProfile.ts);
+  // the nickname needs Change Nickname (or Manage Nicknames).
   .patch('/:serverId/members/@me', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
@@ -2133,53 +2323,90 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const member = await ServerMember.findOne({
-      serverId: params.serverId,
-      userId: user.id,
-    });
+    const rl = await checkRateLimit('memberProfile', user.id);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: rl.retryAfter };
+    }
 
-    if (!member) {
+    const [server, member] = await Promise.all([
+      Server.findById(params.serverId),
+      ServerMember.findOne({ serverId: params.serverId, userId: user.id }),
+    ]);
+    if (!server || !member) {
       set.status = 404;
       return { error: 'You are not a member of this server' };
     }
 
-    const { nickname, avatar, banner } = body;
-
-    // Empty/null clears the field. It must be null, not undefined: drizzle
-    // skips undefined keys, so the old value would silently stay.
-    const updates: { nickname?: string | null; avatar?: string | null; banner?: string | null } = {};
-    if (nickname !== undefined) {
-      const n = nickname ? sanitizeInput(nickname).trim() : '';
-      updates.nickname = n || null;
-    }
-    if (avatar !== undefined) updates.avatar = avatar || null;
-    if (banner !== undefined) updates.banner = banner || null;
-    const row = await ServerMember.updateById(member.id, updates);
-    void guildEvents.emitMemberUpdate(params.serverId, user.id);
-    if (updates.nickname !== undefined && (updates.nickname ?? null) !== (member.nickname ?? null)) {
-      const change: { key: string; old?: unknown; new?: unknown } = { key: 'nick' };
-      if (member.nickname) change.old = member.nickname;
-      if (updates.nickname) change.new = updates.nickname;
-      audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.MEMBER_UPDATE, targetId: user.id, changes: [change] });
+    // Timed-out members can't change their server profile (Discord blocks nickname changes too).
+    if (isTimedOut(member)) {
+      set.status = 403;
+      return { error: "You can't change your server profile while you're timed out", communicationDisabledUntil: member.communicationDisabledUntil };
     }
 
-    // Report what was actually stored.
+    const current = memberOverridesFromRow(member);
+    const raw = { ...(body as Record<string, unknown>) };
+    // Nicknames are stored sanitized, as everywhere else they are written
+    // (after the length check, so escaping can't push a valid name over it).
+    const result = sanitizeMemberProfilePatch(raw, { userId: user.id, serverId: server.id, cdnUrl: config.CDN_URL, current, storeNickname: sanitizeInput });
+    if (!result.ok) {
+      set.status = 400;
+      return { error: result.error, field: result.field };
+    }
+
+    // Change Nickname: an explicit nickname change is refused without it; a
+    // full reset just keeps the nickname instead.
+    const columns = { ...result.columns };
+    if (result.changed.includes('nickname') && !(await canChangeOwnNickname(server, user.id, member))) {
+      if (raw.reset !== true || raw.nickname !== undefined) {
+        set.status = 403;
+        return { error: 'You need Change Nickname permission to change your nickname', field: 'nickname' };
+      }
+      delete columns.nickname;
+    }
+
+    const updates: Partial<typeof schema.serverMembers.$inferInsert> = { ...columns };
+    if (result.json) updates.profileOverrides = result.json;
+    const row = Object.keys(updates).length > 0 ? await ServerMember.updateById(member.id, updates) : member;
+    const stored = memberOverridesFromRow(row ?? member);
+
+    if (Object.keys(updates).length > 0) {
+      if (columns.avatar !== undefined) cleanupMemberMedia(member.avatar, columns.avatar, 'avatar', server.id, user.id);
+      if (columns.banner !== undefined) cleanupMemberMedia(member.banner, columns.banner, 'banner', server.id, user.id);
+      void guildEvents.emitMemberUpdate(params.serverId, user.id);
+      notifyMemberProfileChange(server.id, user.id);
+      if (columns.nickname !== undefined && (columns.nickname ?? null) !== (member.nickname ?? null)) {
+        const change: { key: string; old?: unknown; new?: unknown } = { key: 'nick' };
+        if (member.nickname) change.old = member.nickname;
+        if (columns.nickname) change.new = columns.nickname;
+        audit({ serverId: params.serverId, userId: user.id, actionType: AuditLogEvent.MEMBER_UPDATE, targetId: user.id, changes: [change] });
+      }
+    }
+    // Report what was actually stored (legacy fields kept for older clients).
     return {
       success: true,
       member: {
-        nickname: row ? row.nickname ?? null : member.nickname ?? null,
-        avatar: row ? row.avatar ?? null : member.avatar ?? null,
-        banner: row ? row.banner ?? null : member.banner ?? null,
+        nickname: stored.nickname ?? null,
+        avatar: stored.avatar ?? null,
+        banner: stored.banner ?? null,
       },
+      profile: stored,
+      overriddenFields: overriddenFields(stored),
     };
   }, {
     params: t.Object({
       serverId: t.String(),
     }),
     body: t.Object({
-      nickname: t.Optional(t.Union([t.String({ maxLength: 32 }), t.Null()])),
-      avatar: t.Optional(t.Union([t.String(), t.Null()])),
-      banner: t.Optional(t.Union([t.String(), t.Null()])),
+      nickname: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
+      avatar: t.Optional(t.Union([t.String({ maxLength: 512 }), t.Null()])),
+      banner: t.Optional(t.Union([t.String({ maxLength: 512 }), t.Null()])),
+      bio: t.Optional(t.Union([t.String({ maxLength: 1100 }), t.Null()])),
+      pronouns: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
+      displayNameStyle: t.Optional(t.Union([t.Object({}, { additionalProperties: true }), t.Null()])),
+      nameplate: t.Optional(t.Union([t.Object({}, { additionalProperties: true }), t.Null()])),
+      theme: t.Optional(t.Union([t.Object({}, { additionalProperties: true }), t.Null()])),
+      reset: t.Optional(t.Boolean()),
     }),
   })
   // Leave server

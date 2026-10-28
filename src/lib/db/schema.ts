@@ -350,6 +350,11 @@ export const serverMembers = pgTable('server_members', {
   nickname: text('nickname'),
   avatar: text('avatar'),
   banner: text('banner'),
+  // Per-server profile beyond nickname / avatar / banner: bio, pronouns,
+  // display name style, nameplate, theme colours (src/lib/profiles/memberProfile.ts).
+  // Absent keys fall back to the main profile. Added at boot by
+  // ensureMemberProfileSchema() (drizzle/manual_member_profile_overrides.sql).
+  profileOverrides: jsonb('profile_overrides'),
   roles: uuid('roles').array().default([]),
   communicationDisabledUntil: timestamp('communication_disabled_until'),
   deaf: boolean('deaf').default(false),

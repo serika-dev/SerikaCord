@@ -1045,8 +1045,8 @@ async function patchBotMember(
   userId: string,
   body: {
     nick?: unknown; roles?: unknown; mute?: unknown; deaf?: unknown; channel_id?: unknown; communication_disabled_until?: unknown; flags?: unknown;
-    /** @me only: the bot's own server avatar / banner (image data, null removes). */
-    avatar?: unknown; banner?: unknown;
+    /** @me only: the bot's own server avatar / banner (image data, null removes) and server bio. */
+    avatar?: unknown; banner?: unknown; bio?: unknown;
   },
   headers: Record<string, string | undefined>,
   set: RouteSet,
@@ -1187,6 +1187,21 @@ async function patchBotMember(
       const stored = await uploadBotImage({ image: decoded, category, serverId: g.server.id, userId: auth.botUser.id, botId: auth.botUser.id, name: key });
       if (!stored.ok) { set.status = 400; return invalidFormBodyAt([{ path: [key], code: 'IMAGE_INVALID', message: stored.message }]); }
       updates[key] = stored.url;
+    }
+    // Server bio (Discord's Modify Current Member `bio`), kept with the rest
+    // of the per-server profile; same limits as the web editor.
+    if (body.bio !== undefined) {
+      if (body.bio !== null && typeof body.bio !== 'string') { set.status = 400; return invalidFormBodyAt([{ path: ['bio'], code: 'BASE_TYPE_BAD_TYPE', message: 'Could not interpret value as string.' }]); }
+      const { readProfileJson, cleanBio, MEMBER_PROFILE_LIMITS } = await import('@/lib/profiles/memberProfile');
+      if (typeof body.bio === 'string' && Array.from(body.bio).length > MEMBER_PROFILE_LIMITS.bio) {
+        set.status = 400;
+        return invalidFormBodyAt([{ path: ['bio'], code: 'BASE_TYPE_MAX_LENGTH', message: `Must be ${MEMBER_PROFILE_LIMITS.bio} or fewer in length.` }]);
+      }
+      const json = readProfileJson((member as { profileOverrides?: unknown }).profileOverrides) as Record<string, unknown>;
+      const bio = typeof body.bio === 'string' ? cleanBio(body.bio) : '';
+      if (bio) json.bio = bio;
+      else delete json.bio;
+      updates.profileOverrides = json;
     }
   }
 
@@ -3703,9 +3718,9 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 .patch('/guilds/:guildId/members/@me', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  // Discord's `bio` has no per-server storage here and is ignored.
-  const { nick, avatar, banner } = (body ?? {}) as { nick?: unknown; avatar?: unknown; banner?: unknown };
-  return patchBotMember(auth, params.guildId, auth.botUser.id, { nick, avatar, banner }, headers, set);
+  // `bio` is the bot's server bio (per-server profile, src/lib/profiles/memberProfile.ts).
+  const { nick, avatar, banner, bio } = (body ?? {}) as { nick?: unknown; avatar?: unknown; banner?: unknown; bio?: unknown };
+  return patchBotMember(auth, params.guildId, auth.botUser.id, { nick, avatar, banner, bio }, headers, set);
 })
 .patch('/guilds/:guildId/members/:userId', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);

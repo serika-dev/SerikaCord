@@ -547,7 +547,11 @@ export async function startVoiceBridge(): Promise<() => void> {
 // cached briefly per user+room because the sidebar polls /states every few
 // seconds; /join always re-checks.
 type RoomAuth =
-  | { ok: true; userLimit: number; serverMute?: boolean; serverDeaf?: boolean; serverId?: string | null }
+  | {
+      ok: true; userLimit: number; serverMute?: boolean; serverDeaf?: boolean; serverId?: string | null;
+      /** Server rooms: the member's per-server nickname / avatar (shown on voice tiles). */
+      nickname?: string | null; memberAvatar?: string | null;
+    }
   | { ok: false; status: number; error: string };
 const ROOM_AUTH_TTL_MS = 15_000;
 const roomAuthCache = new BoundedMap<string, { result: RoomAuth; expires: number }>(5000);
@@ -594,13 +598,15 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
     }
     // Server mute/deafen persist on the membership (like Discord's guild
     // member mute/deaf) and apply on every join.
-    const member = access.membership as { mute?: boolean | null; deaf?: boolean | null } | null | undefined;
+    const member = access.membership as { mute?: boolean | null; deaf?: boolean | null; nickname?: string | null; avatar?: string | null } | null | undefined;
     return {
       ok: true,
       userLimit: Number(access.channel.userLimit) || 0,
       serverMute: member?.mute === true,
       serverDeaf: member?.deaf === true,
       serverId: access.channel.serverId ?? null,
+      nickname: member?.nickname || null,
+      memberAvatar: member?.avatar || null,
     };
   } catch {
     return { ok: false, status: 500, error: 'Could not verify voice channel access' };
@@ -778,8 +784,9 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     room.set(userId, {
       userId,
       username: user.username,
-      displayName: user.displayName || user.username,
-      avatar: user.avatar || undefined,
+      // Server voice channels show the per-server nickname / avatar.
+      displayName: auth.nickname || user.displayName || user.username,
+      avatar: auth.memberAvatar || user.avatar || undefined,
       audio: body.audio ?? true,
       video: body.video ?? false,
       deafened: resumed && prev ? prev.deafened : false,

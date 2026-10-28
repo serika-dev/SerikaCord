@@ -4553,6 +4553,11 @@ export async function initializeAPI() {
     // app_command_permissions, channel_webhooks.application_id.
     const { ensureInteractionSchema } = await import('@/lib/services/interactionSchema');
     await ensureInteractionSchema();
+    // Per-server profiles: server_members.profile_overrides (named in every
+    // member select). Idempotent, skipped when present; throws when it can't
+    // be completed.
+    const { ensureMemberProfileSchema } = await import('@/lib/services/memberProfileSchema');
+    await ensureMemberProfileSchema();
     // Create + seed the staff-editable `badges` table if this database predates
     // it. Idempotent, runs once per process, never throws (falls back to the
     // built-in badge constants on failure).

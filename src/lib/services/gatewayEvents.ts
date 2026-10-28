@@ -8,6 +8,7 @@ import { discordEmoji } from '@/lib/chat/reactionEmoji';
 import { processShared } from '@/lib/realtime/processShared';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { incidentsDataOf } from '@/lib/botapi/guildIncidentRules';
+import { readProfileJson } from '@/lib/profiles/memberProfile';
 
 /**
  * Central bus that feeds the standalone bot Gateway (scripts/gateway.ts).
@@ -1051,6 +1052,8 @@ export interface MemberRowLike {
   mute?: boolean | null;
   pending?: boolean | null;
   communicationDisabledUntil?: Date | string | null;
+  /** Per-server profile json; its `bio` is exposed as the member's server bio. */
+  profileOverrides?: unknown;
 }
 
 /**
@@ -1060,11 +1063,15 @@ export interface MemberRowLike {
 export function toDiscordGuildMember(m: MemberRowLike, user: UserRowLike | null, everyoneRoleId?: string | null) {
   const everyone = everyoneRoleId?.toLowerCase();
   const until = m.communicationDisabledUntil ? new Date(m.communicationDisabledUntil) : null;
+  // Server bio (Discord's guild member profile `bio`): only present when set,
+  // so existing member objects keep their shape.
+  const bio = readProfileJson(m.profileOverrides).bio;
   return {
     ...(user ? { user: toDiscordUserRow(user) } : {}),
     nick: m.nickname ?? null,
     avatar: m.avatar ?? null,
     banner: m.banner ?? null,
+    ...(bio ? { bio } : {}),
     roles: (m.roles ?? []).filter((r) => !everyone || r.toLowerCase() !== everyone),
     joined_at: iso(m.joinedAt) ?? new Date(0).toISOString(),
     premium_since: iso(m.premiumSince),

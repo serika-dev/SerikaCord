@@ -140,6 +140,8 @@ export const rateLimiters_config = {
   messageRequest: { points: 60, duration: 60 },
   // Changing another member's nickname, per user
   memberNickname: { points: 30, duration: 60 },
+  // Saving your own server profile (PATCH /servers/:id/members/@me), per user
+  memberProfile: { points: 30, duration: 60 },
   // Linked roles edits (each may update every holder of the role), per user
   roleLinks: { points: 20, duration: 60 },
   // Scheduled events: create / edit / cancel / interested, per user

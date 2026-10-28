@@ -18,6 +18,7 @@
 import { parsePollResult, parseStoredPoll, toDiscordPoll, type StoredPoll } from './polls';
 import { toDiscordVoiceFields, type VoiceAttachmentMeta } from './voiceMessage';
 import { discordEmoji } from './reactionEmoji';
+import { readProfileJson } from '@/lib/profiles/memberProfile';
 
 export interface MessageRowLike {
   id: string;
@@ -77,6 +78,8 @@ export interface MemberLike {
   mute?: boolean | null;
   pending?: boolean | null;
   communicationDisabledUntil?: Date | string | null;
+  /** Per-server profile json (server bio). */
+  profileOverrides?: unknown;
 }
 
 export interface WebhookLike { id: string; name?: string | null; avatar?: string | null }
@@ -165,11 +168,13 @@ export function deletedUser(id: string) {
 
 /** A partial guild member object (MESSAGE_CREATE `member`, reaction events). */
 export function discordPartialMember(m: MemberLike) {
+  const bio = readProfileJson(m.profileOverrides).bio;
   return {
     roles: (m.roles ?? []).map(String),
     nick: m.nickname ?? null,
     avatar: m.avatar ?? null,
     banner: m.banner ?? null,
+    ...(bio ? { bio } : {}),
     joined_at: iso(m.joinedAt),
     premium_since: iso(m.premiumSince),
     deaf: Boolean(m.deaf),

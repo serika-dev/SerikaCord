@@ -1,5 +1,6 @@
 import { withoutServerTag } from '@/lib/servers/serverProfile';
 import { customizationWithTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
+import { applyCustomizationOverrides, memberOverridesFromRow, type MemberProfileOverrides } from '@/lib/profiles/memberProfile';
 import { Elysia, t } from 'elysia';
 import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
@@ -1470,7 +1471,7 @@ async function createChannelThread(
           id: user.id,
           username: user.username,
           displayName: membership && (membership as { nickname?: string | null }).nickname || user.displayName || user.username,
-          avatar: user.avatar,
+          avatar: (membership as { avatar?: string | null } | null | undefined)?.avatar || user.avatar,
           badges: user.badges || [],
           isBot: Boolean(user.isBot),
           isSystem: Boolean(user.isSystem),
@@ -2436,7 +2437,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     // Fetch server ownerId for isOwner flag on authors
     let serverOwnerId: string | null = null;
-    let nicknameMap: Map<string, string> = new Map();
+    // Per-server profiles of this page's authors (nickname, avatar, name style...).
+    const memberProfileMap: Map<string, MemberProfileOverrides> = new Map();
     const serverId = channel?.serverId;
 
     const limit = clampInt(query.limit, 50, config.MAX_MESSAGES_PER_FETCH);
@@ -2499,9 +2501,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         void cache.set(`server:owner:${serverId}`, server.ownerId, 3600);
       }
       for (const m of authorMembers as IServerMember[]) {
-        if (m.nickname) {
-          nicknameMap.set(m.userId, m.nickname);
-        }
+        const overrides = memberOverridesFromRow(m);
+        if (Object.keys(overrides).length > 0) memberProfileMap.set(m.userId, overrides);
       }
     };
 
@@ -2650,8 +2651,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             author: refAuthorData ? {
               id: refAuthorData.id,
               username: refAuthorData.username,
-              displayName: refAuthorData.displayName || refAuthorData.username,
-              avatar: refAuthorData.avatar,
+              displayName: memberProfileMap.get(refAuthorData.id)?.nickname || refAuthorData.displayName || refAuthorData.username,
+              avatar: memberProfileMap.get(refAuthorData.id)?.avatar || refAuthorData.avatar,
               isBot: Boolean(refAuthorData.isBot),
               isVerified: Boolean(refAuthorData.isVerified),
               isDiscord: Boolean(refAuthorData.isDiscord),
@@ -2669,8 +2670,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         author: populatedAuthor ? {
           id: populatedAuthor.id,
           username: populatedAuthor.username,
-          displayName: nicknameMap.get(populatedAuthor.id) || populatedAuthor.displayName || populatedAuthor.username,
-          avatar: populatedAuthor.avatar,
+          displayName: memberProfileMap.get(populatedAuthor.id)?.nickname || populatedAuthor.displayName || populatedAuthor.username,
+          avatar: memberProfileMap.get(populatedAuthor.id)?.avatar || populatedAuthor.avatar,
           status: populatedAuthor.status,
           badges: populatedAuthor.badges || [],
           isOwner: serverOwnerId ? compareIds(serverOwnerId, populatedAuthor.id) : false,
@@ -2679,7 +2680,10 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           isVerified: populatedAuthor.isVerified,
           isDiscord: populatedAuthor.isDiscord || false,
           ...((populatedAuthor as { isWebhook?: boolean }).isWebhook ? { isWebhook: true } : {}),
-          customization: customizationWithTag(serverTags, populatedAuthor.id, populatedAuthor.customization || null),
+          customization: applyCustomizationOverrides(
+            customizationWithTag(serverTags, populatedAuthor.id, populatedAuthor.customization || null) as Record<string, unknown> | null,
+            memberProfileMap.get(populatedAuthor.id),
+          ),
         } : null,
         channelId: msg.channelId,
         serverId: msg.serverId,
@@ -2842,6 +2846,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Fetch serverOwnerId (from Redis cache with DB fallback) in parallel with
     // rate limit checks to save a serial round-trip on the hot path.
     const senderNickname: string | null = membership?.nickname || null;
+    // The rest of the sender's server profile (avatar, name style, nameplate...).
+    const senderProfile = memberOverridesFromRow(membership as Parameters<typeof memberOverridesFromRow>[0]);
     const serverOwnerPromise = (async () => {
       if (!channel.serverId) return null;
       const cacheKey = `server:owner:${channel.serverId}`;
@@ -3237,7 +3243,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         id: author.id,
         username: author.username,
         displayName: senderNickname || author.displayName || author.username,
-        avatar: author.avatar,
+        avatar: senderProfile.avatar || author.avatar,
         status: author.status,
         badges: author.badges || [],
         isOwner: serverOwnerId ? compareIds(serverOwnerId, author.id) : false,
@@ -3245,7 +3251,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         isBot: Boolean(author.isBot),
         isVerified: Boolean(author.isVerified),
         isDiscord: author.username?.startsWith('discord-') || false,
-        customization: (await resolveCustomization(author)) ?? null,
+        customization: applyCustomizationOverrides(((await resolveCustomization(author)) ?? null) as Record<string, unknown> | null, senderProfile),
       } : null,
       channelId: message.channelId,
       serverId: message.serverId,
@@ -3306,7 +3312,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             messageId: message.id,
             authorId: user.id,
             authorName: senderNickname || author?.displayName || author?.username,
-            authorAvatar: author?.avatar ?? null,
+            authorAvatar: senderProfile.avatar || author?.avatar || null,
             mentionedUserIds: (message.mentionedUserIds || []) as string[],
             mentionEveryone: Boolean(message.mentionEveryone),
             mentionedRoleIds: (message.mentionedRoleIds || []) as string[],
