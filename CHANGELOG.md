@@ -10,6 +10,8 @@
 
 ### Changes
 
+- **Long command lists on bot pages start collapsed** — a bot page now shows the first 8 commands with a "View all" button instead of one very long list, and bots with more than 12 commands get a filter box that searches command names and descriptions.
+
 ### Bug Fixes
 
 ### Performance

@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import type { Metadata } from "next";
 import { cache } from "react";
-import { BadgeCheck, CalendarDays, ExternalLink, FileText, Globe, LifeBuoy, Lock, Plus, Server, Shield, SquareSlash, Star } from "lucide-react";
+import { BadgeCheck, CalendarDays, ExternalLink, FileText, Globe, LifeBuoy, Lock, Plus, Server, Shield, Star } from "lucide-react";
 import { getGT, getLocale } from "gt-next/server";
 import { buildMetadata } from "@/lib/seo";
 import { JsonLd } from "@/components/seo/JsonLd";
@@ -11,6 +11,7 @@ import { appCategoryLabel } from "@/lib/appDirectory/listing";
 import { getDirectoryAppCached } from "@/lib/services/appDirectory";
 import { cdnImage } from "@/lib/utils";
 import { BotsShell, botsHref } from "../BotsParts";
+import { BotCommands } from "./BotCommands";
 import { BotDescription } from "./BotDescription";
 
 export const dynamic = "force-dynamic";
@@ -50,8 +51,6 @@ export default async function BotPage({ params }: { params: Params }) {
   const locale = await getLocale();
 
   const categories = app.categories.map((c) => ({ id: c, label: appCategoryLabel(c, gt) }));
-  const slashCommands = app.commands.filter((c) => c.type === 1);
-  const contextCommands = app.commands.filter((c) => c.type === 2 || c.type === 3);
   const links = [
     app.supportUrl && { href: app.supportUrl, label: gt("Support server"), icon: LifeBuoy },
     app.website && { href: app.website, label: gt("Website"), icon: Globe },
@@ -161,28 +160,7 @@ export default async function BotPage({ params }: { params: Params }) {
             )}
           </section>
 
-          {app.commands.length > 0 && (
-            <section aria-labelledby="commands-title">
-              <h2 id="commands-title" className="hm-display hm-h2-page mb-4">{gt("Commands")}</h2>
-              <ul className="divide-y divide-[var(--hm-line)] overflow-hidden rounded-2xl border border-[var(--hm-line)] bg-[var(--hm-surface)]">
-                {slashCommands.map((c) => (
-                  <li key={`s-${c.name}`} className="flex flex-col gap-0.5 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-4">
-                    <code className="shrink-0 font-mono text-sm font-semibold text-[var(--hm-ink)]">/{c.name}</code>
-                    <span className="min-w-0 text-sm text-[var(--hm-body)]">{c.description}</span>
-                  </li>
-                ))}
-                {contextCommands.map((c) => (
-                  <li key={`c-${c.type}-${c.name}`} className="flex flex-col gap-0.5 px-4 py-3 sm:flex-row sm:items-baseline sm:gap-4">
-                    <span className="inline-flex shrink-0 items-center gap-1.5 text-sm font-semibold text-[var(--hm-ink)]">
-                      <SquareSlash className="h-4 w-4 text-[var(--hm-faint)]" aria-hidden />
-                      {c.name}
-                    </span>
-                    <span className="text-xs text-[var(--hm-faint)]">{c.type === 2 ? gt("User context menu") : gt("Message context menu")}</span>
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
+          {app.commands.length > 0 && <BotCommands commands={app.commands} />}
         </div>
 
         <aside className="space-y-4">
