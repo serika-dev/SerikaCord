@@ -3532,7 +3532,7 @@
   "cc7daf934b16083f": "{name} naar achteren",
   "a836351e15d39afa": "Bekijken op Steam",
   "f9baf00e269d6685": "Game toevoegen aan {section}",
-  "da7d2d5def438189": "Show less",
+  "da7d2d5def438189": "Minder tonen",
   "82a2abcd26a545f8": "Alle {count} tonen",
   "fcb8746edcc3019e": "Meer toevoegen",
   "465dcebf2c7b66f1": "meest gewenst",
@@ -11963,5 +11963,9 @@
   "9f2b7a7b7ab40e16": "Opgeslagen op {width} × {height} pixels",
   "cee60b5ff497a751": "Uploaden zonder bijsnijden",
   "55644e4f704b306e": "Bijsnijden als stilstaande afbeelding",
-  "bdbb918d8741c677": "JPEG, PNG, GIF of WebP. Je kunt hem passend bijsnijden."
+  "bdbb918d8741c677": "JPEG, PNG, GIF of WebP. Je kunt hem passend bijsnijden.",
+  "8e0a7c36a404f7d1": "Commando's filteren",
+  "db73d0f4173183e7": "Geen commando's gevonden voor \"{query}\".",
+  "adfc1283e1e06184": "{count} van {total} commando's weergegeven",
+  "95997883acc8c538": "Alle {count} commando's bekijken"
 }

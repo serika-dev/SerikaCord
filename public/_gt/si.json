@@ -11963,5 +11963,9 @@
   "9f2b7a7b7ab40e16": "Saved at {width} × {height} pixels",
   "cee60b5ff497a751": "Upload without cropping",
   "55644e4f704b306e": "Crop as a still image",
-  "bdbb918d8741c677": "JPEG, PNG, GIF or WebP. You can crop it to fit."
+  "bdbb918d8741c677": "JPEG, PNG, GIF or WebP. You can crop it to fit.",
+  "8e0a7c36a404f7d1": "Filter commands",
+  "db73d0f4173183e7": "No commands match \"{query}\".",
+  "adfc1283e1e06184": "{count} of {total} commands shown",
+  "95997883acc8c538": "View all {count} commands"
 }
