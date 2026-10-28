@@ -113,6 +113,12 @@ async function main() {
     console.error('SSE bridge init failed (realtime cross-instance disabled):', err);
   }
 
+  // Unsaved per-server profile images (drafts older than a day): swept in
+  // small batches by one instance at a time (Redis leader lock).
+  Promise.all([import('@/lib/services/memberProfileMedia'), import('@/lib/realtime/processShared')])
+    .then(([media, shared]) => media.startMemberMediaDraftSweeper(shared.PROCESS_INSTANCE_ID))
+    .catch((err) => console.error('Member media draft sweeper init failed:', err));
+
   // ─── Bun.serve: native WebSocket + SSE + proxy to Next.js ──
   // Bun.serve handles WebSocket upgrades natively — no ws package, no
   // node:http upgrade event. This is what fixes the 1006 drops.

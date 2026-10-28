@@ -45,6 +45,7 @@ import { memberOverridesFromRow, overriddenFields, resolveMemberProfile, sanitiz
 import { storage, keyFromUrl, ContentBlockedError, UploadRejectedError } from '@/lib/services/storage';
 import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
 import { checkImageUploadFor, imageTooLargeMessageFor, imageUploadCeiling } from '@/lib/media/imageUploadLimits';
+import { trackMemberMediaDraft, untrackMemberMediaDrafts } from '@/lib/services/memberProfileMedia';
 
 // Live count of members who are actually online right now (status + fresh
 // heartbeat), mirroring resolveEffectiveStatus. The Server.onlineCount field
@@ -2300,6 +2301,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
         serverId: normalizeId(member.serverId),
         ip,
       });
+      // A draft until PATCH /members/@me saves it; unsaved ones are swept after a day.
+      await trackMemberMediaDraft(result.key);
       return { success: true, url: result.url };
     } catch (error) {
       // Trust & Safety block → 403, storage refusal → its 400 / 413 (messages safe to show).
@@ -2371,6 +2374,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const stored = memberOverridesFromRow(row ?? member);
 
     if (Object.keys(updates).length > 0) {
+      // Saved drafts are no longer drafts (the sweep would keep them anyway: it re-checks the row).
+      const savedMedia = [columns.avatar, columns.banner].filter((u): u is string => typeof u === 'string' && u.length > 0);
+      if (savedMedia.length > 0) void untrackMemberMediaDrafts(savedMedia.map((u) => keyFromUrl(u)));
       if (columns.avatar !== undefined) cleanupMemberMedia(member.avatar, columns.avatar, 'avatar', server.id, user.id);
       if (columns.banner !== undefined) cleanupMemberMedia(member.banner, columns.banner, 'banner', server.id, user.id);
       void guildEvents.emitMemberUpdate(params.serverId, user.id);

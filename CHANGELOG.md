@@ -33,6 +33,7 @@
 - **Avatar, banner, icon, emoji and sticker uploads are checked by their contents** — profile and server images are now accepted only when the file really is a PNG, JPEG, GIF or WebP image, whatever name or type the browser reports, and are stored with the real type.
 - **Invisible hides your activity** — while your status is Invisible, your live activity and Recent activity no longer show on your profile, in member lists or to apps, so they can't give away that you're online.
 - **Group DM icons, event covers and webhook avatars are checked by their contents** — these uploads now only accept real PNG, JPEG, GIF or WebP images (a file renamed to look like an image is refused), get clear "too large" and "wrong type" errors, and show the Trust & Safety reason when an image is blocked instead of failing with a server error.
+- **Server profile images don't linger** — an avatar or banner you upload in the server profile editor but never save is deleted after a day, and your server profile images in a server are deleted when you leave it, are kicked or banned, or the server is deleted.
 
 ### Removed
 - **Placebo data switches** — the Analytics, Crash reports and Personalization switches never did anything (SerikaCord doesn't collect any of it) and are gone; Data & Privacy now says so plainly.

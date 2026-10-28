@@ -38,6 +38,8 @@ export async function deleteServerCascade(serverId: string): Promise<void> {
 
   // Every bot session in the server drops it (GUILD_DELETE), and cached bot audiences go.
   void import('@/lib/services/gatewayEvents').then((m) => m.emitGuildDelete({ guildId: id })).catch(() => {});
+  // Members' per-server avatar / banner files (member prefixes only), in the background.
+  void import('@/lib/services/memberProfileMedia').then((m) => m.cleanupServerProfileMediaInBackground(id)).catch(() => {});
   void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(id)).catch(() => {});
 
   // Accounts / domains the server owned (boot-created table, so best-effort).
@@ -81,11 +83,12 @@ export async function cleanupDeletedUser(userId: string): Promise<{ deletedServe
   }
   for (const serverId of toDelete) await deleteServerCascade(serverId);
 
+  let serverIds: string[] = [];
   await db.transaction(async (tx) => {
     const memberships = await tx.delete(schema.serverMembers)
       .where(eq(schema.serverMembers.userId, id))
       .returning({ serverId: schema.serverMembers.serverId });
-    const serverIds = [...new Set(memberships.map((m) => m.serverId))];
+    serverIds = [...new Set(memberships.map((m) => m.serverId))];
     if (serverIds.length > 0) {
       await tx.update(schema.servers)
         .set({ memberCount: sql`GREATEST(COALESCE(${schema.servers.memberCount}, 1) - 1, 0)` })
@@ -104,6 +107,13 @@ export async function cleanupDeletedUser(userId: string): Promise<{ deletedServe
                'outgoing', COALESCE((SELECT jsonb_agg(e) FROM jsonb_array_elements(COALESCE(pending_friend_requests->'outgoing', '[]'::jsonb)) e WHERE lower(e #>> '{}') <> ${id.toLowerCase()}), '[]'::jsonb))
        WHERE pending_friend_requests::text ILIKE ${`%${id.toLowerCase()}%`}`);
   });
+
+  // Their per-server avatar / banner files in the servers they were in (own prefixes only).
+  if (serverIds.length > 0) {
+    void import('@/lib/services/memberProfileMedia')
+      .then((m) => m.cleanupMemberProfileMediaInBackground(serverIds, id))
+      .catch(() => {});
+  }
 
   return { deletedServerIds: toDelete };
 }

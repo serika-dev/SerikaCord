@@ -8,6 +8,7 @@ import {
   UploadPartCommand,
   CompleteMultipartUploadCommand,
   AbortMultipartUploadCommand,
+  ListObjectsV2Command,
 } from '@aws-sdk/client-s3';
 import { Upload } from '@aws-sdk/lib-storage';
 import { config } from '../config';
@@ -390,6 +391,29 @@ export class StorageService {
   // Delete by URL
   async deleteByUrl(url: string): Promise<void> {
     await this.delete(keyFromUrl(url));
+  }
+
+  /**
+   * Keys under `prefix` (at most `max`). For cleaning up one owner's own
+   * folder (e.g. a member's per-server images): the prefix must be a folder
+   * (`.../`) with no empty or dot segments, so it can never list the bucket.
+   */
+  async listKeys(prefix: string, max = 1000): Promise<string[]> {
+    if (!prefix.endsWith('/') || prefix.length < 3) return [];
+    if (prefix.slice(0, -1).split('/').some((part) => part === '' || part === '.' || part === '..')) return [];
+    const keys: string[] = [];
+    let token: string | undefined;
+    do {
+      const res = await s3Client.send(new ListObjectsV2Command({
+        Bucket: config.B2_BUCKET_NAME,
+        Prefix: prefix,
+        ContinuationToken: token,
+        MaxKeys: Math.min(1000, max - keys.length),
+      }));
+      for (const obj of res.Contents ?? []) if (obj.Key) keys.push(obj.Key);
+      token = res.IsTruncated ? res.NextContinuationToken : undefined;
+    } while (token && keys.length < max);
+    return keys.slice(0, max);
   }
 
   // Check if file exists

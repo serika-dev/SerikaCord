@@ -61,8 +61,9 @@ export async function insertServerMember(
 /**
  * Remove a user's membership. Returns false (and touches nothing) when the
  * user wasn't a member. On removal: decrements memberCount atomically,
- * invalidates member caches and closes the user's open channel streams for
- * channels they can no longer see.
+ * invalidates member caches, closes the user's open channel streams for
+ * channels they can no longer see and deletes their per-server profile
+ * images (fire-and-forget). Used by leave, kick, ban and the bot API.
  */
 export async function removeServerMember(serverId: string, userId: string): Promise<boolean> {
   const deleted = await db
@@ -86,6 +87,10 @@ export async function removeServerMember(serverId: string, userId: string): Prom
     .catch(() => {});
   // GUILD_MEMBER_REMOVE to the remaining bots (plus GUILD_INTEGRATIONS_UPDATE when a bot left).
   void import('@/lib/services/guildGatewayEvents').then((m) => m.emitMemberRemove(serverId, userId)).catch(() => {});
+  // Their per-server avatar / banner files (own prefix only), in the background.
+  void import('@/lib/services/memberProfileMedia')
+    .then((m) => m.cleanupMemberProfileMediaInBackground([normalizeId(serverId)], normalizeId(userId)))
+    .catch(() => {});
   return true;
 }
 
