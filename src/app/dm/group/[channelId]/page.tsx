@@ -819,6 +819,7 @@ export default function GroupDMPage() {
         messages={chat.pinnedMessages}
         isLoading={chat.isLoadingPins}
         contextLabel={title || undefined}
+        mentionUsers={mentionUsers}
         onJumpToMessage={(id) => void jumpToMessage(id)}
         onUnpin={(message) => void chat.actions.togglePin(message)}
       />

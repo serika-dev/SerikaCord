@@ -23,6 +23,7 @@
 - **Discord bridge: real names and bot replies** — mentions sent from SerikaCord to Discord now show the person's, role's or channel's real name (people and bots who are in the Discord server get a proper Discord mention, bridged channels link to their Discord channel) instead of "@user", and replies and messages from SerikaCord bots, apps and webhooks now reach Discord too, with their embeds, under the bot's name and avatar. The per-channel "bot messages" option now covers both directions, and @everyone, @here and roles still never ping on Discord.
 - **Server profiles show everywhere** — your server avatar, name style, nameplate and colours now appear on your messages, replies, profile cards, the full profile and voice tiles in that server instead of your main profile, and other members see a server profile change straight away. Changing your own nickname now follows the server's Change Nickname permission.
 - **DM calls follow your DM settings** — people who aren't your friends can call you exactly when they're allowed to DM you; before, calls were refused for anyone who had never changed their privacy settings.
+- **Mentions in reply previews show real names** — the "Replying to" line above a reply now shows @names (including bots), roles and channels instead of "@Unknown User", in servers, DMs and group DMs. Thread previews, pinned messages and the reply bar above the message box name mentions too.
 
 ### Performance
 

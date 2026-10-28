@@ -80,6 +80,7 @@ import { Loader } from "@/components/ui/Loader";
 import { useAuth } from "@/contexts/AuthContext";
 import VoiceMessageRecorder, { type VoiceHoldStart } from "@/components/chat/VoiceMessageRecorder";
 import type { VoiceMessageAttachment } from "@/lib/chat/voiceMessage";
+import { MentionText } from "@/components/chat/MentionText";
 
 const COMMAND_ICONS: Record<string, React.ReactNode> = {
   clear: <Eraser className="w-3.5 h-3.5" />,
@@ -919,7 +920,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     {gt("Replying to")} {replyTo.author?.displayName || replyTo.author?.username || gt("message")}
                   </p>
                   <p className="text-sm text-[var(--text-primary)] truncate">
-                    {replyTo.content ? decodeHtmlEntities(replyTo.content) : gt("(attachment)")}
+                    {replyTo.content ? <MentionText text={decodeHtmlEntities(replyTo.content)} /> : gt("(attachment)")}
                   </p>
                 </div>
               </div>

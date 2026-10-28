@@ -21,6 +21,7 @@ import { ThreadChip } from "./ThreadRows";
 import { useAuth } from "@/contexts/AuthContext";
 import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import { isSilentMessage } from "@/lib/chat/messageFlags";
+import { collectMessageUsers, mergeMentionUsers } from "@/lib/chat/mentionResolver";
 import type { RoleIconData } from "@/components/chat/RoleIcon";
 import type { ChatGt } from "./ChatGtContext";
 import dynamic from "next/dynamic";
@@ -202,32 +203,15 @@ function MessageGroupInner<M extends ChatMessage>({
   const { user } = useAuth();
   const inlineMediaEnabled = user?.settings?.textImages?.inlineMedia !== false;
   const inlineEmbedsEnabled = user?.settings?.textImages?.inlineEmbeds !== false;
-  // Merge mention users with message authors and referenced message authors
-  // so that mentions resolve even for users who left the server or aren't in
-  // the member list fetched for autocomplete.
-  const mergedMentionUsers = useMemo(() => {
-    const map = new Map<string, MentionUser>();
-    for (const u of mentionUsers || []) {
-      if (u?.id) map.set(u.id, u);
-    }
-    for (const msg of group.messages) {
-      if (msg.author?.id && !map.has(msg.author.id)) {
-        map.set(msg.author.id, {
-          id: msg.author.id,
-          username: msg.author.username,
-          displayName: msg.author.displayName || msg.author.username,
-        });
-      }
-      if (msg.referencedMessage?.author?.id && !map.has(msg.referencedMessage.author.id)) {
-        map.set(msg.referencedMessage.author.id, {
-          id: msg.referencedMessage.author.id,
-          username: msg.referencedMessage.author.username,
-          displayName: msg.referencedMessage.author.displayName || msg.referencedMessage.author.username,
-        });
-      }
-    }
-    return Array.from(map.values());
-  }, [mentionUsers, group.messages]);
+  // Mentions resolve the same way everywhere in the row, reply previews
+  // included: the container's users (server members, bots included) first,
+  // then the authors in this group, reply authors and the users mentioned in
+  // replied-to messages (referencedMessage.mentions). Anything still unknown
+  // falls back to MessageContent's cached lookup.
+  const mergedMentionUsers = useMemo(
+    () => mergeMentionUsers(mentionUsers, collectMessageUsers(group.messages)),
+    [mentionUsers, group.messages],
+  );
 
   // Build a userId -> {id, username, displayName, avatar} map for reaction tooltips.
   // Includes mention users plus all message authors in this group.
@@ -364,6 +348,9 @@ function MessageGroupInner<M extends ChatMessage>({
                               inline
                               content={message.referencedMessage.content}
                               serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                              mentionUsers={mergedMentionUsers}
+                              mentionRoles={mentionRoles}
+                              currentUserId={currentUserId}
                               serverId={serverId}
                               className="inline"
                             />

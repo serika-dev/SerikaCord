@@ -6,12 +6,13 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useChatGt } from "./ChatGtContext";
 import { cdnImage } from "@/lib/utils";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
-import { renderMentionText } from "@/lib/chat/mentionText";
+import { MentionText } from "./MentionText";
 import { formatThreadCount, type ThreadSummary } from "@/lib/chat/threads";
 import type { ChatMessage } from "@/lib/chat/types";
 
-function preview(raw: string, max = 120): string {
-  const text = renderMentionText(decodeHtmlEntities(raw || ""))
+/** One-line preview of a reply, after mentions are named (MentionText). */
+function previewFormat(rendered: string, max = 120): string {
+  const text = rendered
     .replace(/[*_~`|]/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -76,7 +77,11 @@ export const ThreadChip = memo(function ThreadChip({ thread, onOpen }: ThreadChi
           <span className="shrink-0 font-medium text-[var(--text-primary)]">
             {last.author?.displayName || last.author?.username || gt("Unknown")}
           </span>
-          <span className="min-w-0 truncate">{preview(last.content) || gt("(attachment)")}</span>
+          <span className="min-w-0 truncate">
+            {last.content?.trim()
+              ? <MentionText text={decodeHtmlEntities(last.content)} format={previewFormat} />
+              : gt("(attachment)")}
+          </span>
           <span className="ml-auto shrink-0 opacity-80">{shortTime(last.createdAt)}</span>
         </span>
       ) : (

@@ -18,6 +18,7 @@ import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
 import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
+import { referenceMentions } from '@/lib/chat/mentionResolver';
 import { cache, getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import { config } from '@/lib/config';
@@ -438,6 +439,16 @@ export async function loadDmMessagesPage(
   ]);
   const authorMap = new Map(authors.map(a => [a.id, a]));
   const refMap = new Map(refMsgs.map((m) => [m.id, m]));
+  // Users the replied-to messages mention, for the reply preview
+  // (referencedMessage.mentions); usually already loaded as authors.
+  const refMentionIds = [...new Set(refMsgs.flatMap((m) => (m.mentionedUserIds || []) as string[]))]
+    .filter((id) => isValidObjectId(id) && !authorMap.has(id))
+    .slice(0, 200);
+  if (refMentionIds.length > 0) {
+    for (const u of await User.find({ id: { in: refMentionIds } }).catch(() => [])) {
+      if (!authorMap.has(u.id)) authorMap.set(u.id, u);
+    }
+  }
   // Chosen server tags next to author names (CORD-53).
   const serverTags = await resolveServerTags(authors);
 
@@ -468,7 +479,7 @@ export async function loadDmMessagesPage(
       url: e.url,
     }));
 
-    let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean } | undefined;
+    let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean; mentions?: ReturnType<typeof referenceMentions> } | undefined;
     const refRaw = msg.referencedMessageId;
     if (refRaw && typeof refRaw === 'string') {
       const refMsg = refMap.get(refRaw);
@@ -479,6 +490,7 @@ export async function loadDmMessagesPage(
           content: refContentMap.get(refRaw) || '',
           author: referenceAuthor(refAuthor),
           createdAt: refMsg.createdAt instanceof Date ? refMsg.createdAt.toISOString() : (refMsg.createdAt ?? undefined),
+          mentions: referenceMentions(refContentMap.get(refRaw), (id) => authorMap.get(id)),
           ...(storedEnvelope(refMsg.e2ee) ? { encrypted: true } : {}),
         };
       }

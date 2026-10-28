@@ -10,7 +10,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { formatMessageTimestamp } from "@/lib/chat/messages";
+import { useMemo } from "react";
+import { decodeHtmlEntities, formatMessageTimestamp } from "@/lib/chat/messages";
+import { collectMessageUsers, mergeMentionUsers, type MentionRoleInfo, type MentionUserInfo } from "@/lib/chat/mentionResolver";
+import { MentionText } from "@/components/chat/MentionText";
 import { T, useGT, useLocale } from "gt-next";
 import type { ChatMessage } from "@/lib/chat/types";
 import { Loader } from "@/components/ui/Loader";
@@ -24,6 +27,9 @@ interface PinnedMessagesDialogProps<M extends ChatMessage> {
   contextLabel?: string;
   onJumpToMessage?: (messageId: string) => void;
   onUnpin?: (message: M) => void;
+  /** Names for <@id> / <@&id> in the previews (members, roles); the shared resolver fills the rest. */
+  mentionUsers?: ReadonlyArray<MentionUserInfo>;
+  mentionRoles?: ReadonlyArray<MentionRoleInfo>;
 }
 
 /** Shared pinned-messages dialog used by both channel chat and DMs. */
@@ -35,9 +41,13 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
   contextLabel,
   onJumpToMessage,
   onUnpin,
+  mentionUsers,
+  mentionRoles,
 }: PinnedMessagesDialogProps<M>) {
   const gt = useGT();
   const locale = useLocale();
+  // The container's users first, then the pinned messages' own authors / reply users.
+  const users = useMemo(() => mergeMentionUsers(mentionUsers, collectMessageUsers(messages)), [mentionUsers, messages]);
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] max-w-2xl">
@@ -103,7 +113,9 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
                   )}
                 </div>
                 <p className="text-sm text-[var(--text-primary)] line-clamp-3">
-                  {message.content || gt("(attachment)")}
+                  {message.content
+                    ? <MentionText text={decodeHtmlEntities(message.content)} users={users} roles={mentionRoles} />
+                    : gt("(attachment)")}
                 </p>
               </div>
             ))

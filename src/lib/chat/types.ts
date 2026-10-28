@@ -127,6 +127,8 @@ export interface ReferencedMessage {
     isWebhook?: boolean;
   };
   createdAt?: string;
+  /** Users mentioned as <@id> in `content`, so the reply preview can name them (Discord's referenced_message.mentions). */
+  mentions?: Array<{ id: string; username: string; displayName: string; avatar?: string; isBot?: boolean }>;
   /** The referenced message is end-to-end encrypted (its text comes from the reply's own envelope). */
   encrypted?: boolean;
   /**

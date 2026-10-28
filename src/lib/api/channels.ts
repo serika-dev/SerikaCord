@@ -8,6 +8,7 @@ import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getRea
 import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, isValidObjectId } from '@/lib/security';
 import { channelsToMarkNsfw, normalizeChannelName } from '@/lib/servers/channelRules';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
+import { referenceMentions } from '@/lib/chat/mentionResolver';
 import { cache, getPublisher } from '@/lib/db';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import {
@@ -2522,6 +2523,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const serverTags = await resolveServerTags(authors as Array<{ id: string; customization?: unknown }>);
     const refMap = new Map((refMessages as any[]).map((r: any) => [r.id, r]));
     const refAuthorIds = Array.from(new Set((refMessages as any[]).map((r: any) => r.authorId).filter(Boolean))) as string[];
+    // Users the replied-to messages mention: the reply preview names them
+    // (referencedMessage.mentions). Fetched with the reply authors, one query.
+    const refMentionIds = Array.from(new Set((refMessages as IMessage[]).flatMap((r) => (r.mentionedUserIds || []) as string[])))
+      .filter((id) => isValidObjectId(id) && !authorMap.has(id) && !refAuthorIds.includes(id))
+      .slice(0, 200);
+    const refUserIds = [...refAuthorIds, ...refMentionIds];
     const missingAuthorIds = authorIds.filter((id) => !authorMap.has(id));
 
     // Second wave: Discord-bridged authors, reply authors, and custom emojis
@@ -2534,7 +2541,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       missingAuthorIds.length > 0
         ? import('@/lib/models/DiscordUser').then(({ DiscordUser }) => DiscordUser.findMany(missingAuthorIds))
         : Promise.resolve([]),
-      refAuthorIds.length > 0 ? User.find({ id: { in: refAuthorIds } }) : Promise.resolve([]),
+      refUserIds.length > 0 ? User.find({ id: { in: refUserIds } }) : Promise.resolve([]),
       batchParseCustomEmojis(decryptedContents),
       pageThreadIds.length > 0
         ? loadThreadSummariesByIds(pageThreadIds).catch(() => new Map<string, never>())
@@ -2638,6 +2645,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               isWebhook?: boolean;
             };
             createdAt?: Date;
+            mentions?: ReturnType<typeof referenceMentions>;
           }
         | undefined;
 
@@ -2659,6 +2667,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               isWebhook: Boolean(refAuthorData.isWebhook),
             } : undefined,
             createdAt: refMsg.createdAt,
+            mentions: referenceMentions(
+              refContentMap.get(refId),
+              (id) => refAuthorMap.get(id) ?? authorMap.get(id),
+              (id) => memberProfileMap.get(id)?.nickname,
+            ),
           };
         }
       }

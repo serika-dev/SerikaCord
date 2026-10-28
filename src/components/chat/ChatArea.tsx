@@ -2332,6 +2332,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         messages={chat.pinnedMessages}
         isLoading={chat.isLoadingPins}
         contextLabel={`#${currentChannel?.name}`}
+        mentionUsers={mentionUsers}
+        mentionRoles={mentionRoles}
         onJumpToMessage={(id) => void jumpToMessage(id)}
         onUnpin={(message) => void chat.actions.togglePin(message)}
       />

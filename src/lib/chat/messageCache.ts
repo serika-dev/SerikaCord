@@ -29,7 +29,7 @@ const LS_INDEX_KEY = "sc:msgcache:index";
  */
 function withoutPlaintext(m: ChatMessage): ChatMessage {
   if (!m.e2ee) return m;
-  const ref = m.referencedMessage ? { ...m.referencedMessage, content: "" } : undefined;
+  const ref = m.referencedMessage ? { ...m.referencedMessage, content: "", mentions: undefined } : undefined;
   return {
     ...m,
     content: "",

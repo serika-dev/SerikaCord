@@ -22,6 +22,7 @@ import {
 import type { IServer, IRole, IServerSettings } from '@/lib/models';
 import { isSilentMessage, MESSAGE_FLAGS, sendFlags } from '@/lib/chat/messageFlags';
 import { normalizeVoiceMessage } from '@/lib/chat/voiceMessage';
+import { referenceMentions } from '@/lib/chat/mentionResolver';
 import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent, GUILD_AUDIT_KEYS, ROLE_AUDIT_KEYS, auditReason, diffChanges, diffMemberRoles, snapshotChanges } from '@/lib/audit/auditLog';
 import { applyTimeout, botCan, DM_BOT_PERMISSIONS, type BotChannelAction } from '@/lib/permissions/botChannel';
@@ -2666,12 +2667,20 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     const author = auth.botUser;
     let referencedMessage: Record<string, unknown> | undefined;
     if (replyTo) {
-      const refAuthor = await User.findById(replyTo.authorId).catch(() => null);
+      // Users the replied-to message mentions ride along so the preview can name them.
+      const refMentionIds = ((replyTo.mentionedUserIds || []) as string[]).filter((id) => isValidObjectId(id)).slice(0, 25);
+      const [refAuthor, refContent, refMentionUsers] = await Promise.all([
+        User.findById(replyTo.authorId).catch(() => null),
+        replyTo.content ? decryptFromStorage(replyTo.content).catch(() => '') : Promise.resolve(''),
+        refMentionIds.length > 0 ? User.find({ id: { in: refMentionIds } }).catch(() => []) : Promise.resolve([]),
+      ]);
+      const refMentionMap = new Map(refMentionUsers.map((u) => [u.id, u]));
       referencedMessage = {
         id: replyTo.id,
-        content: replyTo.content ? await decryptFromStorage(replyTo.content).catch(() => '') : '',
+        content: refContent,
         author: refAuthor ? { id: refAuthor.id, username: refAuthor.username, displayName: refAuthor.displayName || refAuthor.username, avatar: refAuthor.avatar ?? undefined, isBot: Boolean(refAuthor.isBot) } : undefined,
         createdAt: replyTo.createdAt ?? undefined,
+        mentions: referenceMentions(refContent, (id) => refMentionMap.get(id)),
       };
     }
     const forwardView = forwardSnapshot

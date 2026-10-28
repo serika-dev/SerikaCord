@@ -89,6 +89,12 @@ Channels and DMs run on the same code:
   `groupMessages` with a 5-minute window, `applyReactionToMessages`,
   `formatMessageTimestamp`, `decodeHtmlEntities`). Covered by `tests/`.
 - `src/lib/chat/markdown.ts`: the markdown parser (safe link schemes only).
+- Mentions: `src/lib/chat/mentionResolver.ts` is the one resolver for
+  `<@id>` / `<@&id>` / `<#id>` (container users, then server members incl.
+  bots, message/reply authors and `referencedMessage.mentions`, then the
+  cached one-time lookup in `mentionUserLookup.ts`). `MessageContent` falls
+  back to it for any unknown user; plain-text previews use `<MentionText>`
+  (`useMentionNames`). Don't call `renderMentionText` without names in UI.
 - Components: `MessageList` (scroll management, `resetKey`, load older/newer),
   `MessageGroup` (memoized with a custom `arePropsEqual`; add new props to it),
   `MessageBar` (composer, `draftKey`), `MessageContextMenu`,

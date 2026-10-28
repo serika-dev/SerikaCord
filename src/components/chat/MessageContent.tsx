@@ -19,6 +19,7 @@ import { useEmojiFavorites } from "@/hooks/useEmojiFavorites";
 import { createPortal } from "react-dom";
 import { EMOJI_TO_NAME } from "@/lib/constants/emojis";
 import { useMenuPlacement } from "@/hooks/useMenuPlacement";
+import { useLazyMentionUser } from "@/hooks/useMentionNames";
 
 interface CustomEmoji {
   id: string;
@@ -100,6 +101,68 @@ function isOnlyEmoji(text: string, customEmojiCount: number): boolean {
   const totalEmojis = unicodeEmojiCount + customEmojiCount;
   
   return emojiRegex.test(stripped) && totalEmojis > 0 && totalEmojis <= 6;
+}
+
+interface UserMentionPillProps {
+  mentionId: string;
+  user?: MentionUser;
+  currentUserId?: string;
+  serverId?: string;
+  onUserMenu: (event: React.MouseEvent, user: { id: string; username: string; displayName?: string }) => void;
+}
+
+/** A <@id> mention: a pill with the profile card, or a muted "@Unknown User" when nobody can name it. */
+function UserMentionPill({ mentionId, user, currentUserId, serverId, onUserMenu }: UserMentionPillProps) {
+  const gt = useChatGt();
+  const isResolved = Boolean(user);
+  const mentionLabel = user?.displayName || user?.username || gt("Unknown User");
+  const isSelfMention = Boolean(currentUserId && currentUserId === mentionId);
+  const mentionSpan = (
+    <span
+      title={isResolved ? undefined : `User ID: ${mentionId}`}
+      className={cn(
+        "inline-block px-1 py-0.5 rounded font-medium cursor-pointer",
+        isSelfMention
+          ? "bg-yellow-500/25 text-yellow-200"
+          : isResolved
+            ? "bg-[var(--app-accent)]/20 text-[var(--app-accent)] hover:bg-[var(--app-accent)]/30"
+            : "bg-[var(--app-surface-alt)] text-[var(--app-muted)] hover:bg-[var(--app-border)]"
+      )}
+    >
+      @{mentionLabel}
+    </span>
+  );
+  // Wrap in MemberProfilePopup if we have enough info to show the card
+  if (user && user.id && user.id !== "unknown") {
+    return (
+      <MemberProfilePopup
+        member={{
+          id: user.id,
+          username: user.username || "unknown",
+          displayName: user.displayName,
+        }}
+        serverId={serverId}
+        side="top"
+        align="center"
+      >
+        <button
+          type="button"
+          className="inline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded"
+          onClick={(e) => e.stopPropagation()}
+          onContextMenu={(e) => onUserMenu(e, { id: user.id, username: user.username || "unknown", displayName: user.displayName })}
+        >
+          {mentionSpan}
+        </button>
+      </MemberProfilePopup>
+    );
+  }
+  return <span>{mentionSpan}</span>;
+}
+
+/** A mention the caller's list can't name: resolved through the shared resolver (members, then a cached lookup). */
+function LazyUserMention(props: Omit<UserMentionPillProps, "user">) {
+  const user = useLazyMentionUser(props.mentionId);
+  return <UserMentionPill {...props} user={user} />;
 }
 
 // Memoized: message rows must not re-parse/re-render while the composer or
@@ -479,54 +542,19 @@ export const MessageContent = memo(function MessageContent({
     }
     if (part.type === "mention-user" && part.mentionId) {
       const mentionUser = mentionUserMap.get(part.mentionId);
-      const isResolved = Boolean(mentionUser);
-      const mentionLabel = mentionUser?.displayName || mentionUser?.username || gt("Unknown User");
-      const isSelfMention = Boolean(currentUserId && currentUserId === part.mentionId);
-      const mentionSpan = (
-        <span
-          title={isResolved ? undefined : `User ID: ${part.mentionId}`}
-          className={cn(
-            "inline-block px-1 py-0.5 rounded font-medium cursor-pointer",
-            isSelfMention
-              ? "bg-yellow-500/25 text-yellow-200"
-              : isResolved
-                ? "bg-[var(--app-accent)]/20 text-[var(--app-accent)] hover:bg-[var(--app-accent)]/30"
-                : "bg-[var(--app-surface-alt)] text-[var(--app-muted)] hover:bg-[var(--app-border)]"
-          )}
-        >
-          @{mentionLabel}
-        </span>
-      );
-      // Wrap in MemberProfilePopup if we have enough info to show the card
-      if (mentionUser && mentionUser.id && mentionUser.id !== "unknown") {
-        return (
-          <MemberProfilePopup
-            key={`mention-user-${index}-${part.mentionId}`}
-            member={{
-              id: mentionUser.id,
-              username: mentionUser.username || "unknown",
-              displayName: mentionUser.displayName,
-            }}
-            serverId={serverId}
-            side="top"
-            align="center"
-          >
-            <button
-              type="button"
-              className="inline focus-visible:outline-2 focus-visible:outline-[#8B5CF6] rounded"
-              onClick={(e) => e.stopPropagation()}
-              onContextMenu={(e) => openUserMenu(e, { id: mentionUser.id, username: mentionUser.username || "unknown", displayName: mentionUser.displayName })}
-            >
-              {mentionSpan}
-            </button>
-          </MemberProfilePopup>
-        );
-      }
-      return (
-        <span key={`mention-user-${index}-${part.mentionId}`}>
-          {mentionSpan}
-        </span>
-      );
+      const key = `mention-user-${index}-${part.mentionId}`;
+      const pillProps = {
+        mentionId: part.mentionId,
+        currentUserId,
+        serverId,
+        onUserMenu: openUserMenu,
+      };
+      // Not in the caller's list: the shared resolver tries the server's
+      // members, then a cached one-time lookup (no "@Unknown User" for bots
+      // or people who left).
+      return mentionUser
+        ? <UserMentionPill key={key} {...pillProps} user={mentionUser} />
+        : <LazyUserMention key={key} {...pillProps} />;
     }
     if (part.type === "mention-role" && part.mentionId) {
       const mentionRole = mentionRoleMap.get(part.mentionId);

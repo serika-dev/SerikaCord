@@ -13,7 +13,7 @@ import { useBackHandler } from "@/hooks/useBackHandler";
 import { usePermissions } from "@/hooks/usePermissions";
 import { cdnImage, cn } from "@/lib/utils";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
-import { renderMentionText } from "@/lib/chat/mentionText";
+import { MentionText } from "./MentionText";
 import {
   AUTO_ARCHIVE_DURATIONS,
   MAX_THREAD_NAME_LENGTH,
@@ -136,8 +136,8 @@ function ThreadPanelChat({ parentChannel, threadId, serverId }: { parentChannel:
   return <ChatArea channelOverride={channel} variant="panel" onClosePanel={closeThreadPanel} />;
 }
 
-function preview(raw: string): string {
-  return renderMentionText(decodeHtmlEntities(raw || "")).replace(/\s+/g, " ").trim();
+function collapseSpaces(rendered: string): string {
+  return rendered.replace(/\s+/g, " ").trim();
 }
 
 function ThreadCreateForm({
@@ -265,7 +265,9 @@ function ThreadCreateForm({
               </span>
             </div>
             <p className="line-clamp-4 break-words text-sm text-[var(--app-text)]">
-              {preview(starter.content) || gt("(attachment)")}
+              {starter.content?.trim()
+                ? <MentionText text={decodeHtmlEntities(starter.content)} format={collapseSpaces} />
+                : gt("(attachment)")}
             </p>
           </div>
         )}

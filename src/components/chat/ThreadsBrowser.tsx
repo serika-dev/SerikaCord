@@ -7,7 +7,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Loader } from "@/components/ui/Loader";
 import { cn, cdnImage } from "@/lib/utils";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
-import { renderMentionText } from "@/lib/chat/mentionText";
+import { MentionText } from "./MentionText";
 import {
   filterThreadsByName,
   formatThreadCount,
@@ -17,6 +17,10 @@ import {
 } from "@/lib/chat/threads";
 
 type BrowserThread = ThreadSummary & { joined?: boolean };
+
+function collapseSpaces(rendered: string): string {
+  return rendered.replace(/\s+/g, " ").trim();
+}
 
 interface ThreadsBrowserProps {
   channelId: string;
@@ -81,7 +85,7 @@ export function ThreadsBrowser({ channelId, channelName, version, canCreate, onO
 
   const row = (t: BrowserThread) => {
     const last = t.lastMessage;
-    const text = last ? renderMentionText(decodeHtmlEntities(last.content || "")).replace(/\s+/g, " ").trim() : "";
+    const raw = last?.content?.trim() ? decodeHtmlEntities(last.content) : "";
     return (
       <button
         key={t.id}
@@ -108,7 +112,9 @@ export function ThreadsBrowser({ channelId, channelName, version, canCreate, onO
             </Avatar>
           )}
           {last?.author && <span className="shrink-0 font-medium text-[var(--text-secondary)]">{last.author.displayName}</span>}
-          <span className="min-w-0 truncate">{text || (last ? gt("(attachment)") : gt("No messages yet"))}</span>
+          <span className="min-w-0 truncate">
+            {raw ? <MentionText text={raw} format={collapseSpaces} /> : last ? gt("(attachment)") : gt("No messages yet")}
+          </span>
           <span className="ml-auto shrink-0 whitespace-nowrap">
             {gt("{count} messages", { count: formatThreadCount(t.messageCount) })} · {since(threadActivityMs(t))}
           </span>
