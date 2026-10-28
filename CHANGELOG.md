@@ -16,6 +16,8 @@
 
 ### Security
 
+- **Safer app emoji and image uploads** — application emojis added in the Developer Portal are now checked like server emojis (PNG, JPEG, GIF or WebP up to 256 KB, real image contents only, scanned by Trust & Safety and stored on the CDN), and app icons, App Directory covers and bot avatars and banners are checked by their actual contents instead of the file name or type the browser reports. Team icons can no longer be set to an embedded image or a link to another site. Existing emojis and images keep working.
+
 ### Removed
 
 ---

@@ -64,7 +64,14 @@ async function stickerViews(rows: Array<Parameters<typeof toDiscordSticker>[0] &
   return rows.map((r) => ({ ...toDiscordSticker(r), ...(showUser && r.uploadedBy && users.get(r.uploadedBy.toLowerCase()) ? { user: users.get(r.uploadedBy.toLowerCase()) } : {}) }));
 }
 
-async function storeImage(category: 'emojis' | 'stickers', bytes: Buffer, kind: ImageKind, ctx: { serverId?: string; userId: string }): Promise<{ ok: true; url: string } | { ok: false; status: number; body: unknown }> {
+type StoredImage = { ok: true; url: string } | { ok: false; status: number; body: unknown; message: string };
+
+/**
+ * Store an emoji / sticker image through storage.upload (type and size check,
+ * Trust & Safety scan attributed to `scanUserId` or `userId`). A blocked image
+ * is a 403 (Discord body + the user-facing T&S message).
+ */
+async function storeImage(category: 'emojis' | 'stickers', bytes: Buffer, kind: ImageKind, ctx: { serverId?: string; userId: string; scanUserId?: string; ip?: string }): Promise<StoredImage> {
   try {
     const { storage } = await import('@/lib/services/storage');
     const contentType = kind === 'image/apng' ? 'image/png' : kind;
@@ -76,14 +83,21 @@ async function storeImage(category: 'emojis' | 'stickers', bytes: Buffer, kind: 
       filename: `${category === 'emojis' ? 'emoji' : 'sticker'}.${extensionFor(kind)}`,
       ...(ctx.serverId ? { serverId: ctx.serverId } : {}),
       userId: ctx.userId,
-      scanUserId: ctx.userId,
+      scanUserId: ctx.scanUserId ?? ctx.userId,
+      ...(ctx.ip ? { ip: ctx.ip } : {}),
     });
     return { ok: true, url: res.url };
   } catch (err) {
     const blocked = (err as { name?: string })?.name === 'ContentBlockedError';
-    if (blocked) return { ok: false, status: 403, body: { code: 20009, message: 'Explicit content cannot be sent to the desired recipient(s)' } };
+    if (blocked) {
+      return {
+        ok: false, status: 403,
+        body: { code: 20009, message: 'Explicit content cannot be sent to the desired recipient(s)' },
+        message: (err as Error)?.message || 'This image cannot be used',
+      };
+    }
     console.error('[botapi] expression upload failed:', (err as Error)?.message ?? err);
-    return { ok: false, status: 400, body: formError(category === 'emojis' ? 'image' : 'file', 'IMAGE_INVALID', 'Invalid image data') };
+    return { ok: false, status: 400, body: formError(category === 'emojis' ? 'image' : 'file', 'IMAGE_INVALID', 'Invalid image data'), message: 'Invalid image data' };
   }
 }
 
@@ -323,20 +337,55 @@ export async function getAppEmoji(app: { id: string; ownerId?: string | null }, 
   return { status: 200, body: appEmojiView(e, await appOwnerView(app)) };
 }
 
-export async function createAppEmoji(app: { id: string; ownerId?: string | null }, botId: string, body: { name?: unknown; image?: unknown }): Promise<Result> {
+export type AppEmojiCreateResult =
+  | { ok: true; emoji: AppEmojiRow }
+  /** `body` is the Discord-shaped error (bot API), `message` a plain one (Developer Portal). */
+  | { ok: false; status: number; body: unknown; message: string };
+
+/**
+ * Validate and store a new application emoji. Shared by the bot API and the
+ * Developer Portal so both apply the same rules as guild emoji uploads: name
+ * 2-32 of [A-Za-z0-9_], a PNG / JPEG / GIF / WebP data URI (type sniffed from
+ * the bytes, at most MAX_EMOJI_BYTES), the per-app limit, unique names, and
+ * the image stored on the CDN through storage.upload (Trust & Safety scan
+ * attributed to `scanUserId`, a blocked image is a 403). `animated` comes
+ * from the bytes, never from the caller.
+ */
+export async function createAppEmojiRecord(
+  appId: string,
+  body: { name?: unknown; image?: unknown },
+  ctx: { userId: string; scanUserId?: string; ip?: string },
+): Promise<AppEmojiCreateResult> {
   const nameErr = emojiNameError(body.name);
-  if (nameErr) return { status: 400, body: formError('name', nameErr.code, nameErr.message) };
-  const image = parseImageDataUri(body.image, MAX_EMOJI_BYTES);
-  if (!image.ok) return { status: 400, body: formError('image', image.code, image.message) };
-  const existing = (await AppEmoji.find({ applicationId: app.id })) as AppEmojiRow[];
-  if (existing.length >= MAX_APP_EMOJIS) return { status: 400, body: { code: 30008, message: `Maximum number of emojis reached (${MAX_APP_EMOJIS})` } };
-  if (existing.some((e) => e.name.toLowerCase() === String(body.name).toLowerCase())) {
-    return { status: 400, body: formError('name', 'APPLICATION_EMOJI_NAME_ALREADY_TAKEN', 'An emoji with this name already exists.') };
+  if (nameErr) {
+    return { ok: false, status: 400, body: formError('name', nameErr.code, nameErr.message), message: 'Emoji names must be 2-32 characters: letters, numbers and underscores.' };
   }
-  const stored = await storeImage('emojis', image.bytes, image.kind, { userId: botId });
-  if (!stored.ok) return { status: stored.status, body: stored.body };
-  const e = await AppEmoji.create({ applicationId: app.id, name: String(body.name), image: stored.url, animated: image.animated });
-  return { status: 201, body: appEmojiView(e as AppEmojiRow, await appOwnerView(app)) };
+  const image = parseImageDataUri(body.image, MAX_EMOJI_BYTES);
+  if (!image.ok) {
+    const message = image.code === 'BINARY_TYPE_MAX_SIZE'
+      ? `Emoji must be ${Math.floor(MAX_EMOJI_BYTES / 1024)} KB or smaller.`
+      : 'Invalid image. Only PNG, JPEG, GIF and WebP images are allowed.';
+    return { ok: false, status: 400, body: formError('image', image.code, image.message), message };
+  }
+  const existing = (await AppEmoji.find({ applicationId: appId })) as AppEmojiRow[];
+  if (existing.length >= MAX_APP_EMOJIS) {
+    const message = `Maximum number of emojis reached (${MAX_APP_EMOJIS})`;
+    return { ok: false, status: 400, body: { code: 30008, message }, message };
+  }
+  const name = String(body.name);
+  if (existing.some((e) => e.name.toLowerCase() === name.toLowerCase())) {
+    return { ok: false, status: 400, body: formError('name', 'APPLICATION_EMOJI_NAME_ALREADY_TAKEN', 'An emoji with this name already exists.'), message: 'An emoji with this name already exists.' };
+  }
+  const stored = await storeImage('emojis', image.bytes, image.kind, ctx);
+  if (!stored.ok) return stored;
+  const e = await AppEmoji.create({ applicationId: appId, name, image: stored.url, animated: image.animated });
+  return { ok: true, emoji: e as AppEmojiRow };
+}
+
+export async function createAppEmoji(app: { id: string; ownerId?: string | null }, botId: string, body: { name?: unknown; image?: unknown }): Promise<Result> {
+  const created = await createAppEmojiRecord(app.id, body, { userId: botId });
+  if (!created.ok) return { status: created.status, body: created.body };
+  return { status: 201, body: appEmojiView(created.emoji, await appOwnerView(app)) };
 }
 
 export async function updateAppEmoji(app: { id: string; ownerId?: string | null }, emojiId: string, body: { name?: unknown }): Promise<Result> {

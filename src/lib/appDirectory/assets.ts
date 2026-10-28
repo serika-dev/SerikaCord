@@ -56,3 +56,28 @@ export function isOwnedBotImageUrl(url: unknown, cdnBase: string, kind: 'avatar'
   if (!UUID_RE.test(botUserId)) return false;
   return isCdnKeyUnderPrefix(url, cdnBase, `${kind === 'banner' ? 'banners' : 'avatars'}/${botUserId.toLowerCase()}/`);
 }
+
+/**
+ * A developer team icon from PATCH /api/developers/teams/:id: null or '' to
+ * clear it, otherwise a URL on our CDN origin (a file that already went
+ * through the upload pipeline). Data URIs (unscanned base64 stored in the row)
+ * and other hosts are refused. Existing rows are left as they are.
+ */
+export function parseTeamIconPatch(value: unknown, cdnBase: string): { ok: true; value: string | null } | { ok: false; error: string } {
+  if (value === null || value === '') return { ok: true, value: null };
+  const invalid = { ok: false as const, error: 'Team icons must be an image uploaded to the Serika CDN' };
+  if (typeof value !== 'string' || value.length > 1024) return invalid;
+  let u: URL;
+  let base: URL;
+  try {
+    u = new URL(value);
+    base = new URL(cdnBase);
+  } catch {
+    return invalid;
+  }
+  if (u.origin !== base.origin || u.username || u.password) return invalid;
+  const basePath = base.pathname.replace(/\/+$/, '');
+  if (basePath && !u.pathname.startsWith(`${basePath}/`)) return invalid;
+  if (u.pathname.slice(basePath.length).replace(/^\/+/, '') === '') return invalid;
+  return { ok: true, value: u.toString() };
+}

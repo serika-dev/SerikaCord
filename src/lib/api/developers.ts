@@ -3,7 +3,8 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { Application, DeveloperTeam, AppWebhook, AppEmoji, User, WidgetConfig, type ITeamMember, type IApplication } from '@/lib/models';
 import * as crypto from 'crypto';
 import { config } from '@/lib/config';
-import { storage } from '@/lib/services/storage';
+import { storage, ContentBlockedError } from '@/lib/services/storage';
+import { checkImageUpload, imageTooLargeMessage, type BotImageType } from '@/lib/botapi/imageData';
 import { checkRateLimit, getClientIP } from '@/lib/security';
 import { adjustServerMemberCount } from '@/lib/services/serverMembership';
 import { resolveRedirectUri, appendQuery, parsePermissionsParam, clampBotPermissions, permissionNumberingOf } from '@/lib/oauth/authorize';
@@ -12,9 +13,7 @@ import {
   directoryState, isAppCategory, isOwnerListed, listingProblems, showsVerified, validateGeneralAppPatch, validateListingPatch,
   verificationRequirements, verificationCooldownEndsAt, VERIFICATION_SERVER_THRESHOLD,
 } from '@/lib/appDirectory/listing';
-import { APP_ASSET_CATEGORY, isOwnedAppAssetUrl, isOwnedBotImageUrl, type AppAssetKind } from '@/lib/appDirectory/assets';
-
-const VALID_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/gif', 'image/webp']);
+import { APP_ASSET_CATEGORY, isOwnedAppAssetUrl, isOwnedBotImageUrl, parseTeamIconPatch, type AppAssetKind } from '@/lib/appDirectory/assets';
 
 // All supported OAuth2 scopes
 export const VALID_OAUTH_SCOPES: ReadonlySet<string> = new Set([
@@ -107,16 +106,40 @@ async function requireAppAccess(
   return { app, user };
 }
 
+type CheckedImageFile = { data: Buffer; contentType: BotImageType; ext: string };
+
+/**
+ * Read a multipart image upload and check it by its bytes (checkImageUpload):
+ * PNG / JPEG / GIF / WebP only, at most `maxBytes`. The declared type and the
+ * file name are never trusted, so an HTML or SVG file renamed to .png (or sent
+ * as image/png) is refused, and the stored object gets the sniffed type and a
+ * matching extension.
+ */
+async function readImageUpload(file: File, maxBytes: number): Promise<({ ok: true } & CheckedImageFile) | { ok: false; message: string }> {
+  if (file.size > maxBytes) return { ok: false, message: imageTooLargeMessage(maxBytes) };
+  const data = Buffer.from(await file.arrayBuffer());
+  const checked = checkImageUpload(data, maxBytes);
+  if (!checked.ok) return checked;
+  return { ok: true, data, contentType: checked.contentType, ext: checked.ext };
+}
+
 /**
  * Upload an application icon / cover under the app's own key prefix
  * (`app-icons/<appId>/`, `app-covers/<appId>/`), then delete the previous
  * file only when its URL provably is one of this app's own uploads on our
  * CDN (src/lib/appDirectory/assets.ts). Legacy keys and any other URL are
  * never deleted, so a stored URL can't be used to delete someone else's media.
+ * The image was checked by readImageUpload; storage.upload runs the Trust &
+ * Safety scan, attributed to the developer uploading it.
  */
-async function uploadAppAsset(app: { id: string; icon?: string | null; coverImage?: string | null }, kind: AppAssetKind, file: File, uploaderId: string, ip: string) {
+async function uploadAppAsset(app: { id: string; icon?: string | null; coverImage?: string | null }, kind: AppAssetKind, image: CheckedImageFile, uploaderId: string, ip: string) {
   const previous = kind === 'icon' ? app.icon : app.coverImage;
-  const result = await storage.uploadFromFormData(file, APP_ASSET_CATEGORY[kind], {
+  const result = await storage.upload({
+    category: APP_ASSET_CATEGORY[kind],
+    contentType: image.contentType,
+    data: image.data,
+    size: image.data.length,
+    filename: `${kind}.${image.ext}`,
     keyScope: app.id.toLowerCase(),
     scanUserId: uploaderId,
     ip,
@@ -715,19 +738,26 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   })) };
 })
 
-.post('/applications/:id/emojis', async ({ headers, cookie, params, body, set }) => {
+.post('/applications/:id/emojis', async ({ headers, cookie, params, body, request, set }) => {
   const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
   if ('error' in access) return access.error;
+  const { app, user } = access;
 
-  const { name, image, animated } = body as { name?: string; image?: string; animated?: boolean };
+  const ip = getClientIP(request);
+  const rateLimit = await checkRateLimit('upload', `${user.id}:${ip}`);
+  if (!rateLimit.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter }; }
+
+  const { name, image } = (body ?? {}) as { name?: unknown; image?: unknown };
   if (!name || !image) { set.status = 400; return { error: 'Name and image are required' }; }
 
-  const emoji = await AppEmoji.create({
-    applicationId: params.id,
-    name: name.trim(),
-    image,
-    animated: animated ?? false,
-  });
+  // Same rules as the bot API's application emojis and guild emoji uploads:
+  // the type is sniffed from the bytes, size-capped, scanned by Trust & Safety
+  // and stored on the CDN (not as base64 in the row). `animated` comes from
+  // the image itself.
+  const { createAppEmojiRecord } = await import('@/lib/botapi/expressions');
+  const created = await createAppEmojiRecord(app.id, { name: typeof name === 'string' ? name.trim() : name, image }, { userId: user.id, ip });
+  if (!created.ok) { set.status = created.status; return { error: created.message }; }
+  const emoji = created.emoji;
 
   return { emoji: {
     id: emoji.id,
@@ -1019,11 +1049,17 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'You do not have permission to edit this team' };
   }
 
-  const { name, description, icon } = body as { name?: string; description?: string; icon?: string };
+  const { name, description, icon } = body as { name?: string; description?: string; icon?: unknown };
   const updateData: Record<string, any> = {};
   if (name !== undefined) updateData.name = name.trim();
   if (description !== undefined) updateData.description = description;
-  if (icon !== undefined) updateData.icon = icon;
+  if (icon !== undefined) {
+    // Only a file already on our CDN (or null to clear): never a data URI
+    // stored in the row unscanned, nor a link to another host.
+    const parsedIcon = parseTeamIconPatch(icon, config.CDN_URL);
+    if (!parsedIcon.ok) { set.status = 400; return { error: parsedIcon.error }; }
+    updateData.icon = parsedIcon.value;
+  }
 
   await DeveloperTeam.updateById(team.id, updateData);
   const updated = await DeveloperTeam.findById(team.id);
@@ -1251,27 +1287,23 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const { app, user } = access;
   if (!(await canManageApp(app, user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
 
-  const rateLimit = await checkRateLimit('upload', `${user.id}:${getClientIP(request)}`);
+  const ip = getClientIP(request);
+  const rateLimit = await checkRateLimit('upload', `${user.id}:${ip}`);
   if (!rateLimit.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter }; }
 
   const { file } = body as { file?: File };
   if (!file) { set.status = 400; return { error: 'No file provided' }; }
-  if (!VALID_IMAGE_TYPES.has(file.type)) {
-    set.status = 400;
-    return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-  }
-  if (file.size > config.MAX_BANNER_SIZE) {
-    set.status = 400;
-    return { error: `File too large. Maximum size is ${config.MAX_BANNER_SIZE / 1024 / 1024}MB.` };
-  }
+  const image = await readImageUpload(file, config.MAX_BANNER_SIZE);
+  if (!image.ok) { set.status = 400; return { error: image.message }; }
 
   try {
-    const result = await uploadAppAsset(app, 'cover', file, user.id, getClientIP(request));
+    const result = await uploadAppAsset(app, 'cover', image, user.id, ip);
     await Application.updateById(app.id, { coverImage: result.url, updatedAt: new Date() });
     const { invalidateAppDirectory } = await import('@/lib/services/appDirectory');
     invalidateAppDirectory();
     return { success: true, url: result.url };
   } catch (error: unknown) {
+    if (error instanceof ContentBlockedError) { set.status = 403; return { error: error.message }; }
     console.error('App cover upload error:', error);
     set.status = 500;
     return { error: 'Failed to upload cover image' };
@@ -1432,24 +1464,27 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   const { file } = body as { file?: File };
   if (!file) { set.status = 400; return { error: 'No file provided' }; }
-  if (!VALID_IMAGE_TYPES.has(file.type)) {
+  // GIF banners get the larger cap; whether it is a GIF comes from the bytes.
+  const gifBannerMax = 50 * 1024 * 1024;
+  const image = await readImageUpload(file, kind === 'banner' ? Math.max(gifBannerMax, config.MAX_BANNER_SIZE) : config.MAX_AVATAR_SIZE);
+  if (!image.ok) { set.status = 400; return { error: image.message }; }
+  if (kind === 'banner' && image.contentType !== 'image/gif' && image.data.length > config.MAX_BANNER_SIZE) {
     set.status = 400;
-    return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-  }
-  const maxSize = kind === 'banner'
-    ? (file.type === 'image/gif' ? 50 * 1024 * 1024 : config.MAX_BANNER_SIZE)
-    : config.MAX_AVATAR_SIZE;
-  if (file.size > maxSize) {
-    set.status = 400;
-    return { error: `File too large. Maximum size is ${maxSize / 1024 / 1024}MB.` };
+    return { error: imageTooLargeMessage(config.MAX_BANNER_SIZE) };
   }
 
   try {
     const current = kind === 'banner' ? botUser.banner : botUser.avatar;
-    const result = await storage.uploadFromFormData(file, kind === 'banner' ? 'banners' : 'avatars', {
+    const result = await storage.upload({
+      category: kind === 'banner' ? 'banners' : 'avatars',
+      contentType: image.contentType,
+      data: image.data,
+      size: image.data.length,
+      filename: `${kind}.${image.ext}`,
       userId: botUser.id,
       // The developer uploading is accountable, not the bot.
       scanUserId: user.id,
+      ip,
     });
     await User.updateById(botUser.id, kind === 'banner' ? { banner: result.url } : { avatar: result.url });
     // Only delete the old image once the new one is saved, and only when it
@@ -1459,6 +1494,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     }
     return { success: true, url: result.url };
   } catch (error: unknown) {
+    if (error instanceof ContentBlockedError) { set.status = 403; return { error: error.message }; }
     const message = error instanceof Error ? error.message : `Failed to upload ${kind}`;
     console.error(`Bot ${kind} upload error:`, error);
     set.status = 500;
@@ -1483,21 +1519,16 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 
   const { file } = body as { file?: File };
   if (!file) { set.status = 400; return { error: 'No file provided' }; }
-  if (!VALID_IMAGE_TYPES.has(file.type)) {
-    set.status = 400;
-    return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-  }
-  if (file.size > config.MAX_AVATAR_SIZE) {
-    set.status = 400;
-    return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
-  }
+  const image = await readImageUpload(file, config.MAX_AVATAR_SIZE);
+  if (!image.ok) { set.status = 400; return { error: image.message }; }
 
   try {
-    const result = await uploadAppAsset(app, 'icon', file, user.id, ip);
+    const result = await uploadAppAsset(app, 'icon', image, user.id, ip);
     await Application.updateById(app.id, { icon: result.url });
     void import('@/lib/services/appDirectory').then((m) => m.invalidateAppDirectory()).catch(() => {});
     return { success: true, url: result.url };
   } catch (error: unknown) {
+    if (error instanceof ContentBlockedError) { set.status = 403; return { error: error.message }; }
     const message = error instanceof Error ? error.message : 'Failed to upload icon';
     console.error('App icon upload error:', error);
     set.status = 500;

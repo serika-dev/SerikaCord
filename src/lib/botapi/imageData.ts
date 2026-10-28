@@ -46,6 +46,31 @@ export function decodeImageDataUri(value: unknown, maxBytes: number): DecodedIma
 
 const EXT: Record<BotImageType, string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp' };
 
+/** "File too large. Maximum size is 5MB." (or "0.3MB" for limits under a megabyte). */
+export function imageTooLargeMessage(maxBytes: number): string {
+  const mb = maxBytes / 1024 / 1024;
+  return `File too large. Maximum size is ${Number.isInteger(mb) ? mb : mb.toFixed(1)}MB.`;
+}
+
+export type CheckedImageUpload =
+  | { ok: true; contentType: BotImageType; ext: string }
+  | { ok: false; message: string };
+
+/**
+ * Check an uploaded image file's bytes (multipart uploads in the Developer
+ * Portal): the real type comes from the bytes, never the declared type or
+ * file name, and must be PNG / JPEG / GIF / WebP; at most `maxBytes`. The
+ * caller stores it with the returned content type through storage.upload
+ * (which runs the Trust & Safety scan).
+ */
+export function checkImageUpload(bytes: Uint8Array, maxBytes: number): CheckedImageUpload {
+  if (bytes.length === 0) return { ok: false, message: 'No file provided' };
+  if (bytes.length > maxBytes) return { ok: false, message: imageTooLargeMessage(maxBytes) };
+  const sniffed = sniffImage(bytes);
+  if (!sniffed) return { ok: false, message: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
+  return { ok: true, contentType: sniffed, ext: EXT[sniffed] };
+}
+
 /**
  * Store a decoded image through storage.upload (type/size checks and the
  * Trust & Safety scan, attributed to the bot). Returns the CDN URL, or an
