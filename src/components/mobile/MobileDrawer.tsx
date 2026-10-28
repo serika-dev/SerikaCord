@@ -174,7 +174,7 @@ export function MobileDrawer({
                                         {(user?.displayName || user?.username || "U").charAt(0).toUpperCase()}
                                     </AvatarFallback>
                                 </Avatar>
-                                <StatusBadge status={user?.status === "offline" ? "invisible" : user?.status || "online"} size={12} ring={3} ringColor="var(--bg-card)" className="absolute -bottom-0.5 -right-0.5" />
+                                <StatusBadge status={user?.status === "offline" ? "invisible" : user?.status || "online"} size={12} ring={3} ringColor="var(--bg-card-solid)" className="absolute -bottom-0.5 -right-0.5" />
                             </div>
                             <div className="flex-1 min-w-0">
                                 <p className="font-bold text-[var(--text-primary)] truncate">

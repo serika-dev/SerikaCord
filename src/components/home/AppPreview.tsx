@@ -210,7 +210,7 @@ export function UserPanel({ name, nameplate }: { name: string; nameplate?: strin
       <div className="relative z-10 flex items-center gap-2 flex-1 min-w-0 p-1 rounded">
         <div className="relative shrink-0">
           <Av name={name} className="w-8 h-8" fallbackClassName="text-sm" />
-          <StatusBadge status="online" size={10} ring={3} ringColor="var(--bg-sidebar)" corner decorative />
+          <StatusBadge status="online" size={10} ring={3} ringColor="var(--bg-sidebar-solid)" corner decorative />
         </div>
         <div className="relative flex-1 min-w-0 text-left">
           <div className="text-sm font-bold truncate text-[var(--text-primary)]">{name}</div>
@@ -512,7 +512,7 @@ export function MemberRow({
         )}
         <div className="relative flex-shrink-0">
           <Av name={name} className="w-8 h-8" fallbackClassName="bg-[#8B5CF6] text-white text-xs" />
-          <StatusBadge status="online" size={10} ring={3} ringColor="var(--app-bg)" corner decorative />
+          <StatusBadge status="online" size={10} ring={3} ringColor="var(--app-bg-solid)" corner decorative />
         </div>
         <div className="relative flex-1 min-w-0 text-left">
           <div className="flex items-center gap-1 text-sm font-medium text-[var(--text-primary)]" style={roleColor ? { color: roleColor } : undefined}>
@@ -608,7 +608,7 @@ export async function DmPreview() {
             </span>
             <div className="relative flex-shrink-0">
               <Av name="Aya" className="w-8 h-8" fallbackClassName="text-sm" />
-              <StatusBadge status="online" size={10} ring={3} ringColor="var(--bg-app)" corner decorative />
+              <StatusBadge status="online" size={10} ring={3} ringColor="var(--app-bg-solid)" corner decorative />
             </div>
             <div className="flex items-center gap-2 min-w-0">
               <span className="font-semibold text-[var(--text-primary)] truncate self-center">Aya</span>

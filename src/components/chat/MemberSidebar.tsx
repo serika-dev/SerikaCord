@@ -250,7 +250,7 @@ function MemberItemImpl({ member, serverId }: MemberItemProps) {
       >
       <button
         className={cn(
-          "relative overflow-hidden px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] hover:[--status-ring:var(--app-surface)] transition-colors group",
+          "relative overflow-hidden px-2 py-1.5 mx-2 rounded-lg flex items-center gap-3 bg-white/[0.02] hover:bg-[var(--app-surface)] hover:[--status-ring:var(--app-surface-solid)] transition-colors group",
           isOffline && "opacity-50"
         )}
         style={{ width: "calc(100% - 16px)", touchAction: "pan-y" }}
@@ -269,7 +269,7 @@ function MemberItemImpl({ member, serverId }: MemberItemProps) {
               {(member.displayName || member.username || "?").charAt(0).toUpperCase()}
             </AvatarFallback>
           </Avatar>
-          <StatusBadge status={member.status} size={10} ring={3} ringColor="var(--status-ring, var(--app-bg))" corner />
+          <StatusBadge status={member.status} size={10} ring={3} ringColor="var(--status-ring, var(--app-bg-solid))" corner />
         </div>
         <div className="relative flex-1 min-w-0 text-left">
           {(() => {

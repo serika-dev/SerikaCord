@@ -167,7 +167,7 @@ export function MobileProfileView() {
                   status={status === "offline" ? "invisible" : status}
                   size={16}
                   ring={4}
-                  ringColor="var(--bg-app)"
+                  ringColor="var(--app-bg-solid)"
                   className="absolute bottom-1.5 right-1.5"
                 />
               </div>

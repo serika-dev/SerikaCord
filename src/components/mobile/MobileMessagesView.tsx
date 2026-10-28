@@ -502,7 +502,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                       <Star className="w-3 h-3 text-white fill-white" />
                     </div>
                   )}
-                  <StatusBadge status={message.status} size={12} ring={3} ringColor="var(--bg-app)" className="absolute bottom-0 right-0" />
+                  <StatusBadge status={message.status} size={12} ring={3} ringColor="var(--app-bg-solid)" className="absolute bottom-0 right-0" />
                 </div>
                 <span className="text-xs font-medium text-[var(--text-muted)] truncate max-w-[72px] group-hover:text-[var(--text-primary)] transition-colors">
                   {message.name.split(" ")[0]}
@@ -601,7 +601,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                     )}
                     {/* Status indicator */}
                     {message.type !== "group" && (
-                    <StatusBadge status={message.status} size={12} ring={3} ringColor="var(--bg-app)" corner />
+                    <StatusBadge status={message.status} size={12} ring={3} ringColor="var(--app-bg-solid)" corner />
                     )}
                   </div>
                   

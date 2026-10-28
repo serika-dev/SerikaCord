@@ -558,7 +558,7 @@ export default function WidgetPage() {
                         {(m.displayName || m.username).charAt(0)}
                       </AvatarFallback>
                     </Avatar>
-                    <StatusBadge status={m.status} size={8} ring={2} ringColor="var(--app-surface)" corner />
+                    <StatusBadge status={m.status} size={8} ring={2} ringColor="var(--app-surface-solid)" corner />
                   </span>
                   <span className="text-[13px] text-[var(--app-muted)] truncate">{m.displayName || m.username}</span>
                 </li>

@@ -77,7 +77,7 @@ export function GroupDmMembersPanel({
                 setMenu({ x: e.clientX, y: e.clientY, member: m });
               }}
               className={cn(
-                "group flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--bg-sidebar-elevated)] hover:[--status-ring:var(--bg-sidebar-elevated)]",
+                "group flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--bg-sidebar-elevated)] hover:[--status-ring:var(--app-surface-solid)]",
                 offline && "opacity-50 hover:opacity-100",
               )}
               title={isMe ? name : gt("Message {name}", { name })}
@@ -89,7 +89,7 @@ export function GroupDmMembersPanel({
                     {name.charAt(0).toUpperCase()}
                   </AvatarFallback>
                 </Avatar>
-                <StatusBadge status={m.status} size={10} ring={3} ringColor="var(--status-ring, var(--bg-sidebar))" corner />
+                <StatusBadge status={m.status} size={10} ring={3} ringColor="var(--status-ring, var(--bg-sidebar-solid))" corner />
               </div>
               <span className="flex min-w-0 flex-1 items-center gap-1">
                 <span

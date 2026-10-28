@@ -627,7 +627,7 @@ export default function DMConversationPage() {
                   {(recipientName || "?").charAt(0).toUpperCase()}
                 </AvatarFallback>
               </Avatar>
-              <StatusBadge status={recipient?.status} size={10} ring={3} ringColor="var(--bg-app)" corner />
+              <StatusBadge status={recipient?.status} size={10} ring={3} ringColor="var(--app-bg-solid)" corner />
             </div>
 
             <div className="flex items-center gap-2 min-w-0">

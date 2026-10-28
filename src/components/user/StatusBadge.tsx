@@ -127,7 +127,7 @@ export function StatusBadge({
   status,
   size = 10,
   ring,
-  ringColor = "var(--app-bg)",
+  ringColor = "var(--app-bg-solid)",
   corner = false,
   label,
   decorative = false,

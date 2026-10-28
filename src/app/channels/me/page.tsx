@@ -800,7 +800,7 @@ export default function DirectMessagesPage() {
                             ]}
                           >
                             {idx > 0 && <div className="mx-4 h-px bg-[var(--border-subtle)]" />}
-                            <div onContextMenu={(e) => openUserMenu(e, friend)} onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${friend.id}`); }} className="group flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--bg-hover)] hover:[--status-ring:color-mix(in_srgb,var(--app-surface-alt)_70%,var(--bg-app))] cursor-pointer transition-colors rounded-lg mx-1">
+                            <div onContextMenu={(e) => openUserMenu(e, friend)} onMouseEnter={() => { void prefetchChannelMessages(`/api/dms/${friend.id}`); }} className="group flex items-center gap-3 px-3 py-2.5 hover:bg-[var(--bg-hover)] hover:[--status-ring:color-mix(in_srgb,var(--app-surface-alt-solid)_70%,var(--app-bg-solid))] cursor-pointer transition-colors rounded-lg mx-1">
                               <button
                                 className="flex items-center gap-3 flex-1 min-w-0 text-left"
                                 onClick={() => startDM(friend.id)}
@@ -813,7 +813,7 @@ export default function DirectMessagesPage() {
                                       {(friend.displayName || friend.username).charAt(0).toUpperCase()}
                                     </AvatarFallback>
                                   </Avatar>
-                                  <StatusBadge status={friend.status} size={12} ring={3} ringColor="var(--status-ring, var(--bg-app))" corner />
+                                  <StatusBadge status={friend.status} size={12} ring={3} ringColor="var(--status-ring, var(--app-bg-solid))" corner />
                                 </div>
                                 <div className="min-w-0 flex-1">
                                   <div className="flex items-center gap-1.5">
@@ -1039,7 +1039,7 @@ function ActiveFriendCard({ entry, onMessage }: { entry: ActiveFriend; onMessage
                 {displayName.charAt(0).toUpperCase()}
               </AvatarFallback>
             </Avatar>
-            <StatusBadge status={friend.status} size={12} ring={3} ringColor="var(--bg-card)" corner />
+            <StatusBadge status={friend.status} size={12} ring={3} ringColor="var(--bg-card-solid)" corner />
           </div>
           <div className="min-w-0">
             <div className="flex items-center gap-1.5">

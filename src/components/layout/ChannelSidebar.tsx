@@ -1330,8 +1330,8 @@ export function ChannelSidebar({
                       className={cn(
                         "group relative flex items-center gap-2 px-2 py-[5px] rounded-md press-feedback transition-colors min-w-0",
                         isActive
-                          ? "bg-[var(--bg-active)] text-[var(--text-primary)] [--status-ring:color-mix(in_srgb,var(--app-accent)_18%,var(--bg-sidebar))]"
-                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)] hover:[--status-ring:var(--bg-sidebar-elevated)]",
+                          ? "bg-[var(--bg-active)] text-[var(--text-primary)] [--status-ring:color-mix(in_srgb,var(--app-accent)_18%,var(--bg-sidebar-solid))]"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)] hover:[--status-ring:var(--app-surface-solid)]",
                         !isActive && unread && "text-[var(--text-primary)] font-semibold",
                         !isActive && isChannelMuted(channel.id) && "opacity-50"
                       )}
@@ -1357,7 +1357,7 @@ export function ChannelSidebar({
                             {(recipient.displayName || recipient.username).charAt(0).toUpperCase()}
                           </AvatarFallback>
                         </Avatar>
-                        <StatusBadge status={recipient.status} size={10} ring={3} ringColor="var(--status-ring, var(--bg-sidebar))" corner />
+                        <StatusBadge status={recipient.status} size={10} ring={3} ringColor="var(--status-ring, var(--bg-sidebar-solid))" corner />
                       </div>
                       )}
                       {isGroup || !recipient ? (
@@ -2047,7 +2047,7 @@ export function UserPanel({ user }: UserPanelProps) {
                 {user?.displayName?.charAt(0).toUpperCase() || "?"}
               </AvatarFallback>
             </Avatar>
-            <StatusBadge status={user?.status === "offline" ? "invisible" : user?.status} size={10} ring={3} ringColor="var(--bg-sidebar)" corner />
+            <StatusBadge status={user?.status === "offline" ? "invisible" : user?.status} size={10} ring={3} ringColor="var(--bg-sidebar-solid)" corner />
           </div>
           <div className="relative flex-1 min-w-0 text-left">
             <div className={cn("text-sm font-bold truncate", getDisplayNameStyleClasses(user?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(user?.customization?.displayNameStyle)}>
