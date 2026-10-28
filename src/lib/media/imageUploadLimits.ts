@@ -21,11 +21,12 @@ export const ANIMATED_BANNER_MAX_BYTES = 50 * 1024 * 1024;
 export const EXPRESSION_IMAGE_MAX_BYTES = 20 * 1024 * 1024;
 
 /**
- * avatar: user avatar, per-server avatar, server icon.
+ * avatar: user avatar, per-server avatar, server icon, group DM icon, webhook avatar.
  * banner: user banner, per-server banner, server banner.
  * appearance: app background and nameplate images.
+ * cover: scheduled event cover (the banner size for every type, like storage's event-covers).
  */
-export type ImageUploadKind = 'avatar' | 'banner' | 'appearance' | 'emoji' | 'sticker';
+export type ImageUploadKind = 'avatar' | 'banner' | 'appearance' | 'cover' | 'emoji' | 'sticker';
 
 /** The configured limits (config.MAX_AVATAR_SIZE / config.MAX_BANNER_SIZE). */
 export interface ImageSizeConfig {
@@ -43,7 +44,8 @@ export function imageUploadMaxBytes(kind: ImageUploadKind, contentType: string, 
   switch (kind) {
     case 'avatar': return cfg.avatarMax;
     case 'banner': return bannerMaxBytes(contentType, cfg.bannerMax);
-    case 'appearance': return cfg.bannerMax;
+    case 'appearance':
+    case 'cover': return cfg.bannerMax;
     case 'emoji':
     case 'sticker': return EXPRESSION_IMAGE_MAX_BYTES;
   }
@@ -99,4 +101,27 @@ export function checkImageUploadFor(bytes: Uint8Array, kind: ImageUploadKind, cf
     return { ok: false, status: 413, message: imageTooLargeMessageFor(kind, cfg, checked.contentType) };
   }
   return checked;
+}
+
+export type ReadImageUpload =
+  | { ok: true; data: Buffer; contentType: BotImageType; ext: string }
+  | { ok: false; status: 400 | 413; message: string };
+
+/**
+ * Read a multipart image upload (File / Blob) and check it with
+ * checkImageUploadFor. Files over the ceiling are refused before their bytes
+ * are read. The caller stores `data` with the returned content type under a
+ * generated name ending in `ext` (storage.upload, which runs the Trust &
+ * Safety scan); the declared type and file name are never used.
+ */
+export async function readImageUploadFor(
+  file: { size: number; arrayBuffer(): Promise<ArrayBuffer> },
+  kind: ImageUploadKind,
+  cfg: ImageSizeConfig,
+): Promise<ReadImageUpload> {
+  if (file.size > imageUploadCeiling(kind, cfg)) return { ok: false, status: 413, message: imageTooLargeMessageFor(kind, cfg) };
+  const data = Buffer.from(await file.arrayBuffer());
+  const checked = checkImageUploadFor(data, kind, cfg);
+  if (!checked.ok) return checked;
+  return { ok: true, data, contentType: checked.contentType, ext: checked.ext };
 }

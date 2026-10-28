@@ -7,6 +7,7 @@ import {
   imageTooLargeMessageFor,
   imageUploadCeiling,
   imageUploadMaxBytes,
+  readImageUploadFor,
 } from "@/lib/media/imageUploadLimits";
 
 const MB = 1024 * 1024;
@@ -106,5 +107,50 @@ describe("imageTooLargeMessageFor", () => {
     expect(imageTooLargeMessageFor("banner", cfg, "image/gif")).toBe("File too large. Maximum size is 50MB.");
     expect(imageTooLargeMessageFor("banner", { avatarMax: 5 * MB, bannerMax: 60 * MB })).toBe("File too large. Maximum size is 60MB.");
     expect(imageTooLargeMessageFor("avatar", cfg)).toBe("File too large. Maximum size is 5MB.");
+  });
+});
+
+describe("cover kind (scheduled event covers)", () => {
+  test("the banner size for every type, GIFs included (storage's event-covers limit)", () => {
+    for (const t of ["image/png", "image/jpeg", "image/gif", "image/webp"]) expect(imageUploadMaxBytes("cover", t, cfg)).toBe(10 * MB);
+    expect(imageUploadCeiling("cover", cfg)).toBe(10 * MB);
+    const r = checkImageUploadFor(file(GIF_HEAD, 11 * MB), "cover", cfg);
+    expect(r).toEqual({ ok: false, status: 413, message: "File too large. Maximum size is 10MB." });
+  });
+});
+
+describe("readImageUploadFor", () => {
+  /** A multipart file whose declared type / name are lies; only the bytes count. */
+  function upload(bytes: Uint8Array, declared = "image/png", name = "evil.png") {
+    let read = false;
+    const f = new File([new Uint8Array(bytes)], name, { type: declared });
+    return {
+      size: f.size,
+      arrayBuffer: () => { read = true; return f.arrayBuffer(); },
+      get wasRead() { return read; },
+    };
+  }
+
+  test("returns the bytes with the sniffed type, ignoring the declared type and name", async () => {
+    const r = await readImageUploadFor(upload(file(GIF_HEAD, 64), "image/png", "icon.png"), "avatar", cfg);
+    expect(r.ok).toBe(true);
+    if (r.ok) {
+      expect(r.contentType).toBe("image/gif");
+      expect(r.ext).toBe("gif");
+      expect(r.data.length).toBe(64);
+    }
+  });
+
+  test("an SVG or HTML file declared as image/png is a 400", async () => {
+    const svg = await readImageUploadFor(upload(Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')), "avatar", cfg);
+    expect(svg.ok).toBe(false);
+    expect(!svg.ok && svg.status).toBe(400);
+  });
+
+  test("a file over the ceiling is a 413 without reading its bytes", async () => {
+    const f = upload(file(PNG_HEAD, 5 * MB + 1));
+    const r = await readImageUploadFor(f, "avatar", cfg);
+    expect(r).toEqual({ ok: false, status: 413, message: "File too large. Maximum size is 5MB." });
+    expect(f.wasRead).toBe(false);
   });
 });

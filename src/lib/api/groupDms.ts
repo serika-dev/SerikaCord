@@ -21,7 +21,8 @@ import { cache } from '@/lib/db';
 import { typingIndicatorsEnabled } from '@/lib/settings/privacy';
 import { config } from '@/lib/config';
 import { authenticateRequest } from '@/lib/services/auth';
-import { storage, keyFromUrl } from '@/lib/services/storage';
+import { storage, keyFromUrl, ContentBlockedError, UploadRejectedError } from '@/lib/services/storage';
+import { readImageUploadFor } from '@/lib/media/imageUploadLimits';
 import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
 import { checkRateLimit, getClientIP, encryptForStorage, rejectInvalidObjectIdParams, isValidObjectId } from '@/lib/security';
 import {
@@ -320,21 +321,38 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 404;
       return NOT_FOUND;
     }
-    const limit = await checkRateLimit('upload', `${user.id}:${getClientIP(request)}`);
+    const ip = getClientIP(request);
+    const limit = await checkRateLimit('upload', `${user.id}:${ip}`);
     if (!limit.success) {
       set.status = 429;
       return { error: 'Upload rate limited', retryAfter: limit.retryAfter };
     }
-    const { file } = body;
-    if (!config.ALLOWED_IMAGE_TYPES.includes(file.type as typeof config.ALLOWED_IMAGE_TYPES[number])) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
+    // The real type comes from the bytes (PNG / JPEG / GIF / WebP), never the
+    // declared type or file name; stored under a generated name.
+    const image = await readImageUploadFor(body.file, 'avatar', { avatarMax: config.MAX_AVATAR_SIZE, bannerMax: config.MAX_BANNER_SIZE });
+    if (!image.ok) {
+      set.status = image.status;
+      return { error: image.message };
     }
-    if (file.size > config.MAX_AVATAR_SIZE) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
+    let uploaded: { url: string };
+    try {
+      uploaded = await storage.upload({
+        category: 'group-icons',
+        contentType: image.contentType,
+        data: image.data,
+        size: image.data.length,
+        filename: `icon.${image.ext}`,
+        channelId: channel.id,
+        scanUserId: user.id,
+        ip,
+      });
+    } catch (error) {
+      // Trust & Safety block → 403, storage refusal → its 400 / 413 (messages safe to show).
+      const status = error instanceof ContentBlockedError ? 403 : error instanceof UploadRejectedError ? error.status : 500;
+      set.status = status;
+      if (status === 500) console.error('Group icon upload error:', error);
+      return { error: status === 500 ? 'Failed to upload the icon' : (error as Error).message };
     }
-    const uploaded = await storage.uploadFromFormData(file, 'group-icons', { channelId: channel.id, scanUserId: user.id });
     const result = await updateGroupLocked(channel.id, (row) => (isMember(row, user.id) ? { icon: uploaded.url } : { error: NOT_FOUND.error, status: 404 }));
     if ('error' in result) {
       set.status = result.status;

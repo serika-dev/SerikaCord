@@ -4787,9 +4787,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       channelId: t.Optional(t.String()),
     }),
   })
-  // Upload a webhook avatar file (CORD-67): image types and size like server
-  // icons, stored under webhook-avatars/<webhookId>/ through StorageService
-  // (sniffing and Trust & Safety scanning happen there).
+  // Upload a webhook avatar file (CORD-67): type checked by its bytes, size
+  // like server icons, stored under webhook-avatars/<webhookId>/ through
+  // StorageService (Trust & Safety scanning happens there).
   .post('/:channelId/webhooks/:webhookId/avatar', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
@@ -4800,22 +4800,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const ip = getClientIP(request);
     const limit = await checkRateLimit('upload', `${user.id}:${ip}`);
     if (!limit.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: limit.retryAfter }; }
-    const { file } = body;
-    if (!config.ALLOWED_IMAGE_TYPES.includes(file.type as typeof config.ALLOWED_IMAGE_TYPES[number])) {
-      set.status = 400; return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-    if (file.size > config.MAX_AVATAR_SIZE) {
-      set.status = 400; return { error: `File too large. Maximum size is ${config.MAX_AVATAR_SIZE / 1024 / 1024}MB.` };
-    }
-    // The declared type is the client's word: the bytes must really be that image.
-    const data = Buffer.from(await file.arrayBuffer());
-    const { sniffImage } = await import('@/lib/botapi/imageData');
-    const sniffed = sniffImage(data);
-    if (!sniffed || sniffed !== (file.type === 'image/jpg' ? 'image/jpeg' : file.type)) {
-      set.status = 400; return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
+    // The real type comes from the bytes (PNG / JPEG / GIF / WebP), never the
+    // declared type or file name; stored as avatar.<ext of the sniffed type>.
+    const { readImageUploadFor } = await import('@/lib/media/imageUploadLimits');
+    const image = await readImageUploadFor(body.file, 'avatar', { avatarMax: config.MAX_AVATAR_SIZE, bannerMax: config.MAX_BANNER_SIZE });
+    if (!image.ok) { set.status = image.status; return { error: image.message }; }
     const { uploadWebhookAvatar, cleanupWebhookAvatar, notifyWebhooksUpdate } = await import('@/lib/services/channelWebhooks');
-    const stored = await uploadWebhookAvatar(webhook.id, { contentType: sniffed, data }, { channelId: channel.id, actorId: user.id, ip });
+    const stored = await uploadWebhookAvatar(webhook.id, { contentType: image.contentType, data: image.data }, { channelId: channel.id, actorId: user.id, ip });
     if (!stored.ok) { set.status = stored.status; return { error: stored.message }; }
     const url = stored.url;
     const { ChannelWebhook } = await import('@/lib/models');

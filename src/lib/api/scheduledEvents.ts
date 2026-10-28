@@ -17,7 +17,8 @@ import { db, schema } from '@/lib/db/postgres';
 import { config } from '@/lib/config';
 import { Channel, Server, ServerMember, User } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, isValidObjectId, rejectInvalidObjectIdParams } from '@/lib/security';
+import { checkRateLimit, getClientIP, isValidObjectId, rejectInvalidObjectIdParams } from '@/lib/security';
+import { readImageUploadFor } from '@/lib/media/imageUploadLimits';
 import { PERMISSION_BITS, hasPermission } from '@/lib/permissions/bits';
 import {
   MAX_OPEN_EVENTS_PER_SERVER,
@@ -256,7 +257,7 @@ export const scheduledEventRoutes = new Elysia({ prefix: '/servers' })
     const [view] = await buildEventViews([updated], user.id);
     return { event: view };
   }, { body: t.Record(t.String(), t.Any()) })
-  .post('/:serverId/scheduled-events/cover', async ({ headers, cookie, params, body, set }) => {
+  .post('/:serverId/scheduled-events/cover', async ({ headers, cookie, params, body, request, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
     const access = await serverAccess(user.id, params.serverId);
@@ -266,19 +267,28 @@ export const scheduledEventRoutes = new Elysia({ prefix: '/servers' })
     if (!rl.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: rl.retryAfter }; }
     const file = (body as { file?: File }).file;
     if (!file) { set.status = 400; return { error: 'No file provided' }; }
-    if (!(config.ALLOWED_IMAGE_TYPES as readonly string[]).includes(file.type)) {
-      set.status = 400;
-      return { error: 'Invalid file type. Only JPEG, PNG, GIF, and WebP are allowed.' };
-    }
-    if (file.size > config.MAX_BANNER_SIZE) {
-      set.status = 400;
-      return { error: `File too large. Maximum size is ${Math.round(config.MAX_BANNER_SIZE / 1024 / 1024)}MB.` };
-    }
+    // The real type comes from the bytes (PNG / JPEG / GIF / WebP), never the
+    // declared type or file name; the banner size limit for every type, like
+    // storage's event-covers.
+    const image = await readImageUploadFor(file, 'cover', { avatarMax: config.MAX_AVATAR_SIZE, bannerMax: config.MAX_BANNER_SIZE });
+    if (!image.ok) { set.status = image.status; return { error: image.message }; }
+    const { storage, ContentBlockedError, UploadRejectedError } = await import('@/lib/services/storage');
     try {
-      const { storage } = await import('@/lib/services/storage');
-      const result = await storage.uploadFromFormData(file, 'event-covers', { serverId: params.serverId, scanUserId: user.id });
+      const result = await storage.upload({
+        category: 'event-covers',
+        contentType: image.contentType,
+        data: image.data,
+        size: image.data.length,
+        filename: `cover.${image.ext}`,
+        serverId: params.serverId,
+        scanUserId: user.id,
+        ip: getClientIP(request),
+      });
       return { url: result.url };
     } catch (err) {
+      // Trust & Safety block → 403, storage refusal → its 400 / 413 (messages safe to show).
+      if (err instanceof ContentBlockedError) { set.status = 403; return { error: err.message }; }
+      if (err instanceof UploadRejectedError) { set.status = err.status; return { error: err.message }; }
       console.error('[events] cover upload failed:', err);
       set.status = 500;
       return { error: 'Failed to upload the cover image' };

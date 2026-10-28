@@ -127,7 +127,7 @@ export async function uploadWebhookAvatar(
   image: { contentType: string; data: Buffer },
   ctx: { channelId: string; actorId: string; ip?: string },
 ): Promise<{ ok: true; url: string } | { ok: false; status: number; message: string }> {
-  const { storage, ContentBlockedError } = await import('@/lib/services/storage');
+  const { storage, ContentBlockedError, UploadRejectedError } = await import('@/lib/services/storage');
   try {
     const result = await storage.upload({
       category: 'webhook-avatars',
@@ -142,7 +142,9 @@ export async function uploadWebhookAvatar(
     });
     return { ok: true, url: result.url };
   } catch (err) {
-    if (err instanceof ContentBlockedError) return { ok: false, status: 403, message: 'This image cannot be used' };
+    // Trust & Safety block → 403, storage refusal → its 400 / 413 (messages safe to show).
+    if (err instanceof ContentBlockedError) return { ok: false, status: 403, message: err.message || 'This image cannot be used' };
+    if (err instanceof UploadRejectedError) return { ok: false, status: err.status, message: err.message };
     console.error('[webhooks] avatar upload failed:', (err as Error)?.message);
     return { ok: false, status: 500, message: 'Avatar upload failed' };
   }

@@ -31,6 +31,7 @@
 - **Safer app emoji and image uploads** — application emojis added in the Developer Portal are now checked like server emojis (PNG, JPEG, GIF or WebP up to 256 KB, real image contents only, scanned by Trust & Safety and stored on the CDN), and app icons, App Directory covers and bot avatars and banners are checked by their actual contents instead of the file name or type the browser reports. Team icons can no longer be set to an embedded image or a link to another site. Existing emojis and images keep working.
 - **Avatar, banner, icon, emoji and sticker uploads are checked by their contents** — profile and server images are now accepted only when the file really is a PNG, JPEG, GIF or WebP image, whatever name or type the browser reports, and are stored with the real type.
 - **Invisible hides your activity** — while your status is Invisible, your live activity and Recent activity no longer show on your profile, in member lists or to apps, so they can't give away that you're online.
+- **Group DM icons, event covers and webhook avatars are checked by their contents** — these uploads now only accept real PNG, JPEG, GIF or WebP images (a file renamed to look like an image is refused), get clear "too large" and "wrong type" errors, and show the Trust & Safety reason when an image is blocked instead of failing with a server error.
 
 ### Removed
 - **Placebo data switches** — the Analytics, Crash reports and Personalization switches never did anything (SerikaCord doesn't collect any of it) and are gone; Data & Privacy now says so plainly.
