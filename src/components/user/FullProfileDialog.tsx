@@ -448,6 +448,9 @@ export function FullProfileDialog({
           isSelf && editorOpen && "md:!w-[min(1280px,96vw)] md:!max-w-[1280px]"
         )}
         style={getProfileBackgroundStyle(view.customization, { opaque: true })}
+        // Phones: drag the sheet down (handle, or the profile scrolled to the
+        // top) to close; the X is screen-reader only there.
+        dragToDismiss
         onEscapeKeyDown={(e) => {
           // Escape inside an inline edit cancels the edit, not the dialog.
           if (document.activeElement?.closest("[data-inline-editor]")) e.preventDefault();
@@ -467,10 +470,12 @@ export function FullProfileDialog({
             title={gt("Edit profile")}
             className={cn(
               "absolute z-20 flex items-center justify-center text-white/85 shadow-md transition-[width,background-color,color] duration-150 ease-out hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] motion-reduce:transition-none",
-              // Phones: a tab on the sheet's left edge.
-              "left-0 top-[72px] h-10 w-7 rounded-r-lg border border-l-0 border-white/10 bg-black/50 backdrop-blur-md hover:w-9 hover:bg-black/70",
+              // Phones: a round 44px button in the banner's top-right corner (the
+              // old 28px tab on the left edge sat in iOS's back-swipe zone and
+              // over the drag area, so taps were missed and drags hijacked).
+              "right-3 top-3 h-11 w-11 rounded-full border border-white/10 bg-black/55 backdrop-blur-md active:scale-95",
               // Desktop: a tab sticking out of the card's left edge, like Discord's.
-              "md:left-auto md:right-full md:top-14 md:h-11 md:w-9 md:rounded-l-xl md:rounded-r-none md:border md:border-r-0 md:border-white/[0.08] md:bg-[#16161d] md:backdrop-blur-none md:hover:w-11 md:hover:bg-[#1f1f28]",
+              "md:left-auto md:right-full md:top-14 md:h-11 md:w-9 md:active:scale-100 md:rounded-l-xl md:rounded-r-none md:border md:border-r-0 md:border-white/[0.08] md:bg-[#16161d] md:backdrop-blur-none md:hover:w-11 md:hover:bg-[#1f1f28]",
             )}
           >
             <Pencil className="w-4 h-4" />
@@ -481,6 +486,8 @@ export function FullProfileDialog({
           {isSelf && (
             <aside
               inert={!editorOpen}
+              // The editor's own controls (and its scroll) never drag the sheet.
+              data-no-drag=""
               aria-label={gt("Profile editor")}
               className={cn(
                 "z-30 overflow-hidden transition-[width,transform] duration-200 ease-out motion-reduce:transition-none",
@@ -544,7 +551,7 @@ export function FullProfileDialog({
                   onClick={onOpenModView}
                   aria-label={gt("Open in Mod View")}
                   title={gt("Open in Mod View")}
-                  className="absolute top-3.5 right-3.5 max-md:right-14 max-md:top-2 max-md:size-11 max-md:flex max-md:items-center max-md:justify-center z-20 p-2 rounded-lg bg-black/40 hover:bg-black/60 active:scale-[0.95] text-white backdrop-blur-md border border-white/[0.06] transition-all"
+                  className="absolute top-3.5 right-3.5 max-md:right-14 max-sm:right-3 max-md:top-2 max-md:size-11 max-md:flex max-md:items-center max-md:justify-center z-20 p-2 rounded-lg bg-black/40 hover:bg-black/60 active:scale-[0.95] text-white backdrop-blur-md border border-white/[0.06] transition-all"
                 >
                   <ShieldAlert className="w-4 h-4" />
                 </button>
