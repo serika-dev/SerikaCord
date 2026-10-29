@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { hidesPurchases } from "@/lib/native/storePolicy";
 
 const g = globalThis as unknown as { window?: unknown };
@@ -32,7 +33,7 @@ describe("iOS store policy (Guideline 3.1.1)", () => {
   });
 });
 
-const ROOT = join(import.meta.dir, "..");
+const ROOT = join(fileURLToPath(new URL(".", import.meta.url)), "..");
 
 describe("App Store listing", () => {
   const listing = JSON.parse(readFileSync(join(ROOT, "mobile/ios/appstore/listing.json"), "utf8"));
