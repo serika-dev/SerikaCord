@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
-import { useUnread } from "@/contexts/UnreadContext";
+import { useUnreadGetter } from "@/contexts/UnreadContext";
 import { emitHotkey, matchHotkey, type HotkeyAction } from "@/lib/keybinds";
 
 /** Channel types the up/down navigation shortcuts can land on. */
@@ -60,12 +60,14 @@ export function useAppHotkeys() {
   const router = useRouter();
   const pathname = usePathname();
   const { servers, currentServer, channels, currentChannel, setCurrentServer } = useServer();
-  const { isChannelUnread, getMentionCount, markServerRead, markAllRead } = useUnread();
+  // Read at key-press time: subscribing with useUnread() re-rendered the
+  // whole app shell (which mounts this hook) on every unread change.
+  const getUnread = useUnreadGetter();
 
   // Latest values without re-binding the window listener each render.
-  const ref = useRef({ servers, currentServer, channels, currentChannel, setCurrentServer, isChannelUnread, getMentionCount, markServerRead, markAllRead, router, pathname });
+  const ref = useRef({ servers, currentServer, channels, currentChannel, setCurrentServer, getUnread, router, pathname });
   useEffect(() => {
-    ref.current = { servers, currentServer, channels, currentChannel, setCurrentServer, isChannelUnread, getMentionCount, markServerRead, markAllRead, router, pathname };
+    ref.current = { servers, currentServer, channels, currentChannel, setCurrentServer, getUnread, router, pathname };
   });
 
   // History of visited text-channel paths for "return to previous channel".
@@ -116,7 +118,8 @@ export function useAppHotkeys() {
   }, []);
 
   const runAction = useCallback((action: HotkeyAction) => {
-    const { currentServer, markServerRead, markAllRead, isChannelUnread, getMentionCount, router, pathname: path } = ref.current;
+    const { currentServer, getUnread, router, pathname: path } = ref.current;
+    const { markServerRead, markAllRead, isChannelUnread, getMentionCount } = getUnread();
     switch (action) {
       case "nav-server-prev": return stepServer(-1);
       case "nav-server-next": return stepServer(1);

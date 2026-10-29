@@ -47,9 +47,9 @@ import { MessageContextMenu } from "@/components/chat/MessageContextMenu";
 import { TypingIndicator } from "@/components/chat/TypingIndicator";
 import { notifyIncomingMessage, notificationPreview } from "@/lib/notifications/notify";
 import type { MentionNames } from "@/lib/chat/mentionText";
-import { useUnread, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
+import { useUnreadGetter, useUnreadSelector, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
 import { refreshMentionsNow } from "@/hooks/useMentions";
-import { readMarkerMs } from "@/lib/chat/unreadMarker";
+import { parseReadMarkerKey, readMarkerKey, readMarkerMs } from "@/lib/chat/unreadMarker";
 import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
 import { useChatSession } from "@/hooks/useChatSession";
 import { useTimeoutRemaining } from "@/hooks/useTimeoutRemaining";
@@ -266,19 +266,14 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
 
   // Header utilities
   const [showPins, setShowPins] = useState(false);
-  const {
-    isChannelMuted: isConversationMuted,
-    setActiveChannel,
-    setActivePanelChannel,
-    markChannelRead,
-    markChannelUnread,
-    getReadMarker,
-    totalMentionCount,
-    unreadChannels,
-  } = useUnread();
-  const channelMuted = currentChannel ? isConversationMuted(currentChannel.id) : false;
-  const inboxBadge = totalMentionCount;
-  const hasInboxUnreads = unreadChannels.length > 0;
+  // Unread state through narrow subscriptions: with `useUnread()` the whole
+  // chat (header, message list, composer) re-rendered for every message in
+  // any channel the user can see. Actions are read when they run.
+  const getUnread = useUnreadGetter();
+  const openChannelId = currentChannel?.id ?? null;
+  const channelMuted = useUnreadSelector((u) => (openChannelId ? u.isChannelMuted(openChannelId) : false));
+  const inboxBadge = useUnreadSelector((u) => u.totalMentionCount);
+  const hasInboxUnreads = useUnreadSelector((u) => u.unreadChannels.length > 0);
 
   // The read marker as it was when this channel was opened: the red "NEW"
   // line and the unread bar stay put while the user reads (and acks) it.
@@ -289,8 +284,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     marker: null,
     acked: false,
   });
-  const openChannelId = currentChannel?.id ?? null;
-  const liveMarker = openChannelId ? getReadMarker(openChannelId) : null;
+  const liveMarkerKey = useUnreadSelector((u) => (openChannelId ? readMarkerKey(u.getReadMarker(openChannelId)) : null));
+  const liveMarker = useMemo(() => parseReadMarkerKey(liveMarkerKey), [liveMarkerKey]);
   if (
     openMarker.channelId !== openChannelId ||
     (!openMarker.acked && readMarkerMs(liveMarker) > readMarkerMs(openMarker.marker))
@@ -301,26 +296,27 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     (message: { id: string; createdAt: string }) => {
       if (!openChannelId) return;
       setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
-      markChannelRead(openChannelId, message);
+      getUnread().markChannelRead(openChannelId, message);
     },
-    [openChannelId, markChannelRead],
+    [openChannelId, getUnread],
   );
   // The channel on screen (mobile has no ChannelSidebar to report it): its
   // messages notify through this view, not the activity stream.
   useEffect(() => {
     if (!openChannelId) return;
     // The side panel's thread is on screen too, next to the channel.
+    const unread = getUnread();
     if (isPanel) {
-      setActivePanelChannel(openChannelId);
-      return () => setActivePanelChannel(null);
+      unread.setActivePanelChannel(openChannelId);
+      return () => unread.setActivePanelChannel(null);
     }
-    setActiveChannel(openChannelId);
-  }, [openChannelId, isPanel, setActiveChannel, setActivePanelChannel]);
+    unread.setActiveChannel(openChannelId);
+  }, [openChannelId, isPanel, getUnread]);
   const handleMarkRead = useCallback(() => {
     if (!openChannelId) return;
     setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
-    markChannelRead(openChannelId);
-  }, [openChannelId, markChannelRead]);
+    getUnread().markChannelRead(openChannelId);
+  }, [openChannelId, getUnread]);
   const [showHelp, setShowHelp] = useState(false);
 
   // Discord-style server-wide message search (shared engine with DMs).
@@ -1576,7 +1572,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         onSeeAllThreads={hostsThreads ? handleSeeAllThreads : undefined}
         secondary={isPanel}
         onMarkUnread={(plan) => {
-          if (openChannelId) markChannelUnread(openChannelId, plan);
+          if (openChannelId) getUnread().markChannelUnread(openChannelId, plan);
         }}
         onJumpToPresent={chat.returnToPresent}
         canManageReactions={canModerateMessages}

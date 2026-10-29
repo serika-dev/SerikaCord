@@ -93,6 +93,29 @@ export function computeUnreadDivider(
   return { firstUnreadId, count, countIsLowerBound, since };
 }
 
+/**
+ * A read marker as one string (and back), so a component can subscribe to a
+ * single conversation's marker and re-render only when that marker moves.
+ */
+export function readMarkerKey(marker: ReadMarker): string {
+  return JSON.stringify([marker.lastReadAt, marker.lastReadMessageId]);
+}
+
+export function parseReadMarkerKey(key: string | null): ReadMarker | null {
+  if (key === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(key);
+    if (!Array.isArray(parsed)) return null;
+    const [at, id] = parsed;
+    return {
+      lastReadAt: typeof at === "string" ? at : null,
+      lastReadMessageId: typeof id === "string" ? id : null,
+    };
+  } catch {
+    return null;
+  }
+}
+
 /** Marker time in ms (0 when never read), for "has the marker moved?" checks. */
 export function readMarkerMs(marker: ReadMarker | null | undefined): number {
   const t = marker?.lastReadAt ? Date.parse(marker.lastReadAt) : 0;

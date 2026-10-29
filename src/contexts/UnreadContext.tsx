@@ -35,6 +35,7 @@ import {
   createContext,
   useContext,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -208,6 +209,17 @@ interface UnreadContextValue {
 }
 
 const UnreadContext = createContext<UnreadContextValue | undefined>(undefined);
+/**
+ * The same value as a subscribable store, for consumers that must not
+ * re-render on every unread change (each message in any visible channel is
+ * one): read it at event time (`useUnreadGetter`), subscribe to one derived
+ * value (`useUnreadSelector`), or only while visible (`useUnreadLive`).
+ */
+interface UnreadStore {
+  get: () => UnreadContextValue;
+  subscribe: (listener: () => void) => () => void;
+}
+const UnreadStoreContext = createContext<UnreadStore | undefined>(undefined);
 
 interface DmActivityEvent {
   type: "dm_activity";
@@ -1226,7 +1238,32 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
     ],
   );
 
-  return <UnreadContext.Provider value={value}>{children}</UnreadContext.Provider>;
+  // Layout effect: store subscribers re-render in the same commit as the
+  // context consumers, before paint.
+  const latestRef = useRef(value);
+  const listenersRef = useRef(new Set<() => void>());
+  useLayoutEffect(() => {
+    latestRef.current = value;
+    for (const listener of listenersRef.current) listener();
+  }, [value]);
+  const store = useMemo<UnreadStore>(
+    () => ({
+      get: () => latestRef.current,
+      subscribe: (listener) => {
+        listenersRef.current.add(listener);
+        return () => {
+          listenersRef.current.delete(listener);
+        };
+      },
+    }),
+    [],
+  );
+
+  return (
+    <UnreadStoreContext.Provider value={store}>
+      <UnreadContext.Provider value={value}>{children}</UnreadContext.Provider>
+    </UnreadStoreContext.Provider>
+  );
 }
 
 // No-op fallback so a component rendered outside an UnreadProvider (e.g. a new
@@ -1256,4 +1293,36 @@ const NOOP_UNREAD: UnreadContextValue = {
 
 export function useUnread() {
   return useContext(UnreadContext) ?? NOOP_UNREAD;
+}
+
+const NOOP_STORE: UnreadStore = { get: () => NOOP_UNREAD, subscribe: () => () => {} };
+const noSubscribe = () => () => {};
+
+/**
+ * A stable function returning the current unread state. Unlike `useUnread()`
+ * the caller does not re-render when unread state changes, so call it at the
+ * moment the value is needed (event handlers, effects), never during render.
+ */
+export function useUnreadGetter(): () => UnreadContextValue {
+  return (useContext(UnreadStoreContext) ?? NOOP_STORE).get;
+}
+
+/**
+ * One primitive derived from the unread state; the caller re-renders only when
+ * it changes (not on every unread change like a `useUnread()` consumer).
+ */
+export function useUnreadSelector<T extends string | number | boolean | null>(select: (unread: UnreadContextValue) => T): T {
+  const store = useContext(UnreadStoreContext) ?? NOOP_STORE;
+  const snapshot = () => select(store.get());
+  return useSyncExternalStore(store.subscribe, snapshot, snapshot);
+}
+
+/**
+ * The unread state, live only while `enabled` (e.g. a dialog that is open):
+ * while disabled the caller doesn't re-render on unread changes, and reads
+ * the current state whenever it renders for another reason.
+ */
+export function useUnreadLive(enabled: boolean): UnreadContextValue {
+  const store = useContext(UnreadStoreContext) ?? NOOP_STORE;
+  return useSyncExternalStore(enabled ? store.subscribe : noSubscribe, store.get, store.get);
 }

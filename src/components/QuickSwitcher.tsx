@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { useServer, useServerMembersOptional } from "@/contexts/ServerContext";
-import { useUnread } from "@/contexts/UnreadContext";
+import { useUnreadLive } from "@/contexts/UnreadContext";
 import { onHotkey } from "@/lib/keybinds";
 import { cn, cdnImage } from "@/lib/utils";
 import { Hash, Server as ServerIcon, AtSign, Volume2, Megaphone, MessagesSquare, Users, User as UserIcon, Radio } from "lucide-react";
@@ -83,8 +83,9 @@ export function QuickSwitcher() {
   const { servers } = useServer();
   const membersCtx = useServerMembersOptional();
   const members = membersCtx?.members;
-  const { isChannelUnread, getMentionCount, isServerUnread, getServerMentionCount } = useUnread();
   const [open, setOpen] = useState(false);
+  // Always mounted (it owns the hotkey): unread changes only re-render it while open.
+  const { isChannelUnread, getMentionCount, isServerUnread, getServerMentionCount } = useUnreadLive(open);
   const [query, setQuery] = useState("");
   const [active, setActive] = useState(0);
   const [dms, setDms] = useState<DMChannel[]>([]);

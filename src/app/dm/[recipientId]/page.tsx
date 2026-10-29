@@ -6,8 +6,8 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useParams, useRouter, useSearchParams } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
-import { useUnread, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
-import { readMarkerMs } from "@/lib/chat/unreadMarker";
+import { useUnreadGetter, useUnreadSelector, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
+import { parseReadMarkerKey, readMarkerKey, readMarkerMs } from "@/lib/chat/unreadMarker";
 import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
 import { emitHotkey, onHotkey } from "@/lib/keybinds";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -147,7 +147,10 @@ export default function DMConversationPage() {
     },
   });
 
-  const { setActiveChannel, markChannelRead, markChannelUnread, getReadMarker, isChannelMuted } = useUnread();
+  // Unread actions are read when they run, and only this DM's marker / mute
+  // state is subscribed: `useUnread()` re-rendered the whole conversation for
+  // every message in any channel or DM.
+  const getUnread = useUnreadGetter();
   // The DM's channel id isn't in the route (which uses recipientId), so derive
   // it from loaded messages. Wire it into the unread engine so DM read state
   // persists to the DB and syncs across devices.
@@ -182,9 +185,10 @@ export default function DMConversationPage() {
 
   useEffect(() => {
     if (!dmChannelId) return;
-    setActiveChannel(dmChannelId);
-    return () => setActiveChannel(null);
-  }, [dmChannelId, setActiveChannel]);
+    const unread = getUnread();
+    unread.setActiveChannel(dmChannelId);
+    return () => unread.setActiveChannel(null);
+  }, [dmChannelId, getUnread]);
 
   // Read marker as it was when this DM was opened (red "NEW" line + unread
   // bar). The list acks the exact newest message once it's actually been seen
@@ -195,7 +199,8 @@ export default function DMConversationPage() {
     marker: null,
     acked: false,
   });
-  const liveMarker = dmChannelId ? getReadMarker(dmChannelId) : null;
+  const liveMarkerKey = useUnreadSelector((u) => (dmChannelId ? readMarkerKey(u.getReadMarker(dmChannelId)) : null));
+  const liveMarker = useMemo(() => parseReadMarkerKey(liveMarkerKey), [liveMarkerKey]);
   if (
     openMarker.channelId !== dmChannelId ||
     (!openMarker.acked && readMarkerMs(liveMarker) > readMarkerMs(openMarker.marker))
@@ -206,16 +211,16 @@ export default function DMConversationPage() {
     (message: { id: string; createdAt: string }) => {
       if (!dmChannelId) return;
       setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
-      markChannelRead(dmChannelId, message);
+      getUnread().markChannelRead(dmChannelId, message);
     },
-    [dmChannelId, markChannelRead],
+    [dmChannelId, getUnread],
   );
   const handleMarkRead = useCallback(() => {
     if (!dmChannelId) return;
     setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
-    markChannelRead(dmChannelId);
-  }, [dmChannelId, markChannelRead]);
-  const dmMuted = dmChannelId ? isChannelMuted(dmChannelId) : false;
+    getUnread().markChannelRead(dmChannelId);
+  }, [dmChannelId, getUnread]);
+  const dmMuted = useUnreadSelector((u) => (dmChannelId ? u.isChannelMuted(dmChannelId) : false));
 
   // Typed app commands with the bot in this DM (picker leaves; cached per channel).
   const dmAppCommands = useAppCommands(recipient?.isBot ? dmChannelId : null);
@@ -748,7 +753,7 @@ export default function DMConversationPage() {
           onReadUpTo={handleReadUpTo}
           onMarkRead={handleMarkRead}
           onMarkUnread={(plan) => {
-            if (dmChannelId) markChannelUnread(dmChannelId, plan);
+            if (dmChannelId) getUnread().markChannelUnread(dmChannelId, plan);
           }}
           onJumpToPresent={chat.returnToPresent}
         />
