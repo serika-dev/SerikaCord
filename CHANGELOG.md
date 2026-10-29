@@ -39,6 +39,7 @@
 - **Editing a message keeps its custom emoji** — the edit box now shows custom emoji as images instead of `<:name:id>` markup, saves them back unchanged, and emoji added in an edit show for everyone right away, in servers and DMs. (CORD-75)
 - **Emoji in reply previews** — the "Replying to" line above a reply and the reply bar above the message box now show custom and regular emoji as small images (an emoji-only message no longer turns huge in the preview); pinned messages and thread previews show emoji too.
 - **Copying emoji** — selecting and copying messages, replies or reactions now keeps the emoji: normal emoji as the emoji itself and server emoji as `:name:`, and pasting back into SerikaCord brings the server emoji back. Copy Text does the same, and right-clicking an emoji can copy it or its name (its ID with Developer Mode on).
+- **Linux desktop app no longer stays blank when its page process keeps crashing** — if the built-in browser engine is stopped before the app loads, the Linux app now restarts itself in a safer mode (seccomp filter off, then sandbox off, then software rendering) and remembers what worked until the next update; if nothing works it shows a message with Open in browser, Try again and Copy details instead of an empty window. Starting it with flags or environment variables now replaces an instance hidden in the tray instead of silently reusing it, and `--diagnostics` (or `SERIKACORD_DEBUG=1`) prints everything a bug report needs. (CORD-69)
 
 ### Performance
 

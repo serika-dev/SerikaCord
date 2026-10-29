@@ -90,6 +90,7 @@ desktop-QT/
     ├── AppSettings.*            # desktop preferences + window state (QSettings)
     ├── AutoStart.*              # start on login per OS
     ├── MainWindow.*             # web view, profile, permissions, tray, downloads, updates
+    ├── RenderSafeMode.*         # Chromium flags, renderer-crash fallback modes, --diagnostics
     ├── InjectedScripts.h        # page scripts (marker, channel init, shortcuts, polyfills)
     ├── WebBridge.*              # QWebChannel object
     ├── NotificationManager.*    # native notifications
@@ -134,7 +135,27 @@ cmake --build build --parallel
 ```
 
 Flags: `--app-url <url>`, `--start-minimized`, `--autostart` (set by the login
-entry), and an optional link (`serika://invite/abc`).
+entry), `--diagnostics`, and an optional link (`serika://invite/abc`). Unknown
+`--switches` (e.g. `--no-sandbox`) are passed on to Chromium.
+
+### Blank window / renderer crashes (Linux)
+
+If the page renderer dies before the app has loaded (e.g. the bundled Qt
+WebEngine's seccomp filter killing it with SIGSYS on a newer distro, CORD-69),
+the app restarts itself one step safer and remembers the step until the next
+version: `1` seccomp filter off, `2` sandbox off, `3` sandbox off + software
+rendering. If step 3 fails too, the window shows a message with *Open in
+browser* / *Try again* / *Copy details* instead of a blank page.
+
+- `--diagnostics` or `SERIKACORD_DEBUG=1`: print Qt/WebEngine paths, bundled
+  resources, environment, the effective Chromium flags and every renderer exit
+  (signal, core dump) to stderr, plus Chromium's own log.
+- `SERIKA_RENDER_MODE=0..3` pins a step; `SERIKA_DISABLE_SECCOMP=1` is at least
+  step 1. `QTWEBENGINE_CHROMIUM_FLAGS` is appended after the app's own flags.
+- Flags and environment variables only apply when the app starts. A launch
+  that sets different ones replaces a running instance (one hidden in the tray
+  would otherwise just be shown again); older versions must be quit from the
+  tray first.
 
 ### Spellcheck dictionaries
 

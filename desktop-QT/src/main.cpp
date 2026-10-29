@@ -10,7 +10,7 @@
 #include <QFileOpenEvent>
 #include <QIcon>
 #include <QLocalSocket>
-#include <QSettings>
+#include <QThread>
 #include <QTimer>
 #include <QUrl>
 
@@ -20,6 +20,7 @@
 #include "DeepLinkHandler.h"
 #include "KeyState.h"
 #include "MainWindow.h"
+#include "RenderSafeMode.h"
 #include "SingleInstance.h"
 #include "Updater.h"
 #include "UpdaterWindow.h"
@@ -31,37 +32,8 @@
 namespace {
 const char *INSTANCE_KEY = "serikacord-desktop-qt-single-instance";
 const char *SHOW_MESSAGE = "serika:show";
-
-// Chromium flags must be set before QApplication exists, so the hardware
-// acceleration preference is read straight from QSettings here.
-void setupChromiumFlags() {
-    QSettings prefs(QSettings::NativeFormat, QSettings::UserScope,
-                    QStringLiteral("SerikaCord"), QStringLiteral("SerikaCord"));
-    const bool gpu = prefs.value(QStringLiteral("prefs/hardwareAcceleration"), true).toBool();
-    QByteArray flags =
-        "--enable-smooth-scrolling "
-        "--enable-features=OverlayScrollbar "
-        // Keep timers/rendering alive while hidden in the tray, so calls,
-        // notifications and presence keep working like Discord's client.
-        "--disable-background-timer-throttling "
-        "--disable-renderer-backgrounding "
-        "--disable-backgrounding-occluded-windows "
-        "--disable-features=BackForwardCache ";
-    flags += gpu ? "--enable-gpu-rasterization" : "--disable-gpu --disable-gpu-compositing";
-#if defined(Q_OS_LINUX)
-    // The bundled QtWebEngine's seccomp filter can predate the host's glibc
-    // and kernel, which then kill every page renderer with SIGSYS: a blank
-    // window (CORD-69). MainWindow turns this on after such a crash; the
-    // namespace sandbox stays on. SERIKA_DISABLE_SECCOMP=1 forces it.
-    if (prefs.value(QStringLiteral("linux/seccompFallback"), false).toBool()
-        || qEnvironmentVariableIntValue("SERIKA_DISABLE_SECCOMP") == 1) {
-        flags += " --disable-seccomp-filter-sandbox";
-    }
-#endif
-    const QByteArray existing = qgetenv("QTWEBENGINE_CHROMIUM_FLAGS");
-    if (!existing.isEmpty()) flags = existing + ' ' + flags;
-    qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
-}
+// Sent by a launch with different overrides (flags, env): exit so it can start.
+const char *QUIT_MESSAGE = "serika:quit";
 
 // macOS delivers serika:// links (and dock re-opens) as application events.
 class AppEventFilter : public QObject {
@@ -91,7 +63,8 @@ private:
 } // namespace
 
 int main(int argc, char *argv[]) {
-    setupChromiumFlags();
+    // Chromium flags and the render safe mode must be set before QApplication.
+    RenderSafeMode::configure(argc, argv);
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
     QApplication app(argc, argv);
@@ -113,7 +86,11 @@ int main(int argc, char *argv[]) {
                                  QStringLiteral("Load the app from this URL (development)."), QStringLiteral("url"));
     parser.addOption(autostartOpt);
     parser.addOption(minimizedOpt);
+    QCommandLineOption diagnosticsOpt(QStringLiteral("diagnostics"),
+        QStringLiteral("Print Qt WebEngine paths, environment, Chromium flags and page renderer exits to stderr "
+                       "(same as SERIKACORD_DEBUG=1)."));
     parser.addOption(appUrlOpt);
+    parser.addOption(diagnosticsOpt);
     parser.addPositionalArgument(QStringLiteral("link"), QStringLiteral("Optional serika:// link to open"));
     // parse(), not process(): process() exits on unknown options, which
     // swallowed Chromium switches like --no-sandbox (QtWebEngine reads those
@@ -129,22 +106,51 @@ int main(int argc, char *argv[]) {
         if (DeepLinkHandler::isDeepLink(arg)) { launchLink = arg; break; }
     }
 
+    if (RenderSafeMode::diagnostics()) RenderSafeMode::printReport();
+
     // ── Single instance: hand the link to the running app and exit ───────
+    // A process relaunched in a safer render mode waits for its predecessor.
+    RenderSafeMode::waitForPreviousInstance();
+    const QString overrides = RenderSafeMode::overridesFingerprint(parser.unknownOptionNames());
     SingleInstance single(QString::fromLatin1(INSTANCE_KEY));
     if (!single.tryLock()) {
+        // Flags and environment variables only reach Chromium when it starts,
+        // so a launch that sets different ones replaces the running instance
+        // instead of just showing it (CORD-69: a blank instance kept in the
+        // tray swallowed every retry with QTWEBENGINE_DISABLE_SANDBOX=1).
+        const bool replace = !overrides.isEmpty() && overrides != RenderSafeMode::runningFingerprint();
         QLocalSocket socket;
         socket.connectToServer(QString::fromLatin1(INSTANCE_KEY));
         if (socket.waitForConnected(1000)) {
             // A second login-time launch shouldn't pop the window up.
-            const QString msg = !launchLink.isEmpty() ? launchLink
+            const QString msg = replace ? QString::fromLatin1(QUIT_MESSAGE)
+                : !launchLink.isEmpty() ? launchLink
                 : parser.isSet(autostartOpt) ? QString() : QString::fromLatin1(SHOW_MESSAGE);
             socket.write(msg.toUtf8());
             socket.flush();
             socket.waitForBytesWritten(1000);
             socket.disconnectFromServer();
         }
-        return 0;
+        bool locked = false;
+        if (replace) {
+            RenderSafeMode::log(QStringLiteral("restarting the running instance so the new flags/environment apply"));
+            for (int i = 0; i < 60 && !locked; ++i) {
+                QThread::msleep(250);
+                locked = single.tryLock();
+            }
+            if (!locked) {
+                RenderSafeMode::log(QStringLiteral("SerikaCord is still running (an older version ignores the restart "
+                                                   "request). Quit it from its tray icon, or run `pkill -x SerikaCord`, "
+                                                   "then start it again."));
+            }
+        } else {
+            RenderSafeMode::log(QStringLiteral("already running: showing that window. Flags and "
+                                               "environment variables only apply when it starts; quit it from the "
+                                               "tray icon first to use them."));
+        }
+        if (!locked) return 0;
     }
+    RenderSafeMode::rememberRunningFingerprint(overrides);
 
     AppSettings settings;
     // Keep the OS login entry in sync with the preference (the binary may
@@ -164,7 +170,9 @@ int main(int argc, char *argv[]) {
     QObject::connect(&single, &SingleInstance::anotherInstanceStarted, &mainWindow,
                      [&mainWindow, &deepLinks](const QString &msg) {
         if (msg.isEmpty()) return;
-        if (msg == QLatin1String(SHOW_MESSAGE)) {
+        if (msg == QLatin1String(QUIT_MESSAGE)) {
+            mainWindow.quitApp();
+        } else if (msg == QLatin1String(SHOW_MESSAGE)) {
             mainWindow.returnToAppIfAway();
             mainWindow.showAndFocus();
         } else if (!deepLinks.handleLink(msg)) {

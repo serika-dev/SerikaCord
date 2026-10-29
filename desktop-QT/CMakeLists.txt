@@ -47,6 +47,7 @@ set(SOURCES
     src/KeyState.cpp
     src/IdleMonitor.cpp
     src/ScreenPicker.cpp
+    src/RenderSafeMode.cpp
 )
 
 set(HEADERS
@@ -69,6 +70,7 @@ set(HEADERS
     src/KeyState.h
     src/IdleMonitor.h
     src/ScreenPicker.h
+    src/RenderSafeMode.h
 )
 
 set(RESOURCES

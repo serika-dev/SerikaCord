@@ -9,6 +9,7 @@
 #include "InjectedScripts.h"
 #include "NotificationManager.h"
 #include "PresenceDetector.h"
+#include "RenderSafeMode.h"
 #include "ScreenPicker.h"
 #include "SerikaWebPage.h"
 #include "SerikaWebView.h"
@@ -18,25 +19,28 @@
 #include "qwebchannel_js.h"
 
 #include <QApplication>
+#include <QClipboard>
 #include <QCloseEvent>
 #include <QDesktopServices>
 #include <QDir>
+#include <QElapsedTimer>
 #include <QFileDialog>
 #include <QFileInfo>
 #include <QGuiApplication>
+#include <QHBoxLayout>
 #include <QJsonDocument>
 #include <QKeyEvent>
+#include <QLabel>
 #include <QLibraryInfo>
 #include <QLocale>
 #include <QMessageBox>
 #include <QPushButton>
 #include <QScreen>
 #include <QSettings>
-#include <csignal>
-#include <memory>
-#include <QTimer>
-#include <QProcess>
+#include <QStackedWidget>
 #include <QStandardPaths>
+#include <QTimer>
+#include <QVBoxLayout>
 #include <QWebChannel>
 #include <QWebEngineDownloadRequest>
 #include <QWebEngineFullScreenRequest>
@@ -46,6 +50,8 @@
 #include <QWebEngineScriptCollection>
 #include <QWebEngineSettings>
 #include <QWindow>
+
+#include <memory>
 
 #if QT_VERSION >= QT_VERSION_CHECK(6, 8, 0)
 #include <QWebEnginePermission>
@@ -143,9 +149,7 @@ MainWindow::MainWindow(AppSettings *settings, QWidget *parent)
     // Paint the app's dark background instead of a white flash while loading.
     m_page->setBackgroundColor(WINDOW_BG);
     m_view->setPage(m_page);
-#if defined(Q_OS_LINUX)
     setupRendererCrashRecovery();
-#endif
 
     auto *s = m_page->settings();
     s->setAttribute(QWebEngineSettings::JavascriptEnabled, true);
@@ -164,7 +168,9 @@ MainWindow::MainWindow(AppSettings *settings, QWidget *parent)
     setupPermissions();
 
     m_view->setContentsMargins(0, 0, 0, 0);
-    setCentralWidget(m_view);
+    m_stack = new QStackedWidget(this);
+    m_stack->addWidget(m_view);
+    setCentralWidget(m_stack);
     m_view->setFocus();
 
     m_channel->registerObject(QStringLiteral("webBridge"), m_webBridge);
@@ -493,42 +499,142 @@ void MainWindow::showAndFocus() {
     if (QWindow *w = windowHandle()) w->requestActivate();
 }
 
-#if defined(Q_OS_LINUX)
-// A renderer killed by the seccomp filter (SIGSYS) leaves a blank window
-// forever (CORD-69): the bundled QtWebEngine's syscall allow-list predates
-// newer glibc / kernels. On such a crash, or any renderer crash before the
-// app ever loaded, remember to start Chromium without the seccomp filter
-// (main.cpp) and relaunch once. Later crashes just reload the page.
+// A page renderer that dies leaves a blank window (CORD-69: the bundled
+// QtWebEngine's seccomp filter kills it with SIGSYS on new distros). Early in
+// a session RenderSafeMode moves to the next safer render mode and the app
+// restarts in it; a crash after the app had been working reloads the page.
+// When nothing helps, a native message replaces the blank page.
 void MainWindow::setupRendererCrashRecovery() {
-    auto everLoaded = std::make_shared<bool>(false);
-    connect(m_page, &QWebEnginePage::loadFinished, this, [everLoaded](bool ok) {
-        if (ok) *everLoaded = true;
+    struct LoadState {
+        bool everLoaded = false;
+        QElapsedTimer sinceFirstLoad;
+    };
+    auto state = std::make_shared<LoadState>();
+    if (RenderSafeMode::diagnostics()) {
+        connect(m_page, &QWebEnginePage::loadStarted, this, [this]() {
+            RenderSafeMode::debug(QStringLiteral("load started: %1").arg(m_page->requestedUrl().toString()));
+        });
+    }
+    connect(m_page, &QWebEnginePage::loadFinished, this, [this, state](bool ok) {
+        RenderSafeMode::debug(QStringLiteral("load finished (%1): %2")
+                                  .arg(ok ? QStringLiteral("ok") : QStringLiteral("failed"), m_page->url().toString()));
+        if (ok && !state->everLoaded) {
+            state->everLoaded = true;
+            state->sinceFirstLoad.start();
+        }
     });
     connect(m_page, &QWebEnginePage::renderProcessTerminated, this,
-            [this, everLoaded](QWebEnginePage::RenderProcessTerminationStatus status, int exitCode) {
-        if (status == QWebEnginePage::NormalTerminationStatus) return;
-        qWarning("SerikaCord: renderer terminated (status %d, code %d)", int(status), exitCode);
-        QSettings prefs(QSettings::NativeFormat, QSettings::UserScope,
-                        QStringLiteral("SerikaCord"), QStringLiteral("SerikaCord"));
-        const QString key = QStringLiteral("linux/seccompFallback");
-        const bool seccompKill = exitCode == SIGSYS;
-        if ((seccompKill || !*everLoaded) && !prefs.value(key, false).toBool()) {
-            prefs.setValue(key, true);
-            prefs.sync();
-            // Relaunch after this instance exits (it holds the single-instance lock).
-            const QString appImage = qEnvironmentVariable("APPIMAGE");
-            const QString program = appImage.isEmpty() ? QCoreApplication::applicationFilePath() : appImage;
-            QStringList args{QStringLiteral("-c"), QStringLiteral("sleep 1; exec \"$0\" \"$@\""), program};
-            args += QCoreApplication::arguments().mid(1);
-            if (QProcess::startDetached(QStringLiteral("/bin/sh"), args)) {
-                QCoreApplication::quit();
+            [this, state](QWebEnginePage::RenderProcessTerminationStatus status, int exitCode) {
+        if (m_renderFailure && m_stack->currentWidget() == m_renderFailure) return; // already gave up
+        // A renderer killed right after the first load (e.g. when the app's
+        // scripts start their workers) counts as never having worked.
+        const bool early = !state->everLoaded || state->sinceFirstLoad.elapsed() < 20000;
+        switch (RenderSafeMode::onRendererTerminated(int(status), exitCode, early)) {
+        case RenderSafeMode::Action::Ignore:
+            return;
+        case RenderSafeMode::Action::Relaunch:
+            if (RenderSafeMode::relaunch(false)) {
+                quitApp();
                 return;
             }
+            showRenderFailure();
+            return;
+        case RenderSafeMode::Action::GiveUp:
+            showRenderFailure();
+            return;
+        case RenderSafeMode::Action::Reload:
+            QTimer::singleShot(1500, m_view, [this]() { m_view->reload(); });
+            return;
         }
-        QTimer::singleShot(1500, m_view, [this]() { m_view->reload(); });
     });
 }
-#endif
+
+void MainWindow::showRenderFailure() {
+    if (!m_renderFailure) {
+        auto *panel = new QWidget(m_stack);
+        panel->setAutoFillBackground(true);
+        QPalette pal = panel->palette();
+        pal.setColor(QPalette::Window, WINDOW_BG);
+        pal.setColor(QPalette::WindowText, QColor(0xe6, 0xe8, 0xee));
+        panel->setPalette(pal);
+
+        auto *title = new QLabel(tr("SerikaCord can't display the app on this system"), panel);
+        QFont titleFont = title->font();
+        titleFont.setPointSizeF(titleFont.pointSizeF() * 1.4);
+        titleFont.setBold(true);
+        title->setFont(titleFont);
+        title->setAlignment(Qt::AlignCenter);
+        title->setWordWrap(true);
+
+        auto *body = new QLabel(tr("The built-in browser engine keeps stopping before the app can load, even in "
+                                   "the safest mode. You can keep using SerikaCord in your web browser.\n\n"
+                                   "To help us fix it, start SerikaCord from a terminal with --diagnostics and "
+                                   "attach the output to your bug report, or use \"Copy details\"."),
+                                panel);
+        body->setAlignment(Qt::AlignCenter);
+        body->setWordWrap(true);
+        body->setMaximumWidth(560);
+        body->setTextInteractionFlags(Qt::TextSelectableByMouse);
+
+        auto *detail = new QLabel(panel);
+        detail->setObjectName(QStringLiteral("renderFailureDetail"));
+        detail->setAlignment(Qt::AlignCenter);
+        detail->setWordWrap(true);
+        detail->setMaximumWidth(560);
+        detail->setTextInteractionFlags(Qt::TextSelectableByMouse);
+        QPalette detailPal = detail->palette();
+        detailPal.setColor(QPalette::WindowText, QColor(0x9a, 0xa0, 0xad));
+        detail->setPalette(detailPal);
+
+        auto *openBrowser = new QPushButton(tr("Open in browser"), panel);
+        openBrowser->setDefault(true);
+        auto *retry = new QPushButton(tr("Try again"), panel);
+        auto *copy = new QPushButton(tr("Copy details"), panel);
+        auto *quit = new QPushButton(tr("Quit"), panel);
+        connect(openBrowser, &QPushButton::clicked, this, []() {
+            QDesktopServices::openUrl(QUrl(SerikaConfig::appUrl() + QString::fromLatin1(SerikaConfig::START_PATH)));
+        });
+        connect(retry, &QPushButton::clicked, this, [this]() {
+            // From the full sandbox again: the next crash walks down the modes.
+            if (RenderSafeMode::relaunch(true)) quitApp();
+        });
+        connect(copy, &QPushButton::clicked, this, []() {
+            QGuiApplication::clipboard()->setText(RenderSafeMode::report());
+        });
+        connect(quit, &QPushButton::clicked, this, &MainWindow::quitApp);
+
+        auto *buttons = new QHBoxLayout;
+        buttons->addStretch();
+        buttons->addWidget(openBrowser);
+        buttons->addWidget(retry);
+        buttons->addWidget(copy);
+        buttons->addWidget(quit);
+        buttons->addStretch();
+
+        auto *layout = new QVBoxLayout(panel);
+        layout->setContentsMargins(32, 32, 32, 32);
+        layout->setSpacing(16);
+        layout->addStretch();
+        layout->addWidget(title, 0, Qt::AlignHCenter);
+        layout->addWidget(body, 0, Qt::AlignHCenter);
+        layout->addWidget(detail, 0, Qt::AlignHCenter);
+        layout->addLayout(buttons);
+        layout->addStretch();
+
+        m_stack->addWidget(panel);
+        m_renderFailure = panel;
+    }
+    if (auto *detail = m_renderFailure->findChild<QLabel *>(QStringLiteral("renderFailureDetail"))) {
+        detail->setText(tr("Last error: %1 (render mode %2: %3)")
+                            .arg(RenderSafeMode::lastFailure())
+                            .arg(RenderSafeMode::level())
+                            .arg(RenderSafeMode::levelName(RenderSafeMode::level())));
+    }
+    RenderSafeMode::log(QStringLiteral("giving up on the page renderer; showing the fallback message"));
+    m_page->triggerAction(QWebEnginePage::Stop);
+    m_stack->setCurrentWidget(m_renderFailure);
+    showAndFocus();
+}
 
 void MainWindow::returnToAppIfAway() {
     // Relaunching the app while the window sits on an outside page (an

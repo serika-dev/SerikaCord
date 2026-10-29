@@ -15,6 +15,7 @@ class GlobalShortcuts;
 class IdleMonitor;
 class NotificationManager;
 class PresenceDetector;
+class QStackedWidget;
 class QWebChannel;
 class QWebEngineDownloadRequest;
 class QWebEngineProfile;
@@ -51,6 +52,7 @@ public:
     void restoreWindowState();
 
     WebBridge *webBridge() const { return m_webBridge; }
+    void quitApp();
 
 protected:
     void closeEvent(QCloseEvent *event) override;
@@ -66,9 +68,9 @@ private slots:
     void saveWindowState();
 
 private:
-#if defined(Q_OS_LINUX)
     void setupRendererCrashRecovery();
-#endif
+    // Shown instead of a blank page when the page renderer can't run.
+    void showRenderFailure();
     void setupProfile();
     void setupScripts();
     void setupPermissions();
@@ -78,10 +80,11 @@ private:
     void navigateInApp(const QString &pathAndQuery);
     void setUpdateState(const QString &state, const QString &version = QString(), int percent = -1);
     QString desktopMarkerScript() const;
-    void quitApp();
 
     AppSettings *m_settings;
     SerikaWebView *m_view;
+    QStackedWidget *m_stack{nullptr};
+    QWidget *m_renderFailure{nullptr};
     QWebEngineProfile *m_profile{nullptr};
     SerikaWebPage *m_page{nullptr};
     QWebChannel *m_channel;

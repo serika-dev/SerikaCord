@@ -104,6 +104,22 @@ jobs:
           # libcrypto next to the system libssl breaks Qt's TLS backend.
           ( cd AppDir/usr/lib && rm -f libnss3.so libnssutil3.so libsmime3.so libnspr4.so libplc4.so libplds4.so \
               libsoftokn3.so libfreebl3.so libfreeblpriv3.so libssl.so.3 libcrypto.so.3 )
+          # The GPU stack (libGL/EGL/drm/gbm, Mesa) always comes from the host,
+          # so its helper libraries must too: the build host's libwayland-server
+          # (libgbm's) and libxshmfence (Mesa's DRI3 fences) would otherwise be
+          # loaded first and shadow the newer ones the host's Mesa was built
+          # against (CORD-69: Arch + Intel).
+          ( cd AppDir/usr/lib && rm -f libwayland-server.so.0 libxshmfence.so.1 )
+          # Fail the build if anything that has to match the host kernel, glibc
+          # or GPU driver got bundled.
+          FORBIDDEN=$(cd AppDir/usr/lib && ls | grep -E '^(libGL|libEGL|libGLX|libGLdispatch|libOpenGL|libdrm|libgbm|libvulkan|libwayland-|libX11|libxcb\.so|libxcb-dri|libxshmfence|libstdc\+\+|libgcc_s|libc\.so|libm\.so|libpthread|libdl\.so|librt\.so|ld-linux|libasound|libfontconfig|libfreetype|libnss3|libssl|libcrypto)' || true)
+          if [ -n "$FORBIDDEN" ]; then echo "Host-only libraries bundled in the AppImage:"; echo "$FORBIDDEN"; exit 1; fi
+          echo "Bundled libraries:"; ls AppDir/usr/lib
+          # Qt WebEngine's helper, resources and locales must be where qt.conf points.
+          for f in usr/libexec/QtWebEngineProcess usr/resources/icudtl.dat usr/resources/qtwebengine_resources.pak \
+                   usr/translations/qtwebengine_locales/en-US.pak; do
+            test -e "AppDir/$f" || { echo "Missing in AppDir: $f"; exit 1; }
+          done
           wget -q https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool-x86_64.AppImage
           ARCH=x86_64 ./appimagetool-x86_64.AppImage AppDir "SerikaCord-${VERSION}-qt.AppImage"
@@ -129,7 +145,7 @@ jobs:
           Architecture: amd64
           Maintainer: SerikaCord <dev@serika.chat>
           Description: SerikaCord desktop app
-          Depends: libnss3, libssl3 | libssl3t64, libxkbcommon-x11-0, libxcb-cursor0, libgl1, libasound2 | libasound2t64
+          Depends: libnss3, libssl3 | libssl3t64, libxkbcommon-x11-0, libxcb-cursor0, libgl1, libgbm1, libxshmfence1, libasound2 | libasound2t64
           EOF
           sed -i 's/^          //' "$PKG/DEBIAN/control"
           dpkg-deb --root-owner-group --build "$PKG"
