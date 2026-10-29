@@ -81,7 +81,15 @@ export function MessageReactions({
                 )}
               >
                 {reaction.emoji.url ? (
-                  <img src={cdnImage(reaction.emoji.url)} alt={reaction.emoji.name} className="w-4 h-4 object-contain" />
+                  <img
+                    src={cdnImage(reaction.emoji.url)}
+                    alt={`:${reaction.emoji.name}:`}
+                    className="w-4 h-4 object-contain"
+                    data-emoji-id={reaction.emoji.id || undefined}
+                    data-emoji-name={reaction.emoji.id ? reaction.emoji.name : undefined}
+                    data-emoji-url={reaction.emoji.id ? reaction.emoji.url : undefined}
+                    data-emoji-animated={reaction.emoji.animated ? "true" : undefined}
+                  />
                 ) : (
                   <span className="leading-none">{reaction.emoji.name}</span>
                 )}

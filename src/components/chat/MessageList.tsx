@@ -30,6 +30,7 @@ import {
   type UnreadDivider as UnreadDividerInfo,
 } from "@/lib/chat/unreadMarker";
 import { onHotkey } from "@/lib/keybinds";
+import { installEmojiCopyHandler } from "@/lib/chat/emojiClipboardDom";
 import { isUserAttending, setListAtBottom, subscribeAttention } from "@/lib/unread/attentionTracker";
 import { cn } from "@/lib/utils";
 import { MessageGroup } from "@/components/chat/MessageGroup";
@@ -709,6 +710,10 @@ function MessageListInner<M extends ChatMessage>(
     if (scroller) ro.observe(scroller);
     return () => ro.disconnect();
   }, [tryAck]);
+
+  // Copying selected messages keeps emoji shown as images: Unicode emoji as
+  // characters, custom emoji as `:name:` (their token in the HTML).
+  useEffect(() => installEmojiCopyHandler(), []);
 
   // Detect if new groups were appended at the bottom (vs prepended at top).
   // Used to apply slide-in animation to newly arrived messages.

@@ -1468,7 +1468,8 @@ export function useChatSession<M extends ChatMessage>({
         composer.insertTextAtCaret(emoji);
       }
       signalTyping(composer.getText());
-      composer.focus();
+      // Keep the caret right after the inserted emoji (focus() would jump to the end).
+      composer.restoreFocus();
     },
     [messageBarRef, signalTyping]
   );

@@ -75,6 +75,11 @@ export const MentionText = memo(function MentionText({ text, users, roles, forma
             title={`:${s.name}:`}
             draggable={false}
             className={EMOJI_CLASS}
+            // Copying the preview keeps the emoji (lib/chat/emojiClipboard).
+            data-emoji-id={s.id}
+            data-emoji-name={s.name}
+            data-emoji-url={url}
+            data-emoji-animated={s.animated ? "true" : undefined}
           />
         );
       })}

@@ -62,6 +62,8 @@ interface EmojiPickerProps {
   availableServerStickers?: StickerItem[]; // All server stickers the user has access to
   serverId?: string;
   initialTab?: TabType;
+  /** Emoji only: no GIF / sticker tabs (the message edit box). */
+  emojiOnly?: boolean;
 }
 
 // Category icons using Lucide React icons
@@ -260,6 +262,7 @@ export function CustomEmojiPicker({
   availableServerStickers = EMPTY_STICKERS,
   serverId,
   initialTab = "emoji",
+  emojiOnly = false,
 }: EmojiPickerProps) {
   const gt = useGT();
   const router = useRouter();
@@ -720,6 +723,7 @@ export function CustomEmojiPicker({
   return (
     <div className={cn("w-full max-w-[440px] bg-[var(--bg-card)] rounded-lg border border-[var(--border-subtle)] flex flex-col shadow-2xl overflow-hidden", className)}>
       {/* Top Tabs - GIFs, Stickers, Emoji */}
+      {!emojiOnly && (
       <div className="flex border-b border-[var(--border-subtle)]">
         <button
           onClick={() => setActiveTab("gifs")}
@@ -758,9 +762,10 @@ export function CustomEmojiPicker({
           {gt("Emoji")}
         </button>
       </div>
+      )}
 
       {/* Content based on tab */}
-      {activeTab === "gifs" ? (
+      {activeTab === "gifs" && !emojiOnly ? (
         // flex-none: flex-1's 0% basis can't resolve against this auto-height
         // column, which made the GIF list grow unboundedly with no scroll
         <div className="flex-none h-[440px] max-h-[60dvh] min-h-0">
@@ -769,7 +774,7 @@ export function CustomEmojiPicker({
             className="w-full h-full rounded-none border-none"
           />
         </div>
-      ) : activeTab === "stickers" ? (
+      ) : activeTab === "stickers" && !emojiOnly ? (
         <div className="flex-none h-[440px] max-h-[60dvh] min-h-0 flex flex-col">
           {/* Sticker Search Bar */}
           {stickers.length > 0 && (

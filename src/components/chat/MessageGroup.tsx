@@ -304,6 +304,10 @@ function MessageGroupInner<M extends ChatMessage>({
                     onCancel={onEditCancel}
                     onSave={onEditSave}
                     emojis={mergeEmojiLookups(message.customEmojis, serverEmojis)}
+                    serverId={serverId}
+                    serverName={serverName}
+                    serverEmojis={serverEmojis}
+                    availableServerEmojis={availableServerEmojis}
                   />
                 ) : (
                   <>

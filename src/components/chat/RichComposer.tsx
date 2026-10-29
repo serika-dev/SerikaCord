@@ -13,6 +13,8 @@ import { useGT } from "gt-next";
 import { isTouchOnlyInput, useTouchOnlyInput } from "@/hooks/useVisualViewport";
 import { shouldInsertDoubleSpacePeriod } from "@/lib/chat/doubleSpacePeriod";
 import { customEmojiTokenRegex, isValidCustomEmojiName, normalizeCustomEmojiName } from "@/lib/chat/customEmoji";
+import { splitPastedText, type ClipSegment } from "@/lib/chat/emojiClipboard";
+import { htmlToClipSegments, selectionPayloadWithin } from "@/lib/chat/emojiClipboardDom";
 
 export interface ComposerEmoji {
   id: string;
@@ -31,6 +33,8 @@ export interface ComposerMention {
 
 export interface RichComposerHandle {
   focus: () => void;
+  /** Focus without moving the caret: back where it was before focus left (e.g. to the emoji picker). */
+  restoreFocus: () => void;
   clear: () => void;
   getText: () => string;
   getCaret: () => number;
@@ -62,6 +66,8 @@ interface RichComposerProps {
   onKeyDown?: (e: React.KeyboardEvent) => void;
   /** Smaller box without the main composer's button gutters (message edit). */
   compact?: boolean;
+  /** Image URL of a custom emoji by id: pasted `<:name:id>` tokens show as the emoji. */
+  resolveEmojiUrl?: (id: string) => string | undefined;
 }
 
 function emojiToken(emoji: ComposerEmoji): string {
@@ -138,7 +144,7 @@ function nodeTokenLength(node: Node): number {
  */
 export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
   function RichComposer(
-    { placeholder, disabled = false, className, "aria-label": ariaLabel, onChange, onCaretMove, onKeyDown, compact = false },
+    { placeholder, disabled = false, className, "aria-label": ariaLabel, onChange, onCaretMove, onKeyDown, compact = false, resolveEmojiUrl },
     ref
   ) {
     const gt = useGT();
@@ -296,27 +302,74 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
 
     // ----- Imperative editing helpers ---------------------------------------
 
+    // The last caret / selection inside the editor, so a picker (which takes
+    // focus) inserts where the caret was instead of at the start.
+    const savedRangeRef = useRef<Range | null>(null);
+    useEffect(() => {
+      const onSelectionChange = () => {
+        const editor = editorRef.current;
+        const selection = window.getSelection();
+        if (!editor || !selection || selection.rangeCount === 0) return;
+        const range = selection.getRangeAt(0);
+        if (editor.contains(range.startContainer) && editor.contains(range.endContainer)) {
+          savedRangeRef.current = range.cloneRange();
+        }
+      };
+      document.addEventListener("selectionchange", onSelectionChange);
+      return () => document.removeEventListener("selectionchange", onSelectionChange);
+    }, []);
+
+    /** The live selection when it's in the editor, else the saved one, else the end. */
+    const caretRange = useCallback((): Range | null => {
+      const editor = editorRef.current;
+      if (!editor) return null;
+      const selection = window.getSelection();
+      if (selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).startContainer)) {
+        return selection.getRangeAt(0);
+      }
+      const saved = savedRangeRef.current;
+      if (saved && editor.contains(saved.startContainer) && editor.contains(saved.endContainer)) {
+        return saved.cloneRange();
+      }
+      const range = document.createRange();
+      range.selectNodeContents(editor);
+      range.collapse(false);
+      return range;
+    }, []);
+
     const insertNodeAtCaret = useCallback((node: Node) => {
       const editor = editorRef.current;
-      if (!editor) return;
+      // Read the caret before focusing: focus() can move it to the start.
+      const range = caretRange();
+      if (!editor || !range) return;
       editor.focus();
       const selection = window.getSelection();
-      let range: Range;
-      if (selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).startContainer)) {
-        range = selection.getRangeAt(0);
-        range.deleteContents();
-      } else {
-        range = document.createRange();
-        range.selectNodeContents(editor);
-        range.collapse(false);
-      }
+      range.deleteContents();
       range.insertNode(node);
       range.setStartAfter(node);
       range.collapse(true);
       selection?.removeAllRanges();
       selection?.addRange(range);
       emitChange();
-    }, [emitChange]);
+    }, [emitChange, caretRange]);
+
+    /** Text and custom emoji (as images when their URL is known) → DOM nodes. */
+    const segmentsToFragment = useCallback((segments: readonly ClipSegment[]): DocumentFragment => {
+      const fragment = document.createDocumentFragment();
+      for (const seg of segments) {
+        if (seg.kind === "text") {
+          if (seg.text) fragment.appendChild(document.createTextNode(seg.text));
+          continue;
+        }
+        const url = resolveEmojiUrl?.(seg.id) || (seg.url && /^https?:\/\//i.test(seg.url) ? seg.url : undefined);
+        fragment.appendChild(
+          url
+            ? makeEmojiImg({ id: seg.id, name: seg.name, animated: seg.animated, url })
+            : document.createTextNode(emojiToken({ id: seg.id, name: seg.name, animated: seg.animated, url: "" })),
+        );
+      }
+      return fragment;
+    }, [resolveEmojiUrl]);
 
     const domReplaceRange = useCallback((start: number, end: number, node: Node) => {
       const editor = editorRef.current;
@@ -378,6 +431,17 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
           selection.addRange(range);
         }
       },
+      restoreFocus: () => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        const range = caretRange();
+        editor.focus();
+        const selection = window.getSelection();
+        if (range && selection) {
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+      },
       clear: () => {
         if (editorRef.current) {
           editorRef.current.innerHTML = "";
@@ -431,7 +495,7 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         }
         emitChange();
       },
-    }), [serialize, getCaret, insertNodeAtCaret, domReplaceRange, onChange, emitChange]);
+    }), [serialize, getCaret, insertNodeAtCaret, domReplaceRange, onChange, emitChange, caretRange]);
 
     // ----- Event handlers ----------------------------------------------------
 
@@ -451,22 +515,47 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
           (dt.items && Array.from(dt.items).some((item) => item.kind === "file"));
         if (hasFiles) return; // let MessageBar's onPaste handle the files
       }
-      // Plain text only — no pasted markup
+      // Plain text only — no pasted markup. Custom emoji come back as images:
+      // from SerikaCord's own clipboard HTML (copied messages / emoji keep
+      // their `<:name:id>` token) or from tokens in the plain text.
       e.preventDefault();
-      const text = e.clipboardData.getData("text/plain");
-      if (!text) return;
+      const segments =
+        htmlToClipSegments(e.clipboardData.getData("text/html")) ??
+        splitPastedText(e.clipboardData.getData("text/plain"));
+      if (segments.length === 0) return;
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) return;
       const range = selection.getRangeAt(0);
       range.deleteContents();
-      const node = document.createTextNode(text);
-      range.insertNode(node);
-      range.setStartAfter(node);
+      const fragment = segmentsToFragment(segments);
+      const last = fragment.lastChild;
+      if (!last) return;
+      range.insertNode(fragment);
+      range.setStartAfter(last);
       range.collapse(true);
       selection.removeAllRanges();
       selection.addRange(range);
       emitChange();
-    }, [emitChange]);
+    }, [emitChange, segmentsToFragment]);
+
+    // Copy / cut with custom emoji selected: `:name:` as text, the token in
+    // the HTML so pasting here brings the emoji back.
+    const handleCopyOrCut = useCallback((e: React.ClipboardEvent, cut: boolean) => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      const payload = selectionPayloadWithin(editor, { editable: true });
+      if (!payload) return; // nothing special: the browser's copy is right
+      e.preventDefault();
+      e.clipboardData.setData("text/plain", payload.text);
+      e.clipboardData.setData("text/html", payload.html);
+      if (cut && !disabled) {
+        const selection = window.getSelection();
+        if (selection && selection.rangeCount > 0) selection.getRangeAt(0).deleteContents();
+        emitChange();
+      }
+    }, [disabled, emitChange]);
+    const handleCopy = useCallback((e: React.ClipboardEvent) => handleCopyOrCut(e, false), [handleCopyOrCut]);
+    const handleCut = useCallback((e: React.ClipboardEvent) => handleCopyOrCut(e, true), [handleCopyOrCut]);
 
     const lastKeyPreventedRef = useRef(false);
     // True while an IME composition (Japanese, Chinese, Korean...) is open.
@@ -542,6 +631,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
           spellCheck
           onInput={handleInput}
           onPaste={handlePaste}
+          onCopy={handleCopy}
+          onCut={handleCut}
           onKeyDown={handleKeyDownInternal}
           onCompositionStart={handleCompositionStart}
           onCompositionEnd={handleCompositionEnd}

@@ -1108,6 +1108,13 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       () => mergeEmojiLookups<{ id: string; url: string }>(replyTo?.customEmojis, customEmojiCandidates),
       [replyTo?.customEmojis, customEmojiCandidates],
     );
+    // Pasted `<:name:id>` tokens show as the emoji when we know its image.
+    const pasteEmojiUrls = useMemo(() => {
+      const urls = new Map<string, string>();
+      for (const e of replyEmojis) if (e.id && e.url && !urls.has(e.id)) urls.set(e.id, e.url);
+      return urls;
+    }, [replyEmojis]);
+    const resolvePasteEmojiUrl = useCallback((id: string) => pasteEmojiUrls.get(id), [pasteEmojiUrls]);
     const shortcodeOpts = useMemo(
       () =>
         emojiEngine
@@ -1698,6 +1705,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   placeholder={placeholder}
                   aria-label={ariaLabel ?? placeholder}
                   disabled={disabled}
+                  resolveEmojiUrl={resolvePasteEmojiUrl}
                 />
               </div>
               {activeCommand && (

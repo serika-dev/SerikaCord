@@ -7,6 +7,8 @@ import type { ChatMessage } from "@/lib/chat/types";
 import { applyReactionToMessages, decodeHtmlEntities, type EmojiLookupEntry } from "@/lib/chat/messages";
 import { reinsertMessage } from "@/lib/chat/messageWindow";
 import { contextTargetOf } from "@/lib/chat/imageActions";
+import { messageCopyPayload } from "@/lib/chat/emojiClipboard";
+import { writeClipboardPayload } from "@/lib/chat/emojiClipboardDom";
 import { isTouchOnlyInput } from "@/hooks/useVisualViewport";
 
 export interface MessageContextMenuState<M extends ChatMessage = ChatMessage> {
@@ -205,9 +207,12 @@ export function useMessageActions<M extends ChatMessage>({
     await deleteMessageNow(deleteConfirmMessage);
   }, [deleteConfirmMessage, deleteMessageNow]);
 
+  // Custom emoji are copied as `:name:` text, with their token kept in the
+  // HTML so pasting into the composer brings them back.
   const copyMessage = useCallback((content: string) => {
-    navigator.clipboard.writeText(content);
-    toast.success(gt("Copied to clipboard"));
+    void writeClipboardPayload(messageCopyPayload(decodeHtmlEntities(content)))
+      .then(() => toast.success(gt("Copied to clipboard")))
+      .catch(() => toast.error(gt("Couldn't copy")));
   }, [gt]);
 
   const togglePin = useCallback(

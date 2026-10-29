@@ -302,7 +302,7 @@ export function MessageContextMenu<M extends ChatMessage>({
       )}
       <div className="ctx-sep" />
       {copyText && (
-        <button onClick={run(() => onCopy(decodeHtmlEntities(copyText)))} className={itemClass}>
+        <button onClick={run(() => onCopy(copyText))} className={itemClass}>
           <Copy className="w-4 h-4" /> {gt("Copy Text")}
         </button>
       )}

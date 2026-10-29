@@ -13,12 +13,8 @@ import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { useUserContextMenu } from "@/components/user/UserContextMenu";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
-import { Copy, Star, StarOff } from "lucide-react";
-import { toast } from "sonner";
-import { useEmojiFavorites } from "@/hooks/useEmojiFavorites";
-import { createPortal } from "react-dom";
 import { EMOJI_TO_NAME } from "@/lib/constants/emojis";
-import { useMenuPlacement } from "@/hooks/useMenuPlacement";
+import { EmojiContextMenu, type EmojiMenuTarget } from "@/components/chat/EmojiContextMenu";
 import { useLazyMentionUser } from "@/hooks/useMentionNames";
 import { CUSTOM_EMOJI_TOKEN_SRC, customEmojiTokenRegex } from "@/lib/chat/customEmoji";
 
@@ -192,14 +188,8 @@ export const MessageContent = memo(function MessageContent({
   const textRef = useRef<HTMLSpanElement>(null);
   // Right-clicking a @mention opens the same user menu as a name or avatar.
   const { openUserMenu, userMenu } = useUserContextMenu(serverId);
-  const { isFavorite, toggleFavorite } = useEmojiFavorites();
-  const [emojiCtxMenu, setEmojiCtxMenu] = useState<{
-    x: number;
-    y: number;
-    emoji: CustomEmoji;
-    isCustom?: boolean;
-  } | null>(null);
-  const placeEmojiMenu = useMenuPlacement(emojiCtxMenu?.x ?? 0, emojiCtxMenu?.y ?? 0);
+  const [emojiCtxMenu, setEmojiCtxMenu] = useState<EmojiMenuTarget | null>(null);
+  const closeEmojiMenu = useCallback(() => setEmojiCtxMenu(null), []);
 
   // Close emoji context menu on click elsewhere or Escape
   useEffect(() => {
@@ -225,7 +215,7 @@ export const MessageContent = memo(function MessageContent({
   const handleEmojiContextMenu = useCallback((e: React.MouseEvent, emoji: CustomEmoji) => {
     e.preventDefault();
     e.stopPropagation();
-    setEmojiCtxMenu({ x: e.clientX, y: e.clientY, emoji, isCustom: true });
+    setEmojiCtxMenu({ x: e.clientX, y: e.clientY, emoji: { ...emoji, id: emoji.id || emoji._id || "" }, isCustom: true });
   }, []);
 
   // Delegated right-click handler on the whole message span so a right-click on
@@ -249,6 +239,7 @@ export const MessageContent = memo(function MessageContent({
           name: img.getAttribute("data-emoji-name") || "emoji",
           url: img.getAttribute("data-emoji-url") || "",
           serverId: img.getAttribute("data-emoji-server") || undefined,
+          animated: img.getAttribute("data-emoji-animated") === "true",
         },
         isCustom: true,
       });
@@ -260,7 +251,7 @@ export const MessageContent = memo(function MessageContent({
         y: e.clientY,
         emoji: {
           id: emojiChar,
-          name: EMOJI_TO_NAME[emojiChar] || "emoji",
+          name: EMOJI_TO_NAME[emojiChar] || EMOJI_TO_NAME[emojiChar.replace(/\uFE0F/g, "")] || EMOJI_TO_NAME[`${emojiChar}\uFE0F`] || "emoji",
           url: img.getAttribute("src") || "",
         },
         isCustom: false,
@@ -268,24 +259,6 @@ export const MessageContent = memo(function MessageContent({
     }
   }, []);
 
-  const handleCopyEmojiId = useCallback(() => {
-    if (!emojiCtxMenu) return;
-    navigator.clipboard?.writeText(emojiCtxMenu.emoji.id);
-    toast.success(gt("Copied {id}", { id: emojiCtxMenu.emoji.id }));
-    setEmojiCtxMenu(null);
-  }, [emojiCtxMenu, gt]);
-
-  const handleToggleEmojiFav = useCallback(() => {
-    if (!emojiCtxMenu) return;
-    const isCustom = emojiCtxMenu.isCustom;
-    toggleFavorite({
-      emoji: isCustom ? `:${emojiCtxMenu.emoji.name}:` : emojiCtxMenu.emoji.id,
-      name: emojiCtxMenu.emoji.name,
-      customEmojiId: isCustom ? emojiCtxMenu.emoji.id : undefined,
-      url: isCustom ? (emojiCtxMenu.emoji.url || emojiCtxMenu.emoji.imageUrl) : undefined,
-    });
-    setEmojiCtxMenu(null);
-  }, [emojiCtxMenu, toggleFavorite]);
   const mentionUserMap = useMemo(() => {
     const map = new Map<string, MentionUser>();
     for (const mentionUser of mentionUsers) {
@@ -499,6 +472,7 @@ export const MessageContent = memo(function MessageContent({
           data-emoji-name={part.emoji.name}
           data-emoji-url={part.emoji.url || part.emoji.imageUrl || ""}
           data-emoji-server={part.emoji.serverId || ""}
+          data-emoji-animated={part.emoji.animated ? "true" : undefined}
           onContextMenu={(e) => handleEmojiContextMenu(e, part.emoji!)}
         />
       );
@@ -613,56 +587,8 @@ export const MessageContent = memo(function MessageContent({
     >
       <MarkdownDocument blocks={parsedContent.blocks} renderText={renderLeaf} inline={inline} />
       {userMenu}
-      {typeof document !== "undefined" && emojiCtxMenu && createPortal(
-        <div
-          className="ctx-menu fixed z-[9999] min-w-[188px]"
-          ref={placeEmojiMenu}
-          onClick={(e) => e.stopPropagation()}
-        >
-          {/* Emoji preview header */}
-          <div className="flex items-center gap-2 px-3 py-2 border-b border-[var(--border-subtle)]">
-            <img
-              src={cdnImage(emojiCtxMenu.emoji.url || emojiCtxMenu.emoji.imageUrl)}
-              alt={emojiCtxMenu.isCustom ? `:${emojiCtxMenu.emoji.name}:` : emojiCtxMenu.emoji.id}
-              className="w-6 h-6 object-contain"
-            />
-            <div className="min-w-0">
-              <div className="text-sm font-medium text-[var(--text-primary)] truncate">
-                {emojiCtxMenu.isCustom ? `:${emojiCtxMenu.emoji.name}:` : emojiCtxMenu.emoji.name}
-              </div>
-              {emojiCtxMenu.isCustom && emojiCtxMenu.emoji.serverId && (
-                <div className="text-[10px] text-[var(--text-muted)] truncate">{emojiCtxMenu.emoji.serverId}</div>
-              )}
-            </div>
-          </div>
-          <button
-            onClick={handleToggleEmojiFav}
-            className="ctx-item"
-          >
-            {isFavorite(
-              emojiCtxMenu.isCustom ? `:${emojiCtxMenu.emoji.name}:` : emojiCtxMenu.emoji.id,
-              emojiCtxMenu.isCustom ? emojiCtxMenu.emoji.id : undefined
-            ) ? (
-              <>
-                <StarOff className="w-4 h-4" />
-                {gt("Unfavorite")}
-              </>
-            ) : (
-              <>
-                <Star className="w-4 h-4" />
-                {gt("Favorite")}
-              </>
-            )}
-          </button>
-          <button
-            onClick={handleCopyEmojiId}
-            className="ctx-item"
-          >
-            <Copy className="w-4 h-4" />
-            {emojiCtxMenu.isCustom ? gt("Copy Emoji ID") : gt("Copy Emoji")}
-          </button>
-        </div>,
-        document.body
+      {typeof document !== "undefined" && emojiCtxMenu && (
+        <EmojiContextMenu target={emojiCtxMenu} onClose={closeEmojiMenu} />
       )}
       {isTtsMessage && (
         <span className="inline-flex items-center gap-1 ml-1.5 px-1.5 py-0.5 rounded text-[10px] font-bold bg-indigo-500/15 text-indigo-400 align-middle select-none">

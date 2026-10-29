@@ -15,6 +15,7 @@
 - **Much better emoji typing** — type `:sob:` and the closing `:` turns it into 😭 right away (Backspace or Ctrl+Z straight after brings the text back). Discord's names work plus common aliases like `:puke:`, `:vomit:`, `:sus:`, `:goat:`, `:cap:`, `:+1:` and every emoji's full name; skin tones with `:thumbsup::skin-tone-3:` or `:wave_tone2:`. The `:` suggestions list is bigger and smarter: exact names first, your favourites and most used emoji float up, aliases are shown next to each name, this server's custom emoji come before your other servers', and it works with ↑ ↓, Tab / Enter, Esc, the mouse and on phones. Shortcodes that are pasted are converted when you send. Nothing changes inside code, links or when a name isn't an emoji. Works in servers, DMs and group DMs.
 - **Emoji picker: search by any name, and a skin tone** — searching the picker now finds emoji by every name and keyword (`puke` finds 🤮), and a hand button next to the search box sets your skin tone, which is remembered and also used by the `:` suggestions.
 - **Backslash to send it raw, like Discord** — put `\` in front of an emoji, custom emoji, mention or channel (`\:sob:`, `\@name`, `\#channel`) to send it as plain text in its ID form, e.g. `<@id>`. Escaped mentions never ping anyone.
+- **Emoji picker when editing** — the message edit box has an emoji button (and Ctrl+E) that opens the same picker as the message bar, with your skin tone, favourites and recents; the emoji goes where your cursor is. Esc closes the picker first, a second Esc cancels the edit.
 
 ### Changes
 
@@ -35,6 +36,7 @@
 - **Custom emoji with a dash in the name show again** — community emoji whose name contains a `-` (like `:soncresity-industries:`) showed as `<:name:id>` text, especially in DMs; they now render everywhere, and an emoji that can't be found shows as `:name:`. New and renamed emoji names are limited to letters, numbers, `_` and `-`. (CORD-76)
 - **Editing a message keeps its custom emoji** — the edit box now shows custom emoji as images instead of `<:name:id>` markup, saves them back unchanged, and emoji added in an edit show for everyone right away, in servers and DMs. (CORD-75)
 - **Emoji in reply previews** — the "Replying to" line above a reply and the reply bar above the message box now show custom and regular emoji as small images (an emoji-only message no longer turns huge in the preview); pinned messages and thread previews show emoji too.
+- **Copying emoji** — selecting and copying messages, replies or reactions now keeps the emoji: normal emoji as the emoji itself and server emoji as `:name:`, and pasting back into SerikaCord brings the server emoji back. Copy Text does the same, and right-clicking an emoji can copy it or its name (its ID with Developer Mode on).
 
 ### Performance
 
