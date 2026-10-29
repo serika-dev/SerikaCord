@@ -84,7 +84,8 @@ export function InboxPanel({ initialTab = "mentions", onNavigate, className }: I
 
   return (
     <div className={cn("flex min-h-0 flex-col", className)}>
-      <div role="tablist" className="flex items-center gap-1 border-b border-[var(--border-subtle)] px-1 pb-2">
+      {/* Phones: one row that scrolls sideways instead of wrapping labels. */}
+      <div role="tablist" className="flex items-center gap-1 overflow-x-auto scrollbar-hide border-b border-[var(--border-subtle)] px-1 pb-2">
         {tabs.map((t) => (
           <button
             key={t.id}
@@ -92,7 +93,7 @@ export function InboxPanel({ initialTab = "mentions", onNavigate, className }: I
             aria-selected={tab === t.id}
             onClick={() => selectTab(t.id)}
             className={cn(
-              "flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium transition-colors",
+              "flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md px-2.5 py-1.5 max-sm:min-h-10 text-sm font-medium transition-colors",
               tab === t.id
                 ? "bg-[var(--bg-active)] text-[var(--text-primary)]"
                 : "text-[var(--text-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-secondary)]",

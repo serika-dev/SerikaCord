@@ -50,7 +50,7 @@ export function MessageReactions({
   };
 
   return (
-    <div className="flex flex-wrap gap-1 mt-1">
+    <div className="flex flex-wrap gap-1 max-sm:gap-1.5 mt-1">
       {reactions.map((reaction) => {
         const hasReacted = currentUserId ? reaction.userIds.includes(currentUserId) : false;
         const emojiIdentifier = reactionEmojiIdentifier(reaction.emoji);
@@ -74,7 +74,8 @@ export function MessageReactions({
                     : undefined
                 }
                 className={cn(
-                  "flex items-center gap-1 px-2 py-0.5 rounded-full text-sm transition-colors border",
+                  // Phones: a 34px-tall chip (a finger-sized target).
+                  "flex items-center gap-1 px-2 py-0.5 max-sm:px-2.5 max-sm:py-1.5 rounded-full text-sm transition-colors border",
                   hasReacted
                     ? "bg-[color-mix(in_srgb,var(--app-accent)_20%,transparent)] border-[var(--app-accent)] text-[var(--text-primary)]"
                     : "bg-[var(--app-surface-alt)] border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110"
@@ -125,8 +126,9 @@ export function MessageReactions({
       {onOpenPicker && (
         <button
           onClick={() => onOpenPicker(messageId)}
-          className="flex items-center justify-center w-7 h-7 rounded-full bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110 hover:text-[var(--text-primary)] transition-colors"
+          className="flex items-center justify-center w-7 h-7 max-sm:w-[34px] max-sm:h-[34px] rounded-full bg-[var(--app-surface-alt)] border border-[var(--app-border)] text-[var(--app-muted)] hover:brightness-110 hover:text-[var(--text-primary)] transition-colors"
           title={gt("Add Reaction")}
+          aria-label={gt("Add Reaction")}
         >
           <Plus className="w-4 h-4" />
         </button>
