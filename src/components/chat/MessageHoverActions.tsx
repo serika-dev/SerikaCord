@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Copy, MessagesSquare, MoreHorizontal, Pencil, Pin, Reply, Smile, Trash2, CornerUpRight } from "lucide-react";
 import { useChatGt } from "./ChatGtContext";
 import { cdnImage, cn } from "@/lib/utils";
@@ -82,12 +82,53 @@ export function MessageHoverActions<M extends ChatMessage>({
   // Touch screens have no hover: the long-press sheet replaces this toolbar.
   const coarse = useCoarsePointer();
   const [shiftHeld, setShiftHeld] = useState(false);
+  // The reaction popover and the "More" menu (Radix poppers, a few dozen
+  // components each) only mount once the pointer or focus reaches this
+  // message. Until then the toolbar is plain buttons, so opening a channel
+  // doesn't build two popper trees per message for a toolbar nobody hovers.
+  // Armed when the pointer moves over the message (rows that only scroll past
+  // under a still pointer stay plain: that fires pointerenter, not
+  // pointermove), by keyboard focus, or by clicking a plain button, which then
+  // opens what it was clicked for.
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const [armedBy, setArmedBy] = useState<"hover" | "more" | null>(null);
+  const armed = armedBy !== null;
+  const refocusRef = useRef<string | null>(null);
+  const live = armed || reactionPickerOpen;
+  useEffect(() => {
+    if (armed || coarse) return;
+    const root = rootRef.current;
+    const row = root?.closest<HTMLElement>('[id^="message-"]') ?? root;
+    if (!row) return;
+    const onMove = () => setArmedBy((prev) => prev ?? "hover");
+    const armOnFocus = (e: FocusEvent) => {
+      // Keyboard focus on a toolbar button: arming swaps it for the popper
+      // trigger, so focus moves to the new button once it has mounted.
+      const action = (e.target as Element | null)?.closest?.("[data-hover-action]")?.getAttribute("data-hover-action");
+      if (action) refocusRef.current = action;
+      setArmedBy((prev) => prev ?? "hover");
+    };
+    row.addEventListener("pointermove", onMove, { passive: true });
+    row.addEventListener("focusin", armOnFocus);
+    return () => {
+      row.removeEventListener("pointermove", onMove);
+      row.removeEventListener("focusin", armOnFocus);
+    };
+  }, [armed, coarse]);
+  useLayoutEffect(() => {
+    const action = refocusRef.current;
+    if (!live || !action) return;
+    refocusRef.current = null;
+    rootRef.current?.querySelector<HTMLElement>(`[data-hover-action="${action}"]`)?.focus();
+  }, [live]);
   // Discord's hover bar: your three most-used reactions, one click away.
   const frecent = useFrecentEmojis();
   const quick = message.pending || message.ephemeral ? [] : quickReactions(frecent, 3);
 
   useEffect(() => {
-    if (coarse) return;
+    // Shift swaps the "More" menu for its quick actions; only toolbars the
+    // pointer has reached listen (not one set of window listeners per message).
+    if (coarse || !armed) return;
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === "Shift") setShiftHeld(true);
     };
@@ -103,7 +144,7 @@ export function MessageHoverActions<M extends ChatMessage>({
       window.removeEventListener("keyup", onKeyUp);
       window.removeEventListener("blur", onBlur);
     };
-  }, [coarse]);
+  }, [coarse, armed]);
 
   const forwardable = isForwardable(message);
   // Polls and forwards have no text of their own to edit (like Discord).
@@ -126,8 +167,30 @@ export function MessageHoverActions<M extends ChatMessage>({
   // renders while its reaction picker is open (the picker anchors to it).
   if (coarse && !reactionPickerOpen) return null;
 
+  const reactionButton = (
+    <button
+      data-hover-action="react"
+      // Plain (not yet armed) button: opening the picker mounts the popover.
+      onClick={live ? undefined : () => {
+        setArmedBy((prev) => prev ?? "hover");
+        onReactionPickerChange(true);
+      }}
+      className={cn("p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]", quick.length === 0 && "rounded-l-md")} title={gt("Add Reaction")}>
+      <Smile className="w-4 h-4 text-[var(--app-muted)]" />
+    </button>
+  );
+  const moreButton = (
+    <button
+      data-hover-action="more"
+      onClick={live ? undefined : () => setArmedBy("more")}
+      className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] rounded-r-md transition-colors [&:hover>svg]:text-[var(--text-primary)]" title={gt("More")}>
+      <MoreHorizontal className="w-4 h-4 text-[var(--app-muted)]" />
+    </button>
+  );
+
   return (
     <div
+      ref={rootRef}
       className={cn(
         "theme-solid absolute -top-3 right-4 transition-opacity duration-(--motion-fast) z-[100]",
         reactionPickerOpen ? "opacity-100" : "opacity-0 group-hover/message:opacity-100 group-has-[:focus-visible]/message:opacity-100"
@@ -153,11 +216,10 @@ export function MessageHoverActions<M extends ChatMessage>({
           </button>
         ))}
         {quick.length > 0 && <span className="hidden sm:block mx-0.5 h-4 w-px bg-[var(--app-border)]" aria-hidden="true" />}
+        {live ? (
         <Popover open={reactionPickerOpen} onOpenChange={onReactionPickerChange}>
           <PopoverTrigger asChild>
-            <button className={cn("p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]", quick.length === 0 && "rounded-l-md")} title={gt("Add Reaction")}>
-              <Smile className="w-4 h-4 text-[var(--app-muted)]" />
-            </button>
+            {reactionButton}
           </PopoverTrigger>
           <PopoverContent className="w-[440px] max-w-[calc(100vw-1rem)] p-0 border-none" side="top" align="end">
             <CustomEmojiPicker
@@ -169,6 +231,7 @@ export function MessageHoverActions<M extends ChatMessage>({
             />
           </PopoverContent>
         </Popover>
+        ) : reactionButton}
         <button
           onClick={(e) => onReply(message, e.shiftKey ? { mention: false } : undefined)}
           className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] transition-colors [&:hover>svg]:text-[var(--text-primary)]"
@@ -232,12 +295,12 @@ export function MessageHoverActions<M extends ChatMessage>({
               </button>
             )}
           </>
+        ) : !live ? (
+          moreButton
         ) : (
-          <DropdownMenu>
+          <DropdownMenu defaultOpen={armedBy === "more"}>
             <DropdownMenuTrigger asChild>
-              <button className="p-1.5 hover:bg-[color-mix(in_srgb,var(--text-primary)_10%,transparent)] rounded-r-md transition-colors [&:hover>svg]:text-[var(--text-primary)]" title={gt("More")}>
-                <MoreHorizontal className="w-4 h-4 text-[var(--app-muted)]" />
-              </button>
+              {moreButton}
             </DropdownMenuTrigger>
             <DropdownMenuContent
               side="bottom"

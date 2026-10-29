@@ -5,7 +5,7 @@ import { BellOff, Pin, Reply, Clock, Lock, ShieldAlert, Loader2 } from "lucide-r
 import { cn } from "@/lib/utils";
 import { SwipeReplyRow } from "@/components/chat/SwipeReplyRow";
 import { MessageContent } from "@/components/chat/MessageContent";
-import { LinkEmbed } from "@/components/chat/LinkEmbed";
+import { LinkEmbed } from "@/components/chat/LinkEmbedSlot";
 import { RichEmbed } from "@/components/chat/RichEmbed";
 import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { MessageReactions } from "@/components/chat/MessageReactions";

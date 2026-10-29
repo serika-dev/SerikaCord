@@ -13,7 +13,6 @@ import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { MemberProfilePopup } from "@/components/user/MemberProfilePopup";
 import { useUserContextMenu } from "@/components/user/UserContextMenu";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
-import { EMOJI_TO_NAME } from "@/lib/constants/emojis";
 import { EmojiContextMenu, type EmojiMenuTarget } from "@/components/chat/EmojiContextMenu";
 import { useLazyMentionUser } from "@/hooks/useMentionNames";
 import { CUSTOM_EMOJI_TOKEN_SRC, customEmojiTokenRegex } from "@/lib/chat/customEmoji";
@@ -244,17 +243,22 @@ export const MessageContent = memo(function MessageContent({
         isCustom: true,
       });
     } else {
-      // Standard unicode emoji
+      // Standard unicode emoji. The name table (~50 KB) loads on the first
+      // right-click instead of with every chat.
       const emojiChar = img.getAttribute("alt") || "";
-      setEmojiCtxMenu({
-        x: e.clientX,
-        y: e.clientY,
-        emoji: {
-          id: emojiChar,
-          name: EMOJI_TO_NAME[emojiChar] || EMOJI_TO_NAME[emojiChar.replace(/\uFE0F/g, "")] || EMOJI_TO_NAME[`${emojiChar}\uFE0F`] || "emoji",
-          url: img.getAttribute("src") || "",
-        },
-        isCustom: false,
+      const { clientX: x, clientY: y } = e;
+      const url = img.getAttribute("src") || "";
+      void import("@/lib/constants/emojis").then(({ EMOJI_TO_NAME }) => {
+        setEmojiCtxMenu({
+          x,
+          y,
+          emoji: {
+            id: emojiChar,
+            name: EMOJI_TO_NAME[emojiChar] || EMOJI_TO_NAME[emojiChar.replace(/\uFE0F/g, "")] || EMOJI_TO_NAME[`${emojiChar}\uFE0F`] || "emoji",
+            url,
+          },
+          isCustom: false,
+        });
       });
     }
   }, []);

@@ -1,39 +1,22 @@
 "use client";
 
-import { useEffect, useState, memo } from "react";
+import { useEffect, useState } from "react";
 import { ExternalLink, Play, X } from "lucide-react";
 import { useInView } from "@/hooks/useInView";
 import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
-import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { useChatGt } from "./ChatGtContext";
-import { getRenderedEmbedUrls } from "@/components/chat/RichEmbed";
-import type { MessageEmbed } from "@/lib/chat/types";
 
 // `referrerPolicy` isn't in React's <video> typings, but the DOM honors it —
 // needed so hotlink-protected media (e.g. video.twimg.com) doesn't 403 on our
 // referer. Spread as a cast to satisfy the type checker.
 const NO_REFERRER = { referrerPolicy: "no-referrer" } as unknown as React.VideoHTMLAttributes<HTMLVideoElement>;
 
-interface LinkEmbedProps {
-  content: string;
+export interface LinkPreviewProps {
+  url: string;
   /** Opens a GIF in the in-app image viewer instead of the provider website. */
   onMediaClick?: (src: string, alt?: string) => void;
   onSuppress?: () => void;
-  /** Rich embeds rendered for this message (e.g. Discord's own unfurls on
-   *  bridged messages) — their URLs are skipped so a link isn't previewed twice. */
-  embeds?: MessageEmbed[];
-}
-
-/** Loose URL comparison ignoring scheme, `www.`, trailing slash and hash. */
-function normalizeEmbedUrl(url: string): string {
-  return url
-    .trim()
-    .replace(/^https?:\/\//i, "")
-    .replace(/^www\./i, "")
-    .replace(/#.*$/, "")
-    .replace(/\/+$/, "")
-    .toLowerCase();
 }
 
 /** Shared media/badge layout for provider GIF embeds (Giphy/Tenor/Klipy). */
@@ -90,14 +73,6 @@ const FIRST_PARTY_DOMAINS = [
   "accounts.serika.dev",
   "cdn.ado.wtf",
 ];
-
-function extractUrls(text: string): string[] {
-  // Skip URLs wrapped in <...> (Discord's no-embed syntax) via negative
-  // lookbehind for <, and exclude > from URL chars so the closing bracket
-  // doesn't get captured.
-  const urlRegex = /(?<!<)(https?:\/\/[^\s<>]+[^<.,:;"')\]\s>])/g;
-  return text.match(urlRegex) || [];
-}
 
 function parseYouTubeUrl(url: string): string | null {
   const patterns = [
@@ -1360,13 +1335,11 @@ function PlayerCardEmbed({ url, preview, onSuppress }: { url: string; preview: O
   );
 }
 
-// Memoized: embeds fetch previews and must not re-run while unrelated chat
-// state (composer text, typing indicators) changes.
-export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSuppress, embeds }: LinkEmbedProps) {
-  // Decode entities (e.g. `&amp;` in query strings) so URLs resolve correctly.
-  const urls = extractUrls(decodeHtmlEntities(content));
-  const skip = getRenderedEmbedUrls(embeds).map(normalizeEmbedUrl);
-  const url = urls.find((u) => !skip.includes(normalizeEmbedUrl(u))) || "";
+/**
+ * The preview card / player for one link. Loaded on demand by `LinkEmbed`
+ * (LinkEmbedSlot.tsx), which picks the URL and keys this by it.
+ */
+export function LinkPreview({ url, onMediaClick, onSuppress }: LinkPreviewProps) {
   const [preview, setPreview] = useState<OEmbedData | null>(null);
   // Defer the link-preview fetch until the embed is near the viewport, so a
   // link-heavy channel doesn't fire every oembed request at once on open.
@@ -1377,14 +1350,10 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
 
   useEffect(() => {
     // Twitter/X is rendered by TwitterEmbed, which fetches its own richer data.
-    if (!url || shouldSkipOEmbed(url) || getUrlType(url) === "twitter") {
-      setPreview(null);
-      return;
-    }
+    if (shouldSkipOEmbed(url) || getUrlType(url) === "twitter") return;
     if (!firstParty && !inView) return;
 
     let active = true;
-    setPreview(null);
 
     fetch(`/api/oembed?url=${encodeURIComponent(url)}`)
       .then(async (res) => {
@@ -1421,8 +1390,6 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
       active = false;
     };
   }, [url, inView, firstParty]);
-
-  if (!url) return null;
 
   // Server invites get a rich join card instead of a generic link preview.
   const inviteCode = parseInviteCode(url);
@@ -1550,4 +1517,4 @@ export const LinkEmbed = memo(function LinkEmbed({ content, onMediaClick, onSupp
       <GenericEmbed url={url} preview={preview || undefined} onSuppress={onSuppress} />
     </div>
   );
-});
+}

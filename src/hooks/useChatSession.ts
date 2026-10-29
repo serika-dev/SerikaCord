@@ -19,6 +19,7 @@ import {
 } from "@/lib/chat/messages";
 import { buildGalleryFromMessages } from "@/lib/chat/media";
 import { capTail, reconcileLatestPage } from "@/lib/chat/messageWindow";
+import { reuseUnchanged } from "@/lib/state/reuseUnchanged";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
 import { parseCallData } from "@/lib/voice/callMessage";
 import { applyPollUpdate, type PollUpdateEvent } from "@/lib/chat/polls";
@@ -67,6 +68,8 @@ const MAX_LOADED_MESSAGES = 200;
 // Live appends trim the head only once the window is this far over the cap, so
 // a busy channel doesn't re-slice (and regroup the first group) on every message.
 const LIVE_TRIM_SLACK = 50;
+
+const messageKey = (m: ChatMessage) => m.id;
 
 /** Normalize a raw message list and drop duplicate ids, preserving order. */
 function dedupeMessages<M extends ChatMessage>(raw: RawMessagePayload[]): M[] {
@@ -463,7 +466,10 @@ export function useChatSession<M extends ChatMessage>({
         // The latest page anchors us to the present again.
         setHasMoreNewer(false);
         setMessages((prev) => {
-          const next = capTail(reconcileLatestPage(page, prev), MAX_LOADED_MESSAGES);
+          // Unchanged messages keep their previous objects, so a revalidation
+          // that finds nothing new re-renders nothing (memoized rows compare
+          // message references).
+          const next = reuseUnchanged(prev, capTail(reconcileLatestPage(page, prev), MAX_LOADED_MESSAGES), messageKey);
           writeCache(requestedContext, next, true);
           return next;
         });
@@ -517,7 +523,7 @@ export function useChatSession<M extends ChatMessage>({
           const idx = base.findIndex((m) => m.id.startsWith("temp-") && m.content === own.content);
           if (idx !== -1) base = [...base.slice(0, idx), ...base.slice(idx + 1)];
         }
-        return capTail(reconcileLatestPage(page, base), MAX_LOADED_MESSAGES);
+        return reuseUnchanged(prev, capTail(reconcileLatestPage(page, base), MAX_LOADED_MESSAGES), messageKey);
       });
     } catch {
       /* next reconnect or channel switch will retry */

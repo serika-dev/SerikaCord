@@ -924,7 +924,9 @@ function MessageListInner<M extends ChatMessage>(
   }, []);
 
   const renderGroup = (group: MessageGroupData<M>, idx: number, skipDay = false) => {
-    const shouldAnimate = animateIn && idx < 12;
+    // No staggered fade-in when a conversation opens: it held the first rows
+    // back for up to 550 ms and kept a dozen layers animating during the
+    // switch. A cold open still cross-fades the list once (msg-list-fade-in).
     const isLastGroup = idx === groups.length - 1;
     const shouldSlideIn = !animateIn && isBottomAppend.current && isLastGroup && isAtBottomRef.current;
     const showNewSeparator = dividerId === group.messages[0]?.id;
@@ -944,10 +946,8 @@ function MessageListInner<M extends ChatMessage>(
     <div
       className={cn(
         "msg-group-cv",
-        shouldAnimate && "msg-fade-in",
         shouldSlideIn && "msg-slide-in"
       )}
-      style={shouldAnimate ? { animationDelay: `${Math.min(idx * 35, 350)}ms` } : undefined}
     >
     {group.messages[0].type === "call" ? (
     <CallMessageRow

@@ -119,15 +119,39 @@ export function startsNewDay(
   return isDifferentDay(groups[index - 1].timestamp, group.timestamp);
 }
 
+const DATE_FORMATS = {
+  time: { hour: "numeric", minute: "2-digit" },
+  date: { month: "short", day: "numeric", year: "numeric" },
+  day: { year: "numeric", month: "long", day: "numeric" },
+} satisfies Record<string, Intl.DateTimeFormatOptions>;
+const formatterCache = new Map<string, Intl.DateTimeFormat>();
+
+/**
+ * A reused Intl.DateTimeFormat. `toLocaleTimeString(locale, options)` builds a
+ * new formatter on every call (the expensive part); the chat formats one or
+ * two dates per message group on every list render. Same output: with these
+ * options no defaults are added by toLocaleTimeString / toLocaleDateString.
+ * Throws like they do for an invalid locale.
+ */
+function dateFormatter(locale: string | undefined, kind: keyof typeof DATE_FORMATS): Intl.DateTimeFormat {
+  const key = `${locale ?? ""}|${kind}`;
+  let f = formatterCache.get(key);
+  if (!f) {
+    f = new Intl.DateTimeFormat(locale, DATE_FORMATS[kind]);
+    if (formatterCache.size >= 64) formatterCache.clear();
+    formatterCache.set(key, f);
+  }
+  return f;
+}
+
 /** "October 18, 2026" in the viewer's locale, for the date divider. */
 export function formatDayDivider(timestamp: string, locale?: string): string {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return "";
-  const opts: Intl.DateTimeFormatOptions = { year: "numeric", month: "long", day: "numeric" };
   try {
-    return date.toLocaleDateString(locale || undefined, opts);
+    return dateFormatter(locale || undefined, "day").format(date);
   } catch {
-    return date.toLocaleDateString(undefined, opts);
+    return dateFormatter(undefined, "day").format(date);
   }
 }
 
@@ -176,7 +200,9 @@ export function formatMessageTimestamp(
   const date = new Date(timestamp);
   const now = new Date();
   const loc = locale || undefined;
-  const time = date.toLocaleTimeString(loc, { hour: "numeric", minute: "2-digit" });
+  // An invalid date keeps toLocale*String's "Invalid Date" (format() throws).
+  const valid = !Number.isNaN(date.getTime());
+  const time = valid ? dateFormatter(loc, "time").format(date) : date.toLocaleTimeString(loc, DATE_FORMATS.time);
 
   if (date.toDateString() === now.toDateString()) {
     return gt ? gt("Today at {time}", { time }) : `Today at ${time}`;
@@ -188,7 +214,7 @@ export function formatMessageTimestamp(
     return gt ? gt("Yesterday at {time}", { time }) : `Yesterday at ${time}`;
   }
 
-  const dateStr = date.toLocaleDateString(loc, { month: "short", day: "numeric", year: "numeric" });
+  const dateStr = valid ? dateFormatter(loc, "date").format(date) : date.toLocaleDateString(loc, DATE_FORMATS.date);
   return gt ? gt("{date} at {time}", { date: dateStr, time }) : `${dateStr} at ${time}`;
 }
 
