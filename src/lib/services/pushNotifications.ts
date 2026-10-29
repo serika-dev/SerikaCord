@@ -223,8 +223,8 @@ async function deleteTokens(tokens: string[]): Promise<void> {
   }
 }
 
-/** A registered phone: its FCM token, the push protocol its APK speaks and its E2EE notification key. */
-type PushDevice = { token: string; protocol: number; notifyId: string | null };
+/** A registered phone: its FCM token, the push protocol its app speaks, its E2EE notification key and whether it's the iOS app. */
+type PushDevice = { token: string; protocol: number; notifyId: string | null; ios: boolean };
 
 async function devicesFor(userIds: string[]): Promise<Map<string, PushDevice[]>> {
   const out = new Map<string, PushDevice[]>();
@@ -243,7 +243,7 @@ async function devicesFor(userIds: string[]): Promise<Map<string, PushDevice[]>>
   const tokens = await Promise.all(rows.map((r) => decryptField(r.token)));
   for (const [i, r] of rows.entries()) {
     const list = out.get(r.userId) ?? [];
-    list.push({ token: tokens[i], protocol: pushProtocolOf(r.platform), notifyId: r.notifyId ?? null });
+    list.push({ token: tokens[i], protocol: pushProtocolOf(r.platform), notifyId: r.notifyId ?? null, ios: r.platform === 'ios' });
     out.set(r.userId, list);
   }
   return out;
@@ -350,7 +350,7 @@ async function sendOne(account: FcmServiceAccount, device: PushDevice, payload: 
       const res = await fetch(`https://fcm.googleapis.com/v1/projects/${encodeURIComponent(account.projectId)}/messages:send`, {
         method: 'POST',
         headers: { Authorization: `Bearer ${bearer}`, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: buildFcmMessage(device.token, payload, { protocol: device.protocol, notifyId: device.notifyId }) }),
+        body: JSON.stringify({ message: buildFcmMessage(device.token, payload, { protocol: device.protocol, notifyId: device.notifyId, ios: device.ios }) }),
         signal: AbortSignal.timeout(10_000),
       });
       const body = res.ok ? null : await res.json().catch(() => null);

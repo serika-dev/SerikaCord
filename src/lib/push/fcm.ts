@@ -118,6 +118,8 @@ export interface PushTarget {
   protocol?: number;
   /** The E2EE notification key the device holds (push_devices.e2ee_notify_id). */
   notifyId?: string | null;
+  /** The iOS app (platform "ios"): APNs needs visible / background pushes, it ignores data-only ones. */
+  ios?: boolean;
 }
 
 export type PushPayload =
@@ -251,6 +253,7 @@ export function buildFcmMessage(
   payload: PushPayload,
   opts: PushTarget = {},
 ): Record<string, unknown> {
+  if (opts.ios && payload.kind !== "message") return buildIosMessage(token, payload);
   if (payload.kind === "message" && payload.rich && (opts.protocol ?? 1) >= RICH_PUSH_PROTOCOL) {
     // Data-only + high priority: the app draws a MessagingStyle notification
     // (avatars, history, inline Reply / Mark as read) even when it's closed.
@@ -315,6 +318,50 @@ export function buildFcmMessage(
     data: { type: "call_cancel", roomId: payload.roomId },
     android: { priority: "HIGH", ttl: "60s" },
   };
+}
+
+/** Seconds an iOS incoming-call notification stays deliverable (APNs drops it after). */
+export const IOS_CALL_RING_TTL_SECONDS = 45;
+
+/**
+ * iOS (no CallKit / background renderer): the system only shows what the
+ * push itself describes, and a data-only push never reaches a suspended app.
+ *  - call_ring: a visible, time-limited notification that opens the DM.
+ *  - call_cancel / message_read: background pushes (content-available) the
+ *    app uses to remove the matching notification (AppDelegate). iOS throttles
+ *    these, so that part is best effort.
+ * Message pushes use the shared `notification` + `apns` form above.
+ */
+function buildIosMessage(
+  token: string,
+  payload: Exclude<PushPayload, { kind: "message" }>,
+  now: number = Date.now(),
+): Record<string, unknown> {
+  if (payload.kind === "call_ring") {
+    const thread = `call-${payload.roomId}`;
+    const label = payload.video ? "Incoming video call" : "Incoming voice call";
+    return {
+      token,
+      notification: { title: clip(payload.callerName, MAX_TITLE) || label, body: label },
+      data: { type: "call_ring", roomId: payload.roomId, route: payload.route, tag: thread },
+      apns: {
+        headers: {
+          "apns-push-type": "alert",
+          "apns-priority": "10",
+          "apns-expiration": String(Math.floor(now / 1000) + IOS_CALL_RING_TTL_SECONDS),
+        },
+        payload: { aps: { sound: "default", "thread-id": thread } },
+      },
+    };
+  }
+  const background = {
+    headers: { "apns-push-type": "background", "apns-priority": "5" },
+    payload: { aps: { "content-available": 1 } },
+  };
+  if (payload.kind === "message_read") {
+    return { token, data: { type: "message_read", tag: payload.tag }, apns: background };
+  }
+  return { token, data: { type: "call_cancel", roomId: payload.roomId }, apns: background };
 }
 
 export type FcmSendOutcome = "ok" | "unregistered" | "retry" | "failed";
