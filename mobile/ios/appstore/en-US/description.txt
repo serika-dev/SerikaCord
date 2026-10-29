@@ -1,0 +1,49 @@
+SerikaCord is a free chat app for communities and friends. Start a server for your group, hang out in text and voice channels, and keep up with friends in DMs and group chats. No ads, and no advertising trackers.
+
+SERVERS FOR YOUR PEOPLE
+• Text, voice and announcement channels, organized in categories
+• Roles with their own colours and exactly the permissions they need, for the whole server or a single channel
+• Forums, threads and private tickets for longer conversations and support requests
+• Replies, reactions, polls, pinned messages, custom emoji and stickers
+• Search with filters to find any message
+• Onboarding questions and rules screening to welcome new members
+• Server discovery to find communities you'll like
+
+VOICE AND VIDEO
+• Voice channels are always open: join to talk, leave when you're done
+• Voice and video calls with friends, one to one or in a group
+• Watch friends share their screen
+
+DMS AND GROUP CHATS
+• Direct messages and group chats with photos, videos and files
+• New DMs and group DMs are end-to-end encrypted by default, and so are their calls: only the people in the conversation can read them
+• Message requests keep chats from people you don't know out of your inbox until you accept, and you choose who can DM you
+• Push notifications for DMs, mentions and calls, with unread badges
+
+MAKE IT YOURS
+• Dark, Midnight and Light themes, app gradients and your own accent colour
+• A profile with a banner, bio, pronouns, nameplate and custom status
+• Show what you're listening to or playing, only if you want to
+
+BOTS AND APPS
+• Add bots from the bot library for music, moderation, games and more
+• Slash commands, buttons and rich embeds
+• Developers can build their own bots with the SerikaCord bot API
+• Moving a community over? A server can bridge a channel to a Discord server, and messages only cross over for people who have agreed to it
+
+SAFETY
+• Report messages and block people
+• Moderation tools for server owners: AutoMod, spam and raid protection, timeouts, bans and an audit log
+• Uploaded images are automatically checked against known child sexual abuse material and known scam images
+
+PRIVACY
+• Made by Serika Company in the Netherlands, under the EU's GDPR
+• No ads, no advertising trackers, and we never sell your data
+• Messages in server channels are encrypted at rest on our servers
+
+SerikaCord is free to use. You sign in with a Serika account, and you need to be 16 or older.
+
+Terms of Service: https://serika.chat/terms
+Privacy Policy: https://serika.chat/privacy
+Community Guidelines: https://serika.chat/guidelines
+Support: https://serika.chat/support

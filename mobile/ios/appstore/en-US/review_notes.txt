@@ -1,0 +1,35 @@
+SerikaCord is a chat app for communities and friends (servers with text and voice channels, DMs and group DMs, voice and video calls). The iOS app is a native shell around our web app at https://serika.chat; it adds push notifications, universal links and native safe-area/keyboard handling. It only shows serika.chat and our sign-in site (accounts.serika.dev); every other link opens in Safari. There is no general-purpose web browsing.
+
+SIGNING IN
+A demo account is provided in the Sign-In Information section (DEMO_USERNAME / DEMO_PASSWORD). The sign-in screen opens on a QR code (for signing in from another device that is already signed in); tap "Want to log in with password/email instead?" and enter the demo email and password. The demo account is already a member of a test server with text and voice channels and has a few test DMs.
+
+HOW TO TEST
+1. Servers: tap a server in the left rail, open a text channel and send a message. Long-press a message for reply, reactions, Report Message and more.
+2. Voice: open a voice channel and tap Join Voice. The app asks for microphone access only at that moment.
+3. DMs: open the Messages tab, pick a conversation and send a message or a photo.
+4. Profile and settings: the You tab shows the profile, Appearance (themes) and Privacy & Safety.
+
+USER-GENERATED CONTENT AND MODERATION (Guideline 1.2)
+- Terms of Service (users agree when they create an account): https://serika.chat/terms. Community Guidelines: https://serika.chat/guidelines. Objectionable content and abusive behaviour are not allowed.
+- Report: long-press any message from someone else and choose Report Message; pick a reason and it goes to our Trust & Safety staff, who review reports.
+- Block: tap a person's name or avatar to open their profile, then Block. Blocked people can't DM you, and their messages are hidden.
+- Message requests: DMs from people who aren't your friends wait in Message Requests until accepted. Settings > Privacy & Safety controls who can DM you.
+- Server owners and moderators can delete messages, time out, kick and ban members, and use AutoMod and spam/raid protection.
+- Every uploaded image is automatically checked with Microsoft PhotoDNA against known child sexual abuse material and against a list of known scam images. Matches are blocked and lead to automatic account action; users can appeal from their Account Standing page.
+- Age-restricted channels ask for confirmation before opening, and servers marked age-restricted are not available in the iOS app.
+- Contact: safety@serika.dev (safety), support@serika.dev (support). Support page: https://serika.chat/support
+
+BACKGROUND AUDIO
+The "audio" background mode keeps an ongoing voice channel or call connected (microphone and incoming audio) when the user switches apps or locks the screen during the call. It is only active while the user is in a call; no audio plays in the background otherwise.
+
+PURCHASES
+The app has no in-app purchases and no paid features can be bought in it. The iOS app shows no prices, upgrade buttons or links to buy anything.
+
+ACCOUNT DELETION
+Settings > My Account links to Serika Accounts (accounts.serika.dev), where the account can be deleted.
+
+ENCRYPTION / EXPORT COMPLIANCE
+The app uses HTTPS (TLS) and, for end-to-end encrypted DMs, only standard algorithms (ECDH P-256, AES-GCM, HKDF) through the operating system's built-in WebCrypto in WebKit. It contains no proprietary or non-standard cryptography. Info.plist sets ITSAppUsesNonExemptEncryption = NO.
+
+PERMISSIONS
+Microphone and camera: voice and video calls (asked when you join a call or turn on your camera). Photos: attaching images and choosing an avatar. Local network: peer-to-peer call connections. Notifications: DMs, mentions and calls (asked after sign-in).

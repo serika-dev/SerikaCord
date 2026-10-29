@@ -1,0 +1,97 @@
+{
+  "$comment": "App Store listing for SerikaCord iOS 1.0. Long texts live in en-US/*.txt (this file mirrors them); tools/upload.ts reads both. Apple limits: name/subtitle 30, promotional text 170, description 4000, keywords 100, review notes 4000.",
+  "app": {
+    "name": "SerikaCord",
+    "appleId": "6828383613",
+    "bundleId": "dev.serika.serikacord",
+    "teamId": "B648X59JCQ",
+    "sku": "serikacord",
+    "primaryLocale": "en-US"
+  },
+  "version": {
+    "platform": "IOS",
+    "versionString": "1.0",
+    "copyright": "2026 Serika Company",
+    "releaseType": "MANUAL"
+  },
+  "categories": {
+    "primary": "SOCIAL_NETWORKING",
+    "secondary": "ENTERTAINMENT"
+  },
+  "localizations": {
+    "en-US": {
+      "name": "SerikaCord",
+      "subtitle": "Chat, voice & communities",
+      "privacyPolicyUrl": "https://serika.chat/privacy",
+      "promotionalText": "Free chat for communities and friends: servers, voice and video calls, and end-to-end encrypted DMs. No ads and no trackers. Made in the Netherlands.",
+      "description": "SerikaCord is a free chat app for communities and friends. Start a server for your group, hang out in text and voice channels, and keep up with friends in DMs and group chats. No ads, and no advertising trackers.\n\nSERVERS FOR YOUR PEOPLE\n• Text, voice and announcement channels, organized in categories\n• Roles with their own colours and exactly the permissions they need, for the whole server or a single channel\n• Forums, threads and private tickets for longer conversations and support requests\n• Replies, reactions, polls, pinned messages, custom emoji and stickers\n• Search with filters to find any message\n• Onboarding questions and rules screening to welcome new members\n• Server discovery to find communities you'll like\n\nVOICE AND VIDEO\n• Voice channels are always open: join to talk, leave when you're done\n• Voice and video calls with friends, one to one or in a group\n• Watch friends share their screen\n\nDMS AND GROUP CHATS\n• Direct messages and group chats with photos, videos and files\n• New DMs and group DMs are end-to-end encrypted by default, and so are their calls: only the people in the conversation can read them\n• Message requests keep chats from people you don't know out of your inbox until you accept, and you choose who can DM you\n• Push notifications for DMs, mentions and calls, with unread badges\n\nMAKE IT YOURS\n• Dark, Midnight and Light themes, app gradients and your own accent colour\n• A profile with a banner, bio, pronouns, nameplate and custom status\n• Show what you're listening to or playing, only if you want to\n\nBOTS AND APPS\n• Add bots from the bot library for music, moderation, games and more\n• Slash commands, buttons and rich embeds\n• Developers can build their own bots with the SerikaCord bot API\n• Moving a community over? A server can bridge a channel to a Discord server, and messages only cross over for people who have agreed to it\n\nSAFETY\n• Report messages and block people\n• Moderation tools for server owners: AutoMod, spam and raid protection, timeouts, bans and an audit log\n• Uploaded images are automatically checked against known child sexual abuse material and known scam images\n\nPRIVACY\n• Made by Serika Company in the Netherlands, under the EU's GDPR\n• No ads, no advertising trackers, and we never sell your data\n• Messages in server channels are encrypted at rest on our servers\n\nSerikaCord is free to use. You sign in with a Serika account, and you need to be 16 or older.\n\nTerms of Service: https://serika.chat/terms\nPrivacy Policy: https://serika.chat/privacy\nCommunity Guidelines: https://serika.chat/guidelines\nSupport: https://serika.chat/support\n",
+      "keywords": "messenger,group chat,video call,server,friends,bots,gaming,encrypted,dm,hangout,clan,guild,forum",
+      "supportUrl": "https://serika.chat/support",
+      "marketingUrl": "https://serika.chat",
+      "whatsNew": "First release of SerikaCord for iPhone and iPad.",
+      "whatsNewNote": "Not accepted by App Store Connect for an app's first version; used from 1.0.1 on."
+    }
+  },
+  "ageRatingDeclaration": {
+    "advertising": false,
+    "ageAssurance": false,
+    "alcoholTobaccoOrDrugUseOrReferences": "NONE",
+    "contests": "NONE",
+    "gambling": false,
+    "gamblingSimulated": "NONE",
+    "gunsOrOtherWeapons": "NONE",
+    "healthOrWellnessTopics": false,
+    "horrorOrFearThemes": "NONE",
+    "lootBox": false,
+    "matureOrSuggestiveThemes": "INFREQUENT",
+    "medicalOrTreatmentInformation": "NONE",
+    "messagingAndChat": true,
+    "parentalControls": false,
+    "profanityOrCrudeHumor": "FREQUENT",
+    "sexualContentGraphicAndNudity": "NONE",
+    "sexualContentOrNudity": "INFREQUENT",
+    "socialMedia": true,
+    "socialMediaAgeRestricted": false,
+    "unrestrictedWebAccess": false,
+    "userGeneratedContent": true,
+    "violenceCartoonOrFantasy": "NONE",
+    "violenceRealistic": "NONE",
+    "violenceRealisticProlongedGraphicOrSadistic": "NONE",
+    "ageRatingOverrideV2": "EIGHTEEN_PLUS",
+    "$comment": "Calculated rating would be 13+ (social media, frequent profanity, infrequent sexual content). Overridden to 18+ because user-created age-restricted channels can be opened in the iOS app after one confirmation. Content answers describe user-generated content that can appear; Serika itself publishes none of it."
+  },
+  "review": {
+    "notesFile": "en-US/review_notes.txt",
+    "demoAccountRequired": true,
+    "demoAccount": "Entered by the owner in App Store Connect. tools/upload.ts only touches it when DEMO_USERNAME and DEMO_PASSWORD are set.",
+    "contact": {
+      "firstName": "ASC_CONTACT_FIRST_NAME",
+      "lastName": "ASC_CONTACT_LAST_NAME",
+      "email": "ASC_CONTACT_EMAIL",
+      "phone": "ASC_CONTACT_PHONE"
+    }
+  },
+  "exportCompliance": {
+    "usesNonExemptEncryption": false,
+    "note": "HTTPS plus standard algorithms (ECDH P-256, AES-GCM, HKDF) via the OS's WebCrypto in WebKit; Info.plist ITSAppUsesNonExemptEncryption = NO."
+  },
+  "screenshots": {
+    "APP_IPHONE_67": [
+      "screenshots/iphone-6.9/01-chat.png",
+      "screenshots/iphone-6.9/02-voice.png",
+      "screenshots/iphone-6.9/03-dm.png",
+      "screenshots/iphone-6.9/04-profile.png",
+      "screenshots/iphone-6.9/05-messages.png",
+      "screenshots/iphone-6.9/06-themes.png",
+      "screenshots/iphone-6.9/07-bots.png"
+    ],
+    "APP_IPAD_PRO_3GEN_129": [
+      "screenshots/ipad-13/01-chat.png",
+      "screenshots/ipad-13/02-dm.png",
+      "screenshots/ipad-13/03-profile.png",
+      "screenshots/ipad-13/04-themes.png",
+      "screenshots/ipad-13/05-bots.png"
+    ],
+    "$comment": "6.9-inch iPhone (1320x2868) uploads to APP_IPHONE_67; 13-inch iPad (2064x2752) to APP_IPAD_PRO_3GEN_129."
+  }
+}
