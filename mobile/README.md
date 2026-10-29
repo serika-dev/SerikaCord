@@ -237,6 +237,24 @@ release) and uploads it to TestFlight with `xcrun altool`.
 - After the upload, Apple processes the build (10–30 min). Add it to a
   TestFlight group, or submit it for review from App Store Connect.
 
+### App Store listing
+
+`ios/appstore/` holds the listing: `en-US/*.txt` + `listing.json` (texts,
+URLs, categories, age rating, review notes), `privacy-labels.md` (App Privacy
+answers; keep in step with `PrivacyInfo.xcprivacy` and the Privacy Policy) and
+`screenshots/` (6.9" iPhone, 13" iPad). Tools in `ios/appstore/tools/`:
+
+- `bun ios/appstore/tools/upload.ts --dry-run` shows what would change in App
+  Store Connect (`ASC_KEY_ID`, `ASC_ISSUER_ID`, `ASC_KEY_PATH`); drop
+  `--dry-run` to apply. The demo account is only touched when
+  `DEMO_USERNAME` and `DEMO_PASSWORD` are set.
+- `compose-screenshots.mjs <rawDir>` frames raw captures of the app
+  (440x956 @3x / 1032x1376 @2x, safe areas 62/34 pt and 24/20 pt) with a
+  caption; `validate-screenshots.mjs` checks sizes, alpha and file size.
+- The iOS app never offers Serika+ (Guideline 3.1.1): see
+  `src/lib/native/storePolicy.ts` and `SerikaStorePolicy` in
+  `SerikaNativePlugin.swift`.
+
 ### Known iOS limitations
 
 - **Voice in the background**: the `audio` background mode is what lets
