@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useRef, useCallback } from "react";
 import { useServer } from "@/contexts/ServerContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
@@ -24,6 +24,7 @@ import { maskInviteLink } from "@/lib/streamer/streamerMode";
 import { canShare, shareLink } from "@/lib/native/bridge";
 import { Loader } from "@/components/ui/Loader";
 import { useBackHandler } from "@/hooks/useBackHandler";
+import { useDragToDismiss } from "@/hooks/useDragToDismiss";
 
 interface InviteDialogProps {
   open: boolean;
@@ -202,8 +203,18 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
   useBackHandler(open, () => onOpenChange(false));
 
   // Focus management: move focus into the dialog on open, restore on close
-  const dialogRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  // Phones: drag the sheet down to close (shared sheet gesture).
+  const drag = useDragToDismiss({ onDismiss: () => onOpenChange(false), media: "(max-width: 639px)" });
+  const { sheetRef, backdropRef } = drag;
+  const setDialog = useCallback(
+    (el: HTMLDivElement | null) => {
+      dialogRef.current = el;
+      return sheetRef(el);
+    },
+    [sheetRef],
+  );
   useEffect(() => {
     if (open) {
       previousFocusRef.current = document.activeElement as HTMLElement | null;
@@ -226,13 +237,14 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
     <div className="fixed inset-0 z-50 flex items-center justify-center max-sm:items-end">
       {/* Backdrop */}
       <div
+        ref={backdropRef}
         className="absolute inset-0 bg-black/70"
         onClick={() => onOpenChange(false)}
       />
 
       {/* Dialog */}
       <div
-        ref={dialogRef}
+        ref={setDialog}
         role="dialog"
         data-state="open"
         aria-modal="true"
@@ -240,6 +252,7 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
         tabIndex={-1}
         className="relative w-full max-w-md mx-4 bg-[var(--bg-card)] rounded-lg shadow-xl animate-in fade-in zoom-in-95 duration-200 outline-none max-sm:mx-0 max-sm:max-w-none max-sm:rounded-b-none max-sm:rounded-t-2xl max-sm:max-h-[calc(100dvh-var(--safe-area-top)-0.75rem)] max-sm:overflow-y-auto max-sm:overscroll-contain max-sm:zoom-in-100 max-sm:slide-in-from-bottom"
       >
+        <span aria-hidden className="sm:hidden pointer-events-none absolute top-2 left-1/2 h-1 w-10 -translate-x-1/2 rounded-full bg-[var(--text-muted)] opacity-40" />
         {/* Header */}
         <div className="flex items-center justify-between gap-2 p-4 border-b border-[var(--border-subtle)] max-sm:pt-5 max-sm:pr-2">
           <div className="flex items-center gap-3 min-w-0">
@@ -257,7 +270,8 @@ export function InviteDialog({ open, onOpenChange, channelId, serverId }: Invite
           <button
             onClick={() => onOpenChange(false)}
             aria-label={gt("Close")}
-            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0 max-sm:size-11 max-sm:flex max-sm:items-center max-sm:justify-center"
+            // Phones close it by dragging, the backdrop or Back: screen-reader only there.
+            className="p-2 rounded-full hover:bg-[var(--bg-hover)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors shrink-0 max-sm:sr-only"
           >
             <X className="w-5 h-5" />
           </button>

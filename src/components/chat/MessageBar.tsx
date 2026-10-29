@@ -84,6 +84,8 @@ import VoiceMessageRecorder, { type VoiceHoldStart } from "@/components/chat/Voi
 import type { VoiceMessageAttachment } from "@/lib/chat/voiceMessage";
 import { MentionText } from "@/components/chat/MentionText";
 import { isTouchOnlyInput } from "@/hooks/useVisualViewport";
+import { useIsMobile } from "@/hooks/useIsMobile";
+import { MobileSheet } from "@/components/mobile/MobileSheet";
 import type { AppLeafCommand } from "@/lib/chat/appCommandContext";
 import {
   autoPickOnSpace,
@@ -456,6 +458,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     /** Per-attachment upload progress (0-100), keyed by attachment index. */
     const [uploadProgress, setUploadProgress] = useState<Record<number, number>>({});
     const [showEmojiPicker, setShowEmojiPicker] = useState(false);
+    // Phones: the emoji / GIF / sticker picker is a bottom sheet (drag down to close).
+    const pickerSheet = useIsMobile();
     const [pickerTab, setPickerTab] = useState<"emoji" | "gifs" | "stickers">("emoji");
     // Mirror picker state into refs so the (once-registered) hotkey handlers can
     // read the latest values for tab-aware toggling.
@@ -1765,7 +1769,44 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               )}
 
               {/* Emoji picker button */}
-              {emojiPickerEnabled && (
+              {emojiPickerEnabled && pickerSheet && (
+                <>
+                  <button
+                    type="button"
+                    aria-label={gt("Emoji")}
+                    className="flex h-10 w-10 items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+                    onClick={() => {
+                      setPickerTab("emoji");
+                      setShowEmojiPicker(true);
+                    }}
+                  >
+                    <Smile className="w-5 h-5" />
+                  </button>
+                  {showEmojiPicker && (
+                    <MobileSheet
+                      label={gt("Emoji")}
+                      onClose={() => {
+                        setShowEmojiPicker(false);
+                        setPickerTab("emoji");
+                      }}
+                    >
+                      <CustomEmojiPicker
+                          className="max-w-none rounded-none border-0 bg-transparent shadow-none"
+                        onEmojiSelect={handlePickerEmojiSelect}
+                        onGifSelect={handlePickerGifSelect}
+                        onStickerSelect={handlePickerStickerSelect}
+                        initialTab={pickerTab}
+                        serverId={serverId}
+                        serverEmojis={serverEmojis}
+                        serverName={serverName}
+                        availableServerEmojis={availableServerEmojis}
+                        availableServerStickers={availableServerStickers}
+                      />
+                    </MobileSheet>
+                  )}
+                </>
+              )}
+              {emojiPickerEnabled && !pickerSheet && (
               <Popover
                 open={showEmojiPicker}
                 onOpenChange={(open) => {
@@ -1778,6 +1819,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 <PopoverTrigger asChild>
                   <button
                     type="button"
+                    aria-label={gt("Emoji")}
                     className="flex h-10 w-10 items-center justify-center sm:block sm:h-auto sm:w-auto hover:text-[var(--text-primary)] transition-colors"
                     onClick={() => setPickerTab("emoji")}
                   >

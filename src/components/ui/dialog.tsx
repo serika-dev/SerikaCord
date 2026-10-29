@@ -6,6 +6,7 @@ import { XIcon } from "lucide-react"
 import { useGT } from "gt-next"
 
 import { cn } from "@/lib/utils"
+import { useDragToDismiss } from "@/hooks/useDragToDismiss"
 
 function Dialog({
   ...props
@@ -61,9 +62,18 @@ function DialogContent({
   children,
   showCloseButton = true,
   mobile,
+  dragToDismiss,
+  ref,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & {
   showCloseButton?: boolean
+  /**
+   * Drag down to close at phone width (the shared sheet gesture). On by
+   * default for "sheet" dialogs; custom bottom sheets (mobile="none") opt in.
+   * Where it's on, the X is visually hidden on phones (the handle, the
+   * backdrop, Escape and the back button close it; screen readers keep it).
+   */
+  dragToDismiss?: boolean
   /**
    * How the dialog presents at phone width. "sheet" (default) docks it to the
    * bottom edge; "none" leaves the caller's own layout alone. Callers that
@@ -77,10 +87,28 @@ function DialogContent({
   const sheet = mode === "sheet"
   // Flush (p-0) dialogs lay out their own padding; only add the safe-area inset.
   const flush = typeof className === "string" && /(^|\s)p-0(\s|$)/.test(className)
+  const draggable = dragToDismiss ?? sheet
+  const closeRef = React.useRef<HTMLButtonElement>(null)
+  const drag = useDragToDismiss({
+    onDismiss: () => closeRef.current?.click(),
+    mode: "handoff",
+    media: "(max-width: 639px)",
+    disabled: !draggable,
+  })
+  const { sheetRef, backdropRef } = drag
+  const contentRef = React.useCallback(
+    (el: HTMLDivElement | null) => {
+      if (typeof ref === "function") ref(el)
+      else if (ref) (ref as React.RefObject<HTMLDivElement | null>).current = el
+      return sheetRef(el)
+    },
+    [ref, sheetRef]
+  )
   return (
     <DialogPortal data-slot="dialog-portal">
-      <DialogOverlay />
+      <DialogOverlay ref={backdropRef} />
       <DialogPrimitive.Content
+        ref={contentRef}
         data-slot="dialog-content"
         className={cn(
           "bg-[var(--bg-card)] border-[var(--border-subtle)] text-[var(--text-primary)] data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-98 data-[state=open]:zoom-in-98 data-[state=open]:slide-in-from-bottom-1 fixed top-[50%] left-[50%] z-50 grid w-full max-w-[calc(100%-2rem)] translate-x-[-50%] translate-y-[-50%] gap-4 rounded-xl border p-6 shadow-[var(--app-elev-2)] outline-none sm:max-w-lg",
@@ -100,10 +128,15 @@ function DialogContent({
           />
         )}
         {children}
+        {!showCloseButton && draggable && (
+          // Closes the dialog when a drag dismisses it (never shown).
+          <DialogPrimitive.Close ref={closeRef} hidden tabIndex={-1} aria-hidden />
+        )}
         {showCloseButton && (
           <DialogPrimitive.Close
+            ref={closeRef}
             data-slot="dialog-close"
-            className="absolute top-3 right-3 rounded-md p-1 text-[var(--text-secondary)] transition-[background-color,color] duration-(--motion-fast) hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--app-accent)] disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4 max-sm:top-2 max-sm:right-2 max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center max-sm:rounded-full max-sm:[&_svg:not([class*='size-'])]:size-5"
+            className={cn("absolute top-3 right-3 rounded-md p-1 text-[var(--text-secondary)] transition-[background-color,color] duration-(--motion-fast) hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] focus-visible:outline-2 focus-visible:outline-[var(--app-accent)] disabled:pointer-events-none [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4", draggable ? "max-sm:sr-only" : "max-sm:top-2 max-sm:right-2 max-sm:flex max-sm:size-11 max-sm:items-center max-sm:justify-center max-sm:rounded-full max-sm:[&_svg:not([class*='size-'])]:size-5")}
           >
             <XIcon />
             <span className="sr-only">{gt("Close")}</span>

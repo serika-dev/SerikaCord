@@ -612,6 +612,36 @@ html.keyboard-open .mobile-bottom-nav {
   }
 }
 
+/* Phone bottom sheets (MobileSheet): slide up / fade in. Fill mode
+   "backwards" only, so the drag-to-dismiss transform (inline) wins once the
+   entrance is over. */
+@keyframes sheet-enter {
+  from { transform: translate3d(0, 100%, 0); }
+}
+@keyframes sheet-backdrop-enter {
+  from { opacity: 0; }
+}
+.sheet-enter {
+  animation: sheet-enter 260ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+.sheet-backdrop-enter {
+  animation: sheet-backdrop-enter 200ms ease-out backwards;
+}
+/* The phone tab bar slides back in when the channel / DM list settles. */
+@keyframes bottom-nav-enter {
+  from { transform: translate3d(0, 100%, 0); }
+}
+.mobile-bottom-nav {
+  animation: bottom-nav-enter 180ms cubic-bezier(0.22, 1, 0.36, 1) backwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .sheet-enter,
+  .sheet-backdrop-enter,
+  .mobile-bottom-nav {
+    animation: none;
+  }
+}
+
 /* No pull-to-refresh / rubber-band on the page itself (Chrome would reload
    the app). Inner scrollers keep scrolling; they contain their own overscroll. */
 html,

@@ -401,6 +401,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
             )}
             style={hasCardBg ? cardBgStyle : undefined}
             showCloseButton={false}
+            dragToDismiss
           >
             <div className="w-12 h-1 bg-[var(--app-border)] rounded-full mt-3 mb-1 mx-auto shrink-0" />
             <div className="overflow-y-auto flex-1 min-h-0">{renderProfileCard()}</div>

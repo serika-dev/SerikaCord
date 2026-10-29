@@ -1,17 +1,17 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { motion, useReducedMotion } from "framer-motion";
+import { useCallback, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
+import { useGT } from "gt-next";
 import { cn } from "@/lib/utils";
 import { useBackHandler } from "@/hooks/useBackHandler";
-
-import { gestureAxis, GESTURE_IGNORE_SELECTOR, shouldDismissSheet, type GestureAxis } from "@/lib/mobile/gestures";
+import { useDragToDismiss } from "@/hooks/useDragToDismiss";
 
 /**
  * Discord-style bottom sheet for phones: dimmed backdrop, grab handle, drag
- * down / tap outside / Android back to close, safe-area aware and scrollable
- * when its content is taller than the screen. Render it only while open.
+ * down (handle, or content scrolled to the top) / tap outside / Android back
+ * to close, safe-area aware and scrollable when its content is taller than
+ * the screen. Render it only while open.
  */
 export function MobileSheet({
   onClose,
@@ -24,30 +24,41 @@ export function MobileSheet({
   onClose: () => void;
   /** Accessible name of the sheet. */
   label: string;
-  /** Pinned above the scrolling body (and draggable). */
+  /** Pinned above the scrolling body. */
   header?: React.ReactNode;
   children: React.ReactNode;
   className?: string;
   containerClassName?: string;
 }) {
-  const [dragY, setDragY] = useState(0);
-  const [dragging, setDragging] = useState(false);
-  const [closing, setClosing] = useState(false);
-  const reducedMotion = useReducedMotion();
+  const gt = useGT();
   const sheet = useRef<HTMLDivElement | null>(null);
-  const dragStart = useRef<{ x: number; y: number; lastY: number; lastTime: number; velocity: number } | null>(null);
-  const axis = useRef<GestureAxis>(null);
-  const closeRequested = useRef(false);
-  const closeFinished = useRef(false);
-  const suppressClick = useRef(false);
-
-  const requestClose = useCallback(() => {
-    if (closeRequested.current) return;
-    closeRequested.current = true;
-    setDragging(false);
-    setClosing(true);
+  const closed = useRef(false);
+  const onCloseRef = useRef(onClose);
+  useEffect(() => {
+    onCloseRef.current = onClose;
+  }, [onClose]);
+  const { sheetRef, backdropRef, dismiss } = useDragToDismiss({
+    onDismiss: () => {
+      if (closed.current) return;
+      closed.current = true;
+      onCloseRef.current();
+    },
+  });
+  const requestClose = useCallback(() => dismiss(), [dismiss]);
+  // The finger that long-pressed this sheet open lifts over the backdrop: its
+  // click (some browsers send one) must not close the sheet straight away.
+  const openedAt = useRef(0);
+  useEffect(() => {
+    openedAt.current = performance.now();
   }, []);
   useBackHandler(true, requestClose);
+  const setSheet = useCallback(
+    (el: HTMLDivElement | null) => {
+      sheet.current = el;
+      return sheetRef(el);
+    },
+    [sheetRef],
+  );
 
   useEffect(() => {
     const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -80,49 +91,6 @@ export function MobileSheet({
     };
   }, [requestClose]);
 
-  const cancelDrag = () => {
-    dragStart.current = null;
-    axis.current = null;
-    setDragging(false);
-    setDragY(0);
-  };
-  const onDragStart = (e: React.TouchEvent) => {
-    cancelDrag();
-    suppressClick.current = false;
-    if (e.touches.length !== 1 || closing || (e.target as Element).closest(GESTURE_IGNORE_SELECTOR)) return;
-    const touch = e.touches[0];
-    dragStart.current = { x: touch.clientX, y: touch.clientY, lastY: touch.clientY, lastTime: performance.now(), velocity: 0 };
-  };
-  const onDragMove = (e: React.TouchEvent) => {
-    const start = dragStart.current;
-    if (!start) return;
-    if (e.touches.length !== 1) {
-      cancelDrag();
-      return;
-    }
-    const touch = e.touches[0];
-    const dy = touch.clientY - start.y;
-    axis.current ??= gestureAxis(touch.clientX - start.x, dy);
-    if (axis.current !== "vertical") return;
-    const now = performance.now();
-    start.velocity = (touch.clientY - start.lastY) / Math.max(1, now - start.lastTime);
-    start.lastTime = now;
-    start.lastY = touch.clientY;
-    suppressClick.current = true;
-    setDragging(true);
-    setDragY(Math.max(0, dy));
-  };
-  const onDragEnd = (e: React.TouchEvent) => {
-    const start = dragStart.current;
-    const touch = e.changedTouches[0];
-    const distance = start && touch ? Math.max(0, touch.clientY - start.y) : 0;
-    const velocity = start && performance.now() - start.lastTime < 100 ? start.velocity : 0;
-    const dismiss = axis.current === "vertical" && shouldDismissSheet(distance, velocity);
-    cancelDrag();
-    if (dismiss) requestClose();
-  };
-  const dragHandlers = { onTouchStart: onDragStart, onTouchMove: onDragMove, onTouchEnd: onDragEnd, onTouchCancel: cancelDrag };
-
   if (typeof document === "undefined") return null;
 
   return createPortal(
@@ -131,45 +99,30 @@ export function MobileSheet({
       data-message-sheet=""
       onContextMenu={(e) => e.preventDefault()}
       onClick={(e) => e.stopPropagation()}
-      onPointerDownCapture={() => { suppressClick.current = false; }}
-      onClickCapture={(e) => {
-        if (suppressClick.current) {
-          suppressClick.current = false;
-          e.preventDefault();
-          e.stopPropagation();
-        }
-      }}
     >
-      <motion.div
-        className="absolute inset-0 bg-black/50 touch-none"
-        initial={{ opacity: 0 }}
-        animate={{ opacity: closing ? 0 : Math.max(0.15, 1 - dragY / 450) }}
-        transition={{ duration: reducedMotion || dragging ? 0 : 0.2 }}
-        onClick={requestClose}
-        aria-hidden="true"
+      <button
+        type="button"
+        ref={backdropRef}
+        tabIndex={-1}
+        aria-label={gt("Close")}
+        className="sheet-backdrop-enter absolute inset-0 cursor-default bg-black/50 touch-none"
+        onClick={() => {
+          if (performance.now() - openedAt.current > 450) requestClose();
+        }}
       />
-      <motion.div
-        ref={sheet}
+      <div
+        ref={setSheet}
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={label}
         className={cn(
-          "absolute inset-x-0 bottom-0 flex max-h-[88dvh] flex-col overflow-hidden rounded-t-2xl border-t border-[var(--border-subtle)] bg-[var(--bg-app)] shadow-2xl",
+          "sheet-enter absolute inset-x-0 bottom-0 flex max-h-[88dvh] flex-col overflow-hidden rounded-t-2xl border-t border-[var(--border-subtle)] bg-[var(--bg-app)] shadow-2xl",
           "outline-none",
           className,
         )}
-        initial={{ y: reducedMotion ? 0 : "100%" }}
-        animate={{ y: closing ? "100%" : dragY }}
-        transition={reducedMotion || dragging ? { duration: 0 } : closing ? { duration: 0.22, ease: [0.32, 0, 0.67, 0] } : { type: "spring", stiffness: 390, damping: 36, mass: 0.9 }}
-        onAnimationComplete={() => {
-          if (closing && !closeFinished.current) {
-            closeFinished.current = true;
-            onClose();
-          }
-        }}
       >
-        <div {...dragHandlers} className="shrink-0 touch-none select-none">
+        <div className="shrink-0 touch-none select-none">
           <div className="flex justify-center pb-2 pt-2.5">
             <div className="h-1 w-10 rounded-full bg-[var(--border-subtle)]" />
           </div>
@@ -181,7 +134,7 @@ export function MobileSheet({
         >
           {children}
         </div>
-      </motion.div>
+      </div>
     </div>,
     document.body,
   );
