@@ -64,8 +64,14 @@ export interface MessageE2ee {
   reason?: string;
   /** Sender device signature checked against a trusted identity key. */
   verified?: boolean;
-  /** The stored envelope (kept so a cached copy can be decrypted again). */
+  /** The stored envelope (kept so a cached copy or a failure can be decrypted again). */
   envelope?: unknown;
+  /** Failures: the attachment blobs stored on the row (a retry checks payload files against them). */
+  stored?: string[];
+  /** Failures: automatic retries done so far (lib/e2ee/decryptRetry). */
+  attempts?: number;
+  /** Failures: a transient one that is still being retried (shown as "Decrypting…"). */
+  retrying?: boolean;
 }
 
 export interface MessageReaction {

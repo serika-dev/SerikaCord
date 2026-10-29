@@ -38,10 +38,16 @@ function withoutPlaintext(m: ChatMessage): ChatMessage {
     mentionedUserIds: [],
     referencedMessage: ref,
     // Only messages that decrypted fine come back as placeholders (to be
-    // filled from the decrypted cache); failures stay failures, without their
-    // envelope, until the next fetch checks them again.
+    // filled from the decrypted cache); failures stay failures until the next
+    // fetch checks them again, keeping their envelope (and stored blobs) so
+    // "Try again" works after a reload too.
     e2ee: m.e2ee.status === "error"
-      ? { status: "error", reason: m.e2ee.reason }
+      ? {
+          status: "error",
+          reason: m.e2ee.reason,
+          ...(m.e2ee.envelope ? { envelope: m.e2ee.envelope } : {}),
+          ...(m.e2ee.stored?.length ? { stored: m.e2ee.stored } : {}),
+        }
       : { status: "pending", envelope: m.e2ee.envelope },
   };
 }

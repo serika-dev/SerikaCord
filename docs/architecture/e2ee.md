@@ -20,8 +20,8 @@ Code map:
 
 | Path | What |
 |------|------|
-| `src/lib/e2ee/` | Isomorphic core: `keys`, `envelope`, `payload`, `attachments`, `backup`, `safetyNumber` (+ `sha256`, a synchronous SHA-256 for its hash chain), `dtls`, `franking`, `policy` (pure server rules), `conversation` (pure client binding rules: URL targets, member checks, plaintext rows and the on / off timeline, payload URLs), `passphrase` (strength), `link` (device linking: codes, commitment, SAS, sealed keys), `keysVersion` (key-set versions), `notifyKeys` (notification keys, push blocks, recipient cap), `previewText` (preview line + mention detection), `pin` (PIN derivation, bundle seal / open, commit + removal signatures, easy-PIN rules), `pinVault` (server half with the pepper: verifier hash, sealed server secret, attempt rules), `conversationState` (signed "turned off" records and the downgrade rules), `trust` (identity pins: trust on first use, accept / verify), `constants`, `encoding` |
-| `src/lib/e2ee/client/` | Browser only: `keyStore` (IndexedDB, incl. "seen encrypted" memory, archived keys, link escrow), `session` (setup, linking, trust, encrypt/decrypt, caches; lazy-loaded), `plainCache` (decrypted-message cache: memory + encrypted IndexedDB; cached key bundles), `view` (payload → rendered message, crypto-free), `fileCrypto` + `fileWorker` (attachments in a module Web Worker), `state` (crypto-free snapshot for React), `chatGlue` (useChatSession helpers), `callGuard` (does a call room need verified signatures), `previews` (notification / DM-list previews), `notifyKey` (Android: notification key + trusted senders for native code) |
+| `src/lib/e2ee/` | Isomorphic core: `keys`, `envelope`, `payload`, `attachments`, `backup`, `safetyNumber` (+ `sha256`, a synchronous SHA-256 for its hash chain), `dtls`, `franking`, `policy` (pure server rules), `conversation` (pure client binding rules: URL targets, member checks, plaintext rows and the on / off timeline, payload URLs), `passphrase` (strength), `link` (device linking: codes, commitment, SAS, sealed keys), `keysVersion` (key-set versions), `notifyKeys` (notification keys, push blocks, recipient cap), `previewText` (preview line + mention detection), `pin` (PIN derivation, bundle seal / open, commit + removal signatures, easy-PIN rules), `pinVault` (server half with the pepper: verifier hash, sealed server secret, attempt rules), `conversationState` (signed "turned off" records and the downgrade rules), `trust` (identity pins: trust on first use, accept / verify), `decryptRetry` (which decrypt failures are transient, backoff, result memo), `constants`, `encoding` |
+| `src/lib/e2ee/client/` | Browser only: `keyStore` (IndexedDB, incl. "seen encrypted" memory, archived keys, link escrow), `session` (setup, linking, trust, encrypt/decrypt, caches; lazy-loaded), `plainCache` (decrypted-message cache: memory + encrypted IndexedDB; cached key bundles), `view` (payload → rendered message, crypto-free), `fileCrypto` + `fileWorker` (attachments in a module Web Worker), `state` (crypto-free snapshot for React), `chatGlue` (useChatSession helpers), `callGuard` (does a call room need verified signatures), `previews` (notification / DM-list previews), `retryBus` ("Try again" on a message → the open chat), `notifyKey` (Android: notification key + trusted senders for native code) |
 | `src/lib/services/e2ee.ts` | Server: flag, boot DDL, key lookups, key-set versions, key-change notifications, send gate, franking reports, "turned off" record checks |
 | `src/lib/services/e2eePin.ts` | Server: PIN backups (pepper, begin / commit, unlock with atomic attempt counting, lockout + system DM, removal) |
 | `src/lib/api/e2ee.ts` | `/api/e2ee` routes (incl. the device-linking relay) |
@@ -161,7 +161,9 @@ the sender". Edits are a whole new envelope whose payload carries `mid` = the
 message id; recipients reject an envelope whose `mid` names another message
 (stops the server from swapping envelopes between messages), and a plaintext
 `edit` event never replaces an encrypted message. Failures show "Couldn't
-decrypt / verify this message" with a reason; nothing is retried silently.
+decrypt / verify this message" with a reason and a "Try again" button;
+transient ones are retried first (see "Failures and retries"). A retry
+re-runs exactly the same checks; nothing is ever accepted on a weaker basis.
 
 **Plaintext in an encrypted conversation.** A user message without an
 envelope (after the "turned on encryption" notice, or any when no notice is
@@ -712,7 +714,8 @@ does now:
   (`frankingDisclosureFor`).
 - **Opening a conversation:** the localStorage message tail keeps encrypted
   messages that decrypted fine as envelope-only placeholders (failures stay
-  failures, without envelope); first paint fills them from the memory cache
+  failures, with their envelope and stored blob URLs so "Try again" works
+  after a reload); first paint fills them from the memory cache
   synchronously, then from IndexedDB (`hydratePlaceholders`, usually before
   the network page arrives) — only rows of the open conversation's validated
   channel (the URL's group; for a 1:1 DM a channel whose key set is exactly us
@@ -722,6 +725,34 @@ does now:
   conversation runs. Uncached rows decrypt in parallel, newest first. A
   message still decrypting after 150 ms shows "Decrypting…"; before that it
   is an empty line (no flash). Envelope shape checks run once per row.
+- **Failures and retries** (`lib/e2ee/decryptRetry.ts`, pure and tested;
+  `hooks/useE2eeDecryptRetry.ts` in the chat engine). Reasons are split:
+  *transient* — `not_ready` (keys still loading), `keys_unavailable` (the
+  conversation's key set or the sender's keys couldn't be fetched: network,
+  401 while the token refreshes, 429, 20 s timeout; also a 1:1 DM row with
+  no known channel), `unknown_device` (a contact's device not in the key set
+  yet), `temporary` (the engine threw: storage, WebCrypto) — and
+  *permanent* (`no_key`, `unwrap`, `decrypt`, `commitment`, `payload`,
+  `signature`, `revoked_device`, `edit_mismatch`, `wrong_conversation`,
+  `foreign_url`, `malformed`; `restore` waits for the user). A transient
+  failure keeps its envelope and stored blob URLs on the row and is retried
+  3 times (after 1, 3 and 6 s) while it shows "Decrypting…"; only then does
+  the error appear. Every failure shown is decrypted again when this
+  device's keys load, a security code is accepted, or a key set changes;
+  transient ones also when the tab becomes visible, the browser comes back
+  online or the stream reconnects. "Try again" forgets what is remembered
+  about the message, reloads the conversation's key set and the sender's
+  keys from the server, and decrypts again. The in-memory result memo keeps
+  successes; a permanent failure for 60 s; a transient one only while in
+  flight (a rejected key fetch is dropped too), so no failure is ever cached
+  for good. A retried result only replaces a row still showing the same
+  failed envelope (an edit or a fetch that came meanwhile wins), and only its
+  decrypted fields; replies quoting it get our own text. A live message that
+  arrives in a 1:1 DM before the page's conversation facts uses the row's
+  channel, checked against the URL's person exactly like the page's.
+  Notification / DM-list previews retry transient failures within their 4 s
+  budget, and the mobile DM list decrypts missed previews again once keys
+  are ready.
 - **Live messages** decrypt before they are inserted (about a millisecond;
   no IndexedDB lookup for rows that just arrived); the key set is never
   refetched on the critical path. Own sends show their plaintext right away

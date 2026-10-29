@@ -23,6 +23,7 @@ import { useLongPress } from "@/components/mobile/useLongPress";
 import { Bone } from "@/components/mobile/Bone";
 import { useAuth } from "@/contexts/AuthContext";
 import { previewEncryptedMessage, type EncryptedPreviewInput } from "@/lib/e2ee/client/previews";
+import { useE2ee } from "@/hooks/useE2ee";
 import { getRelationships } from "@/lib/social/relationshipsStore";
 import { isBlockedAuthor } from "@/lib/chat/blocked";
 import { useResilientStream } from "@/hooks/useStreamRevive";
@@ -70,11 +71,14 @@ async function decryptRowPreviews(
   selfId: string,
   labels: { attachment: string; sticker: string; spoiler: string },
   onResult: (rowId: string, text: string) => void,
+  /** A row that couldn't be decrypted (yet): tried again once keys are ready. */
+  onMiss?: () => void,
 ): Promise<void> {
   for (let i = 0; i < jobs.length; i += 6) {
     await Promise.all(jobs.slice(i, i + 6).map(async (job) => {
       const p = await previewEncryptedMessage(job.input, selfId, { dmPeer: job.dmPeer, labels, names: { users: job.names }, max: 120 });
       if (p) onResult(job.rowId, p.text);
+      else onMiss?.();
     }));
   }
 }
@@ -93,6 +97,8 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   // Decrypted previews by `<channel>|<message>` (memory only): a list refresh
   // shows them at once instead of flashing the placeholder.
   const decryptedPreviewsRef = useRef(new Map<string, string>());
+  // Some encrypted preview couldn't be decrypted (keys not ready / unreachable).
+  const previewMissRef = useRef(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isRefreshing, setIsRefreshing] = useState(false);
@@ -247,6 +253,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
               }
               setMessages((prev) => prev.map((m) => (m.id === rowId ? { ...m, lastMessage: text } : m)));
             },
+            () => { previewMissRef.current = true; },
           );
         }
         // Feed the unread engine so DM rows light up cross-device: the newest
@@ -277,6 +284,19 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   useEffect(() => {
     fetchMessages();
   }, [fetchMessages]);
+
+  // This device's keys became usable (first sign-in, PIN / link restore) or a
+  // key set changed: previews that couldn't be decrypted yet get another go.
+  const e2ee = useE2ee();
+  const e2eeReadyRef = useRef<string | null>(null);
+  useEffect(() => {
+    const sig = `${e2ee.phase}|${e2ee.keysVersion}|${e2ee.pinsVersion}`;
+    const previous = e2eeReadyRef.current;
+    e2eeReadyRef.current = sig;
+    if (previous === null || previous === sig || e2ee.phase !== "ready" || !previewMissRef.current) return;
+    previewMissRef.current = false;
+    scheduleRefetch();
+  }, [e2ee.phase, e2ee.keysVersion, e2ee.pinsVersion, scheduleRefetch]);
 
   // A DM message (any author, any device) bumps its row to the top with the
   // new preview, without refetching the whole list.
@@ -321,6 +341,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             if (cache.size > 300) cache.delete(cache.keys().next().value!);
             setMessages((prev) => prev.map((m) => (m.id === rowId ? { ...m, lastMessage: text } : m)));
           },
+          () => { previewMissRef.current = true; },
         );
       }
     } else {

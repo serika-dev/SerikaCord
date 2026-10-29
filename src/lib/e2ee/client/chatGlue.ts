@@ -20,6 +20,7 @@ import { getE2eeSnapshot, loadE2eeSession } from "./state";
 import type { DecryptContext } from "./session";
 import { peekPlain, plainCacheKey, validatedChannelOf } from "./plainCache";
 import { applyPayload } from "./view";
+import { rawRowForRetry } from "@/lib/e2ee/decryptRetry";
 
 /**
  * Whether this device has seen the conversation encrypted (downgrade
@@ -125,11 +126,29 @@ export function hasEnvelope(raw: RawMessagePayload | null | undefined): boolean 
   return Boolean(e && typeof e === "object" && !("status" in e));
 }
 
-/** Which channel an encrypted page's rows must belong to (the URL's group, or the DM channel checked against the URL's person). */
-export function decryptContextFor(target: E2eeTarget | null, meta: ConversationMeta | null): DecryptContext {
+/**
+ * Which channel an encrypted page's rows must belong to (the URL's group, or
+ * the DM channel checked against the URL's person). A 1:1 DM whose facts
+ * haven't loaded yet (a live message right after opening it) uses the rows'
+ * own channel: it is checked against the URL's person exactly like the one
+ * the page fetch reports, so a message that arrives first still decrypts.
+ */
+export function decryptContextFor(target: E2eeTarget | null, meta: ConversationMeta | null, rows?: ReadonlyArray<{ channelId?: unknown } | null | undefined>): DecryptContext {
   if (!target) return { channelId: meta?.channelId ?? null };
   if (target.kind === "group") return { channelId: target.channelId, group: true };
-  return { channelId: meta?.channelId ?? null, dmPeer: target.recipientId };
+  return { channelId: meta?.channelId ?? soleChannelOf(rows), dmPeer: target.recipientId };
+}
+
+/** The one channel every row names (null when none does or they differ). */
+function soleChannelOf(rows?: ReadonlyArray<{ channelId?: unknown } | null | undefined>): string | null {
+  let found: string | null = null;
+  for (const r of rows ?? []) {
+    const id = typeof r?.channelId === "string" && r.channelId ? r.channelId.toLowerCase() : null;
+    if (!id) continue;
+    if (found && found !== id) return null;
+    found = id;
+  }
+  return found;
 }
 
 type PendingLike = { id: string; channelId?: string; authorId?: string; e2ee?: { status?: string; envelope?: unknown } };
@@ -261,10 +280,29 @@ export async function decodeConversationRows(raw: RawMessagePayload[], opts: Dec
   if (!rows.some(hasEnvelope)) return rows;
   const session = await loadE2eeSession();
   return session.decryptRawMessages(rows as Array<Record<string, unknown>>, {
-    ...decryptContextFor(opts.target, opts.meta),
+    ...decryptContextFor(opts.target, opts.meta, rows as Array<{ channelId?: unknown }>),
     selfId: opts.selfId ?? null,
     live: opts.live === true,
   });
+}
+
+/**
+ * Decrypt failed messages again (automatic retries, "Try again"): each row is
+ * rebuilt from the envelope and stored blobs it kept. `fresh` (Try again)
+ * first forgets what is remembered about them and reloads the keys from the
+ * server. Returns the rows as decryptRawMessages leaves them (callers count
+ * the attempts: lib/e2ee/decryptRetry stateAfterRetry).
+ */
+export async function retryDecryptRows<M extends { id: string; channelId?: string; authorId?: string; e2ee?: unknown }>(
+  messages: M[],
+  opts: { target: E2eeTarget | null; meta: ConversationMeta | null; selfId?: string | null; fresh?: boolean },
+): Promise<Array<Record<string, unknown>>> {
+  const rows = messages.map((m) => rawRowForRetry(m as Parameters<typeof rawRowForRetry>[0])).filter((r): r is Record<string, unknown> => r !== null);
+  if (rows.length === 0) return [];
+  const session = await loadE2eeSession();
+  const ctx = decryptContextFor(opts.target, opts.meta, rows as Array<{ channelId?: unknown }>);
+  if (opts.fresh) await session.prepareDecryptRetry(ctx.channelId, rows as Array<{ id: string; authorId?: string }>);
+  return session.decryptRawMessages(rows, { ...ctx, selfId: opts.selfId ?? null });
 }
 
 /** Conversation facts the DM / group DM message endpoints return with a page. */

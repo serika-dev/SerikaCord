@@ -89,6 +89,7 @@ import {
 } from "@/lib/e2ee/pin";
 import { PBKDF2_SALT_BYTES } from "@/lib/e2ee/constants";
 import { acceptIdentity, observeIdentity, samePin, setIdentityVerified } from "@/lib/e2ee/trust";
+import { DecryptMemo, failureState } from "@/lib/e2ee/decryptRetry";
 import {
   checkOffRecord,
   dmPair,
@@ -1455,7 +1456,7 @@ async function processChannelKeys(data: RawChannelKeys, key: string, opts: { cac
 
 /** A conversation's key set changed: forget results checked against the old one, and tell open views. */
 function keySetChanged(key: string) {
-  for (const k of [...decryptCache.keys()]) if (k.startsWith(`${key}|`)) decryptCache.delete(k);
+  decryptCache.deleteWhere((k) => k.startsWith(`${key}|`));
   // The memory layer remembers how trusted senders were: re-check everything (IndexedDB hits are re-checked anyway).
   forgetPlainMemory();
   setE2eeSnapshot({ keysVersion: getE2eeSnapshot().keysVersion + 1 });
@@ -1945,14 +1946,22 @@ export type DecryptFailure =
   | "wrong_conversation"
   | "keys_unavailable"
   | "foreign_url"
-  | "malformed";
+  | "malformed"
+  /** The engine threw (storage, WebCrypto): transient, retried. */
+  | "temporary";
 
 export type DecryptResult =
   | { ok: true; payload: MessagePayload; verified: boolean }
   | { ok: false; reason: DecryptFailure };
 
-/** In-flight and finished decryptions, by conversation | message | envelope | sender. */
-const decryptCache = new Map<string, Promise<DecryptResult>>();
+/**
+ * In-flight and finished decryptions, by conversation | message | envelope |
+ * sender. Successes are kept; a permanent failure for a minute; a transient
+ * one (keys loading / unreachable, unknown device, an engine error) only
+ * while in flight, so the next attempt really decrypts again
+ * (lib/e2ee/decryptRetry.ts).
+ */
+const decryptCache = new DecryptMemo<DecryptResult>({ max: 5000 });
 /** envelope signature → disclosure material for franking reports (memory only). */
 const frankingKeys = new Map<string, { key: string; payload: string }>();
 
@@ -1984,13 +1993,20 @@ async function signerFor(channelId: string, senderId: string, deviceId: string) 
   const fromChannel = await getChannelKeys(channelId).catch(() => null);
   let member = fromChannel?.members.find((m) => m.userId === sender);
   let signer = member?.signers.get(deviceId);
+  // The sender's current keys couldn't be fetched (network, 401 while the
+  // token refreshes, 429): a transient "keys unavailable", not an unknown
+  // device (the cached set may just predate their new device).
+  let unavailable = false;
   if (!signer) {
-    member = await getUserKeys(senderId, true).catch(() => undefined);
+    member = await getUserKeys(senderId, true).catch(() => {
+      unavailable = true;
+      return undefined;
+    });
     signer = member?.signers.get(deviceId);
   }
   // getUserKeys already refuses a bundle for anyone else; never accept a signer from another person.
-  if (member && member.userId !== sender) return { member: undefined, signer: undefined };
-  return { member, signer };
+  if (member && member.userId !== sender) return { member: undefined, signer: undefined, unavailable: false };
+  return { member, signer, unavailable };
 }
 
 /** Our private keys that may open an envelope (current first, then archived), by wrap recipient id. */
@@ -2033,8 +2049,9 @@ async function decryptOne(msg: RawMessageLike, channelId: string): Promise<Decry
       failure = null;
       break;
     } catch (err) {
-      const code = err instanceof E2eeVerifyError ? err.code : "decrypt";
-      failure = (["no_key", "unwrap", "decrypt", "commitment", "payload"].includes(code) ? code : "decrypt") as DecryptFailure;
+      // Not a verification verdict (the engine threw): worth another try.
+      const code = err instanceof E2eeVerifyError ? err.code : "temporary";
+      failure = (["no_key", "unwrap", "decrypt", "commitment", "payload", "temporary"].includes(code) ? code : "decrypt") as DecryptFailure;
       // Another of our keys may hold this entry (e.g. an archived backup key);
       // a bad ciphertext fails the same way under every key.
       if (failure !== "unwrap") break;
@@ -2048,7 +2065,8 @@ async function decryptOne(msg: RawMessageLike, channelId: string): Promise<Decry
 
   // Sender device signature, under a key we trust for the sender. A device
   // nobody we trust vouched for is not a sender we can show.
-  const { member, signer } = await signerFor(channelId, senderId, envelope.sd);
+  const { member, signer, unavailable } = await signerFor(channelId, senderId, envelope.sd);
+  if (!signer && unavailable) return { ok: false, reason: "keys_unavailable" };
   if (!signer || !signer.trusted) return { ok: false, reason: "unknown_device" };
   if (!(await verifyEnvelopeSignature(envelope, channelId, signer.signPub))) return { ok: false, reason: "signature" };
   const sentAt = msg.createdAt ? new Date(msg.createdAt).getTime() : Date.now();
@@ -2137,7 +2155,8 @@ export function decryptMessage(msg: RawMessageLike, channelId: string, prefetche
     if (fromCache.ok && plainKey && userId && entry) rememberPlain(userId, plainKey, { ...entry, verified: fromCache.verified });
   } else {
     p = decryptOne(msg, channelId)
-      .catch((): DecryptResult => ({ ok: false, reason: "decrypt" }))
+      // An exception is not a verdict on the message: retried.
+      .catch((): DecryptResult => ({ ok: false, reason: "temporary" }))
       .then((r) => {
         if (r.ok && plainKey && envelope && userId && urlsAllowed(r.payload, storedAttachmentUrls)) {
           const plain: PlainEntry = { payload: r.payload, sd: envelope.sd, sender: lower(sender) };
@@ -2147,13 +2166,26 @@ export function decryptMessage(msg: RawMessageLike, channelId: string, prefetche
         return r;
       });
   }
-  if (decryptCache.size > 5000) decryptCache.delete(decryptCache.keys().next().value!);
-  decryptCache.set(cacheKey, p);
-  // Transient failures (keys not loaded yet, unknown device) may succeed later.
-  void p.then((r) => {
-    if (!r.ok && (r.reason === "not_ready" || r.reason === "restore" || r.reason === "unknown_device")) decryptCache.delete(cacheKey);
+  // Failures are never kept for good (transient ones not at all).
+  return decryptCache.set(cacheKey, p);
+}
+
+/**
+ * Before "Try again": forget what is remembered about these messages and
+ * reload the keys they depend on from the server (the conversation's key
+ * set and each sender's keys). Never throws.
+ */
+export async function prepareDecryptRetry(channelId: string | null, messages: Array<{ id: string; authorId?: string; author?: { id?: string } }>): Promise<void> {
+  const ids = new Set(messages.map((m) => String(m.id)));
+  decryptCache.deleteWhere((k) => {
+    const [, id] = k.split("|");
+    return ids.has(id);
   });
-  return p;
+  for (const m of messages) {
+    const sender = senderOf(m as RawMessageLike);
+    if (sender) userKeyCache.delete(lower(sender));
+  }
+  if (channelId) await getChannelKeys(channelId, true).catch(() => null);
 }
 
 /** Franking disclosure for an envelope we decrypted in this tab (report flow), by its signature. */
@@ -2245,12 +2277,14 @@ export async function decryptRawMessages<T extends Record<string, unknown>>(raw:
     }
   }
 
+  // The envelope and the stored blobs stay on the row, so it can be decrypted
+  // again (automatic retries for transient failures, "Try again").
   const failed = (item: T, m: RawChat, reason: DecryptFailure) => ({
     ...item,
     content: "",
     attachments: [],
     sticker: undefined,
-    e2ee: { status: "error", reason, envelope: m.e2ee },
+    e2ee: failureState(reason, m.e2ee, storedUrlsOf(m.attachments)),
   }) as unknown as T;
 
   // Rows to decrypt, and one cache lookup for all of them.
@@ -2412,7 +2446,7 @@ export async function decryptForPreview(
     if (!r.ok) return r;
     return { ok: true, text: r.payload.content, attachments: r.payload.attachments?.length ?? 0, sticker: Boolean(r.payload.sticker), verified: r.verified };
   } catch {
-    return { ok: false, reason: "decrypt" };
+    return { ok: false, reason: "temporary" };
   }
 }
 

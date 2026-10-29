@@ -7,6 +7,7 @@
 // and never leaves it.
 import type { MentionNames } from "@/lib/chat/mentionText";
 import { encryptedPreviewText, mentionsUser, type EncryptedPreviewLabels } from "@/lib/e2ee/previewText";
+import { isTransientDecryptFailure } from "@/lib/e2ee/decryptRetry";
 import { loadE2eeSession } from "./state";
 
 export interface EncryptedPreviewInput {
@@ -27,6 +28,8 @@ export interface EncryptedPreview {
 
 /** A notification must not wait long for keys: after this it says "New encrypted message". */
 const DEFAULT_TIMEOUT_MS = 4000;
+/** Waits before trying a transient failure again (keys unreachable for a moment, …), within the timeout. */
+const PREVIEW_RETRY_DELAYS_MS = [400, 1200];
 
 /**
  * Decrypt one encrypted message for a preview. `dmPeer` (1:1 DMs: the other
@@ -44,14 +47,24 @@ export async function previewEncryptedMessage(
   const timeout = new Promise<null>((resolve) => {
     timer = setTimeout(() => resolve(null), opts.timeoutMs ?? DEFAULT_TIMEOUT_MS);
   });
+  let timedOut = false;
   const work = (async () => {
     const session = await loadE2eeSession();
-    const r = await session.decryptForPreview(
+    const attempt = () => session.decryptForPreview(
       { id: msg.id, authorId: msg.authorId, channelId: msg.channelId, createdAt: msg.createdAt ?? undefined, e2ee: msg.e2ee },
       msg.channelId,
       selfId,
       { dmPeer: opts.dmPeer ?? null },
     );
+    let r = await attempt();
+    // A key fetch that failed once (network, token refresh, rate limit) is
+    // never remembered: try again while the preview may still wait.
+    for (const delay of PREVIEW_RETRY_DELAYS_MS) {
+      if (r.ok || timedOut || !isTransientDecryptFailure(r.reason)) break;
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (timedOut) break;
+      r = await attempt();
+    }
     if (!r.ok) return null;
     const text = encryptedPreviewText({ text: r.text, attachments: r.attachments, sticker: r.sticker }, opts.labels, { names: opts.names, max: opts.max });
     return text ? { text, mentioned: mentionsUser(r.text, selfId) } : null;
@@ -59,6 +72,7 @@ export async function previewEncryptedMessage(
   try {
     return await Promise.race([work, timeout]);
   } finally {
+    timedOut = true;
     if (timer) clearTimeout(timer);
   }
 }

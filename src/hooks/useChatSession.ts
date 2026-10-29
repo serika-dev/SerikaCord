@@ -48,6 +48,7 @@ import {
   conversationEncryptionHere,
   forgetConversationEncryption,
   rememberEncrypted,
+  retryDecryptRows,
   type ConversationEncryption,
   type ConversationMeta,
   type EncryptedAttachmentUpload,
@@ -55,6 +56,7 @@ import {
 import { conversationKey, e2eeTargetForApiBase, type E2eeTarget } from "@/lib/e2ee/conversation";
 import { getE2eeSnapshot, loadE2eeSession, openE2eeDialog } from "@/lib/e2ee/client/state";
 import { useE2ee } from "@/hooks/useE2ee";
+import { useE2eeDecryptRetry } from "@/hooks/useE2eeDecryptRetry";
 
 const PAGE_SIZE = 50;
 // Scroll-up pagination fetches a smaller batch than the initial load. Mounting
@@ -500,6 +502,28 @@ export function useChatSession<M extends ChatMessage>({
     messagesRef.current = messages;
   }, [messages]);
 
+  // Encrypted messages that failed to decrypt: transient failures retry with
+  // a short backoff ("Decrypting…" meanwhile), everything retries when keys
+  // change / the tab comes back / the stream reconnects, and "Try again"
+  // reloads the keys (lib/e2ee/decryptRetry.ts).
+  const redecrypt = useCallback(
+    (rows: M[], fresh: boolean) => retryDecryptRows(rows, {
+      target: e2eeTargetForApiBase(apiBase),
+      meta: conversationRef.current,
+      selfId: e2eeUid,
+      fresh,
+    }),
+    [apiBase, e2eeUid],
+  );
+  const { retryFailed } = useE2eeDecryptRetry<M>({
+    enabled: encryptedChat,
+    messages,
+    messagesRef,
+    setMessages,
+    redecrypt,
+    contextKey: apiBase,
+  });
+
   // After an SSE reconnect: re-read the latest page and reconcile it with the
   // window, so messages sent and edits/deletes/reactions made while the stream
   // was down all show up.
@@ -532,7 +556,8 @@ export function useChatSession<M extends ChatMessage>({
 
   // Encrypted conversations: once this device's keys load or a contact's
   // security code is accepted / verified, messages that failed (unknown
-  // device, keys not ready) are decrypted and verified again.
+  // device, keys not ready) are decrypted and verified again — every loaded
+  // one, not just the latest page.
   // A conversation key set that changed (a device added / removed, keys
   // reset) re-checks every shown message against the new keys.
   const e2eeRecheckRef = useRef<string | null>(null);
@@ -544,14 +569,17 @@ export function useChatSession<M extends ChatMessage>({
     e2eeRecheckRef.current = sig;
     const keysPrevious = e2eeKeysSeenRef.current;
     e2eeKeysSeenRef.current = e2ee.keysVersion;
+    const keysChanged = keysPrevious !== null && keysPrevious !== e2ee.keysVersion;
+    const trustChanged = previous !== null && previous !== sig;
+    if (!keysChanged && !trustChanged) return;
+    retryFailed();
     if (hasMoreNewerRef.current) return;
-    if (keysPrevious !== null && keysPrevious !== e2ee.keysVersion && messagesRef.current.some((m) => m.e2ee)) {
+    if (keysChanged && messagesRef.current.some((m) => m.e2ee)) {
       void catchUpTail();
       return;
     }
-    if (previous === null || previous === sig) return;
     if (messagesRef.current.some((m) => m.e2ee?.status === "error" || m.e2ee?.status === "pending")) void catchUpTail();
-  }, [encryptedChat, e2ee.phase, e2ee.pinsVersion, e2ee.keysVersion, catchUpTail]);
+  }, [encryptedChat, e2ee.phase, e2ee.pinsVersion, e2ee.keysVersion, catchUpTail, retryFailed]);
 
   const loadOlderMessages = useCallback(async (): Promise<boolean> => {
     if (!apiBase || isLoadingMore || !hasMoreOlder || messages.length === 0) return false;
@@ -842,8 +870,11 @@ export function useChatSession<M extends ChatMessage>({
           createdAt: existing.createdAt,
           edited: true,
           e2ee: event.e2ee,
-          // The blobs stored on the message (payload files must be among them).
-          attachments: (existing.attachments ?? []).map((a) => ({ url: a.url })),
+          // The blobs stored on the message (payload files must be among them;
+          // a message that failed to decrypt kept them on its e2ee state).
+          attachments: (existing.e2ee?.status === "error" && existing.e2ee.stored
+            ? existing.e2ee.stored.map((url) => ({ url }))
+            : (existing.attachments ?? []).map((a) => ({ url: a.url }))),
         }],
         { target, meta, encrypted: true, selfId: e2eeUid, live: true },
       );
@@ -901,6 +932,8 @@ export function useChatSession<M extends ChatMessage>({
     // the tail (a delta fetch after the newest cached message) on reconnect.
     onReconnect: () => {
       if (!hasMoreNewerRef.current) void catchUpTail();
+      // Key fetches that failed while offline: try those messages again.
+      retryFailed({ transientOnly: true });
     },
     onEvent: (streamEvent) => routeStreamEvent(streamEvent, (data) => {
       if (data.type === "message") {

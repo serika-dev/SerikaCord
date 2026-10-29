@@ -199,6 +199,7 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "This message wasn't encrypted for this device.": gt("This message wasn't encrypted for this device."),
       "Couldn't verify who sent this message.": gt("Couldn't verify who sent this message."),
       "Couldn't decrypt this message.": gt("Couldn't decrypt this message."),
+      "Try again": gt("Try again"),
       "This message belongs to a different conversation.": gt("This message belongs to a different conversation."),
       "This message points to files outside SerikaCord, so it wasn't shown.": gt("This message points to files outside SerikaCord, so it wasn't shown."),
       "quoted by the sender": gt("quoted by the sender"),

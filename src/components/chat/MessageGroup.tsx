@@ -28,6 +28,7 @@ import type { ChatGt } from "./ChatGtContext";
 import dynamic from "next/dynamic";
 import { attachmentsOutsideComponents, isLoadingMessage } from "@/lib/chat/interactionEvents";
 import { isComponentsV2Message } from "@/lib/chat/componentsV2";
+import { requestDecryptRetry } from "@/lib/e2ee/client/retryBus";
 
 // Bot buttons / selects / components v2: its own chunk, only for messages that have them.
 const MessageComponents = dynamic(() => import("@/components/chat/MessageComponents"), { ssr: false });
@@ -378,13 +379,26 @@ function MessageGroupInner<M extends ChatMessage>({
                         {gt("Not encrypted – can't verify sender")}
                       </span>
                     )}
-                    {message.e2ee && message.e2ee.status === "pending" ? (
+                    {message.e2ee && (message.e2ee.status === "pending" || (message.e2ee.status === "error" && message.e2ee.retrying)) ? (
+                      // Still decrypting, or a transient failure being retried (lib/e2ee/decryptRetry).
                       <PendingDecryptBody />
                     ) : message.e2ee && message.e2ee.status !== "ok" ? (
                       // End-to-end encrypted, not readable on this device.
-                      <span className="chat-message-body inline-flex items-center gap-1.5 italic text-[var(--app-muted)]">
+                      <span className="chat-message-body inline-flex flex-wrap items-center gap-1.5 italic text-[var(--app-muted)]">
                         <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
                         {e2eeFailureText(gt, message.e2ee.reason)}
+                        {Boolean(message.e2ee.envelope) && (
+                          <button
+                            type="button"
+                            className="not-italic text-xs font-medium text-[var(--app-accent)] hover:underline focus-visible:underline focus-visible:outline-none"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              requestDecryptRetry(message.id);
+                            }}
+                          >
+                            {gt("Try again")}
+                          </button>
+                        )}
                       </span>
                     ) : isLoadingMessage(message.flags) && !message.content ? (
                       // Deferred interaction reply (callback 5) until the app edits it.
