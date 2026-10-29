@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, useRef } from "react";
+import { useHidesPurchases } from "@/lib/native/storePolicy";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { DomainConnectionsSection } from "@/components/settings/DomainConnectionsSection";
 import { useParams, useRouter } from "next/navigation";
@@ -175,6 +176,8 @@ export default function MobileSettingsSectionPage() {
   const router = useRouter();
   const { user, updateUser } = useAuth();
   const gt = useGT();
+  // iOS app: no Serika+ sales copy (App Store 3.1.1).
+  const hidePurchases = useHidesPurchases();
   const hidePersonal = useStreamerHides("personal");
   const { applyUserSettingsPatch } = useTheme();
   const section = (params.section as string) || "privacy";
@@ -625,7 +628,9 @@ export default function MobileSettingsSectionPage() {
         {section === "premium" && (
           <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-card)] p-4">
             <p className="text-[var(--text-primary)] font-semibold">{user?.isPremium ? gt("Your Premium is Active") : gt("Premium is not active")}</p>
-            <p className="text-sm text-[var(--text-secondary)] mt-2">{gt("Premium unlocks profile cosmetics and extra media limits.")}</p>
+            {!(hidePurchases && !user?.isPremium) && (
+              <p className="text-sm text-[var(--text-secondary)] mt-2">{gt("Premium unlocks profile cosmetics and extra media limits.")}</p>
+            )}
           </div>
         )}
 

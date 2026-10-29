@@ -1,6 +1,7 @@
 "use client";
 
 import { motion, AnimatePresence } from "framer-motion";
+import { useHidesPurchases } from "@/lib/native/storePolicy";
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
@@ -179,6 +180,8 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
   const currentUser = useAuth().user;
   const localTime = useCurrentTime(user.timezone);
   const gt = useGT();
+  // iOS app: no Serika+ upsell (App Store 3.1.1).
+  const hidePurchases = useHidesPurchases();
   const bgStyle = getProfileBackgroundStyle(user.customization);
   const hasBgOverride = Boolean(bgStyle.background || bgStyle.backgroundColor);
   const isHolographic = user.customization?.profileCardEffect === 'holographic';
@@ -427,7 +430,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
                           </h4>
                           <p className="text-sm text-[#dbdee1]">{formatDate(user.premiumSince)}</p>
                         </div>
-                      ) : (
+                      ) : hidePurchases ? null : (
                         <div className="mt-4 p-3 rounded-lg bg-gradient-to-r from-[#F0B232]/10 to-[#8B5CF6]/10 border border-[#F0B232]/20">
                           <div className="flex items-center gap-2 mb-2">
                             <Sparkles className="w-4 h-4 text-[#F0B232]" />

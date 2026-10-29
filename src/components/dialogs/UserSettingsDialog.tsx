@@ -129,6 +129,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 // End-to-end encryption settings (own chunk; only once the feature is on).
 import { KeyRound as E2eeKeyIcon } from "lucide-react";
 import { useE2ee } from "@/hooks/useE2ee";
+import { useHidesPurchases } from "@/lib/native/storePolicy";
 const E2eeSettingsPanel = dynamic(() => import("@/components/e2ee/E2eeSettingsPanel"), { ssr: false });
 
 const AdminStaffPanel = dynamic(() => import("@/components/settings/AdminStaffPanel"));
@@ -1377,6 +1378,9 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
   // Settings → Encryption shows once E2EE is on (server flag) or this device has keys.
   const e2eeState = useE2ee();
   const e2eeVisible = e2eeState.enabled || e2eeState.phase === "ready" || e2eeState.phase === "needs-restore";
+  // iOS app: Serika+ can't be bought there (App Store 3.1.1), see lib/native/storePolicy.
+  const hidePurchases = useHidesPurchases();
+  const isPremium = Boolean(user?.isPremium);
 
   // Build the (translated) menu once per locale/staff change instead of on
   // every keystroke — this array runs ~35 gt() lookups, which is a big chunk
@@ -1397,12 +1401,13 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
           { id: "bug-reports" as SettingsTab, label: gt("Feedback & Bugs"), icon: MessageSquareHeart },
         ],
       },
-      {
+      // iOS app: no Serika+ purchase page (App Store 3.1.1); subscribers keep the status page.
+      ...(hidePurchases && !isPremium ? [] : [{
         title: gt("Billing Settings"),
         items: [
           { id: "premium" as SettingsTab, label: gt("Serika+"), icon: Crown },
         ],
-      },
+      }]),
       {
         title: gt("App Settings"),
         items: [
@@ -1457,7 +1462,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     return sections.map((section) => ({ ...section,
       items: section.items.filter((item) => !item.id.startsWith("admin-") || canOpenAdminTab(item.id)),
     })).filter((section) => section.items.length > 0);
-  }, [gt, isStaff, canOpenAdminTab, e2eeVisible]);
+  }, [gt, isStaff, canOpenAdminTab, e2eeVisible, hidePurchases, isPremium]);
 
   // Filter menu items based on search (labels, keywords, section titles) —
   // only recompute when the query or the (memoized) menu actually changes.
@@ -1889,6 +1894,8 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                         </div>
                       </SettingsSection>
                     </>
+                  ) : hidePurchases ? (
+                    <p className="text-sm text-[var(--text-secondary)]">{gt("Serika+ isn't active on this account.")}</p>
                   ) : (
                     <div className="flex flex-col items-center rounded-xl border border-[color-mix(in_srgb,var(--app-accent)_35%,transparent)] bg-[color-mix(in_srgb,var(--app-accent)_10%,var(--bg-app))] px-6 py-10 text-center">
                       <span className="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--app-accent)] text-white">

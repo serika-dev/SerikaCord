@@ -77,6 +77,7 @@ import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { onHotkey } from "@/lib/keybinds";
 import { onMentionRequest } from "@/lib/social/userActions";
 import { T, useGT } from "gt-next";
+import { hidesPurchases } from "@/lib/native/storePolicy";
 import { Loader } from "@/components/ui/Loader";
 import { useAuth } from "@/contexts/AuthContext";
 import VoiceMessageRecorder, { type VoiceHoldStart } from "@/components/chat/VoiceMessageRecorder";
@@ -558,7 +559,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           continue;
         }
         if (file.size > maxFree) {
-          toast.error(`${file.name} ${gt("exceeds 500MB")}`, { description: gt("Upgrade to Serika+ for up to 2GB uploads.") });
+          // iOS app: no Serika+ upsell (App Store 3.1.1).
+          toast.error(`${file.name} ${gt("exceeds 500MB")}`, { description: hidesPurchases() ? gt("Files can be up to 500MB.") : gt("Upgrade to Serika+ for up to 2GB uploads.") });
           continue;
         }
         validFiles.push(file);

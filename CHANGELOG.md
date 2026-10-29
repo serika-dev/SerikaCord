@@ -19,7 +19,7 @@
 - **Emoji picker when editing** — the message edit box has an emoji button (and Ctrl+E) that opens the same picker as the message bar, with your skin tone, favourites and recents; the emoji goes where your cursor is. Esc closes the picker first, a second Esc cancels the edit.
 
 ### Changes
-
+- **The iPhone and iPad app follows the App Store rules for Serika+** — the iOS app shows no Serika+ upgrade buttons, prices or upsells and won't open purchase pages; if you already have Serika+ you still see it and keep your perks. Android and the web are unchanged.
 - **Long command lists on bot pages start collapsed** — a bot page now shows the first 8 commands with a "View all" button instead of one very long list, and bots with more than 12 commands get a filter box that searches command names and descriptions.
 - **Nicer tooltips** — tooltips are a little more polished (solid themed surface that stays readable on gradient themes, soft border and shadow, matching arrow, quick fade-in, keyboard shortcuts shown as keycaps), and the plain browser tooltips on icons, badges, timestamps and buttons across the app now use the same style.
 - **Data & Privacy, rebuilt** — Settings → Data & Privacy (Privacy & Safety on the phone) now holds every privacy choice in one place: who can message you, message and friend requests, safety protections, activity sharing, typing, profile visibility, sharing outside SerikaCord and what SerikaCord stores about you. Every option has a plain description and a "What this does" section that spells out exactly who it affects, and an "At a glance" summary shows your current choices. Content & Social, Friend Requests and Activity Privacy moved into it (search still finds them).

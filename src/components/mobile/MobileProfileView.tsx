@@ -41,6 +41,7 @@ import { useGT } from "gt-next";
 import { VERSION_LABEL } from "@/lib/version";
 import { KeyRound } from "lucide-react";
 import { useE2ee } from "@/hooks/useE2ee";
+import { useHidesPurchases } from "@/lib/native/storePolicy";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 
@@ -68,6 +69,8 @@ export function MobileProfileView() {
   const gt = useGT();
   const [showStatusSheet, setShowStatusSheet] = useState(false);
   const [showCustomStatus, setShowCustomStatus] = useState(false);
+  // iOS app: no Serika+ upsell (App Store 3.1.1); subscribers still see "Active".
+  const hidePurchases = useHidesPurchases();
 
   const status = user?.status ?? "offline";
   const displayName = user?.displayName || user?.username || "";
@@ -113,7 +116,7 @@ export function MobileProfileView() {
         { icon: MonitorSmartphone, label: gt("Streamer Mode"), href: "/channels/settings/streamer-mode" },
       ],
     },
-    {
+    ...(hidePurchases && !user?.isPremium ? [] : [{
       title: gt("Premium"),
       items: [
         {
@@ -123,7 +126,7 @@ export function MobileProfileView() {
           badge: user?.isPremium ? gt("Active") : gt("Upgrade"),
         },
       ],
-    },
+    }]),
     {
       title: gt("Support"),
       items: [

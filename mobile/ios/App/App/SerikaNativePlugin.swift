@@ -1,5 +1,6 @@
 import UIKit
 import UserNotifications
+import WebKit
 import Capacitor
 import FirebaseCore
 
@@ -64,6 +65,34 @@ public class SerikaNativePlugin: CAPPlugin, CAPBridgedPlugin {
         } else {
             call.resolve()
         }
+    }
+
+    /// App Store Guideline 3.1.1: Serika+ is sold outside the App Store, so
+    /// the iOS app never opens a purchase page, neither inside the web view
+    /// (accounts.serika.dev is an allowed navigation host for sign-in) nor in
+    /// Safari. The web app also hides every upsell on iOS
+    /// (src/lib/native/storePolicy.ts); this is the backstop for links on
+    /// the accounts site. Returning true cancels the navigation; nil leaves
+    /// the decision to Capacitor.
+    public override func shouldOverrideLoad(_ navigationAction: WKNavigationAction) -> NSNumber? {
+        guard let url = navigationAction.request.url else { return nil }
+        return SerikaStorePolicy.isPurchaseURL(url) ? NSNumber(value: true) : nil
+    }
+}
+
+enum SerikaStorePolicy {
+    /// Accounts-site pages that sell or manage Serika+, and payment hosts.
+    static let purchasePaths = ["/premium", "/billing", "/checkout", "/subscribe", "/pay"]
+
+    static func isPurchaseURL(_ url: URL) -> Bool {
+        guard let host = url.host?.lowercased() else { return false }
+        if host == "stripe.com" || host.hasSuffix(".stripe.com") { return true }
+        if host.contains("serikapay") || host.hasPrefix("pay.") { return true }
+        if host == "accounts.serika.dev" {
+            let path = url.path.lowercased()
+            return purchasePaths.contains { path == $0 || path.hasPrefix($0 + "/") }
+        }
+        return false
     }
 }
 

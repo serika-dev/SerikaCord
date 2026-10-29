@@ -2,6 +2,8 @@
 
 import Link from "next/link";
 import { T, useGT } from "gt-next";
+import { useAuth } from "@/contexts/AuthContext";
+import { useHidesPurchases } from "@/lib/native/storePolicy";
 import {
   User,
   Shield,
@@ -22,6 +24,9 @@ import {
 
 export default function MobileSettingsIndexPage() {
   const gt = useGT();
+  const { user } = useAuth();
+  // iOS app: no Serika+ purchase page (App Store 3.1.1); subscribers keep it.
+  const hidePurchases = useHidesPurchases();
   const sections = [
     {
       title: gt("Account"),
@@ -43,12 +48,12 @@ export default function MobileSettingsIndexPage() {
         { href: "/channels/settings/language", label: gt("Language"), icon: Globe },
       ],
     },
-    {
+    ...(hidePurchases && !user?.isPremium ? [] : [{
       title: gt("Premium"),
       items: [
         { href: "/channels/settings/premium", label: gt("SerikaCord Premium"), icon: Crown },
       ],
-    },
+    }]),
     {
       title: gt("Support"),
       items: [
