@@ -42,6 +42,10 @@
 - **Linux desktop app no longer stays blank when its page process keeps crashing** — if the built-in browser engine is stopped before the app loads, the Linux app now restarts itself in a safer mode (seccomp filter off, then sandbox off, then software rendering) and remembers what worked until the next update; if nothing works it shows a message with Open in browser, Try again and Copy details instead of an empty window. Starting it with flags or environment variables now replaces an instance hidden in the tray instead of silently reusing it, and `--diagnostics` (or `SERIKACORD_DEBUG=1`) prints everything a bug report needs. (CORD-69)
 
 ### Performance
+- **Faster channel and DM switching** — opening a conversation does less than half the work it used to: the react / more buttons on each message are only built when you point at it, messages without links skip the link-preview code, and reloading a conversation no longer redraws messages that didn't change. Messages also show at once instead of fading in over half a second.
+- **Clicks open instantly after hovering** — hovering a channel, thread, DM or server now preloads the whole page, so clicking it no longer shows a loading skeleton while waiting for the server.
+- **Less lag in busy servers** — new messages in other channels no longer redraw the open chat, its message box and the quick switcher; only the unread badges update.
+- **Quicker message and mention loading** — the server reads only what it shows about message authors, loads your mentions faster, and no longer retries decrypting long plain-text messages on every load.
 
 ### Security
 
