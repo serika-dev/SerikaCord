@@ -19,7 +19,7 @@ const CDN_IMAGE_HOST = "cdn.serika.chat";
  * `format=webp` when no explicit format is present. Existing params (w/h/flip/
  * quality/etc.) are preserved untouched.
  */
-export function cdnImage(url?: string | null, opts?: { still?: boolean }): string {
+export function cdnImage(url?: string | null, opts?: { still?: boolean; animated?: boolean }): string {
   if (!url) return url ?? "";
   // Fast bail-out for non-CDN / non-http strings without constructing a URL.
   if (!url.includes(CDN_IMAGE_HOST)) return url;
@@ -38,6 +38,9 @@ export function cdnImage(url?: string | null, opts?: { still?: boolean }): strin
     if (u.searchParams.has("format") || u.searchParams.has("output") || u.searchParams.has("fm")) {
       return url;
     }
+    // wsrv keeps only the first frame unless asked for all of them (n=-1), so
+    // animated stickers and emoji would otherwise arrive as a still WebP.
+    if (opts?.animated) u.searchParams.set("n", "-1");
     u.searchParams.set("format", "webp");
     return u.toString();
   } catch {
@@ -50,6 +53,20 @@ export function cdnImage(url?: string | null, opts?: { still?: boolean }): strin
  * frame, crop and size so a still avatar never starts animating on retry.
  * Other hosts and URLs without a conversion have no alternate source.
  */
+/**
+ * onError handler for images built with cdnImage: if wsrv fails to convert
+ * (it can on very large animated files), retry once with the original file
+ * from the CDN instead of leaving a broken image.
+ */
+export function retryWithOriginalImage(originalUrl?: string | null) {
+  return (event: { currentTarget: HTMLImageElement }) => {
+    const img = event.currentTarget;
+    if (!originalUrl || img.dataset.retried === "1") return;
+    img.dataset.retried = "1";
+    img.src = originalUrl;
+  };
+}
+
 export function cdnImageFallback(url?: string | null): string | undefined {
   if (!url?.includes(CDN_IMAGE_HOST)) return undefined;
   try {

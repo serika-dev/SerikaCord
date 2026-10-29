@@ -4,7 +4,7 @@ import { Fragment, useEffect, useRef, useMemo, memo, useState, useCallback } fro
 import twemoji from "@twemoji/api";
 import { twemojiOnError } from "@/lib/twemoji-helpers";
 import { useChatGt } from "./ChatGtContext";
-import { cn, cdnImage } from "@/lib/utils";
+import { cn, cdnImage, retryWithOriginalImage } from "@/lib/utils";
 import { isImageLikeUrl, isGifUrl, isGifProviderUrl } from "@/lib/chat/media";
 import { useAnimatedMedia } from "@/hooks/useAnimatedMedia";
 import { MarkdownDocument, type MarkdownTextRenderer } from "@/components/chat/MarkdownRenderer";
@@ -426,7 +426,8 @@ export const MessageContent = memo(function MessageContent({
     return (
       <div className={className}>
         <img
-          src={cdnImage(sticker.imageUrl)}
+          src={cdnImage(sticker.imageUrl, animateMedia ? { animated: true } : { still: true })}
+          onError={retryWithOriginalImage(sticker.imageUrl)}
           alt={sticker.name}
           title={sticker.name}
           className="max-w-[160px] max-h-[160px] w-auto h-auto object-contain cursor-pointer hover:opacity-90 transition-opacity rounded-lg"
@@ -467,7 +468,8 @@ export const MessageContent = memo(function MessageContent({
       return (
         <img
           key={`emoji-${index}-${part.emoji.id}`}
-          src={cdnImage(part.emoji.url || part.emoji.imageUrl, { still: !animateMedia })}
+          src={cdnImage(part.emoji.url || part.emoji.imageUrl, animateMedia ? { animated: true } : { still: true })}
+          onError={retryWithOriginalImage(part.emoji.url || part.emoji.imageUrl)}
           alt={`:${part.emoji.name}:`}
           title={`:${part.emoji.name}:`}
           className="custom-emoji"
