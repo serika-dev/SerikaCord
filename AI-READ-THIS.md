@@ -80,10 +80,13 @@ git push && git push origin vX.Y.Z        # the script never pushes
    - `desktop/package.json` (legacy Electron shell, currently absent)
    - `desktop-QT/CMakeLists.txt` (`project(... VERSION)`) and `desktop-QT/Info.plist`
    - `mobile/android/app/build.gradle` (`versionName`, and `versionCode` + 1)
+   - `mobile/ios/App/App.xcodeproj/project.pbxproj` (`MARKETING_VERSION`, and `CURRENT_PROJECT_VERSION` + 1)
 3. Moves the `## Unreleased` body into `## vX.Y.Z — YYYY-MM-DD` with a `**Tag:** ... · **Commit:** <short sha>` line (the HEAD the release was cut from) and leaves a fresh Unreleased with the standard headings. Refuses an empty Unreleased unless `--allow-empty`.
 4. `--commit` commits only the files it touched; `--tag` (needs `--commit`) creates the annotated tag.
 
 The tag push triggers the GitHub Actions `Release Build` workflow (Tauri desktop + Android APK) and `build-qt.yml`; both take the version from the tag.
+
+The iOS app ships separately: pushing an `ios-vX.Y.Z` tag runs `.github/workflows/ios.yml` (App Store IPA → GitHub release, never marked latest → TestFlight). Setup and secrets: `mobile/README.md`.
 
 **The UI never hard-codes a version.** Import `APP_VERSION` / `VERSION_LABEL` / `BUILD_SHA` from `src/lib/version.ts`. `next.config.ts` inlines the version from `package.json` and the commit from `SOURCE_COMMIT` / `COOLIFY_GIT_COMMIT_SHA` / `GIT_COMMIT` / `VERCEL_GIT_COMMIT_SHA` (else `git rev-parse HEAD`, else `dev`). `GET /api/version` returns `{ version, commit, builtAt, environment }` for the running deployment.
 

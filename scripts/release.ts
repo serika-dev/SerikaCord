@@ -152,6 +152,20 @@ const edits: Edit[] = [
     },
   },
   {
+    // iOS app target (Debug + Release): MARKETING_VERSION = versionName,
+    // CURRENT_PROJECT_VERSION = build number, +1 like Android's versionCode.
+    path: "mobile/ios/App/App.xcodeproj/project.pbxproj",
+    apply: (src) => {
+      const builds = [...src.matchAll(/CURRENT_PROJECT_VERSION = (\d+);/g)].map((m) => Number(m[1]));
+      if (builds.length === 0) throw new Error("could not find CURRENT_PROJECT_VERSION");
+      if (!/MARKETING_VERSION = [^;]+;/.test(src)) throw new Error("could not find MARKETING_VERSION");
+      const build = Math.max(...builds) + 1;
+      return src
+        .replace(/MARKETING_VERSION = [^;]+;/g, `MARKETING_VERSION = ${next};`)
+        .replace(/CURRENT_PROJECT_VERSION = \d+;/g, `CURRENT_PROJECT_VERSION = ${build};`);
+    },
+  },
+  {
     path: "desktop-QT/CMakeLists.txt",
     apply: (src) => replaceField(src, /project\(\s*SerikaCord\s+VERSION\s+([\d.]+)/, next, "project() VERSION"),
   },
