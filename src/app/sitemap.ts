@@ -36,6 +36,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       lastModified: COMPARE_LAST_CHECKED,
     })),
 
+    // Support (also the App Store support URL)
+    { path: "/support", priority: 0.5, changeFrequency: "monthly", lastModified: now },
+
     // What's new
     { path: "/changelog", priority: 0.6, changeFrequency: "weekly", lastModified: now },
 

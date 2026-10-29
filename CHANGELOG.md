@@ -7,6 +7,7 @@
 ## Unreleased
 
 ### Features
+- **Support page** — serika.chat/support shows how to reach the team, report a bug or abuse, and manage your account and data, and the Support link at the bottom of the site now goes there.
 - **More advanced server profiles** — besides a nickname, avatar and banner you can now give yourself different pronouns, About Me, display name style, nameplate and profile colours in each server. The server profile editor (Settings → Profiles, the pen on your own profile, and Profiles in the phone settings) has a server picker with search and icons that marks the servers you've customised, a live preview of how you look there, a "Use main profile" button and a Customised / Main profile label on every field, "Copy from main profile" and "Reset all for this server", and an unsaved-changes bar so nothing is applied until you save. Animated avatars and banners work like on your main profile, and bots can set a server bio too.
 - **Choose who can DM you, per server too** — direct messages can now be limited to Everyone, Server members (people you share a server with) or Friends only, and each server has its own switch: turn a server off so its members can't DM you because of it, or on to let its members in while you only take DMs from friends. Calls follow the same rules.
 - **Finer activity sharing and typing privacy** — share games & apps, serika.moe Now Watching and Last.fm music separately, and turn off "is typing…" so nobody (people or bots) sees when you're writing.

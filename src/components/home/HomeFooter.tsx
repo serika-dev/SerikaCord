@@ -71,7 +71,7 @@ export async function HomeFooter() {
       links: [
         { label: gt("About Serika"), href: "https://serika.pro", external: true },
         { label: gt("Serika Accounts"), href: "https://accounts.serika.dev", external: true },
-        { label: gt("Support"), href: "mailto:support@serika.dev", external: true },
+        { label: gt("Support"), href: "/support" },
       ],
     },
     {
