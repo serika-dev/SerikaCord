@@ -157,7 +157,7 @@ function formatDiscordContentForSerika(
     return linked ? `<#${linked.serikaChannelId}>` : '#channel';
   });
   // Custom emoji: <:name:123> or <a:name:123> → :name: (Serika can't resolve Discord emoji IDs)
-  result = result.replace(/<a?:([a-zA-Z0-9_]+):\d+>/g, ':$1:');
+  result = result.replace(/<a?:([A-Za-z0-9_-]+):\d+>/g, ':$1:');
   // @everyone / @here pass through as-is
   return result;
 }

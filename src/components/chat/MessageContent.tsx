@@ -20,6 +20,7 @@ import { createPortal } from "react-dom";
 import { EMOJI_TO_NAME } from "@/lib/constants/emojis";
 import { useMenuPlacement } from "@/hooks/useMenuPlacement";
 import { useLazyMentionUser } from "@/hooks/useMentionNames";
+import { CUSTOM_EMOJI_TOKEN_SRC, customEmojiTokenRegex } from "@/lib/chat/customEmoji";
 
 interface CustomEmoji {
   id: string;
@@ -45,7 +46,7 @@ interface MentionRole {
 
 interface MessageContentProps {
   content: string;
-  serverEmojis?: CustomEmoji[];
+  serverEmojis?: readonly CustomEmoji[];
   mentionUsers?: MentionUser[];
   mentionRoles?: MentionRole[];
   currentUserId?: string;
@@ -77,6 +78,11 @@ function isOnlyUrl(text: string): boolean {
 
 // Check if a string contains only emoji characters (including custom emoji syntax)
 /** One piece of a plain-text (or bare URL) leaf of the parsed markdown. */
+const UUID_TOKEN_SRC = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
+/** Mentions, @everyone/@here, custom emoji (any allowed name, UUID or snowflake id) and bare `:name:`. */
+const MESSAGE_TOKEN_SRC =
+  `<@!?(${UUID_TOKEN_SRC})>|<@&(${UUID_TOKEN_SRC})>|(?<!\\S)@(everyone|here)\\b|${CUSTOM_EMOJI_TOKEN_SRC}|:([a-zA-Z_][a-zA-Z0-9_]*):`;
+
 type MessagePart = {
   type: "text" | "custom-emoji" | "image" | "link" | "mention-user" | "mention-role" | "mention-special";
   content: string;
@@ -92,7 +98,7 @@ function isOnlyEmoji(text: string, customEmojiCount: number): boolean {
   // only of custom emojis leaves behind the raw id and fails the emoji check.
   const stripped = text
     .replace(/\s/g, "")
-    .replace(/<a?:[a-zA-Z0-9_]{2,32}:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>/g, "")
+    .replace(customEmojiTokenRegex(), "")
     .replace(/:[a-zA-Z_][a-zA-Z0-9_]*:/g, "");
   const emojiRegex = /^(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)*$/u;
   
@@ -328,7 +334,8 @@ export const MessageContent = memo(function MessageContent({
       return { blocks: [] as ParsedMarkdown[], leaves, customEmojiCount: 0 };
     }
 
-    const tokenRegex = /<@!?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<@&([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|(?<!\S)@(everyone|here)\b|<(a)?:([a-zA-Z0-9_]+):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|:([a-zA-Z_][a-zA-Z0-9_]*):/gi;
+    // Groups: 1 user id, 2 role id, 3 everyone/here, 4-6 custom emoji (a, name, id), 7 bare :name:.
+    const tokenRegex = new RegExp(MESSAGE_TOKEN_SRC, "gi");
     let customEmojiCount = 0;
 
     // Mentions and custom emoji in one run of plain text.
@@ -369,7 +376,8 @@ export const MessageContent = memo(function MessageContent({
           parts.push({ type: "custom-emoji", content: tokenMatch[0], emoji: foundEmoji });
           customEmojiCount++;
         } else {
-          parts.push({ type: "text", content: tokenMatch[0] });
+          // Unknown emoji (deleted, or from a server we can't see): its name, not the raw token.
+          parts.push({ type: "text", content: emojiId ? `:${tokenMatch[5]}:` : tokenMatch[0] });
         }
       }
       if (textLastIndex < textContent.length) {
@@ -406,9 +414,10 @@ export const MessageContent = memo(function MessageContent({
 
   // Determine if message is emoji-only for larger display
   const isLargeEmoji = useMemo(() => {
-    if (imageOnlyUrl) return false;
+    // One-line previews (replies) never use the big emoji size.
+    if (imageOnlyUrl || inline) return false;
     return isOnlyEmoji(displayContent, parsedContent.customEmojiCount);
-  }, [displayContent, parsedContent.customEmojiCount, imageOnlyUrl]);
+  }, [displayContent, parsedContent.customEmojiCount, imageOnlyUrl, inline]);
 
   // Apply twemoji to text parts after render
   useEffect(() => {

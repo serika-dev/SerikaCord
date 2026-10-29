@@ -457,10 +457,9 @@ export default function DMConversationPage() {
     });
   }, [recipientId, jumpToMessage]);
 
-  // Emoji `:` / slash `/` / `@user` autocomplete for the DM composer.
+  // `@user` autocomplete for the DM composer (emoji and slash commands are MessageBar's).
   const composerSuggestions = useComposerSuggestions({
     getComposer: () => messageBarRef.current?.getComposer() ?? null,
-    customEmojis: availableServerEmojis,
     recipient: recipientId ? { id: recipientId, username: recipient?.username || "", displayName: recipient?.displayName } : null,
     onAfterInsert: (text) => chat.signalTyping(text),
   });

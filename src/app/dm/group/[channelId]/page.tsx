@@ -416,7 +416,6 @@ export default function GroupDMPage() {
 
   const composerSuggestions = useComposerSuggestions({
     getComposer: () => messageBarRef.current?.getComposer() ?? null,
-    customEmojis: availableServerEmojis,
     recipients: suggestionRecipients,
     onAfterInsert: (text) => chat.signalTyping(text),
   });

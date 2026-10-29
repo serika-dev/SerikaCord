@@ -114,7 +114,7 @@ export function PinnedMessagesDialog<M extends ChatMessage>({
                 </div>
                 <p className="text-sm text-[var(--text-primary)] line-clamp-3">
                   {message.content
-                    ? <MentionText text={decodeHtmlEntities(message.content)} users={users} roles={mentionRoles} />
+                    ? <MentionText text={decodeHtmlEntities(message.content)} users={users} roles={mentionRoles} emojis={message.customEmojis} />
                     : gt("(attachment)")}
                 </p>
               </div>

@@ -299,7 +299,7 @@ export function validateMessageContent(content: string): { valid: boolean; error
   // Preserve Discord-style tokens (mentions, custom emojis, timestamps) before
   // running spam heuristics, so valid tokens like the system user ID don't
   // trigger the repeated-character check.
-  const TOKEN_REGEX = /<@!?[0-9a-fA-F]{24}>|<@&[0-9a-fA-F]{24}>|<#[0-9a-fA-F]{24}>|<a?:[a-zA-Z0-9_]+:[0-9a-fA-F]{24}>|<t:[^>]+>/g;
+  const TOKEN_REGEX = /<@[!&]?[0-9a-fA-F-]{24,36}>|<#[0-9a-fA-F-]{24,36}>|<a?:[A-Za-z0-9_-]{1,32}:(?:[0-9a-fA-F-]{24,36}|\d{15,21})>|<t:[^>]+>/g;
   const contentWithoutTokens = content.replace(TOKEN_REGEX, ' ');
 
   // Check for spam patterns

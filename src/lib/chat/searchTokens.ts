@@ -14,6 +14,8 @@
  *               finds "deploy" like Discord's as-you-type search does.
  */
 
+import { CUSTOM_EMOJI_ID_SRC, CUSTOM_EMOJI_NAME_SRC } from "./customEmoji";
+
 export const MAX_WORD_LENGTH = 40;
 export const MAX_PREFIX_LENGTH = 16;
 /** Cap on distinct terms per message so a pasted wall of text stays bounded. */
@@ -21,7 +23,7 @@ export const MAX_TERMS_PER_MESSAGE = 600;
 
 const UUID = "[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}";
 const MENTION_RE = new RegExp(`<(?:@[!&]?|#)${UUID}>`, "g");
-const CUSTOM_EMOJI_RE = new RegExp(`<a?:([a-zA-Z0-9_]+):${UUID}>`, "g");
+const CUSTOM_EMOJI_RE = new RegExp(`<a?:(${CUSTOM_EMOJI_NAME_SRC}):${CUSTOM_EMOJI_ID_SRC}>`, "g");
 const TIMESTAMP_RE = /<t:-?\d{1,13}(?::[a-zA-Z])?>/g;
 const WORD_RE = /[\p{L}\p{N}]+/gu;
 const CJK_RE = /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}\p{Script=Hangul}]/u;

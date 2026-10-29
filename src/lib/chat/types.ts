@@ -131,6 +131,8 @@ export interface ReferencedMessage {
   mentions?: Array<{ id: string; username: string; displayName: string; avatar?: string; isBot?: boolean }>;
   /** The referenced message is end-to-end encrypted (its text comes from the reply's own envelope). */
   encrypted?: boolean;
+  /** Custom emoji used in `content`, resolved by the server (rendered by id). */
+  customEmojis?: MessageCustomEmoji[];
   /**
    * Encrypted: `content` is the snippet the replier put in their own message
    * (we couldn't decrypt the original here), so it is shown as their quote.

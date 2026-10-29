@@ -17,6 +17,8 @@ import { toast } from "sonner";
 import { recordEmoji, useFrecentEmojis } from "@/lib/chat/emojiFrecencyStore";
 import type { FrecencyEmoji } from "@/lib/chat/emojiFrecency";
 import { useMenuPlacement } from "@/hooks/useMenuPlacement";
+import { applySkinTone, createEmojiSearch, entryForChar, getEmojiIndex, primaryName, type SkinTone } from "@/lib/chat/emojiIndex";
+import { setSkinTone, useSkinTone } from "@/lib/chat/emojiSkinTone";
 
 interface CustomEmoji {
   id: string;
@@ -97,6 +99,24 @@ function emojiCategoryLabel(id: string, gt: GTFunc): string {
 }
 
 type TabType = "gifs" | "stickers" | "emoji";
+
+const SKIN_TONES: SkinTone[] = [0, 1, 2, 3, 4, 5];
+
+function skinToneLabel(tone: SkinTone, gt: GTFunc): string {
+  switch (tone) {
+    case 1: return gt("Light skin tone");
+    case 2: return gt("Medium-light skin tone");
+    case 3: return gt("Medium skin tone");
+    case 4: return gt("Medium-dark skin tone");
+    case 5: return gt("Dark skin tone");
+    default: return gt("Default skin tone");
+  }
+}
+
+/** Display name for a Unicode emoji: its Discord shortcode. */
+function unicodeEmojiName(emoji: string): string | undefined {
+  return primaryName(getEmojiIndex(), emoji) ?? EMOJI_TO_NAME[emoji];
+}
 
 // Convert emoji to twemoji URL directly - much faster than parsing HTML
 function getEmojiUrl(emoji: string): string {
@@ -253,6 +273,18 @@ export function CustomEmojiPicker({
   const [activeTab, setActiveTab] = useState<TabType>(initialTab);
   // "Frequently Used": ranked by frecency (lib/chat/emojiFrecency).
   const recentEntries = useFrecentEmojis();
+  // Skin tone for emoji that take one (persisted per device).
+  const skinTone = useSkinTone();
+  const [toneMenuOpen, setToneMenuOpen] = useState(false);
+  const toneEmoji = useCallback((emoji: string) => {
+    if (!skinTone) return emoji;
+    return entryForChar(getEmojiIndex(), emoji)?.skin ? applySkinTone(emoji, skinTone) : emoji;
+  }, [skinTone]);
+  // Search matches every name and alias plus keywords (`puke` finds 🤮).
+  const searchMatcher = useMemo(
+    () => (deferredSearch.trim() ? createEmojiSearch(getEmojiIndex(), deferredSearch) : null),
+    [deferredSearch],
+  );
 
   // Context menu state for right-click on emojis
   const [ctxMenu, setCtxMenu] = useState<{
@@ -290,7 +322,7 @@ export function CustomEmojiPicker({
     (e: React.MouseEvent, emoji: string, emojiData?: CustomEmoji) => {
       e.preventDefault();
       e.stopPropagation();
-      const name = emojiData ? emojiData.name : EMOJI_TO_NAME[emoji];
+      const name = emojiData ? emojiData.name : unicodeEmojiName(emoji);
       setCtxMenu({
         x: e.clientX,
         y: e.clientY,
@@ -366,17 +398,12 @@ export function CustomEmojiPicker({
 
   // Filter emojis based on search — uses shortcode names for keyword search
   const filteredCategories = useMemo(() => {
-    if (!deferredSearch.trim()) return EMOJI_CATEGORIES;
-
-    const query = deferredSearch.toLowerCase();
+    if (!searchMatcher) return EMOJI_CATEGORIES;
     return EMOJI_CATEGORIES.map(category => ({
       ...category,
-      emojis: category.emojis.filter(emoji => {
-        const name = EMOJI_TO_NAME[emoji];
-        return name && name.includes(query);
-      }),
+      emojis: category.emojis.filter(searchMatcher),
     })).filter(category => category.emojis.length > 0);
-  }, [deferredSearch]);
+  }, [searchMatcher]);
 
   // Filter custom emojis
   const filteredCustomEmojis = useMemo(() => {
@@ -413,12 +440,12 @@ export function CustomEmojiPicker({
       ...recentEntries,
       ...fromProps.filter((e) => e.kind === "unicode" && !seen.has(`u:${e.emoji}`)),
     ];
-    if (!deferredSearch.trim()) return combined;
+    if (!searchMatcher) return combined;
     const query = deferredSearch.toLowerCase();
     return combined.filter((entry) =>
-      entry.kind === "custom" ? entry.name.toLowerCase().includes(query) : (EMOJI_TO_NAME[entry.emoji]?.includes(query) ?? false)
+      entry.kind === "custom" ? entry.name.toLowerCase().includes(query) : searchMatcher(entry.emoji)
     );
-  }, [deferredSearch, recentEmojis, recentEntries]);
+  }, [deferredSearch, searchMatcher, recentEmojis, recentEntries]);
 
   // Build favorites list from DB-backed hook, merging with any prop-provided ones
   const filteredFavorites = useMemo(() => {
@@ -426,7 +453,7 @@ export function CustomEmojiPicker({
     const dbEmojiFavs: UnifiedEmojiFavorite[] = favReady
       ? emojiFavs.map(f => ({
           emoji: f.emoji,
-          name: f.name || (f.customEmojiId ? f.emoji.replace(/:/g, "") : (EMOJI_TO_NAME[f.emoji] || "emoji")),
+          name: f.name || (f.customEmojiId ? f.emoji.replace(/:/g, "") : (unicodeEmojiName(f.emoji) || "emoji")),
           customEmojiId: f.customEmojiId || undefined,
           url: f.url || undefined,
         }))
@@ -434,14 +461,16 @@ export function CustomEmojiPicker({
           const isCustom = emoji.startsWith(":") && emoji.endsWith(":");
           return {
             emoji,
-            name: isCustom ? emoji.replace(/:/g, "") : (EMOJI_TO_NAME[emoji] || "emoji"),
+            name: isCustom ? emoji.replace(/:/g, "") : (unicodeEmojiName(emoji) || "emoji"),
           };
         });
 
-    if (!deferredSearch.trim()) return dbEmojiFavs;
+    if (!searchMatcher) return dbEmojiFavs;
     const query = deferredSearch.toLowerCase();
-    return dbEmojiFavs.filter(entry => entry.name.toLowerCase().includes(query));
-  }, [deferredSearch, favoriteEmojis, emojiFavs, favReady]);
+    return dbEmojiFavs.filter(entry =>
+      entry.name.toLowerCase().includes(query) || (!entry.customEmojiId && searchMatcher(entry.emoji))
+    );
+  }, [deferredSearch, searchMatcher, favoriteEmojis, emojiFavs, favReady]);
 
   // Filter stickers by search query (name, tags, description)
   const filteredStickers = useMemo(() => {
@@ -849,9 +878,9 @@ export function CustomEmojiPicker({
         </div>
       ) : (
         <>
-          {/* Search Bar */}
-          <div className="p-3 border-b border-[var(--border-subtle)]">
-            <div className="relative">
+          {/* Search Bar + skin tone */}
+          <div className="p-3 border-b border-[var(--border-subtle)] flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[var(--text-muted)]" />
               <Input
                 value={search}
@@ -866,6 +895,46 @@ export function CustomEmojiPicker({
                 >
                   <X className="w-4 h-4" />
                 </button>
+              )}
+            </div>
+            <div className="relative shrink-0">
+              <button
+                type="button"
+                onClick={() => setToneMenuOpen((o) => !o)}
+                aria-haspopup="true"
+                aria-expanded={toneMenuOpen}
+                aria-label={gt("Skin tone")}
+                title={`${gt("Skin tone")}: ${skinToneLabel(skinTone, gt)}`}
+                className="w-10 h-10 flex items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] transition-colors"
+              >
+                <img src={getEmojiUrl(applySkinTone("✋", skinTone))} alt="" className="w-6 h-6" />
+              </button>
+              {toneMenuOpen && (
+                <div
+                  role="group"
+                  aria-label={gt("Skin tone")}
+                  className="theme-solid absolute right-0 top-full mt-1 z-30 flex gap-0.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-card)] p-1 shadow-[var(--app-elev-2)]"
+                >
+                  {SKIN_TONES.map((tone) => (
+                    <button
+                      key={tone}
+                      type="button"
+                      aria-pressed={tone === skinTone}
+                      title={skinToneLabel(tone, gt)}
+                      aria-label={skinToneLabel(tone, gt)}
+                      onClick={() => {
+                        setSkinTone(tone);
+                        setToneMenuOpen(false);
+                      }}
+                      className={cn(
+                        "w-9 h-9 flex items-center justify-center rounded-md transition-colors",
+                        tone === skinTone ? "bg-[var(--app-accent)]/25" : "hover:bg-[var(--bg-hover)]"
+                      )}
+                    >
+                      <img src={getEmojiUrl(applySkinTone("✋", tone))} alt="" className="w-6 h-6" />
+                    </button>
+                  ))}
+                </div>
               )}
             </div>
           </div>
@@ -1079,14 +1148,17 @@ export function CustomEmojiPicker({
                       {category.name}
                     </h3>
                     <div className="grid grid-cols-8 max-sm:grid-cols-7 gap-0.5">
-                      {category.emojis.map((emoji, idx) => (
-                        <EmojiButton
-                          key={`${category.id}-${idx}`}
-                          emoji={emoji}
-                          onClick={() => handleEmojiClick(emoji)}
-                          onContextMenu={(e) => handleEmojiContextMenu(e, emoji)}
-                        />
-                      ))}
+                      {category.emojis.map((baseEmoji, idx) => {
+                        const emoji = toneEmoji(baseEmoji);
+                        return (
+                          <EmojiButton
+                            key={`${category.id}-${idx}`}
+                            emoji={emoji}
+                            onClick={() => handleEmojiClick(emoji)}
+                            onContextMenu={(e) => handleEmojiContextMenu(e, emoji)}
+                          />
+                        );
+                      })}
                     </div>
                   </LazyEmojiSection>
                 ))}

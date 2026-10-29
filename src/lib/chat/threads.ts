@@ -48,7 +48,7 @@ export function normalizeAutoArchiveDuration(
 export function defaultThreadName(content: string | null | undefined, fallback = "New Thread"): string {
   const text = String(content ?? "")
     // <@id>, <@&id>, <#id> mention tokens and <:emoji:id> custom emoji
-    .replace(/<a?:([a-zA-Z0-9_]+):[^>]+>/g, ":$1:")
+    .replace(/<a?:([A-Za-z0-9_-]+):[^>]+>/g, ":$1:")
     .replace(/<[@#][!&]?[^>]*>/g, "")
     // code fences / inline code / emphasis / spoilers / headings / quotes
     .replace(/```[\s\S]*?```/g, " ")

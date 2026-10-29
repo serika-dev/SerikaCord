@@ -102,7 +102,7 @@ export function formatSerikaContentForDiscord(content: string, lookup: OutboundM
       if (c?.discordChannelId && SNOWFLAKE.test(c.discordChannelId)) return `<#${c.discordChannelId}>`;
       return `#${discordSafeName(c?.name, 'channel')}`;
     })
-    .replace(new RegExp(`<a?:([a-zA-Z0-9_]+):${UUID_SRC}>`, 'g'), ':$1:');
+    .replace(new RegExp(`<a?:([A-Za-z0-9_-]+):${UUID_SRC}>`, 'g'), ':$1:');
 }
 
 export interface DiscordAllowedMentions {

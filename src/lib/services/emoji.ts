@@ -1,5 +1,6 @@
 import { ServerEmoji, type IServerEmoji } from '@/lib/models/ServerEmoji';
 import { BoundedMap } from '@/lib/utils/boundedMap';
+import { customEmojiTokenRegex } from '@/lib/chat/customEmoji';
 
 function isValidUUID(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -20,12 +21,13 @@ export interface EmojiParseResult {
 }
 
 // Regex for custom emoji format: <:name:id> or <a:name:id> for animated
-// Also supports shorthand :name:id for backward compatibility
-const CUSTOM_EMOJI_REGEX = /<?(a)?:([a-zA-Z0-9_]{2,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>?/gi;
+// Also supports shorthand :name:id for backward compatibility. Names may
+// contain `-` (renamed emoji); see src/lib/chat/customEmoji.ts.
+const CUSTOM_EMOJI_REGEX = /<?(a)?:([A-Za-z0-9_-]{1,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>?/gi;
 // Non-global variant for parsing a SINGLE token. String.match() with a /g
 // regex returns matched substrings, not capture groups — so single-token
 // parsers must use this (or .exec) to read the name/id groups.
-const CUSTOM_EMOJI_REGEX_SINGLE = /<?(a)?:([a-zA-Z0-9_]{2,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>?/i;
+const CUSTOM_EMOJI_REGEX_SINGLE = /<?(a)?:([A-Za-z0-9_-]{1,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>?/i;
 
 // Cache for emoji lookups - expires after 5 minutes
 const emojiCache = new BoundedMap<string, { emoji: IServerEmoji | null; timestamp: number }>(5000);
@@ -305,6 +307,41 @@ export async function parseCustomEmojis(
   return { content, emojis, invalidEmojis };
 }
 
+/** The `customEmojis` a message payload carries (what the client renders by id). */
+export function customEmojiPayload(result: Pick<EmojiParseResult, 'emojis'>): Array<{ id: string; name: string; animated: boolean; url: string }> {
+  const seen = new Set<string>();
+  const out: Array<{ id: string; name: string; animated: boolean; url: string }> = [];
+  for (const e of result.emojis) {
+    if (seen.has(e.id)) continue;
+    seen.add(e.id);
+    out.push({ id: e.id, name: e.name, animated: e.animated, url: e.url });
+  }
+  return out;
+}
+
+/**
+ * Custom emoji an author may use in `content` (the current server's and their
+ * other servers'), as the payload clients render — the same rule as a send.
+ * Used for edits, so a newly added emoji shows for everyone right away.
+ */
+export async function authorCustomEmojis(content: string, authorId: string, serverId?: string | null) {
+  if (!content || !customEmojiTokenRegex('').test(content)) return [];
+  const { ServerMember } = await import('@/lib/models/ServerMember');
+  const memberships = await ServerMember.find({ userId: authorId });
+  const serverIds = memberships.map((m: { serverId: string }) => m.serverId);
+  return customEmojiPayload(await parseCustomEmojis(content, serverId ?? undefined, serverIds));
+}
+
+/**
+ * Custom emoji of a quoted (replied-to) message, for its reply preview. No
+ * server-access filter: the quote was already accepted when it was sent.
+ */
+export async function referencedCustomEmojis(content: string | null | undefined) {
+  if (!content || !content.includes(':')) return undefined;
+  const list = customEmojiPayload(await parseCustomEmojis(content));
+  return list.length ? list : undefined;
+}
+
 /**
  * Format emoji for storage - ensures consistent format
  * Returns the canonical format: <:name:id> or <a:name:id>
@@ -319,7 +356,7 @@ export function formatEmoji(name: string, id: string, animated = false): string 
  */
 export function normalizeEmojiFormat(content: string): string {
   // Match :name:id format without angle brackets
-  return content.replace(/:([a-zA-Z0-9_]{2,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?!>)/gi, '<:$1:$2>');
+  return content.replace(/(?<![<\\]a?):([A-Za-z0-9_-]{1,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?!>)/gi, '<:$1:$2>');
 }
 
 /**

@@ -29,7 +29,9 @@ export interface MarkdownNode {
     | "timestamp"
     | "channel_mention"
     | "guild_nav"
-    | "spoiler";
+    | "spoiler"
+    /** `\<@id>`, `\<:name:id>`, `\😭`: shown as typed (no pill, no emoji image, no ping). */
+    | "escaped";
   content: string;
   href?: string;
   format?: string;
@@ -53,6 +55,12 @@ const CHANNEL_MENTION_RE = /<#([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9
 /** Discord's server-page mentions: <id:guide>, <id:customize>, <id:browse>, <id:members>, … */
 const GUILD_NAV_RE = /<id:(guide|home|customize|browse|members|linked-roles)>/;
 const ESCAPE_RE = /\\([*_~`|>#\-\\[\]()<:.!+])/;
+/**
+ * Discord's "send it raw" escape: a backslash before a mention, channel,
+ * custom emoji or timestamp token, or before a Unicode emoji.
+ */
+const ESCAPED_TOKEN_RE =
+  /\\(<(?:@[!&]?[\w-]{1,40}|#[\w-]{1,40}|a?:[A-Za-z0-9_-]{1,32}:[\w-]{1,40}|t:-?\d{1,13}(?::[A-Za-z])?)>|(?:\p{Extended_Pictographic}|\p{Regional_Indicator})(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|[\u{FE0F}\u{200D}\u{20E3}\u{1F3FB}-\u{1F3FF}\u{E0020}-\u{E007F}])*)/u;
 
 /** Only these link targets may become clickable (no javascript:, data:, ...). */
 export function isSafeLinkHref(href: string): boolean {
@@ -70,6 +78,7 @@ export function parseInlineMarkdown(text: string): MarkdownNode[] {
   let remaining = text;
 
   const candidates: Candidate[] = [
+    { regex: ESCAPED_TOKEN_RE, build: (m) => ({ type: "escaped", content: m[1] }) },
     { regex: ESCAPE_RE, build: (m) => ({ type: "text", content: m[1] }) },
     { regex: INLINE_CODE_RE, build: (m) => ({ type: "code", content: (m[1] ?? m[2] ?? "").replace(/^ (.*) $/, "$1") }) },
     {

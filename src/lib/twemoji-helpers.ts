@@ -35,3 +35,16 @@ export function twemojiOnError(this: HTMLImageElement) {
     }
   }
 }
+
+const TWEMOJI_SVG_BASE = "https://cdn.jsdelivr.net/gh/jdecked/twemoji@17.0.2/assets/svg/";
+
+/**
+ * Twemoji SVG for a Unicode emoji, named the way twemoji names its files:
+ * U+FE0F is dropped unless the emoji is a ZWJ sequence. Pair it with
+ * `twemojiOnError` for the few files named otherwise.
+ */
+export function twemojiSvgUrl(emoji: string): string {
+  const source = emoji.includes("‍") ? emoji : emoji.replace(/️/g, "");
+  const codePoints = Array.from(source).map((c) => (c.codePointAt(0) ?? 0).toString(16));
+  return `${TWEMOJI_SVG_BASE}${codePoints.join("-")}.svg`;
+}

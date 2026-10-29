@@ -5,13 +5,16 @@
  * call these so recipients get the same badge, sound and notification.
  */
 
+import { stripEscapedMentions } from '@/lib/chat/escapes';
+
 const USER_MENTION_RE = /<@!?([0-9a-fA-F-]{8,})>/g;
 
 /** User ids mentioned as <@id> in raw content. */
 export function extractUserMentionIds(content: string | null | undefined): string[] {
   if (!content) return [];
   const ids = new Set<string>();
-  for (const match of content.matchAll(USER_MENTION_RE)) ids.add(match[1]);
+  // Escaped `\<@id>` is shown as text and never pings.
+  for (const match of stripEscapedMentions(content).matchAll(USER_MENTION_RE)) ids.add(match[1]);
   return [...ids];
 }
 

@@ -473,7 +473,7 @@ export interface SpeechSegment {
 
 function cleanText(text: string): string {
   return text
-    .replace(/<(a)?:[a-zA-Z0-9_]+:[a-f0-9-]+>/gi, "")
+    .replace(/<(a)?:[A-Za-z0-9_-]+:[a-f0-9-]+>/gi, "")
     .replace(/<@!?[a-f0-9-]+>/gi, "")
     .replace(/<@&[a-f0-9-]+>/gi, "")
     .replace(/<#[a-f0-9-]+>/gi, "")

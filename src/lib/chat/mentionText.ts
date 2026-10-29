@@ -20,7 +20,7 @@ export interface MentionTokens {
 const USER_RE = /<@!?([\w-]+)>/g;
 const ROLE_RE = /<@&([\w-]+)>/g;
 const CHANNEL_RE = /<#([\w-]+)>/g;
-const EMOJI_RE = /<a?:(\w+):[\w-]+>/g;
+const EMOJI_RE = /<a?:([\w-]{1,32}):[\w-]+>/g;
 const MAX_IDS = 50;
 
 function collect(text: string, re: RegExp): string[] {
@@ -58,11 +58,15 @@ export function mergeMentionNames(...maps: Array<MentionNames | null | undefined
   return out;
 }
 
-/** Replace mention / emoji markup with readable names. */
-export function renderMentionText(text: string, names?: MentionNames | null): string {
-  return text
-    .replace(ROLE_RE, (_, id: string) => `@${names?.roles?.[id] ?? "role"}`)
-    .replace(USER_RE, (_, id: string) => `@${names?.users?.[id] ?? "user"}`)
-    .replace(CHANNEL_RE, (_, id: string) => `#${names?.channels?.[id] ?? "channel"}`)
-    .replace(EMOJI_RE, ":$1:");
+/**
+ * Replace mention / emoji markup with readable names. `keepEmoji` leaves
+ * custom emoji tokens in place (for previews that draw them as images).
+ * An escaped `\<@id>` shows as the literal `<@id>`.
+ */
+export function renderMentionText(text: string, names?: MentionNames | null, opts?: { keepEmoji?: boolean }): string {
+  const named = text
+    .replace(/(\\)?<@&([\w-]+)>/g, (m, esc: string | undefined, id: string) => (esc ? m.slice(1) : `@${names?.roles?.[id] ?? "role"}`))
+    .replace(/(\\)?<@!?([\w-]+)>/g, (m, esc: string | undefined, id: string) => (esc ? m.slice(1) : `@${names?.users?.[id] ?? "user"}`))
+    .replace(/(\\)?<#([\w-]+)>/g, (m, esc: string | undefined, id: string) => (esc ? m.slice(1) : `#${names?.channels?.[id] ?? "channel"}`));
+  return opts?.keepEmoji ? named : named.replace(EMOJI_RE, ":$1:");
 }

@@ -11,6 +11,7 @@ import { MessageAttachments } from "@/components/chat/MessageAttachments";
 import { MessageReactions } from "@/components/chat/MessageReactions";
 import { MessageHoverActions, type PickerEmoji } from "@/components/chat/MessageHoverActions";
 import { MessageEditForm } from "@/components/chat/MessageEditForm";
+import { mergeEmojiLookups } from "@/lib/chat/customEmoji";
 import { ForwardedMessageCard } from "@/components/chat/ForwardedMessageCard";
 import { PollCard } from "@/components/chat/PollCard";
 import { GroupAvatar, GroupHeader } from "@/components/chat/MessageGroupHeader";
@@ -302,6 +303,7 @@ function MessageGroupInner<M extends ChatMessage>({
                     onKeyDown={onEditKeyDown}
                     onCancel={onEditCancel}
                     onSave={onEditSave}
+                    emojis={mergeEmojiLookups(message.customEmojis, serverEmojis)}
                   />
                 ) : (
                   <>
@@ -345,7 +347,7 @@ function MessageGroupInner<M extends ChatMessage>({
                             <MessageContent
                               inline
                               content={message.referencedMessage.content}
-                              serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                              serverEmojis={mergeEmojiLookups(message.referencedMessage.customEmojis, mergeEmojiLookups(message.customEmojis, serverEmojis))}
                               mentionUsers={mergedMentionUsers}
                               mentionRoles={mentionRoles}
                               currentUserId={currentUserId}
@@ -389,7 +391,7 @@ function MessageGroupInner<M extends ChatMessage>({
                     ) : (
                     <MessageContent
                       content={message.content}
-                      serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                      serverEmojis={mergeEmojiLookups(message.customEmojis, serverEmojis)}
                       mentionUsers={mergedMentionUsers}
                       mentionRoles={mentionRoles}
                       currentUserId={currentUserId}
@@ -471,7 +473,7 @@ function MessageGroupInner<M extends ChatMessage>({
                     {message.embeds && message.embeds.length > 0 && !message.suppressEmbeds && (
                     <RichEmbed
                       embeds={message.embeds}
-                      serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                      serverEmojis={mergeEmojiLookups(message.customEmojis, serverEmojis)}
                       mentionUsers={mergedMentionUsers}
                       mentionRoles={mentionRoles}
                       currentUserId={currentUserId}
@@ -500,7 +502,7 @@ function MessageGroupInner<M extends ChatMessage>({
                         currentUserId={currentUserId}
                         mentionUsers={mergedMentionUsers}
                         mentionRoles={mentionRoles}
-                        serverEmojis={message.customEmojis?.length ? message.customEmojis : serverEmojis}
+                        serverEmojis={mergeEmojiLookups(message.customEmojis, serverEmojis) as PickerEmoji[]}
                         onMediaClick={onMediaClick}
                       />
                     )}

@@ -112,6 +112,21 @@ import {
 } from "@/lib/chat/commandHistory";
 import type { CommandInvocation, CommandRunResult } from "@/hooks/useCommandRunner";
 import type { CommandExitReason } from "@/components/chat/commands/CommandComposer";
+import { EmojiSuggestions } from "@/components/chat/EmojiSuggestions";
+import {
+  emojiQueryAt,
+  emojiText,
+  findClosingShortcode,
+  findShortcodesForSend,
+  type ResolvedEmoji,
+} from "@/lib/chat/emojiShortcodes";
+import { loadEmojiEngine, peekEmojiEngine, type EmojiEngine } from "@/lib/chat/emojiIndexLoader";
+import type { EmojiSuggestion } from "@/lib/chat/emojiIndex";
+import { useSkinTone } from "@/lib/chat/emojiSkinTone";
+import { recordEmoji, useFrecentEmojis } from "@/lib/chat/emojiFrecencyStore";
+import { useEmojiFavorites } from "@/hooks/useEmojiFavorites";
+import { mergeEmojiLookups } from "@/lib/chat/customEmoji";
+import { findEscapedMentions } from "@/lib/chat/escapes";
 
 // Give up on an attachment upload when no bytes moved for this long.
 const UPLOAD_STALL_MS = 60_000;
@@ -176,6 +191,8 @@ interface ReplyTarget {
   authorId?: string;
   author?: { id?: string; displayName?: string; username?: string };
   content?: string;
+  /** Custom emoji in `content` (shown as images in the reply bar). */
+  customEmojis?: ReadonlyArray<{ id: string; url: string }>;
 }
 
 interface MessageBarProps {
@@ -287,6 +304,43 @@ function historyEntry(inv: CommandInvocation): CommandHistoryEntry {
     shown: [...inv.draft.shown],
     at: Date.now(),
   };
+}
+
+/** Put an emoji where [start, end) was: Unicode as text, custom emoji as an inline image. */
+function replaceWithEmoji(composer: RichComposerHandle, start: number, end: number, emoji: ResolvedEmoji, trailing = "") {
+  if (emoji.kind === "unicode") {
+    composer.replaceRange(start, end, emoji.char + trailing);
+    return;
+  }
+  composer.replaceRangeWithEmoji(start, end, { ...emoji.emoji });
+  if (trailing) composer.insertTextAtCaret(trailing);
+}
+
+/** Autocompleted and auto-converted emoji count toward "Frequently Used". */
+function recordResolvedEmoji(emoji: ResolvedEmoji) {
+  recordEmoji(emoji.kind === "unicode" ? { kind: "unicode", emoji: emoji.char } : { kind: "custom", ...emoji.emoji });
+}
+
+/** The `:` autocomplete: the token it completes and the highlighted row. */
+interface EmojiAutocomplete {
+  ctx: string | undefined;
+  /** Offset of the opening `:`. */
+  start: number;
+  query: string;
+  active: number;
+  /** Closed with Esc: stays closed until the token changes. */
+  dismissed: boolean;
+}
+
+/** Undo for the last `:name:` → emoji conversion (Backspace / Ctrl+Z right after). */
+interface ConvertUndo {
+  start: number;
+  typed: string;
+  /** Length of the emoji in the token string. */
+  length: number;
+  /** Composer text and caret right after the conversion. */
+  text: string;
+  caret: number;
 }
 
 const DRAFT_PREFIX = "serika:draft:";
@@ -1033,10 +1087,169 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
       setCommand((s) => (s ? { ...s, files: f, historyCursor: null } : s));
     }, []);
 
+    // ---- Emoji: `:` autocomplete and `:shortcode:` conversion -------------
+    // The index (all emoji + names) loads the first time the composer is
+    // focused; until then shortcodes simply stay as typed.
+    const [emojiEngine, setEmojiEngine] = useState<EmojiEngine | null>(peekEmojiEngine);
+    const ensureEmojiEngine = useCallback(() => {
+      if (emojiEngine) return;
+      loadEmojiEngine().then(setEmojiEngine, () => { /* chunk failed: retried on next focus */ });
+    }, [emojiEngine]);
+    const skinTone = useSkinTone();
+    const { favorites: emojiFavorites } = useEmojiFavorites();
+    const frecentEmojis = useFrecentEmojis();
+    // Current server's emoji first, then the user's other servers.
+    const customEmojiCandidates = useMemo(
+      () => [...(serverEmojis ?? []), ...(availableServerEmojis ?? [])],
+      [serverEmojis, availableServerEmojis],
+    );
+    const localEmojiIds = useMemo(() => new Set((serverEmojis ?? []).map((e) => e.id)), [serverEmojis]);
+    const replyEmojis = useMemo(
+      () => mergeEmojiLookups<{ id: string; url: string }>(replyTo?.customEmojis, customEmojiCandidates),
+      [replyTo?.customEmojis, customEmojiCandidates],
+    );
+    const shortcodeOpts = useMemo(
+      () =>
+        emojiEngine
+          ? {
+              resolve: emojiEngine.mod.createShortcodeResolver(emojiEngine.index, { customEmojis: customEmojiCandidates, tone: skinTone }),
+              retone: emojiEngine.mod.createRetone(emojiEngine.index),
+            }
+          : null,
+      [emojiEngine, customEmojiCandidates, skinTone],
+    );
+    const [emojiAc, setEmojiAc] = useState<EmojiAutocomplete | null>(null);
+    // The autocomplete only shows while the composer has focus (not behind the picker).
+    const [composerFocused, setComposerFocused] = useState(false);
+    const emojiListId = useId();
+    const emojiAcState =
+      emojiAc && composerFocused && emojiAc.ctx === draftKey && !emojiAc.dismissed && !activeCommand && !paletteState && mentionSuggestions.length === 0
+        ? emojiAc
+        : null;
+    const emojiQueryText = emojiAcState?.query ?? null;
+    const emojiResults = useMemo((): EmojiSuggestion[] => {
+      if (emojiQueryText === null || !emojiEngine) return [];
+      const { mod } = emojiEngine;
+      const favorites = new Set(emojiFavorites.map((f) => f.customEmojiId || mod.emojiRankKey(f.emoji)));
+      const frecency = new Map<string, number>();
+      frecentEmojis.forEach((e, i) => {
+        frecency.set(e.kind === "custom" ? e.id : mod.emojiRankKey(e.emoji), (frecentEmojis.length - i) * 20);
+      });
+      return mod.rankEmojiSuggestions(emojiEngine.index, emojiQueryText, {
+        favorites,
+        frecency,
+        customEmojis: customEmojiCandidates,
+        localEmojiIds,
+        limit: 25,
+      });
+    }, [emojiQueryText, emojiEngine, emojiFavorites, frecentEmojis, customEmojiCandidates, localEmojiIds]);
+    const emojiActive = emojiAcState ? Math.min(emojiAcState.active, Math.max(0, emojiResults.length - 1)) : 0;
+    const emojiOpen = !!emojiAcState && emojiResults.length > 0;
+
+    const updateEmojiQuery = useCallback((value: string, caret: number) => {
+      const q = emojiQueryAt(value, caret);
+      if (q) ensureEmojiEngine();
+      setEmojiAc((prev) => {
+        if (!q) return prev ? null : prev;
+        const mine = prev && prev.ctx === draftKey ? prev : null;
+        if (mine && mine.start === q.start && mine.query === q.query) return prev;
+        return { ctx: draftKey, start: q.start, query: q.query, active: 0, dismissed: !!mine && mine.start === q.start && mine.dismissed };
+      });
+    }, [draftKey, ensureEmojiEngine]);
+
+    // Set while we rewrite the composer ourselves, so our own edit is never
+    // taken for a typed closing colon.
+    const suppressConvertRef = useRef(false);
+    const convertUndoRef = useRef<ConvertUndo | null>(null);
+
+    const displayEmojiChar = useCallback(
+      (s: Extract<EmojiSuggestion, { kind: "unicode" }>) => (s.skin && emojiEngine ? emojiEngine.mod.applySkinTone(s.char, skinTone) : s.char),
+      [emojiEngine, skinTone],
+    );
+
+    const pickEmoji = useCallback((s: EmojiSuggestion) => {
+      const composer = composerRef.current;
+      const ac = emojiAcState;
+      if (!composer || !ac) return;
+      setEmojiAc(null);
+      const emoji: ResolvedEmoji =
+        s.kind === "unicode"
+          ? { kind: "unicode", char: displayEmojiChar(s) }
+          : { kind: "custom", emoji: { id: s.emoji.id, name: s.emoji.name, url: s.emoji.url, animated: s.emoji.animated } };
+      suppressConvertRef.current = true;
+      try {
+        replaceWithEmoji(composer, ac.start, ac.start + 1 + ac.query.length, emoji, " ");
+      } finally {
+        suppressConvertRef.current = false;
+      }
+      recordResolvedEmoji(emoji);
+    }, [emojiAcState, displayEmojiChar]);
+
+    const activateEmoji = useCallback((index: number) => {
+      setEmojiAc((p) => (p && p.active !== index ? { ...p, active: index } : p));
+    }, []);
+
+    /**
+     * Right before a send: every known `:name:` still in the composer becomes
+     * its emoji (pasted text), and Discord's `\@name` / `\#name` escapes
+     * become raw `\<@id>` / `\<#id>` markup (shown as text, never a ping).
+     */
+    const convertShortcodesForSend = useCallback(() => {
+      const composer = composerRef.current;
+      if (!composer) return;
+      suppressConvertRef.current = true;
+      try {
+        const text = composer.getText();
+        const matches = shortcodeOpts && text.includes(":") ? findShortcodesForSend(text, shortcodeOpts) : [];
+        // Back to front, so earlier offsets stay valid.
+        for (let i = matches.length - 1; i >= 0; i--) replaceWithEmoji(composer, matches[i].start, matches[i].end, matches[i].emoji);
+        const escapes = findEscapedMentions(matches.length ? composer.getText() : text, commandPickers);
+        for (let i = escapes.length - 1; i >= 0; i--) composer.replaceRange(escapes[i].start, escapes[i].end, escapes[i].replacement);
+      } finally {
+        suppressConvertRef.current = false;
+      }
+    }, [shortcodeOpts, commandPickers]);
+
+    const handleComposerBlur = useCallback(() => setComposerFocused(false), []);
+    const handleComposerFocus = useCallback(() => {
+      setComposerFocused(true);
+      if (commandsEnabled) preloadCommandUi();
+      ensureEmojiEngine();
+    }, [commandsEnabled, ensureEmojiEngine]);
+
     // ---- Handlers ----
     const handleComposerChange = useCallback((value: string, caret: number) => {
+      const prevText = latestTextRef.current;
       latestTextRef.current = value;
       setHasText(value.trim().length > 0);
+      // Typing the closing `:` of a known `:name:` turns it into the emoji.
+      // The replace re-enters this handler with the new text, which reports it.
+      // Text was inserted ending at the caret (one key, or a word committed by
+      // a phone keyboard / IME) and its last character is that colon.
+      const insertedAtCaret =
+        value.length > prevText.length && value.slice(caret) === prevText.slice(prevText.length - (value.length - caret));
+      if (!suppressConvertRef.current && shortcodeOpts && insertedAtCaret && value[caret - 1] === ":") {
+        const composer = composerRef.current;
+        const match = composer ? findClosingShortcode(value, caret, shortcodeOpts) : null;
+        if (composer && match) {
+          suppressConvertRef.current = true;
+          try {
+            replaceWithEmoji(composer, match.start, match.end, match.emoji);
+          } finally {
+            suppressConvertRef.current = false;
+          }
+          recordResolvedEmoji(match.emoji);
+          convertUndoRef.current = {
+            start: match.start,
+            typed: match.typed,
+            length: emojiText(match.emoji).length,
+            text: composer.getText(),
+            caret: composer.getCaret(),
+          };
+          return;
+        }
+      }
+      updateEmojiQuery(value, caret);
       if (commandsEnabled && catalog.length > 0) {
         const atEnd = caret >= value.length;
         // `/kick ` (space after a unique full name) picks the command.
@@ -1055,16 +1268,57 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         });
       }
       onChange(value, caret);
-    }, [onChange, commandsEnabled, catalog, enterCommand, draftKey]);
+    }, [onChange, commandsEnabled, catalog, enterCommand, draftKey, shortcodeOpts, updateEmojiQuery]);
 
     const handleCaretMove = useCallback((text: string, caret: number) => {
       // Moving the caret off the end leaves the command name being edited.
       if (caret < text.length) setPalette((prev) => (prev ? null : prev));
+      updateEmojiQuery(text, caret);
       onCaretMove?.(text, caret);
-    }, [onCaretMove]);
+    }, [onCaretMove, updateEmojiQuery]);
 
     const handleComposerKeyDown = useCallback((e: React.KeyboardEvent) => {
       const noMods = !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey;
+      // Backspace / Ctrl+Z right after a `:name:` conversion brings the text back (once).
+      const undo = convertUndoRef.current;
+      if (undo) {
+        const composer = composerRef.current;
+        const undoKey =
+          (e.key === "Backspace" && noMods) ||
+          ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "z");
+        if (undoKey && composer && composer.getText() === undo.text && composer.getCaret() === undo.caret) {
+          e.preventDefault();
+          convertUndoRef.current = null;
+          suppressConvertRef.current = true;
+          try {
+            composer.replaceRange(undo.start, undo.start + undo.length, undo.typed);
+          } finally {
+            suppressConvertRef.current = false;
+          }
+          return;
+        }
+        if (e.key !== "Shift" && e.key !== "Control" && e.key !== "Meta" && e.key !== "Alt") convertUndoRef.current = null;
+      }
+      if (emojiOpen) {
+        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.ctrlKey && !e.metaKey && !e.altKey) {
+          e.preventDefault();
+          const n = emojiResults.length;
+          const next = (emojiActive + (e.key === "ArrowDown" ? 1 : -1) + n) % n;
+          setEmojiAc((p) => (p ? { ...p, active: next } : p));
+          return;
+        }
+        if ((e.key === "Enter" || e.key === "Tab") && !e.shiftKey) {
+          e.preventDefault();
+          const pick = emojiResults[emojiActive];
+          if (pick) pickEmoji(pick);
+          return;
+        }
+        if (e.key === "Escape") {
+          e.preventDefault();
+          setEmojiAc((p) => (p ? { ...p, dismissed: true } : p));
+          return;
+        }
+      }
       if (paletteState && paletteRows.length > 0) {
         if ((e.key === "ArrowDown" || e.key === "ArrowUp") && !e.ctrlKey && !e.metaKey && !e.altKey) {
           e.preventDefault();
@@ -1092,18 +1346,22 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         e.preventDefault();
         return;
       }
-      if (e.key === "Enter" && !e.shiftKey && mentionSuggestions.length === 0 && !isTouchOnlyInput()) noteOutgoing();
+      if (e.key === "Enter" && !e.shiftKey && mentionSuggestions.length === 0 && !isTouchOnlyInput()) {
+        convertShortcodesForSend();
+        noteOutgoing();
+      }
       onKeyDown(e);
-    }, [paletteState, paletteRows, paletteActiveKey, enterCommand, mentionSuggestions.length, tryRecallCommand, noteOutgoing, onKeyDown]);
+    }, [emojiOpen, emojiResults, emojiActive, pickEmoji, paletteState, paletteRows, paletteActiveKey, enterCommand, mentionSuggestions.length, tryRecallCommand, convertShortcodesForSend, noteOutgoing, onKeyDown]);
 
     const handleSendClick = useCallback(() => {
       if (activeCommand) {
         submitCommand();
         return;
       }
+      convertShortcodesForSend();
       noteOutgoing();
       onSend();
-    }, [activeCommand, submitCommand, noteOutgoing, onSend]);
+    }, [activeCommand, submitCommand, convertShortcodesForSend, noteOutgoing, onSend]);
 
     const handlePickerEmojiSelect = useCallback((
       emoji: string,
@@ -1262,7 +1520,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     {gt("Replying to")} {replyTo.author?.displayName || replyTo.author?.username || gt("message")}
                   </p>
                   <p className="text-sm text-[var(--text-primary)] truncate">
-                    {replyTo.content ? <MentionText text={decodeHtmlEntities(replyTo.content)} /> : gt("(attachment)")}
+                    {replyTo.content ? <MentionText text={decodeHtmlEntities(replyTo.content)} emojis={replyEmojis} /> : gt("(attachment)")}
                   </p>
                 </div>
               </div>
@@ -1357,6 +1615,20 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               </div>
             )}
 
+            {/* `:` emoji autocomplete */}
+            {emojiOpen && emojiAcState && (
+              <EmojiSuggestions
+                query={emojiAcState.query}
+                results={emojiResults}
+                activeIndex={emojiActive}
+                listId={emojiListId}
+                displayChar={displayEmojiChar}
+                localServerName={serverName}
+                onPick={pickEmoji}
+                onActivate={activateEmoji}
+              />
+            )}
+
             {/* Editor row: upload button + composer + right buttons */}
             <div className="relative flex items-center">
               {/* Upload button / "+" menu (left side, pinned to editor row) */}
@@ -1415,7 +1687,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
               {/* Composer (kept mounted but hidden while a command is filled in) */}
               <div
                 className={commandMode ? "hidden" : "contents"}
-                onFocus={commandsEnabled ? preloadCommandUi : undefined}
+                onFocus={handleComposerFocus}
+                onBlur={handleComposerBlur}
               >
                 <RichComposer
                   ref={composerRef}

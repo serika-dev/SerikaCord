@@ -29,7 +29,7 @@ export type ServerEmojiLookup = ReadonlyMap<string, { name: string; animated?: b
 
 const UUID_SRC = '[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}';
 const UUID_RE = new RegExp(`^${UUID_SRC}$`);
-const CUSTOM_TOKEN_RE = new RegExp(`^<(a?):([A-Za-z0-9_]{1,32}):(${UUID_SRC})>$`);
+const CUSTOM_TOKEN_RE = new RegExp(`^<(a?):([A-Za-z0-9_-]{1,32}):(${UUID_SRC})>$`);
 
 /** Emoji code points only (plus keycap bases), at least one real pictograph. */
 const UNICODE_EMOJI_RE = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|[0-9#*‍️⃣]|[\u{E0020}-\u{E007F}])+$/u;

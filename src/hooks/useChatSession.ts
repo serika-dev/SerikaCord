@@ -966,6 +966,8 @@ export function useChatSession<M extends ChatMessage>({
               ? {
                   ...m,
                   content: data.content ?? m.content,
+                  // The server resolves an edit's custom emoji (new ones included).
+                  ...(Array.isArray(data.customEmojis) ? { customEmojis: data.customEmojis } : {}),
                   pinned: data.pinned !== undefined ? Boolean(data.pinned) : m.pinned,
                   embeds: data.embeds !== undefined ? data.embeds : m.embeds,
                   attachments: data.attachments !== undefined ? data.attachments : m.attachments,

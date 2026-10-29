@@ -9,7 +9,7 @@ import { canStartDm, dmPairKey, dmPrivacy, isDmBlocked, isDmListedFor, pickDmCha
 import { dmSharedServers } from '@/lib/services/dmPrivacy';
 import { typingIndicatorsEnabled } from '@/lib/settings/privacy';
 import { authenticateRequest } from '@/lib/services/auth';
-import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
+import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji, customEmojiPayload, referencedCustomEmojis, authorCustomEmojis } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams, isValidObjectId } from '@/lib/security';
 import { isSystemUser } from '@/lib/services/systemUsers';
@@ -53,7 +53,7 @@ function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
 }
 
-const PRESERVED_MESSAGE_TOKEN_REGEX = /<@!?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}>|<@&[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}>|<#(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>|<a?:[a-zA-Z0-9_]+:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}>|<t:-?\d{1,13}(?::[tTdDfFRC](?:\[[^\]]*\])?)?>|<t:-?\d{1,13}>/g;
+const PRESERVED_MESSAGE_TOKEN_REGEX = /<@!?[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}>|<@&[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}>|<#(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>|<a?:[A-Za-z0-9_-]{1,32}:(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\d{15,21})>|<t:-?\d{1,13}(?::[tTdDfFRC](?:\[[^\]]*\])?)?>|<t:-?\d{1,13}>/g;
 
 export function sanitizeMessageContent(content: string): string {
   const preservedTokens = new Map<string, string>();
@@ -465,9 +465,17 @@ export async function loadDmMessagesPage(
     // Polls (tallies + the viewer's votes), poll result rows and forwards.
     loadMessageExtras(msgs, viewerId ?? null).catch(() => new Map<string, MessageExtras>()),
   ]);
-  const emojiResults = await batchParseCustomEmojis(decryptedContents);
+  const [emojiResults, refEmojiResults] = await Promise.all([
+    batchParseCustomEmojis(decryptedContents),
+    batchParseCustomEmojis(refDecrypted),
+  ]);
   const refContentMap = new Map<string, string>();
-  refDecryptEntries.forEach((entry, i) => refContentMap.set(entry.refId, refDecrypted[i]));
+  const refEmojiMap = new Map<string, ReturnType<typeof customEmojiPayload>>();
+  refDecryptEntries.forEach((entry, i) => {
+    refContentMap.set(entry.refId, refDecrypted[i]);
+    const list = customEmojiPayload(refEmojiResults[i]);
+    if (list.length) refEmojiMap.set(entry.refId, list);
+  });
 
   return msgs.map((msg, idx: number) => {
     const author = authorMap.get(msg.authorId);
@@ -479,7 +487,7 @@ export async function loadDmMessagesPage(
       url: e.url,
     }));
 
-    let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean; mentions?: ReturnType<typeof referenceMentions> } | undefined;
+    let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean; mentions?: ReturnType<typeof referenceMentions>; customEmojis?: ReturnType<typeof customEmojiPayload> } | undefined;
     const refRaw = msg.referencedMessageId;
     if (refRaw && typeof refRaw === 'string') {
       const refMsg = refMap.get(refRaw);
@@ -491,6 +499,7 @@ export async function loadDmMessagesPage(
           author: referenceAuthor(refAuthor),
           createdAt: refMsg.createdAt instanceof Date ? refMsg.createdAt.toISOString() : (refMsg.createdAt ?? undefined),
           mentions: referenceMentions(refContentMap.get(refRaw), (id) => authorMap.get(id)),
+          customEmojis: refEmojiMap.get(refRaw),
           ...(storedEnvelope(refMsg.e2ee) ? { encrypted: true } : {}),
         };
       }
@@ -740,7 +749,7 @@ export async function persistDmMessage(
 
   // Validate reply target if provided
   let replyRef: string | undefined;
-  let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean } | undefined;
+  let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean; customEmojis?: ReturnType<typeof customEmojiPayload> } | undefined;
   if (replyTo && replyMsg) {
     replyRef = replyTo;
     const [refAuthor, refDecrypted] = await Promise.all([
@@ -750,6 +759,7 @@ export async function persistDmMessage(
     referencedMessage = {
       id: replyMsg.id,
       content: refDecrypted,
+      customEmojis: await referencedCustomEmojis(refDecrypted),
       author: referenceAuthor(refAuthor),
       createdAt: replyMsg.createdAt instanceof Date ? replyMsg.createdAt.toISOString() : (replyMsg.createdAt ?? undefined),
       ...(storedEnvelope(replyMsg.e2ee) ? { encrypted: true } : {}),
@@ -857,10 +867,13 @@ export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messa
   }
 
   let sanitizedEditContent = '';
+  let editCustomEmojis: Awaited<ReturnType<typeof authorCustomEmojis>> | undefined;
   if (content) {
     const validation = validateMessageContent(content);
     if (!validation.valid) return fail(400, validation.error || 'Invalid message');
     sanitizedEditContent = normalizeEmojiFormat(sanitizeMessageContent(content));
+    // Resolved like a send, so an emoji added by the edit renders right away.
+    editCustomEmojis = await authorCustomEmojis(sanitizedEditContent, user.id).catch(() => []);
     message.content = await encryptForStorage(sanitizedEditContent);
     message.edited = true;
     message.editedTimestamp = new Date();
@@ -876,6 +889,7 @@ export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messa
     type: 'edit',
     messageId,
     content: sanitizedEditContent,
+    ...(editCustomEmojis ? { customEmojis: editCustomEmojis } : {}),
     editedTimestamp: message.editedTimestamp,
   });
   void import('@/lib/services/gatewayEvents').then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: channel.id, serverId: null })).catch(() => {});
@@ -1609,7 +1623,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // Get user's servers for emoji validation (only when the message has a
     // custom-emoji token; most don't), create/get DM channel, and encrypt
     // content — all three are independent and can run in parallel.
-    const hasCustomEmoji = /<?a?:[a-zA-Z0-9_]{2,32}:[0-9a-f]{8}-[0-9a-f]{4}-/i.test(sanitizedContent);
+    const hasCustomEmoji = /<?a?:[A-Za-z0-9_-]{1,32}:[0-9a-f]{8}-[0-9a-f]{4}-/i.test(sanitizedContent);
     const [userServerMemberships, channel, encryptedContent] = await Promise.all([
       hasCustomEmoji ? ServerMember.find({ userId: user.id }) : Promise.resolve([] as Array<{ serverId: string }>),
       getOrCreateDMChannel(user.id, params.recipientId),

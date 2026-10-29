@@ -12,6 +12,7 @@ import { cn } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { isTouchOnlyInput, useTouchOnlyInput } from "@/hooks/useVisualViewport";
 import { shouldInsertDoubleSpacePeriod } from "@/lib/chat/doubleSpacePeriod";
+import { customEmojiTokenRegex, isValidCustomEmojiName, normalizeCustomEmojiName } from "@/lib/chat/customEmoji";
 
 export interface ComposerEmoji {
   id: string;
@@ -41,6 +42,12 @@ export interface RichComposerHandle {
   replaceRangeWithEmoji: (start: number, end: number, emoji: ComposerEmoji) => void;
   /** Replace [start, end) in token-string coordinates with a mention pill */
   replaceRangeWithMention: (start: number, end: number, mention: ComposerMention) => void;
+  /**
+   * Replace everything with `text` (a token string), showing each custom
+   * emoji token `resolveEmojiUrl` knows as its image (the token itself is
+   * kept exactly). Caret goes to the end.
+   */
+  setContent: (text: string, resolveEmojiUrl?: (id: string) => string | undefined) => void;
 }
 
 interface RichComposerProps {
@@ -53,10 +60,15 @@ interface RichComposerProps {
   /** Fired when the caret moves without a content change (click / arrows) */
   onCaretMove?: (text: string, caret: number) => void;
   onKeyDown?: (e: React.KeyboardEvent) => void;
+  /** Smaller box without the main composer's button gutters (message edit). */
+  compact?: boolean;
 }
 
 function emojiToken(emoji: ComposerEmoji): string {
-  return `<${emoji.animated ? "a" : ""}:${emoji.name}:${emoji.id}>`;
+  // Old emoji can have names a token can't carry (spaces, symbols): the id
+  // is what resolves it, so the name is made token-safe.
+  const name = isValidCustomEmojiName(emoji.name) ? emoji.name : normalizeCustomEmojiName(emoji.name) || "emoji";
+  return `<${emoji.animated ? "a" : ""}:${name}:${emoji.id}>`;
 }
 
 function mentionToken(mention: ComposerMention): string {
@@ -126,7 +138,7 @@ function nodeTokenLength(node: Node): number {
  */
 export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
   function RichComposer(
-    { placeholder, disabled = false, className, "aria-label": ariaLabel, onChange, onCaretMove, onKeyDown },
+    { placeholder, disabled = false, className, "aria-label": ariaLabel, onChange, onCaretMove, onKeyDown, compact = false },
     ref
   ) {
     const gt = useGT();
@@ -393,7 +405,33 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       replaceRangeWithMention: (start: number, end: number, mention: ComposerMention) => {
         domReplaceRange(start, end, makeMentionSpan(mention));
       },
-    }), [serialize, getCaret, insertNodeAtCaret, domReplaceRange, onChange]);
+      setContent: (text: string, resolveEmojiUrl?: (id: string) => string | undefined) => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        const fragment = document.createDocumentFragment();
+        let at = 0;
+        for (const m of text.matchAll(customEmojiTokenRegex())) {
+          const url = resolveEmojiUrl?.(m[3]);
+          if (!url || m.index === undefined) continue;
+          if (m.index > at) fragment.appendChild(document.createTextNode(text.slice(at, m.index)));
+          // Name / id / animated come from the token, so saving writes it back unchanged.
+          fragment.appendChild(makeEmojiImg({ id: m[3], name: m[2], animated: m[1] === "a", url }));
+          at = m.index + m[0].length;
+        }
+        if (at < text.length) fragment.appendChild(document.createTextNode(text.slice(at)));
+        editor.replaceChildren(fragment);
+        editor.focus();
+        const selection = window.getSelection();
+        if (selection) {
+          const range = document.createRange();
+          range.selectNodeContents(editor);
+          range.collapse(false);
+          selection.removeAllRanges();
+          selection.addRange(range);
+        }
+        emitChange();
+      },
+    }), [serialize, getCaret, insertNodeAtCaret, domReplaceRange, onChange, emitChange]);
 
     // ----- Event handlers ----------------------------------------------------
 
@@ -483,7 +521,10 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         {isEmpty && placeholder && (
           <span
             aria-hidden="true"
-            className="pointer-events-none absolute inset-0 flex items-start pt-2.5 pl-10 sm:pl-14 text-base text-[var(--app-muted-2)] truncate"
+            className={cn(
+              "pointer-events-none absolute inset-0 flex items-start pt-2.5 pl-10 sm:pl-14 text-base text-[var(--app-muted-2)] truncate",
+              compact && "pt-2 pl-3 sm:pl-3",
+            )}
           >
             {placeholder}
           </span>
@@ -491,7 +532,8 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
         <div
           ref={editorRef}
           role="textbox"
-          data-message-composer="true"
+          // The edit box (compact) is not "the composer" for global shortcuts.
+          data-message-composer={compact ? undefined : "true"}
           aria-multiline="true"
           aria-label={ariaLabel ?? placeholder}
           contentEditable={!disabled}
@@ -509,11 +551,12 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
             // 16px at every width: smaller text makes iOS zoom in on focus.
             // On phones the box stops at a third of the screen so the list stays visible.
             "w-full min-h-[44px] max-h-[35dvh] md:max-h-[300px] overflow-y-auto py-2.5 pl-10 sm:pl-14 pr-24 sm:pr-36 bg-transparent text-[var(--text-primary)] text-base outline-none whitespace-pre-wrap break-words",
+            compact && "min-h-[40px] py-2 pl-3 sm:pl-3 pr-3 sm:pr-3",
             className
           )}
         />
         {/* Markdown supported indicator */}
-        {hasMarkdown && !isEmpty && (
+        {hasMarkdown && !isEmpty && !compact && (
           <span className="absolute bottom-0.5 left-10 sm:left-14 text-[10px] text-[var(--app-muted)] pointer-events-none opacity-60">
             {gt("Markdown")}
           </span>

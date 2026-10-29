@@ -62,13 +62,13 @@ import { lastOwnMessageAt } from "@/lib/chat/commandHistory";
 import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { isTouchOnlyInput, useCoarsePointer } from "@/hooks/useVisualViewport";
+import { CUSTOM_EMOJI_TOKEN_PLAIN_SRC } from "@/lib/chat/customEmoji";
 import { decodeHtmlEntities, formatMessageTimestamp } from "@/lib/chat/messages";
 import { quoteSearchValue } from "@/lib/chat/searchQuery";
 import { useMessageSearch, type SearchHit, type SearchHitChannel } from "@/hooks/useMessageSearch";
 import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
 import type { ChatMessage } from "@/lib/chat/types";
 import { emitHotkey, onHotkey } from "@/lib/keybinds";
-import { EMOJI_NAMES } from "@/lib/constants/emojis";
 import { T, useGT, useLocale } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { canSendInChannel as canSendInChannelClient, hasChannelPermission } from "@/lib/roles/channelPermissions";
@@ -137,7 +137,7 @@ function replaceAliasMention(content: string, alias: string, token: string): str
   const pattern = new RegExp(`(^|\\s)@${escapedAlias}(?=$|[\\s.,!?;:])`, "gi");
   // Only replace in segments that are NOT already inside a token (<@id>, <@&id>, <:name:id>)
   // Split on existing tokens and only process plain-text segments
-  const tokenSplit = /(<[@#][^>]{0,80}>|<a?:[a-zA-Z0-9_]+:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>)/g;
+  const tokenSplit = new RegExp(`(<[@#][^>]{0,80}>|${CUSTOM_EMOJI_TOKEN_PLAIN_SRC})`, "g");
   return content.replace(tokenSplit, (match) => `\x00${match}\x00`)
     .split("\x00")
     .map((seg) => {
@@ -940,78 +940,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       const hashMatch = beforeCursor.match(/(^|[\s\n])#([^\s#]{0,40})$/m);
 
       if (!mentionMatch && !hashMatch) {
-        // Completed emoji shortcode: `:skull:` → auto-insert unicode or custom emoji
-        const completedEmojiMatch = beforeCursor.match(/(^|\s):([a-zA-Z0-9_+-]{2,32}):$/);
-        if (completedEmojiMatch) {
-          const emojiName = completedEmojiMatch[2].toLowerCase();
-          const unicodeChar = EMOJI_NAMES[emojiName] || EMOJI_NAMES[emojiName.replace(/-/g, "_")] || EMOJI_NAMES[emojiName.replace(/_/g, "-")];
-          const customEmoji = allServerEmojis.find(e => e.name.toLowerCase() === emojiName);
-          const composer = messageBarRef.current?.getComposer();
-          if (composer) {
-            const tokenStart = caretPosition - emojiName.length - 2; // ':' + name + ':'
-            if (unicodeChar) {
-              composer.replaceRange(tokenStart, caretPosition, unicodeChar);
-              mentionRangeRef.current = null;
-              setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
-              setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
-              return;
-            } else if (customEmoji) {
-              composer.replaceRangeWithEmoji(tokenStart, caretPosition, {
-                id: customEmoji.id,
-                name: customEmoji.name,
-                url: customEmoji.url,
-                animated: customEmoji.animated,
-              });
-              mentionRangeRef.current = null;
-              setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
-              setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
-              return;
-            }
-          }
-        }
-
-        // Emoji autocomplete: `:query` with 2+ chars (avoids firing on plain colons)
-        const emojiMatch = beforeCursor.match(/(^|\s):([a-zA-Z0-9_+-]{2,32})$/);
-        if (emojiMatch) {
-          const emojiQuery = emojiMatch[2].toLowerCase();
-          const emojiStart = caretPosition - emojiMatch[2].length - 1;
-          const seenNames = new Set<string>();
-          const emojiSuggestions: MentionSuggestion[] = [];
-          // Unicode emoji suggestions from shortcode map
-          for (const [name, char] of Object.entries(EMOJI_NAMES)) {
-            if (!name.includes(emojiQuery)) continue;
-            if (seenNames.has(name)) continue;
-            seenNames.add(name);
-            emojiSuggestions.push({
-              id: `unicode:${name}`,
-              kind: "unicode-emoji",
-              label: name,
-              unicodeChar: char,
-            });
-            if (emojiSuggestions.length >= 8) break;
-          }
-          // Custom server emoji suggestions
-          for (const entry of allServerEmojis) {
-            if (emojiSuggestions.length >= 8) break;
-            if (!entry.name.toLowerCase().includes(emojiQuery)) continue;
-            if (seenNames.has(entry.name)) continue;
-            seenNames.add(entry.name);
-            emojiSuggestions.push({
-              id: entry.id,
-              kind: "emoji",
-              label: entry.name,
-              description: entry.serverName,
-              imageUrl: entry.url,
-              animated: entry.animated,
-            });
-          }
-          if (emojiSuggestions.length > 0) {
-            mentionRangeRef.current = { start: emojiStart, end: caretPosition };
-            setMentionSuggestions(emojiSuggestions);
-            setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
-            return;
-          }
-        }
+        // `:` emoji autocomplete and `:name:` conversion live in MessageBar.
         mentionRangeRef.current = null;
         setMentionSuggestions(prev => prev.length > 0 ? [] : prev);
         setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
@@ -1129,7 +1058,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       setMentionSuggestions(nextSuggestions);
       setActiveMentionIndex(prev => prev !== 0 ? 0 : prev);
     },
-    [mentionRoles, mentionUsers, allServerEmojis, channels, gt]
+    [mentionRoles, mentionUsers, channels, gt]
   );
 
   const insertMentionFromSuggestion = useCallback(
@@ -1142,19 +1071,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       setMentionSuggestions([]);
       setActiveMentionIndex(0);
 
-      if (suggestion.kind === "unicode-emoji") {
-        // Insert the Unicode emoji character directly as text
-        composer.replaceRange(activeRange.start, activeRange.end, suggestion.unicodeChar || "");
-        composer.insertTextAtCaret(" ");
-      } else if (suggestion.kind === "emoji") {
-        // Insert as an inline image; the composer serializes it to a token
-        composer.replaceRangeWithEmoji(activeRange.start, activeRange.end, {
-          id: suggestion.id,
-          name: suggestion.label,
-          url: suggestion.imageUrl || "",
-          animated: suggestion.animated,
-        });
-      } else {
+      {
         // User, role, everyone, here, channel — insert as mention pill
         const mentionKind =
           suggestion.kind === "user" ? "user" :

@@ -138,7 +138,7 @@ function WidgetPageSkeleton({ label }: { label: string }) {
   );
 }
 
-const TOKEN_SOURCE = "<@!?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<@&([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|(?<!\\S)@(everyone|here)\\b|<(a)?:([a-zA-Z0-9_]+):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|(https?:\\/\\/[^\\s]+)";
+const TOKEN_SOURCE = "<@!?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<@&([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|(?<!\\S)@(everyone|here)\\b|<(a)?:([A-Za-z0-9_-]{1,32}):([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\\d{15,21})>|(https?:\\/\\/[^\\s]+)";
 
 const VIDEO_URL_RE = /\.(mp4|webm|mov|m4v|mkv)(?:$|[?#])/i;
 const AUDIO_URL_RE = /\.(mp3|ogg|wav|m4a|flac|opus)(?:$|[?#])/i;

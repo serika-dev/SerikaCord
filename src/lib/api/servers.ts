@@ -10,6 +10,7 @@ import { config } from '@/lib/config';
 import { isReservedSlug, isValidVanityCode } from '@/lib/constants/reserved';
 import { resolveEffectiveStatus, PRESENCE_TIMEOUT_MS } from '@/lib/services/presence';
 import { parseCustomEmojis, batchParseCustomEmojis } from '@/lib/services/emoji';
+import { normalizeCustomEmojiName } from '@/lib/chat/customEmoji';
 import { User } from '@/lib/models';
 import { db, schema } from '@/lib/db/postgres';
 import { and, eq, gt, gte, inArray, notInArray, sql } from 'drizzle-orm';
@@ -3796,9 +3797,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: `You can only have ${maxEmojis} custom emojis` };
     }
 
+    // Only characters a `<:name:id>` token can carry (letters, digits, _ and -).
+    const emojiName = normalizeCustomEmojiName(body.name);
+    if (emojiName.length < 2) {
+      set.status = 400;
+      return { error: 'Emoji names need at least 2 letters, numbers, _ or -' };
+    }
     const emoji = await ServerEmoji.create({
       serverId: params.serverId,
-      name: sanitizeInput(body.name),
+      name: emojiName,
       imageUrl: body.imageUrl,
       animated: body.animated || false,
       uploadedBy: user.id,
@@ -3889,7 +3896,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     const updates: Record<string, unknown> = {};
-    if (body.name !== undefined) updates.name = sanitizeInput(body.name);
+    if (body.name !== undefined) {
+      // Only characters a `<:name:id>` token can carry (letters, digits, _ and -).
+      const name = normalizeCustomEmojiName(body.name);
+      if (name.length < 2) {
+        set.status = 400;
+        return { error: 'Emoji names need at least 2 letters, numbers, _ or -' };
+      }
+      updates.name = name;
+    }
     if (Object.keys(updates).length === 0) {
       set.status = 400;
       return { error: 'No fields to update' };

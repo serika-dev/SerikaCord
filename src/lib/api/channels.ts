@@ -4,7 +4,8 @@ import { applyCustomizationOverrides, memberOverridesFromRow, type MemberProfile
 import { Elysia, t } from 'elysia';
 import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
-import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji } from '@/lib/services/emoji';
+import { stripEscapedMentions } from '@/lib/chat/escapes';
+import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji, customEmojiPayload, referencedCustomEmojis, authorCustomEmojis } from '@/lib/services/emoji';
 import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, isValidObjectId } from '@/lib/security';
 import { channelsToMarkNsfw, normalizeChannelName } from '@/lib/servers/channelRules';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
@@ -533,7 +534,7 @@ export async function limitMentionsToPermissions<T extends { mentionEveryone: bo
   };
 }
 
-const PRESERVED_MESSAGE_TOKEN_REGEX = /<@!?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>|<@&[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>|<#(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<a?:[a-zA-Z0-9_]+:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>|<t:-?\d{1,13}(?::[tTdDfFRC](?:\[[^\]]*\])?)?>|<t:-?\d{1,13}>/g;
+const PRESERVED_MESSAGE_TOKEN_REGEX = /<@!?[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>|<@&[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}>|<#(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>|<a?:[A-Za-z0-9_-]{1,32}:(?:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}|\d{15,21})>|<t:-?\d{1,13}(?::[tTdDfFRC](?:\[[^\]]*\])?)?>|<t:-?\d{1,13}>/g;
 const USER_MENTION_REGEX = /<@!?([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>/g;
 const ROLE_MENTION_REGEX = /<@&([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>/g;
 const CHANNEL_MENTION_REGEX = /<#([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})>/g;
@@ -589,6 +590,8 @@ export async function extractMentionsFromContent(
   mentionedRoleIds: string[];
   mentionedChannelIds: string[];
 }> {
+  // `\<@id>` (Discord's backslash escape) is shown as text and never pings.
+  content = stripEscapedMentions(content);
   const mentionedUserIds: string[] = [];
   const mentionedRoleIds: string[] = [];
   const mentionedChannelIds: string[] = [];
@@ -2603,6 +2606,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     );
     const refContentMap = new Map<string, string>();
     refDecryptEntries.forEach((entry, i) => refContentMap.set(entry.refId, refDecrypted[i]));
+    // Custom emoji in the quoted messages (reply previews render them by id).
+    const refEmojiResults = await batchParseCustomEmojis(refDecrypted);
+    const refEmojiMap = new Map<string, ReturnType<typeof customEmojiPayload>>();
+    refDecryptEntries.forEach((entry, i) => {
+      const list = customEmojiPayload(refEmojiResults[i]);
+      if (list.length) refEmojiMap.set(entry.refId, list);
+    });
 
     // Phase 4: Assemble final response objects (synchronous, no DB/await)
     const decryptedMessages = (messages as IMessage[]).map((msg, idx) => {
@@ -2646,6 +2656,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             };
             createdAt?: Date;
             mentions?: ReturnType<typeof referenceMentions>;
+            customEmojis?: ReturnType<typeof customEmojiPayload>;
           }
         | undefined;
 
@@ -2672,6 +2683,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               (id) => refAuthorMap.get(id) ?? authorMap.get(id),
               (id) => memberProfileMap.get(id)?.nickname,
             ),
+            customEmojis: refEmojiMap.get(refId),
           };
         }
       }
@@ -3091,7 +3103,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // each other, so run them concurrently instead of serially. Emoji server
     // access needs the sender's memberships, but only bother fetching them when
     // the content actually contains a custom-emoji token (most messages don't).
-    const hasCustomEmoji = /<?a?:[a-zA-Z0-9_]{2,32}:[0-9a-f]{8}-[0-9a-f]{4}-/i.test(sanitizedContent);
+    const hasCustomEmoji = /<?a?:[A-Za-z0-9_-]{1,32}:[0-9a-f]{8}-[0-9a-f]{4}-/i.test(sanitizedContent);
     const [emojiResult, mentionData, encryptedContent] = await Promise.all([
       (async () => {
         if (!hasCustomEmoji) return { content: sanitizedContent, emojis: [], invalidEmojis: [] };
@@ -3228,6 +3240,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
             isVerified?: boolean;
           };
           createdAt?: Date;
+          customEmojis?: ReturnType<typeof customEmojiPayload>;
         }
       | undefined;
 
@@ -3236,6 +3249,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       referencedMessage = {
         id: reference.id,
         content: refDecrypted,
+        customEmojis: await referencedCustomEmojis(refDecrypted),
         author: refAuthor ? {
           id: refAuthor.id,
           username: refAuthor.username,
@@ -3714,6 +3728,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const { content } = body;
 
     let sanitizedEditContent = '';
+    let editCustomEmojis: Awaited<ReturnType<typeof authorCustomEmojis>> | undefined;
     const updateData: Record<string, any> = {};
     if (content) {
       const validation = validateMessageContent(content);
@@ -3740,11 +3755,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
       sanitizedEditContent = sanitizeMessageContent(content);
       sanitizedEditContent = normalizeEmojiFormat(sanitizedEditContent);
-      const [mentionData, encryptedEdit] = await Promise.all([
+      const [mentionData, encryptedEdit, editEmojis] = await Promise.all([
         extractMentionsFromContent(sanitizedEditContent, channel.serverId || null)
           .then((mentions) => limitMentionsToPermissions(mentions, channel, user.id)),
         encryptForStorage(sanitizedEditContent),
+        // The edit's custom emoji, resolved like a send, so a newly added one
+        // renders for everyone (not only for people who share its server).
+        authorCustomEmojis(sanitizedEditContent, user.id, channel.serverId).catch(() => []),
       ]);
+      editCustomEmojis = editEmojis;
       // An edit keeps a reply's ping on the replied-to author (it isn't in the
       // text, so re-extracting mentions would drop it and retract their badge).
       let repliedAuthorId: string | null = null;
@@ -3771,6 +3790,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       type: 'edit',
       messageId: params.messageId,
       content: sanitizedEditContent,
+      ...(editCustomEmojis ? { customEmojis: editCustomEmojis } : {}),
       editedTimestamp: updateData.editedTimestamp,
     });
 
@@ -3800,7 +3820,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
 
     const updatedMessage = await Message.findById(message.id);
-    const responseMsg = { ...updatedMessage, content: sanitizedEditContent };
+    const responseMsg = { ...updatedMessage, content: sanitizedEditContent, ...(editCustomEmojis ? { customEmojis: editCustomEmojis } : {}) };
     void replicateToDiscord('edit', params.channelId, responseMsg);
     void import('@/lib/services/gatewayEvents')
       .then(({ emitMessageUpdate }) => emitMessageUpdate({ id: message.id, channelId: params.channelId, serverId: channel.serverId ?? null }))
