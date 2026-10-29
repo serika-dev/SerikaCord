@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
 import { addNativeListener, callNative, hasNativePlugin, isNativeApp, nativePlatform } from "@/lib/native/bridge";
-import { backStack, isAppRoute, parentRoute } from "@/lib/native/navigation";
+import { backStack, isAppRoute, parentRoute, routeFromOpenedUrl } from "@/lib/native/navigation";
 import { registerForPush, reportAppState } from "@/lib/native/push";
 import { firstOpaque, isDarkColor, toHex } from "@/lib/native/systemBars";
 import { navigateInApp } from "@/lib/services/notificationService";
@@ -91,8 +91,9 @@ function syncSystemBars() {
 /**
  * Glue between the web app and the Capacitor shell: Android back button,
  * system bar theming, safe-area / keyboard insets, push registration,
- * notification taps, app badge and foreground/background state. Renders
- * nothing and does nothing outside the native app.
+ * notification taps, opened links (universal links / serikacord://), app
+ * badge and foreground/background state. Renders nothing and does nothing
+ * outside the native app.
  */
 export function NativeAppBridge() {
   const router = useRouter();
@@ -180,6 +181,16 @@ export function NativeAppBridge() {
       addNativeListener("PushNotifications", "pushNotificationActionPerformed", (event) => {
         const data = (event as { notification?: { data?: Record<string, unknown> } })?.notification?.data;
         if (isAppRoute(data?.route)) navigateInApp(data.route);
+      }),
+    );
+
+    // Links that opened the app: universal links (https://serika.chat/invite/…,
+    // iOS) and serikacord:// URLs. Capacitor keeps the event until this
+    // listener attaches, so a cold start from a link lands here too.
+    cleanups.push(
+      addNativeListener("App", "appUrlOpen", (event) => {
+        const route = routeFromOpenedUrl((event as { url?: unknown } | null)?.url);
+        if (route) navigateInApp(route);
       }),
     );
 

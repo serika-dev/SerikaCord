@@ -111,6 +111,46 @@ export function isAppRoute(route: unknown): route is string {
   );
 }
 
+/** Hosts whose https links the native app opens itself (universal links). */
+const APP_LINK_HOSTS = new Set(["serika.chat", "www.serika.chat", "canary.serika.chat"]);
+/** Path prefixes listed in /.well-known/apple-app-site-association (plus /channels). */
+const APP_LINK_PREFIXES = ["/dm/", "/invite/", "/qr/", "/oauth2/"];
+
+/**
+ * The in-app path for a link that opened the native app (App `appUrlOpen`):
+ * a universal link (https://serika.chat/invite/abc) or the custom scheme
+ * (serikacord://channels/me). Null for anything we don't route, so a
+ * crafted link can never send the web view off-site.
+ */
+export function routeFromOpenedUrl(raw: unknown): string | null {
+  if (typeof raw !== "string" || raw.length > 2048) return null;
+  let url: URL;
+  try {
+    url = new URL(raw);
+  } catch {
+    return null;
+  }
+  let path: string;
+  if (url.protocol === "serikacord:") {
+    // serikacord://channels/me → host "channels", pathname "/me".
+    path = `/${url.host}${url.pathname === "/" ? "" : url.pathname}`;
+  } else if (url.protocol === "https:" && APP_LINK_HOSTS.has(url.hostname.toLowerCase()) && !url.port) {
+    path = url.pathname;
+  } else {
+    return null;
+  }
+  path = path.replace(/\/{2,}/g, "/");
+  if (path.length > 1) path = path.replace(/\/+$/, "");
+  if (path.split("/").some((seg) => seg === ".." || seg === ".")) return null;
+  const routed =
+    path === "/channels" ||
+    path.startsWith("/channels/") ||
+    // "/invite" alone has nothing to open: an id must follow.
+    APP_LINK_PREFIXES.some((p) => path.startsWith(p) && path.length > p.length);
+  if (!routed) return null;
+  return `${path}${url.search}${url.hash}`;
+}
+
 /** Horizontal swipe classification for edge-free gesture navigation. */
 export function classifySwipe(input: {
   dx: number;
