@@ -26,6 +26,7 @@ import { parseServerLinkReturn } from "@/lib/connections/serverOwned";
 import { ServerOnboardingAutoRoute } from "@/components/server/community/ServerOnboardingAutoRoute";
 import type { ServerSettingsTab } from "@/components/dialogs/ServerSettingsDialog";
 import { useVisualViewportVars } from "@/hooks/useVisualViewport";
+import { parseShellRoute } from "@/lib/mobile/pager";
 
 const dialogFallback = () => <div className="hidden" />;
 const mobileFallback = () => <div className="flex-1 bg-[var(--bg-app)]" />;
@@ -85,6 +86,11 @@ const MobileServerView = dynamic(
 );
 const MobileMessagesView = dynamic(
   () => import("@/components/mobile/MobileMessagesView").then((m) => m.MobileMessagesView),
+  { loading: mobileFallback }
+);
+// Phone servers + DMs: one persistent page (list | chat | members).
+const MobileShell = dynamic(
+  () => import("@/components/mobile/MobileShell").then((m) => m.MobileShell),
   { loading: mobileFallback }
 );
 const MobileNotificationsView = dynamic(
@@ -348,14 +354,33 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
     return pathname;
   }, [pathname]);
 
+  // Servers (channel list + chat + members) and DMs (list + chat) on phones.
+  const shellRoute = isMobile ? parseShellRoute(pathname) : null;
+
   // Mobile Layout
   if (isMobile) {
     return (
       <div className="flex h-[var(--app-height,100dvh)] bg-[var(--bg-app)] overflow-hidden">
+        {shellRoute ? (
+          <MobileShell
+            pathname={pathname || ""}
+            onCreateServer={() => setShowCreateServer(true)}
+            voiceBar={
+              showInFlowVoiceBar ? (
+                <VoiceBar channelName={voiceChannelName} className="md:hidden pb-[calc(0.5rem+var(--safe-area-bottom))]" />
+              ) : null
+            }
+          />
+        ) : (
+        <>
         {/* Mobile Server List - Only show in servers view when not in a channel */}
         {mobileView === "servers" && !isInChannel && !isSettingsRoute && (
           <MobileServerList 
             onCreateServer={() => setShowCreateServer(true)}
+            onServerSelect={(server) => {
+              // Into the server shell without a route load (Back returns here).
+              window.history.pushState(null, "", `/channels/${server.id}`);
+            }}
           />
         )}
 
@@ -426,6 +451,8 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
             />
           )}
         </div>
+        </>
+        )}
 
         {/* Voice Bar above the bottom nav when in a call (not inside a chat or settings) */}
         {!isInChannel && !isSettingsRoute && (

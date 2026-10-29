@@ -33,6 +33,8 @@ import { Bone } from "./Bone";
 import { ServerEventsEntry } from "@/components/events/ServerEventsEntry";
 import { ServerGuideEntry } from "@/components/server/community/ServerGuideEntry";
 import { ServerPageEntries } from "@/components/server/community/ServerPageEntries";
+import { prefetchChannelMessages } from "@/hooks/useChatSession";
+import { useMobileShell } from "./MobileShellContext";
 
 const MobileServerSheet = dynamic(() => import("./MobileServerSheet").then((m) => m.MobileServerSheet), { ssr: false });
 const MobileChannelSheet = dynamic(() => import("./MobileChannelSheet").then((m) => m.MobileChannelSheet), { ssr: false });
@@ -82,6 +84,7 @@ function ChannelIcon({ type, nsfw }: { type: string; nsfw?: boolean }) {
  */
 export function MobileServerView() {
   const router = useRouter();
+  const shell = useMobileShell();
   const gt = useGT();
   const { currentServer, channels, channelsServerId, setCurrentChannel, fetchChannels, fetchServers } = useServer();
   // Re-render on voice connect/leave so the active voice channel highlight is live.
@@ -167,8 +170,19 @@ export function MobileServerView() {
     if (channelPress.wasLongPress()) return;
     // Voice channels open their call view (participants + Join), like text
     // channels; joining happens from that screen.
+    const href = `/channels/${currentServer.id}/${channel.id}`;
+    if (shell) {
+      // Same page: the chat slides in and paints from the message cache.
+      shell.open(href, () => setCurrentChannel(channel));
+      return;
+    }
     setCurrentChannel(channel);
-    router.push(`/channels/${currentServer.id}/${channel.id}`);
+    router.push(href);
+  };
+  /** Warm the message cache as the finger lands, before the tap completes. */
+  const warmChannel = (channel: ServerChannel) => {
+    if (channel.type === "voice" || channel.type === "stage" || channel.type === "category") return;
+    void prefetchChannelMessages(`/api/channels/${channel.id}`);
   };
 
   const banner = currentServer.banner ? cdnImage(currentServer.banner) : null;
@@ -197,7 +211,7 @@ export function MobileServerView() {
             type="button"
             onClick={() => setShowServerSheet(true)}
             aria-label={gt("Server menu")}
-            className="flex h-9 w-9 touch-manipulation items-center justify-center rounded-full text-[var(--text-secondary)] active:bg-[var(--bg-hover)]"
+            className="flex h-11 w-11 -mr-1 touch-manipulation items-center justify-center rounded-full text-[var(--text-secondary)] active:bg-[var(--bg-hover)]"
           >
             <MoreHorizontal className="h-5 w-5" />
           </button>
@@ -211,7 +225,7 @@ export function MobileServerView() {
         {/* Search + invite */}
         <div className="flex items-center gap-2 px-3 pb-2.5 pt-1.5">
           {showSearch ? (
-            <div className="flex h-9 flex-1 items-center gap-2 rounded-full bg-[var(--bg-card)] px-3">
+            <div className="flex h-10 flex-1 items-center gap-2 rounded-full bg-[var(--bg-card)] px-3">
               <Search className="h-4 w-4 shrink-0 text-[var(--text-muted)]" />
               <input
                 type="text"
@@ -238,7 +252,7 @@ export function MobileServerView() {
             <button
               type="button"
               onClick={() => setShowSearch(true)}
-              className="flex h-9 flex-1 touch-manipulation items-center gap-2 rounded-full bg-[var(--bg-card)] px-3 text-[var(--text-muted)] active:bg-[var(--bg-hover)]"
+              className="flex h-10 flex-1 touch-manipulation items-center gap-2 rounded-full bg-[var(--bg-card)] px-3 text-[var(--text-muted)] active:bg-[var(--bg-hover)]"
             >
               <Search className="h-4 w-4" />
               <span className="text-sm">{gt("Search")}</span>
@@ -248,7 +262,7 @@ export function MobileServerView() {
             type="button"
             onClick={() => window.dispatchEvent(new CustomEvent("openInviteDialog", { detail: { serverId: currentServer.id } }))}
             aria-label={gt("Invite people")}
-            className="flex h-9 w-9 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--bg-card)] text-[var(--text-secondary)] active:bg-[var(--bg-hover)]"
+            className="flex h-10 w-10 shrink-0 touch-manipulation items-center justify-center rounded-full bg-[var(--bg-card)] text-[var(--text-secondary)] active:bg-[var(--bg-hover)]"
           >
             <UserPlus className="h-[18px] w-[18px]" />
           </button>
@@ -314,6 +328,8 @@ export function MobileServerView() {
                         <button
                           type="button"
                           {...channelPress.bind(channel)}
+                          onTouchStartCapture={() => warmChannel(channel)}
+                          onPointerEnter={() => warmChannel(channel)}
                           onClick={() => handleChannelClick(channel)}
                           className={cn(
                             "relative flex h-10 w-full touch-manipulation select-none items-center gap-2.5 rounded-md px-2 text-left transition-colors duration-100",

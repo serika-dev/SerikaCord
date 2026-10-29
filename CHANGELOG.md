@@ -47,6 +47,7 @@
 - **Clicks open instantly after hovering** — hovering a channel, thread, DM or server now preloads the whole page, so clicking it no longer shows a loading skeleton while waiting for the server.
 - **Less lag in busy servers** — new messages in other channels no longer redraw the open chat, its message box and the quick switcher; only the unread badges update.
 - **Quicker message and mention loading** — the server reads only what it shows about message authors, loads your mentions faster, and no longer retries decrypting long plain-text messages on every load.
+- **Phone: channels, chat and members on one page** — on phones and in the iPhone and Android apps, the channel list (or your DMs), the chat and the member list now sit side by side on one page, like Discord: swipe right for your channels, left for members, tap a channel to slide back. Nothing reloads anymore: the panel follows your finger, snaps with a flick, the chat keeps its scroll position, and a channel you've opened before shows its messages straight away. Back, reload and links still land in the right place.
 
 ### Security
 

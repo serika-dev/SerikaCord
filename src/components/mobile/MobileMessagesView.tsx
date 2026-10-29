@@ -27,6 +27,9 @@ import { getRelationships } from "@/lib/social/relationshipsStore";
 import { isBlockedAuthor } from "@/lib/chat/blocked";
 import { useResilientStream } from "@/hooks/useStreamRevive";
 import { StatusBadge } from "@/components/user/StatusBadge";
+import { prefetchChannelMessages } from "@/hooks/useChatSession";
+import { conversationApiBase } from "@/lib/mobile/pager";
+import { useMobileShell } from "./MobileShellContext";
 
 const MobileDmSheet = dynamic(() => import("@/components/mobile/MobileDmSheet").then((m) => m.MobileDmSheet), { ssr: false });
 
@@ -79,6 +82,7 @@ async function decryptRowPreviews(
 export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const messageRequests = useMessageRequests();
   const router = useRouter();
+  const shell = useMobileShell();
   const gt = useGT();
   // Streamer Mode hides what people wrote.
   const hidePreviews = useStreamerHides("notifications");
@@ -366,7 +370,14 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
 
   const handleMessageClick = (message: Message) => {
     if (rowPress.wasLongPress()) return;
-    router.push(message.href);
+    // Phone shell: the conversation slides in on the same page.
+    if (shell) shell.open(message.href);
+    else router.push(message.href);
+  };
+  /** Warm the conversation's message cache as the finger lands. */
+  const warmConversation = (message: Message) => {
+    const apiBase = conversationApiBase(message.href);
+    if (apiBase) void prefetchChannelMessages(apiBase);
   };
 
   // Filter messages by search query
@@ -470,6 +481,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             {pinnedMessages.map((message) => (
               <button
                 key={message.id}
+                onTouchStartCapture={() => warmConversation(message)}
                 onClick={() => handleMessageClick(message)}
                 className="flex flex-col items-center gap-2 min-w-[72px] group"
               >
@@ -568,6 +580,8 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
                   key={`${message.recipientId}-${index}`}
                   type="button"
                   {...rowPress.bind(message)}
+                  onTouchStartCapture={() => warmConversation(message)}
+                  onPointerEnter={() => warmConversation(message)}
                   onClick={() => handleMessageClick(message)}
                   className={cn(
                     "w-full flex items-center gap-3 px-2 py-2 rounded-lg select-none touch-manipulation transition-colors duration-100",

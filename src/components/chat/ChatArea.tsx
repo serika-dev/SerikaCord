@@ -11,6 +11,7 @@ import { FollowChannelButton, publishAnnouncement } from "@/components/announcem
 
 import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import { useMobileShell } from "@/components/mobile/MobileShellContext";
 import { useServer, useServerMembers, type ServerChannel } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
@@ -227,6 +228,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   }, [currentChannel?.id, currentChannel?.type]);
   const canPinMessages = canModerateMessages || perms.can("PIN_MESSAGES");
   const router = useRouter();
+  // Phone shell: the back arrow slides to the channel list (no route load).
+  const mobileShell = useMobileShell();
   const isMobile = useIsMobile();
   // Touch tablets (≥768px) still need long-press menus and swipe-to-reply.
   const coarsePointer = useCoarsePointer();
@@ -1360,15 +1363,17 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && !isPanel && (
             <button
-              onClick={() =>
-                router.push(
+              onClick={() => {
+                const href =
                   isThread && currentChannel.parentId
                     ? `/channels/${currentServer?.id}/${currentChannel.parentId}`
-                    : `/channels/${currentServer?.id}`,
-                )
-              }
+                    : `/channels/${currentServer?.id}`;
+                if (!mobileShell) router.push(href);
+                else if (isThread && currentChannel.parentId) mobileShell.open(href);
+                else mobileShell.showList();
+              }}
               aria-label={gt("Back")}
-              className="p-2 -ml-1 rounded-lg hover:bg-[var(--app-surface-alt)] transition-colors"
+              className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-[var(--app-surface-alt)] transition-colors"
             >
               <ChevronLeft className="w-5 h-5 text-[var(--app-muted)]" />
             </button>
@@ -1419,7 +1424,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
               <PopoverTrigger asChild>
                 <button
                   className={cn(
-                    "p-2 -m-1 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors",
+                    "p-2.5 -m-1.5 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors",
                     showThreads && "text-[var(--text-primary)]",
                   )}
                   title={gt("Threads")}
@@ -1469,7 +1474,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             <FollowChannelButton channelId={currentChannel.id} channelName={currentChannel.name} />
           )}
           <button
-            className="p-2 -m-1 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            className="p-2.5 -m-1.5 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
             onClick={() => {
               setShowPins(true);
               void chat.fetchPinnedMessages();
@@ -1482,7 +1487,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           <button
             onClick={onToggleMembers}
             aria-label={gt("Toggle member list")}
-            className={cn("p-2 -m-1 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors", showMembers && "text-[var(--text-primary)]")}
+            className={cn("p-2.5 -m-1.5 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors", showMembers && "text-[var(--text-primary)]")}
           >
             <Users className="w-5 h-5" />
           </button>
@@ -1495,7 +1500,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           />
           <button
             type="button"
-            className="md:hidden p-2 -m-1 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            className="md:hidden p-2.5 -m-1.5 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
             onClick={() => setMobileSearchOpen(true)}
             title={gt("Search")}
             aria-label={gt("Search")}

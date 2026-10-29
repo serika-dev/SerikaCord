@@ -4,7 +4,8 @@ import { shouldAutoPlayTts, ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { getJsonCached } from "@/lib/swrJson";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useConversationParams, useConversationSearchParams, useMobileShell } from "@/components/mobile/MobileShellContext";
 import Link from "next/link";
 import { T, useGT } from "gt-next";
 import { toast } from "sonner";
@@ -75,9 +76,11 @@ const E2eePinGate = dynamic(() => import("@/components/e2ee/E2eePinGate").then((
  */
 export default function GroupDMPage() {
   const gt = useGT();
-  const params = useParams();
+  // Inside the phone shell the page renders for the shell's conversation.
+  const params = useConversationParams();
+  const shell = useMobileShell();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useConversationSearchParams();
   const channelId = params.channelId as string;
   const { user, isLoading: authLoading, refresh } = useAuth();
   const { clearContext } = useServer();
@@ -521,17 +524,22 @@ export default function GroupDMPage() {
     </div>
   );
 
-  const headerButton = "p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]";
+  const headerButton = "p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]";
 
   return (
-    <div className="chat-shell flex-1 flex bg-[var(--bg-app)] animate-fade-in overflow-hidden">
+    <div className={cn("chat-shell flex-1 flex bg-[var(--bg-app)] overflow-hidden", !shell && "animate-fade-in")}>
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
         <div className="min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/channels/messages"
-              className="p-2 hover:bg-[var(--bg-hover)] rounded-lg transition-colors active:scale-95 md:hidden"
+              onClick={(e) => {
+                if (!shell) return;
+                e.preventDefault();
+                shell.showList();
+              }}
+              className="-ml-1 flex h-11 w-11 items-center justify-center hover:bg-[var(--bg-hover)] rounded-lg transition-colors active:scale-95 md:hidden"
               aria-label={gt("Back")}
             >
               <ArrowLeft className="w-5 h-5 text-[var(--text-secondary)]" />

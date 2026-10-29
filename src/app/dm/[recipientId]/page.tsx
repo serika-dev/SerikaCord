@@ -3,7 +3,8 @@
 import { shouldAutoPlayTts, ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { getJsonCached } from "@/lib/swrJson";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
-import { useParams, useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useConversationParams, useConversationSearchParams, useMobileShell } from "@/components/mobile/MobileShellContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
 import { useUnreadGetter, useUnreadSelector, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
@@ -82,9 +83,11 @@ const recipientCache = new Map<string, Recipient>();
 
 export default function DMConversationPage() {
   const gt = useGT();
-  const params = useParams();
+  // Inside the phone shell the page renders for the shell's conversation.
+  const params = useConversationParams();
+  const shell = useMobileShell();
   const router = useRouter();
-  const searchParams = useSearchParams();
+  const searchParams = useConversationSearchParams();
   const recipientId = params.recipientId as string;
   const { user, isLoading: authLoading, refresh } = useAuth();
   const { clearContext } = useServer();
@@ -572,9 +575,9 @@ export default function DMConversationPage() {
 
   return (
     <SwipeNav
-      enabled={isMobile}
+      enabled={isMobile && !shell}
       onSwipeRight={() => router.push("/channels/messages")}
-      className="chat-shell flex-1 flex bg-[var(--bg-app)] animate-fade-in overflow-hidden"
+      className={cn("chat-shell flex-1 flex bg-[var(--bg-app)] overflow-hidden", !shell && "animate-fade-in")}
     >
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
@@ -583,7 +586,13 @@ export default function DMConversationPage() {
           <div className="flex items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/channels/messages"
-              className="p-2 hover:bg-[var(--bg-hover)] rounded-lg transition-colors active:scale-95"
+              aria-label={gt("Back")}
+              onClick={(e) => {
+                if (!shell) return;
+                e.preventDefault();
+                shell.showList();
+              }}
+              className="-ml-1 flex h-11 w-11 items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] transition-colors active:scale-95"
             >
               <ArrowLeft className="w-5 h-5 text-[var(--text-secondary)]" />
             </Link>
@@ -620,7 +629,7 @@ export default function DMConversationPage() {
               <>
                 <button
                   onClick={() => startCall(false)}
-                  className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
+                  className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
                   title={gt("Start Voice Call")}
                   aria-label={gt("Start Voice Call")}
                 >
@@ -628,7 +637,7 @@ export default function DMConversationPage() {
                 </button>
                 <button
                   onClick={() => startCall(true)}
-                  className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+                  className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
                   title={gt("Start Video Call")}
                   aria-label={gt("Start Video Call")}
                 >
@@ -637,7 +646,7 @@ export default function DMConversationPage() {
                 {!recipient?.isBot && (
                   <button
                     onClick={() => setShowAddFriends(true)}
-                    className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
+                    className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
                     title={gt("Add Friends to DM")}
                     aria-label={gt("Add Friends to DM")}
                   >
@@ -648,7 +657,7 @@ export default function DMConversationPage() {
             )}
             <button
               onClick={() => setShowPins(true)}
-              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
+              className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
               title={gt("Pinned Messages")}
             >
               <Pin className="w-5 h-5" />
@@ -656,7 +665,7 @@ export default function DMConversationPage() {
             <button
               type="button"
               onClick={() => setMobileSearchOpen(true)}
-              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] md:hidden"
+              className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] md:hidden"
               title={gt("Search")}
               aria-label={gt("Search")}
             >
@@ -672,7 +681,7 @@ export default function DMConversationPage() {
                     kind: "dm",
                   })
                 }
-                className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+                className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
                 title={gt("Notification Settings")}
                 aria-label={gt("Notification Settings")}
               >
@@ -681,7 +690,7 @@ export default function DMConversationPage() {
             )}
             <button
               onClick={() => openInbox()}
-              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+              className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
               title={gt("Inbox")}
               aria-label={gt("Inbox")}
             >

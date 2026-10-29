@@ -2,7 +2,8 @@
 
 import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import dynamic from "next/dynamic";
-import { useParams, useRouter } from "next/navigation";
+import { useRouter } from "next/navigation";
+import { useConversationParams, useMobileShell } from "@/components/mobile/MobileShellContext";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatArea } from "@/components/chat/ChatArea";
@@ -464,7 +465,9 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
 }
 
 export default function ChannelPage() {
-  const params = useParams();
+  // Inside the phone shell the page renders for the shell's conversation.
+  const params = useConversationParams();
+  const shell = useMobileShell();
   const router = useRouter();
   const gt = useGT();
   const { servers, setCurrentServer, channels, channelsServerId, setCurrentChannel, isLoading, fetchChannels, currentServer, currentChannel } = useServer();
@@ -479,6 +482,8 @@ export default function ChannelPage() {
 
   // Member list rendering: inline sidebar on desktop, slide-in drawer on mobile.
   const renderMembers = (mobile: boolean) => {
+    // The phone shell shows members in its own panel.
+    if (shell) return null;
     if (mobile) {
       if (!showMembers) return null;
       return (
@@ -832,11 +837,11 @@ export default function ChannelPage() {
   return (
     <>
       <SwipeNav
-        enabled={isMobile && !showMembers}
+        enabled={isMobile && !showMembers && !shell}
         onSwipeRight={() => router.push(`/channels/${serverId}`)}
         onSwipeLeft={() => setShowMembers(true)}
       >
-        <ChatArea onToggleMembers={() => setShowMembers(!showMembers)} showMembers={showMembers} />
+        <ChatArea onToggleMembers={() => (shell ? shell.showMembers() : setShowMembers(!showMembers))} showMembers={showMembers} />
       </SwipeNav>
       {threadPanel.mode !== "closed" && currentChannel ? (
         // The member list makes way for the thread panel (Discord).
