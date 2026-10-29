@@ -1652,7 +1652,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         secondary={isPanel}
         placeholder={
           selfTimeout.active
-            ? gt("You're timed out â {time} remaining", { time: selfTimeout.label })
+            ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
             : verificationBlocked
             ? verificationMessage
             : screeningBlocked
