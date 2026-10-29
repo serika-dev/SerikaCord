@@ -11510,5 +11510,16 @@
   "6fa741f09ec05bf2": "Could not remove that image",
   "c07c5c3e586843fe": "Could not use that image",
   "53f6e482ca62925f": "Change Avatar",
-  "e9bea2a985b7ade1": "Change Banner"
+  "e9bea2a985b7ade1": "Change Banner",
+  "379a7b84ce535976": "Emoji matching {query}",
+  "8f8f0b12909272cc": "Tab or Enter to insert, Esc to close",
+  "f2a7da2a4b2d1daf": "Emoji suggestions",
+  "55656b9a94fb6a38": "Skin tone",
+  "54f996a0299c0889": "Default skin tone",
+  "03a23af6e12db69d": "Light skin tone",
+  "bd5fa69413fcca36": "Medium-light skin tone",
+  "8a9185df69a14085": "Medium skin tone",
+  "16abc5f795ef06b0": "Medium-dark skin tone",
+  "4c3eef9a511c826d": "Dark skin tone",
+  "6aa69394ec8e9be1": "Edit message"
 }
