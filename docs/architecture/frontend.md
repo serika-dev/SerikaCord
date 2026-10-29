@@ -183,7 +183,23 @@ instead, which repaints the gradient underneath.
 ## Mobile
 
 `ChannelsLayoutClient` switches to mobile views (`src/components/mobile/*`,
-`BottomNavigation`) at mobile width (`useIsMobile`). Mobile views take handler
+`BottomNavigation`) at mobile width (`useIsMobile`).
+
+Servers and DMs on phones are one persistent page, `MobileShell`
+(`src/components/mobile/`): a `MobilePager` with three panels, [channel or
+DM list | chat | members], all mounted. The shell renders the conversation
+pages itself (`ConversationParamsContext`; pages read params with
+`useConversationParams()` / `useConversationSearchParams()`, never
+`useParams()` directly) and updates the URL with `history.pushState` /
+`replaceState` after the motion, so nothing loads a route. Navigate inside it
+with `useMobileShell()` (`open(href)`, `showList()`, `showMembers()`) rather
+than `router.push`. The strip only carries a transform while moving (a
+transformed ancestor would capture `position: fixed` children). Route and
+gesture math is pure in `src/lib/mobile/pager.ts`. Every phone bottom sheet
+closes through `useDragToDismiss` (`src/hooks/useDragToDismiss.ts`), which
+`MobileSheet` and the shared `DialogContent` already use.
+
+Mobile views take handler
 props such as `onBack` and `onAddFriend`; if the layout doesn't pass one, the
 button silently does nothing. Bottom-nav badges read `totalDmUnreadCount` and
 `totalMentionCount` from `UnreadContext`. Desktop (Qt, Tauri) and the
