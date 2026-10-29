@@ -490,9 +490,11 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
     );
   }
 
-  // Desktop Layout
+  // Desktop Layout (also iPad and tablets in the native apps, where the web
+  // view runs edge to edge: keep the shell clear of the status bar and the
+  // home indicator; both insets are 0 in browsers and the desktop apps).
   return (
-    <div className="flex h-dvh bg-[var(--bg-app)] overflow-hidden">
+    <div className="flex h-dvh bg-[var(--bg-app)] overflow-hidden pt-safe pb-safe">
       {/* Combined Sidebars */}
       <div className="flex flex-shrink-0 h-full min-h-0">
         <ServerSidebar
