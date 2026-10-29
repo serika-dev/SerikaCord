@@ -1219,15 +1219,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
         unreadOnly,
       });
 
-      // Batch fetch authors
-      const authorIds = [...new Set(filteredMessages.map(m => m.authorId))];
-      const authors = authorIds.length > 0 ? await User.find({ id: { in: authorIds } }) : [];
+      // Authors (public columns only) and contents, in parallel.
+      const authorIds = [...new Set(filteredMessages.map(m => m.authorId).filter((id): id is string => Boolean(id)))];
+      const [authors, decryptedMentionContents] = await Promise.all([
+        User.findAuthors(authorIds),
+        Promise.all(filteredMessages.map((msg) => decryptFromStorage(msg.content || ''))),
+      ]);
       const authorMap = new Map(authors.map(a => [a.id, a]));
-
-      // Batch-decrypt all mention contents in parallel
-      const decryptedMentionContents = await Promise.all(
-        filteredMessages.map((msg) => decryptFromStorage(msg.content || ''))
-      );
 
       // Map channel -> serverId for filtering
       const serversWithMentions = new Set<string>();

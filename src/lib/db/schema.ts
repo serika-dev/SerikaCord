@@ -319,6 +319,13 @@ export const messages = pgTable('messages', {
   snapshotAttachmentsGinIdx: index('messages_snapshot_attachments_gin_idx')
     .using('gin', sql`(${t.messageSnapshot} -> 'attachments') jsonb_path_ops`)
     .where(sql`${t.messageSnapshot} IS NOT NULL`),
+  // Mentions query (Message.findMentionsOf): hand-applied with CREATE INDEX
+  // CONCURRENTLY from drizzle/manual_mention_indexes.sql.
+  mentionedUserIdsGinIdx: index('messages_mentioned_user_ids_gin_idx').using('gin', t.mentionedUserIds),
+  mentionedRoleIdsGinIdx: index('messages_mentioned_role_ids_gin_idx').using('gin', t.mentionedRoleIds),
+  mentionEveryoneCreatedIdx: index('messages_mention_everyone_created_at_idx')
+    .on(t.createdAt)
+    .where(sql`${t.mentionEveryone} = true`),
 }));
 
 // One row per (poll message, voter, answer). Added at boot by

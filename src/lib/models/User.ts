@@ -195,6 +195,25 @@ export interface IPendingFriendRequests {
 
 export type IUser = typeof schema.users.$inferSelect;
 
+/**
+ * The public fields a message list shows for its authors. A plain `find` also
+ * reads settings, GIF / emoji favorites, profile widgets, friend lists and
+ * the password hash for every author of every page.
+ */
+const AUTHOR_COLUMNS = {
+  id: schema.users.id,
+  username: schema.users.username,
+  displayName: schema.users.displayName,
+  avatar: schema.users.avatar,
+  status: schema.users.status,
+  customization: schema.users.customization,
+  badges: schema.users.badges,
+  isSystem: schema.users.isSystem,
+  isBot: schema.users.isBot,
+  isVerified: schema.users.isVerified,
+  isPremium: schema.users.isPremium,
+};
+
 export const User = {
   table: schema.users,
 
@@ -245,6 +264,12 @@ export const User = {
       query = query.where(and(...conditions)) as typeof query;
     }
     return query;
+  },
+
+  /** Message authors by id, public columns only (see AUTHOR_COLUMNS). */
+  async findAuthors(ids: string[]) {
+    if (ids.length === 0) return [];
+    return db.select(AUTHOR_COLUMNS).from(schema.users).where(buildCondition(schema.users.id, { in: ids }, true));
   },
 
   async create(data: typeof schema.users.$inferInsert) {

@@ -2512,7 +2512,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
 
     const [, authors, refMessages, decryptedContents, extrasMap] = await Promise.all([
       loadServerBits(),
-      authorIds.length > 0 ? User.find({ id: { in: authorIds } }) : Promise.resolve([]),
+      User.findAuthors(authorIds),
       // Scoped to this channel and live messages: a deleted or foreign
       // reference renders as "original message deleted" instead of leaking.
       refIds.length > 0 ? Message.find({ id: { in: refIds }, channelId: params.channelId, isDeleted: false }) : Promise.resolve([]),
@@ -2544,7 +2544,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       missingAuthorIds.length > 0
         ? import('@/lib/models/DiscordUser').then(({ DiscordUser }) => DiscordUser.findMany(missingAuthorIds))
         : Promise.resolve([]),
-      refUserIds.length > 0 ? User.find({ id: { in: refUserIds } }) : Promise.resolve([]),
+      User.findAuthors(refUserIds),
       batchParseCustomEmojis(decryptedContents),
       pageThreadIds.length > 0
         ? loadThreadSummariesByIds(pageThreadIds).catch(() => new Map<string, never>())
