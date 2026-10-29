@@ -30,6 +30,7 @@ import { useServerMutes } from "@/hooks/useServerMutes";
 import { useMuteOptions, useMutedUntilLabel } from "@/components/notifications/useMuteOptions";
 import { openNotificationSettings } from "@/lib/notifications/events";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
+import { prefetchRoute } from "@/lib/navigation/prefetchRoute";
 import { useServerLayout, type ServerLayoutEntry } from "@/hooks/useServerLayout";
 import { usePolling } from "@/hooks/usePolling";
 import { useGT } from "gt-next";
@@ -363,7 +364,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                 // Warm the same deep link the click will use, plus that
                 // channel's messages so the chat paints instantly.
                 const href = serverHref(server);
-                router.prefetch(href);
+                prefetchRoute(router, href);
                 const channelId = href.split("/")[3];
                 if (channelId) void prefetchChannelMessages(`/api/channels/${channelId}`);
               }}
@@ -732,7 +733,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
                       onMouseEnter={() => {
                         const base = dm.channel ? dmChannelApiBase(dm.channel) : null;
                         if (base) void prefetchChannelMessages(base);
-                        router.prefetch(dm.href);
+                        prefetchRoute(router, dm.href);
                       }}
                       className="relative flex items-center justify-center w-12 h-12 rounded-[24px] transition-[border-radius] duration-200 hover:rounded-[16px] group overflow-hidden"
                     >

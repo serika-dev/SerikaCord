@@ -130,6 +130,24 @@ Channels and DMs run on the same code:
 - **Memoized context values** (`useMemo`/`useCallback`) in every provider; the
   `ServerContext` members fetch only replaces state when a cheap `sig()`
   signature changes. Add new live member fields to that signature.
+- **Unread state, narrowly**: `useUnread()` re-renders on every unread change,
+  which is every message in any channel the user can see. Big components read
+  it narrowly instead: `useUnreadSelector(u => primitive)` (re-renders only
+  when that value changes), `useUnreadGetter()` (read in handlers and effects,
+  never re-renders) and `useUnreadLive(open)` (live only while a dialog is
+  open). `ChatArea`, the DM page, `QuickSwitcher` and `useAppHotkeys` use them.
+- **Per-message toolbars stay light**: `MessageHoverActions` renders plain
+  buttons and mounts its Radix popover and menu only after a pointer move or
+  focus on that message (or a click on the plain button). `LinkEmbed`
+  (`LinkEmbedSlot.tsx`) stops at once for messages without a link and loads
+  the preview components on the first link.
+- **Message revalidation keeps objects**: refetched pages go through
+  `reuseUnchanged`, so a revalidation that finds nothing new re-renders no
+  `MessageGroup` (they compare message references).
+- **Route warm-up on hover**: sidebar rows call `prefetchRoute()`
+  (`src/lib/navigation/prefetchRoute.ts`), a full prefetch that includes the
+  page segment. A plain `router.prefetch()` stops at `loading.tsx`, so the
+  click still showed the skeleton and waited for the server.
 - **Code splitting**: the emoji/GIF picker and voice library (`simple-peer`)
   load on first use.
 - **Deploys**: `ChunkReloadGuard` reloads once when a lazy chunk from an old

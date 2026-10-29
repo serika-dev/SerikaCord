@@ -69,6 +69,7 @@ import { openNotificationSettings } from "@/lib/notifications/events";
 import { useMuteOptions, useMutedUntilLabel } from "@/components/notifications/useMuteOptions";
 import { useUnread } from "@/contexts/UnreadContext";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
+import { prefetchRoute } from "@/lib/navigation/prefetchRoute";
 import { usePermissions } from "@/hooks/usePermissions";
 import { usePolling } from "@/hooks/usePolling";
 import { useResilientStream } from "@/hooks/useStreamRevive";
@@ -915,10 +916,11 @@ export function ChannelSidebar({
           onClick={() => { navigateToChannel(channel); setActiveChannel(channel.id); }}
           onMouseEnter={() => {
             void prefetchChannelMessages(`/api/channels/${channel.id}`);
-            // Warm the route too: programmatic router.push does NOT prefetch,
-            // so without this every click pays an RSC round-trip before the
-            // page can mount. Hover-prefetching makes the push commit instantly.
-            if (currentServer) router.prefetch(`/channels/${currentServer.id}/${channel.id}`);
+            // Warm the route too (page data included): router.push doesn't
+            // prefetch, so without this every click shows the loading
+            // skeleton and waits for a server round trip before the page can
+            // mount. A full prefetch on hover lets the push commit instantly.
+            if (currentServer) prefetchRoute(router, `/channels/${currentServer.id}/${channel.id}`);
           }}
           onContextMenu={(e) => handleContextMenu(e, channel)}
           className={cn(
@@ -973,7 +975,7 @@ export function ChannelSidebar({
           onClick={() => { navigateToChannel(thread); setActiveChannel(thread.id); }}
           onMouseEnter={() => {
             void prefetchChannelMessages(`/api/channels/${thread.id}`);
-            if (currentServer) router.prefetch(`/channels/${currentServer.id}/${thread.id}`);
+            if (currentServer) prefetchRoute(router, `/channels/${currentServer.id}/${thread.id}`);
           }}
           onContextMenu={(e) => handleContextMenu(e, thread)}
           className={cn(
@@ -1325,6 +1327,7 @@ export function ChannelSidebar({
                       onMouseEnter={() => {
                         const base = dmChannelApiBase(channel);
                         if (base) void prefetchChannelMessages(base);
+                        prefetchRoute(router, href);
                       }}
                       onContextMenu={(e) => { e.preventDefault(); setDmContextMenu({ x: e.clientX, y: e.clientY, channel }); }}
                       className={cn(

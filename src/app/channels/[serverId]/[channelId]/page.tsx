@@ -6,7 +6,6 @@ import { useParams, useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatArea } from "@/components/chat/ChatArea";
-import { ForumChannelView } from "@/components/chat/ForumChannelView";
 import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
@@ -23,6 +22,15 @@ import { SwipeNav } from "@/components/mobile/SwipeNav";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { useThreadPanel } from "@/lib/chat/threadPanelStore";
 import { canHostThreads, isThreadType } from "@/lib/chat/threads";
+
+// Forum / ticket channels only: their view loads the first time one is opened.
+const ForumChannelView = dynamic(() => import("@/components/chat/ForumChannelView").then((m) => m.ForumChannelView), {
+  loading: () => (
+    <div className="flex-1 flex items-center justify-center bg-[var(--bg-app)]">
+      <Loader size={32} />
+    </div>
+  ),
+});
 
 // The thread side panel's chunk loads the first time a thread is opened.
 const ThreadPanel = dynamic(() => import("@/components/chat/ThreadPanel").then((m) => m.ThreadPanel), { ssr: false });
