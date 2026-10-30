@@ -172,7 +172,7 @@ function useEventActions(ev: ServerEventView, serverId: string, onChanged: () =>
     if (status === "canceled") {
       const yes = await confirm({
         title: gt("Cancel Event"),
-        description: gt("Are you sure you want to cancel '{name}'?", { name: ev.name }),
+        description: gt("Are you sure you want to cancel \"{name}\"?", { name: ev.name }),
         confirmLabel: gt("Cancel Event"),
       });
       if (!yes) return;

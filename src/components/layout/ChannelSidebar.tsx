@@ -1530,7 +1530,7 @@ export function ChannelSidebar({
                   closeDmContextMenu();
                   void (async () => {
                     const ok = await confirmDialog({
-                      title: gt("Leave '{name}'", { name: dmRowTitle(ch) }),
+                      title: gt("Leave \"{name}\"", { name: dmRowTitle(ch) }),
                       description: gt("Are you sure you want to leave this group? You won't be able to rejoin unless someone adds you back."),
                       confirmLabel: gt("Leave Group"),
                     });
@@ -1699,7 +1699,7 @@ export function ChannelSidebar({
           <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
           <DropdownMenuItem
             onClick={async () => {
-              if (currentServer && (await confirmDialog({ title: gt("Leave Server"), description: gt("Leave '{name}'? You'll need a new invite to rejoin.", { name: currentServer.name }), confirmLabel: gt("Leave Server") }))) {
+              if (currentServer && (await confirmDialog({ title: gt("Leave Server"), description: gt("Leave \"{name}\"? You'll need a new invite to rejoin.", { name: currentServer.name }), confirmLabel: gt("Leave Server") }))) {
                 await leaveServer(currentServer.id);
               }
             }}

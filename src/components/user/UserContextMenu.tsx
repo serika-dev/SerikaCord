@@ -180,7 +180,7 @@ export function UserMenuItems({
 
   const removeFriend = async () => {
     const ok = await confirm({
-      title: gt("Remove '{name}'", { name }),
+      title: gt("Remove \"{name}\"", { name }),
       description: gt("Are you sure you want to remove {name} from your friends?", { name }),
       confirmLabel: gt("Remove Friend"),
     });

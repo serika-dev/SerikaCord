@@ -269,7 +269,7 @@ function RemoveMemberDialog({ request, onClose }: { request: UserActionRequest; 
     <Dialog open onOpenChange={(open) => { if (!open) onClose(); }}>
       <DialogContent className={DIALOG_CLASS}>
         <DialogHeader>
-          <DialogTitle>{isBan ? gt("Ban '{name}'", { name }) : gt("Kick '{name}'", { name })}</DialogTitle>
+          <DialogTitle>{isBan ? gt("Ban \"{name}\"", { name }) : gt("Kick \"{name}\"", { name })}</DialogTitle>
           <DialogDescription className="text-[var(--text-secondary)]">
             {isBan
               ? gt("Are you sure you want to ban @{username} from the server? They won't be able to rejoin.", { username: target.username })

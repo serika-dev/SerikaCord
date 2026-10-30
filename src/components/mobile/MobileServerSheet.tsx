@@ -183,7 +183,7 @@ export function MobileServerSheet({ server, onClose }: { server: SheetServer; on
             onClick={run(async () => {
               const ok = await confirm({
                 title: gt("Leave Server"),
-                description: gt("Leave '{name}'? You'll need a new invite to rejoin.", { name: server.name }),
+                description: gt("Leave \"{name}\"? You'll need a new invite to rejoin.", { name: server.name }),
                 confirmLabel: gt("Leave Server"),
               });
               if (!ok) return;

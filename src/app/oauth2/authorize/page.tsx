@@ -370,7 +370,7 @@ function AuthorizeForm() {
                   <div key={s} className="flex items-start gap-2.5 text-sm text-[#e3e5e8]">
                     <Check className="w-4 h-4 text-green-400 mt-0.5 flex-shrink-0" />
                     <span>
-                      {s === "bot" ? gt("Add a bot user to your server") : s === "applications.commands" ? gt("Create commands in your server") : gt("Access details matching scope '{scope}'", { scope: s })}
+                      {s === "bot" ? gt("Add a bot user to your server") : s === "applications.commands" ? gt("Create commands in your server") : gt("Access details matching scope \"{scope}\"", { scope: s })}
                     </span>
                   </div>
                 ))}

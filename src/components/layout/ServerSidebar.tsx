@@ -331,7 +331,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const handleCopyServerId = (serverId: string) => void navigator.clipboard?.writeText(serverId);
   const handleHomeClick = () => { setCurrentServer(null); router.push("/channels/me"); };
   const handleLeaveServer = async (server: Server) => {
-    if (!(await confirmDialog({ title: gt("Leave Server"), description: gt("Leave '{name}'? You'll need a new invite to rejoin.", { name: server.name }), confirmLabel: gt("Leave Server") }))) return;
+    if (!(await confirmDialog({ title: gt("Leave Server"), description: gt("Leave \"{name}\"? You'll need a new invite to rejoin.", { name: server.name }), confirmLabel: gt("Leave Server") }))) return;
     try {
       await leaveServer(server.id);
       if (currentServer?.id === server.id) { setCurrentServer(null); router.push("/channels/me"); }

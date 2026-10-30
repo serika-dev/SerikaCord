@@ -466,7 +466,7 @@ export default function GroupDMPage() {
 
   const leaveGroup = useCallback(async () => {
     const ok = await confirm({
-      title: gt("Leave '{name}'", { name: title || gt("Group") }),
+      title: gt("Leave \"{name}\"", { name: title || gt("Group") }),
       description: gt("Are you sure you want to leave this group? You won't be able to rejoin unless someone adds you back."),
       confirmLabel: gt("Leave Group"),
     });
