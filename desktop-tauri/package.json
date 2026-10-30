@@ -1,6 +1,6 @@
 {
   "name": "serikacord-desktop",
-  "version": "2.5.0",
+  "version": "2.5.1",
   "description": "SerikaCord native desktop app (Tauri) — DEPRECATED, use desktop-QT instead",
   "private": true,
   "scripts": {

@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.0.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.1.
 
 ---
 
@@ -11,13 +11,21 @@
 ### Changes
 
 ### Bug Fixes
-- 1:1 DMs show the other person's profile again instead of a member list of the two of you. On phones the DM header no longer overlaps the back button: it keeps call, pins and search, and tapping their avatar opens the profile; group DMs move Add Friends into the member panel.
 
 ### Performance
 
 ### Security
 
 ### Removed
+
+---
+
+## v2.5.1 — 2026-10-30
+
+**Tag:** `v2.5.1` · **Commit:** `278787f9`
+
+### Bug Fixes
+- 1:1 DMs show the other person's profile again instead of a member list of the two of you. On phones the DM header no longer overlaps the back button: it keeps call, pins and search, and tapping their avatar opens the profile; group DMs move Add Friends into the member panel.
 
 ---
 
