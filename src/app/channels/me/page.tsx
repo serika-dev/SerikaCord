@@ -419,7 +419,7 @@ export default function DirectMessagesPage() {
   };
 
   return (
-    <div className="flex-1 flex bg-[var(--bg-app)] overflow-hidden">
+    <div data-touch-scope="" className="flex-1 flex bg-[var(--bg-app)] overflow-hidden">
       {userMenu}
       {/* Left column: header + content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

@@ -617,6 +617,25 @@ html.keyboard-open .mobile-bottom-nav {
   }
 }
 
+/* Touch screens (phones, iPads, Android tablets, also in the desktop-like
+   layout): sidebars, chat headers, the friends list and reactions keep
+   finger-sized (44px) targets. Unlayered, so it wins over the denser desktop
+   utilities; mouse users keep the density. */
+@media (pointer: coarse) {
+  [data-touch-scope] :is(a[href], button, [role="button"], [role="tab"]):not([data-touch-skip]) {
+    min-height: 44px;
+  }
+  [data-touch-scope] :is(a[href], button, [role="button"])[aria-label]:not([data-touch-skip]) {
+    min-width: 44px;
+  }
+  [data-touch-scope] :is(a[href], button, [role="button"]):has(> svg:only-child):not([data-touch-skip]) {
+    min-width: 44px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+  }
+}
+
 /* Phone bottom sheets (MobileSheet): slide up / fade in. Fill mode
    "backwards" only, so the drag-to-dismiss transform (inline) wins once the
    entrance is over. */

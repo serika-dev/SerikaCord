@@ -50,7 +50,7 @@ export function MessageReactions({
   };
 
   return (
-    <div className="flex flex-wrap gap-1 max-sm:gap-1.5 mt-1">
+    <div data-touch-scope="" className="flex flex-wrap gap-1 max-sm:gap-1.5 mt-1">
       {reactions.map((reaction) => {
         const hasReacted = currentUserId ? reaction.userIds.includes(currentUserId) : false;
         const emojiIdentifier = reactionEmojiIdentifier(reaction.emoji);

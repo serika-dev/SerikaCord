@@ -1363,7 +1363,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   return (
     <div className="chat-shell flex-1 flex flex-col bg-[var(--app-bg)] min-w-0 min-h-0 overflow-hidden">
       {/* Channel Header */}
-      <div className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-surface)] flex-shrink-0">
+      <div data-touch-scope="" className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-surface)] flex-shrink-0">
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && !isPanel && (
             <button

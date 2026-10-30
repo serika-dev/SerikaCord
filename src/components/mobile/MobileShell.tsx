@@ -25,7 +25,8 @@ const ChannelConversation = dynamic(loadChannelPage, { loading: panelFallback })
 const DmConversation = dynamic(loadDmPage, { loading: panelFallback });
 const GroupDmConversation = dynamic(loadGroupDmPage, { loading: panelFallback });
 
-const MobileServerList = dynamic(() => import("./MobileServerList").then((m) => m.MobileServerList), { loading: panelFallback });
+const railFallback = () => <div className="h-full w-[72px] min-w-[72px] bg-[var(--bg-sidebar)]" />;
+const MobileServerList = dynamic(() => import("./MobileServerList").then((m) => m.MobileServerList), { loading: railFallback });
 const MobileServerView = dynamic(() => import("./MobileServerView").then((m) => m.MobileServerView), { loading: panelFallback });
 const MobileMessagesView = dynamic(() => import("./MobileMessagesView").then((m) => m.MobileMessagesView), { loading: panelFallback });
 const MemberSidebar = dynamic(() => import("@/components/chat/MemberSidebar").then((m) => m.MemberSidebar), { loading: panelFallback });

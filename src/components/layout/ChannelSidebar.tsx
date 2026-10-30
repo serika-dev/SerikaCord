@@ -1257,7 +1257,7 @@ export function ChannelSidebar({
 
   if (!currentServer) {
     return (
-      <div className="flex flex-col w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
+      <div data-touch-scope="" className="flex flex-col w-60 lg:w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
         {/* DM Header */}
         <div className="h-12 px-3 flex items-center border-b border-[var(--border-subtle)] shrink-0">
           <button
@@ -1581,7 +1581,7 @@ export function ChannelSidebar({
   // Age-gated server block for iOS — render padlock screen instead of channel list
   if (isIOS && currentServer?.isAgeGated) {
     return (
-      <div className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
+      <div data-touch-scope="" className="flex flex-col w-60 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)]">
         <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)] shrink-0">
           <span className="font-semibold truncate text-[var(--text-primary)]">{decodeHtmlEntities(currentServer.name)}</span>
         </div>
@@ -1605,7 +1605,7 @@ export function ChannelSidebar({
   }
 
   return (
-    <div className="flex flex-col w-64 h-full min-h-0 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
+    <div data-touch-scope="" className="flex flex-col w-60 lg:w-64 h-full min-h-0 bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
       {/* Server Header (banner behind the name when the server has one) */}
       <DropdownMenu>
         <DropdownMenuTrigger asChild>
@@ -2113,7 +2113,7 @@ export function UserPanel({ user }: UserPanelProps) {
  *  so switching from a DM into a server doesn't flash the DM list. */
 function ChannelSidebarSkeleton() {
   return (
-    <div className="flex flex-col w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
+    <div data-touch-scope="" className="flex flex-col w-60 lg:w-64 min-w-0 h-full bg-[var(--bg-sidebar)] border-r border-[var(--border-subtle)] overflow-hidden">
       {/* Server header bar */}
       <div className="h-12 px-4 flex items-center border-b border-[var(--border-subtle)] shrink-0">
         <div className="h-4 w-32 rounded bg-[var(--bg-sidebar-elevated)] animate-pulse" />

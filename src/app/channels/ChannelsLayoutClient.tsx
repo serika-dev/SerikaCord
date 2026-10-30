@@ -77,9 +77,11 @@ function subscribeMobile(onChange: () => void) {
 const getMobileSnapshot = () => window.matchMedia(MOBILE_QUERY).matches;
 const getMobileServerSnapshot = () => false;
 
+// Rail-sized placeholder: the page beside it doesn't jump when the rail loads.
+const railFallback = () => <div className="h-full w-[72px] min-w-[72px] bg-[var(--bg-sidebar)]" />;
 const MobileServerList = dynamic(
   () => import("@/components/mobile/MobileServerList").then((m) => m.MobileServerList),
-  { loading: mobileFallback }
+  { loading: railFallback }
 );
 const MobileServerView = dynamic(
   () => import("@/components/mobile/MobileServerView").then((m) => m.MobileServerView),

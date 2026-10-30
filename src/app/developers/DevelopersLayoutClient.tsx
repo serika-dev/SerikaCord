@@ -26,15 +26,16 @@ export default function DevelopersLayoutClient({
   return (
     <div className="min-h-screen bg-[#0a0a0a] text-white flex flex-col">
         {/* Top Navigation */}
-        <header className="h-14 border-b border-white/[0.06] bg-[#0a0a0a] sticky top-0 z-50 flex items-center px-4 gap-6 backdrop-blur-sm">
+        <header data-touch-scope="" className="h-14 border-b border-white/[0.06] bg-[#0a0a0a] sticky top-0 z-50 flex items-center px-4 gap-3 md:gap-6 backdrop-blur-sm pl-[max(1rem,var(--safe-area-left))] pr-[max(1rem,var(--safe-area-right))]">
           <Link href="/developers/home" className="flex items-center gap-2 shrink-0">
             <LogoInline size={28} />
-            <span className="font-bold text-sm hidden sm:inline">
+            <span className="font-bold text-sm hidden md:inline">
               {gt("SerikaCord Developers")}
             </span>
           </Link>
 
-          <nav className="flex items-center gap-0.5">
+          {/* Icons only below 1024px (labels on hover / for screen readers), so the bar never overflows. */}
+          <nav className="flex min-w-0 items-center gap-0.5 overflow-x-auto scrollbar-hide">
             {navItems.map((item) => {
               const active =
                 item.href === "/developers/docs/intro"
@@ -46,15 +47,17 @@ export default function DevelopersLayoutClient({
                 <Link
                   key={item.href}
                   href={item.href}
+                  aria-label={item.label}
+                  title={item.label}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
+                    "flex shrink-0 items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors",
                     active
                       ? "bg-white/10 text-white"
                       : "text-[#949ba4] hover:text-white hover:bg-white/[0.04]"
                   )}
                 >
                   <item.icon className="size-4" />
-                  <span className="hidden sm:inline">{item.label}</span>
+                  <span className="hidden lg:inline">{item.label}</span>
                 </Link>
               );
             })}
@@ -69,7 +72,7 @@ export default function DevelopersLayoutClient({
             </Link>
             <Link
               href="/channels/me"
-              className="text-xs text-[#777] hover:text-white transition-colors"
+              className="shrink-0 whitespace-nowrap text-xs text-[#777] hover:text-white transition-colors"
             >
               {gt("Open SerikaCord")}
             </Link>
