@@ -19,6 +19,9 @@
 - **A single gallery image sits in the middle of the card** — one picture in a gallery embed is centered in the card instead of stuck to the left (CORD-79).
 - **Reactions use the same emoji art as messages** — a reaction chip draws SerikaCord's emoji artwork instead of the phone's built-in emoji (CORD-82).
 - **Bridged webhook posts keep their layout on Discord** — a webhook message mirrored to Discord keeps its pictures in the embed and its markdown titles intact. A missing link used to post a fresh copy starting with "(edited)" on every save; that prefix is gone, and once a Discord copy exists, later edits update it (CORD-81).
+- **The inbox dot stays on the icon** — the blue unread mark sits on the inbox icon instead of floating off to the side and shifting the icon (CORD-87).
+- **More room for channels on a phone** — Server Guide, Events, Channels & Roles and Members scroll with the channel list, so a short screen is not stuck with those rows pinned above it (CORD-88).
+- **Calls play through Firefox** — other people in a call are audible in Firefox, and the microphone list fills in after you join instead of staying on Default (CORD-89).
 
 ### Performance
 

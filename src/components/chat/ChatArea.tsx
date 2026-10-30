@@ -1563,24 +1563,27 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           >
             <Search className="w-5 h-5" />
           </button>
-          <button
-            className={cn(
-              "chat-header-extra hover:text-[var(--text-primary)] transition-colors hidden md:block relative",
-              (inboxBadge > 0 || hasInboxUnreads) && "text-[var(--text-primary)]"
-            )}
-            onClick={() => openInbox()}
-            title={gt("Inbox")}
-            aria-label={gt("Inbox")}
-          >
-            <Inbox className="w-5 h-5" />
+          <span className="chat-header-extra relative hidden shrink-0 md:inline-flex">
+            <button
+              type="button"
+              className={cn(
+                "inline-flex items-center justify-center hover:text-[var(--text-primary)] transition-colors",
+                (inboxBadge > 0 || hasInboxUnreads) && "text-[var(--text-primary)]"
+              )}
+              onClick={() => openInbox()}
+              title={gt("Inbox")}
+              aria-label={gt("Inbox")}
+            >
+              <Inbox className="w-5 h-5" />
+            </button>
             {inboxBadge > 0 ? (
-              <span className="absolute -top-1 -right-1 min-w-[16px] h-[16px] px-1 flex items-center justify-center rounded-full bg-red-500 text-[10px] font-bold text-white leading-none">
+              <span className="pointer-events-none absolute -top-1 -right-1 flex h-[16px] min-w-[16px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold leading-none text-white">
                 {inboxBadge > 99 ? "99+" : inboxBadge}
               </span>
             ) : hasInboxUnreads ? (
-              <span className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--app-accent)]" aria-hidden="true" />
+              <span className="pointer-events-none absolute -top-0.5 -right-0.5 h-2 w-2 rounded-full bg-[var(--app-accent)]" aria-hidden="true" />
             ) : null}
-          </button>
+          </span>
           <button
             className="chat-header-extra hover:text-[var(--text-primary)] transition-colors hidden lg:block"
             onClick={() => setShowHelp(true)}

@@ -44,8 +44,10 @@ export function VoiceAudioSink() {
 
   const remote = participants.filter((p) => p.stream);
 
+  // Not display:none. Firefox refuses to play media in a hidden subtree, so a
+  // call there had a connected mic and no speaker.
   return (
-    <div hidden aria-hidden="true">
+    <div aria-hidden="true" className="pointer-events-none fixed top-0 left-0 h-px w-px overflow-hidden">
       {remote.map((p) => (
         <ParticipantAudio
           key={p.userId}

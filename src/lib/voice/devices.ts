@@ -79,7 +79,15 @@ export function subscribePreferredDevices(fn: () => void): () => void {
 
 /** Whether audio elements can be routed to a chosen speaker in this browser. */
 export function canPickOutputDevice(): boolean {
-  return typeof HTMLMediaElement !== "undefined" && "setSinkId" in HTMLMediaElement.prototype;
+  if (typeof document === "undefined") return false;
+  const proto = HTMLMediaElement?.prototype as { setSinkId?: unknown } | undefined;
+  if (typeof proto?.setSinkId === "function") return true;
+  try {
+    const el = document.createElement("audio") as HTMLAudioElement & { setSinkId?: unknown };
+    return typeof el.setSinkId === "function";
+  } catch {
+    return false;
+  }
 }
 
 /** Route an element to the chosen speaker (no-op where unsupported). */

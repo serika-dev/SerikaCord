@@ -31,6 +31,8 @@ import {
   stepVoiceGate,
 } from "@/lib/voice/voiceActivity";
 
+const emptySubscribe = () => () => {};
+
 const KIND: Record<MediaDeviceRole, MediaDeviceKind> = {
   input: "audioinput",
   output: "audiooutput",
@@ -56,8 +58,14 @@ function useDeviceChoices(role: MediaDeviceRole): DeviceChoice[] {
     };
     load();
     md.addEventListener?.("devicechange", load);
+    // Joining a call is what grants the microphone. Firefox does not always
+    // fire devicechange for that, so the picker stayed on "Default".
+    const off = voiceService.subscribe((e) => {
+      if (e.type === "connected" || e.type === "disconnected" || e.type === "listen_only") load();
+    });
     return () => {
       active = false;
+      off();
       md.removeEventListener?.("devicechange", load);
     };
   }, []);
@@ -75,7 +83,10 @@ export function DeviceSelect({ role, label }: { role: MediaDeviceRole; label: st
   const gt = useGT();
   const choices = useDeviceChoices(role);
   const selected = useSyncExternalStore(subscribePreferredDevices, () => getPreferredDevice(role), () => DEFAULT_DEVICE_ID);
-  const unsupported = role === "output" && !canPickOutputDevice();
+  // Server render has no media devices. The client snapshot is the real check,
+  // so the "this browser cannot pick a speaker" line does not stick from SSR.
+  const canPickOutput = useSyncExternalStore(emptySubscribe, canPickOutputDevice, () => false);
+  const unsupported = role === "output" && !canPickOutput;
 
   const onChange = (deviceId: string) => {
     setPreferredDevice(role, deviceId);

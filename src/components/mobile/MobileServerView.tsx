@@ -269,17 +269,22 @@ export function MobileServerView() {
         </div>
       </div>
 
-      <ServerGuideEntry key={`guide:${currentServer.id}`} serverId={currentServer.id} variant="mobile" />
-      <ServerEventsEntry key={currentServer.id} serverId={currentServer.id} variant="mobile" />
-      <ServerPageEntries key={`pages:${currentServer.id}`} serverId={currentServer.id} variant="mobile" />
-
-      {/* Channel List */}
+      {/* Channel List. The guide, events and page links scroll with the
+          channels so a short phone keeps the list, instead of pinning those
+          rows and leaving the channels the leftover half of the screen. */}
       <div
         ref={scrollContainerRef}
         className="flex-1 overflow-y-auto overscroll-contain border-t border-[var(--border-subtle)]"
         {...pullHandlers}
       >
         <PullIndicator distance={pullDistance} refreshing={isRefreshing} />
+        {!searchQuery && (
+          <div>
+            <ServerGuideEntry key={`guide:${currentServer.id}`} serverId={currentServer.id} variant="mobile" />
+            <ServerEventsEntry key={currentServer.id} serverId={currentServer.id} variant="mobile" />
+            <ServerPageEntries key={`pages:${currentServer.id}`} serverId={currentServer.id} variant="mobile" />
+          </div>
+        )}
         <div className="px-2 pt-1" style={{ paddingBottom: "calc(var(--mobile-content-pb) + 4.5rem)" }}>
           {!channelsReady ? (
             <ChannelListSkeleton />
