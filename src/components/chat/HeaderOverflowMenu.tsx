@@ -20,9 +20,9 @@ export interface HeaderOverflowItem {
 }
 
 /**
- * Phone-only "⋯" menu for chat headers: the channel or DM name keeps the room
- * and the less-used header buttons (pins, search, notification settings)
- * move in here. Hidden from `md` up, where those buttons sit in the header.
+ * "⋯" menu for a narrow chat header. The channel or DM name keeps the room
+ * and the less-used buttons move in here. `.chat-header-more` shows it only
+ * while the header itself is under 760px.
  */
 export function HeaderOverflowMenu({ items, className }: { items: HeaderOverflowItem[]; className?: string }) {
   const gt = useGT();
@@ -34,7 +34,7 @@ export function HeaderOverflowMenu({ items, className }: { items: HeaderOverflow
         <button
           type="button"
           className={cn(
-            "md:hidden flex h-11 w-10 shrink-0 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] active:scale-95",
+            "chat-header-more h-11 w-10 shrink-0 items-center justify-center rounded-lg text-[var(--text-secondary)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)] active:scale-95",
             className
           )}
           title={gt("More options")}

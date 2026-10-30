@@ -589,8 +589,8 @@ export default function DMConversationPage() {
       {/* Main chat area */}
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
-        <div data-touch-scope="" className="min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-          <div className="flex flex-1 items-center gap-2 sm:gap-3 min-w-0">
+        <div data-touch-scope="" className="chat-header min-w-0 overflow-hidden min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+          <div className="chat-header-main flex flex-1 items-center gap-2 sm:gap-3 min-w-0 overflow-hidden">
             <Link
               href="/channels/messages"
               aria-label={gt("Back")}
@@ -649,7 +649,7 @@ export default function DMConversationPage() {
                 </button>
                 <button
                   onClick={() => startCall(true)}
-                  className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
+                  className="chat-header-extra p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
                   title={gt("Start Video Call")}
                   aria-label={gt("Start Video Call")}
                 >
@@ -658,7 +658,7 @@ export default function DMConversationPage() {
                 {!recipient?.isBot && (
                   <button
                     onClick={() => setShowAddFriends(true)}
-                    className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden"
+                    className="chat-header-extra p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden"
                     title={gt("Add Friends to DM")}
                     aria-label={gt("Add Friends to DM")}
                   >
@@ -669,7 +669,7 @@ export default function DMConversationPage() {
             )}
             <button
               onClick={() => setShowPins(true)}
-              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden"
+              className="chat-header-extra p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden"
               title={gt("Pinned Messages")}
               aria-label={gt("Pinned Messages")}
             >
@@ -685,7 +685,7 @@ export default function DMConversationPage() {
                     kind: "dm",
                   })
                 }
-                className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
+                className="chat-header-extra p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
                 title={gt("Notification Settings")}
                 aria-label={gt("Notification Settings")}
               >
@@ -694,7 +694,7 @@ export default function DMConversationPage() {
             )}
             <button
               onClick={() => openInbox()}
-              className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
+              className="chat-header-extra p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
               title={gt("Inbox")}
               aria-label={gt("Inbox")}
             >
@@ -706,7 +706,7 @@ export default function DMConversationPage() {
               title={gt("Profile")}
               aria-pressed={!shell && showUserProfile}
               className={cn(
-                "p-2 transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden",
+                "chat-header-extra p-2 transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden",
                 showUserProfile
                   ? "text-[var(--text-primary)]"
                   : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -748,7 +748,7 @@ export default function DMConversationPage() {
               ref={searchBarRef}
               search={search}
               placeholder={recipientName ? gt("Search @{name}", { name: recipientName }) : gt("Search")}
-              className="hidden md:block ml-1"
+              className="chat-header-extra hidden md:block ml-1"
             />
           </div>
         </div>

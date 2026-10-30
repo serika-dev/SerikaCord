@@ -85,7 +85,7 @@ import {
 import { useThreadInfo } from "@/hooks/useThreadInfo";
 import { ThreadHeaderActions, ThreadHeaderTitle } from "@/components/chat/ThreadHeader";
 import { MessageContent } from "@/components/chat/MessageContent";
-import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { isSilentMessage } from "@/lib/chat/messageFlags";
 import type { RoleIconData } from "@/components/chat/RoleIcon";
 
@@ -1364,8 +1364,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   return (
     <div className="chat-shell flex-1 flex flex-col bg-[var(--app-bg)] min-w-0 min-h-0 overflow-hidden">
       {/* Channel Header */}
-      <div data-touch-scope="" className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-surface)] flex-shrink-0">
-        <div className="flex flex-1 items-center gap-2 min-w-0">
+      <div data-touch-scope="" className="chat-header min-w-0 overflow-hidden h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-surface)] flex-shrink-0">
+        <div className="chat-header-main flex flex-1 items-center gap-2 min-w-0 overflow-hidden">
           {isMobile && !isPanel && (
             <button
               onClick={() => {
@@ -1426,18 +1426,15 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           )}
           {hostsThreads && (
             <Popover open={showThreads} onOpenChange={setShowThreads}>
+              <PopoverAnchor className="pointer-events-none absolute right-0 top-0 h-px w-px" />
               <PopoverTrigger asChild>
                 <button
                   className={cn(
-                    "rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors",
-                    "max-md:pointer-events-none max-md:absolute max-md:right-0 max-md:top-0 max-md:h-px max-md:w-px max-md:overflow-hidden max-md:p-0 max-md:m-0 max-md:opacity-0",
-                    "p-2.5 -m-1.5 md:p-0 md:m-0",
+                    "chat-header-extra rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors p-2.5 -m-1.5 sm:p-0 sm:m-0",
                     showThreads && "text-[var(--text-primary)]",
                   )}
                   title={gt("Threads")}
                   aria-label={gt("Threads")}
-                  aria-hidden={isMobile}
-                  tabIndex={isMobile ? -1 : undefined}
                 >
                   <MessagesSquare className="w-5 h-5" />
                 </button>
@@ -1464,7 +1461,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           )}
           {!isPanel && (<>
           <button
-            className="hover:text-[var(--text-primary)] transition-colors hidden md:block"
+            className="chat-header-extra hover:text-[var(--text-primary)] transition-colors hidden md:block"
             onClick={() =>
               openNotificationSettings({
                 scope: "channel",
@@ -1480,10 +1477,12 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             {channelMuted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />}
           </button>
           {currentChannel?.type === "announcement" && (
-            <FollowChannelButton channelId={currentChannel.id} channelName={currentChannel.name} />
+            <span className="chat-header-extra">
+              <FollowChannelButton channelId={currentChannel.id} channelName={currentChannel.name} />
+            </span>
           )}
           <button
-            className="max-md:hidden p-2.5 -m-1.5 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            className="chat-header-extra max-md:hidden p-2.5 -m-1.5 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
             onClick={() => {
               setShowPins(true);
               void chat.fetchPinnedMessages();
@@ -1551,11 +1550,11 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             ref={searchBarRef}
             search={search}
             placeholder={currentServer?.name ? gt("Search {server}", { server: currentServer.name }) : gt("Search")}
-            className="hidden lg:block"
+            className="chat-header-extra hidden lg:block"
           />
           <button
             type="button"
-            className="max-md:hidden lg:hidden p-2.5 -m-1.5 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            className="chat-header-extra max-md:hidden lg:hidden p-2.5 -m-1.5 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
             onClick={() => setMobileSearchOpen(true)}
             title={gt("Search")}
             aria-label={gt("Search")}
@@ -1564,7 +1563,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           </button>
           <button
             className={cn(
-              "hover:text-[var(--text-primary)] transition-colors hidden md:block relative",
+              "chat-header-extra hover:text-[var(--text-primary)] transition-colors hidden md:block relative",
               (inboxBadge > 0 || hasInboxUnreads) && "text-[var(--text-primary)]"
             )}
             onClick={() => openInbox()}
@@ -1581,7 +1580,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             ) : null}
           </button>
           <button
-            className="hover:text-[var(--text-primary)] transition-colors hidden lg:block"
+            className="chat-header-extra hover:text-[var(--text-primary)] transition-colors hidden lg:block"
             onClick={() => setShowHelp(true)}
             title={gt("Open help")}
           >

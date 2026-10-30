@@ -540,8 +540,8 @@ export default function GroupDMPage() {
     <div className={cn("chat-shell flex-1 flex bg-[var(--bg-app)] overflow-hidden", !shell && "animate-fade-in")}>
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
-        <div data-touch-scope="" className="min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-          <div className="flex flex-1 items-center gap-2 sm:gap-3 min-w-0">
+        <div data-touch-scope="" className="chat-header min-w-0 overflow-hidden min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
+          <div className="chat-header-main flex flex-1 items-center gap-2 sm:gap-3 min-w-0 overflow-hidden">
             <Link
               href="/channels/messages"
               onClick={(e) => {
@@ -549,7 +549,7 @@ export default function GroupDMPage() {
                 e.preventDefault();
                 shell.showList();
               }}
-              className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center hover:bg-[var(--bg-hover)] rounded-lg transition-colors active:scale-95 md:hidden"
+              className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center hover:bg-[var(--bg-hover)] rounded-lg transition-colors active:scale-95 desk:hidden"
               aria-label={gt("Back")}
             >
               <ArrowLeft className="w-5 h-5 text-[var(--text-secondary)]" />
@@ -578,7 +578,7 @@ export default function GroupDMPage() {
                   target={e2eeTarget}
                   unsupported={e2eeUnsupported}
                 />
-                <span className="hidden sm:inline shrink-0 text-xs text-[var(--text-muted)]">
+                <span className="chat-header-extra hidden sm:inline shrink-0 text-xs text-[var(--text-muted)]">
                   {gt("{count} Members", { count: members.length })}
                 </span>
               </>
@@ -589,16 +589,16 @@ export default function GroupDMPage() {
             <button onClick={() => startCall(false)} className={headerButton} title={gt("Start Voice Call")} aria-label={gt("Start Voice Call")}>
               <Phone className="w-5 h-5" />
             </button>
-            <button onClick={() => startCall(true)} className={cn(headerButton, "hidden md:block")} title={gt("Start Video Call")} aria-label={gt("Start Video Call")}>
+            <button onClick={() => startCall(true)} className={cn(headerButton, "chat-header-extra hidden md:block")} title={gt("Start Video Call")} aria-label={gt("Start Video Call")}>
               <Video className="w-5 h-5" />
             </button>
-            <button onClick={() => setShowPins(true)} className={cn(headerButton, "max-md:hidden")} title={gt("Pinned Messages")} aria-label={gt("Pinned Messages")}>
+            <button onClick={() => setShowPins(true)} className={cn(headerButton, "chat-header-extra max-md:hidden")} title={gt("Pinned Messages")} aria-label={gt("Pinned Messages")}>
               <Pin className="w-5 h-5" />
             </button>
             <button
               onClick={() => setShowAddFriends(true)}
               disabled={!canAddMore}
-              className={cn(headerButton, "disabled:opacity-40 max-md:hidden")}
+              className={cn(headerButton, "chat-header-extra disabled:opacity-40 max-md:hidden")}
               title={gt("Add Friends to DM")}
               aria-label={gt("Add Friends to DM")}
             >
@@ -606,19 +606,19 @@ export default function GroupDMPage() {
             </button>
             <button
               onClick={() => openNotificationSettings({ scope: "channel", id: channelId, name: title || gt("Group"), kind: "dm" })}
-              className={cn(headerButton, "hidden md:block")}
+              className={cn(headerButton, "chat-header-extra hidden md:block")}
               title={gt("Notification Settings")}
               aria-label={gt("Notification Settings")}
             >
               {muted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />}
             </button>
-            <button onClick={() => openInbox()} className={cn(headerButton, "hidden md:block")} title={gt("Inbox")} aria-label={gt("Inbox")}>
+            <button onClick={() => openInbox()} className={cn(headerButton, "chat-header-extra hidden md:block")} title={gt("Inbox")} aria-label={gt("Inbox")}>
               <InboxIcon className="w-5 h-5" />
             </button>
             <button
               onClick={() => (shell ? shell.showMembers() : setShowMembers((v) => !v))}
               className={cn(
-                "max-md:hidden p-2 max-sm:p-2.5 transition-colors rounded-md hover:bg-[var(--bg-hover)]",
+                "chat-header-extra max-md:hidden p-2 max-sm:p-2.5 transition-colors rounded-md hover:bg-[var(--bg-hover)]",
                 showMembers ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
               )}
               title={showMembers ? gt("Hide Member List") : gt("Show Member List")}
@@ -652,7 +652,7 @@ export default function GroupDMPage() {
               ref={searchBarRef}
               search={search}
               placeholder={title ? gt("Search {name}", { name: title }) : gt("Search")}
-              className="hidden md:block ml-1"
+              className="chat-header-extra hidden md:block ml-1"
             />
           </div>
         </div>
