@@ -1222,18 +1222,18 @@ export function useChatSession<M extends ChatMessage>({
 
       // End-to-end encrypted conversation: everything goes into an envelope.
       // Never plaintext while it's unknown whether this device saw the
-      // conversation encrypted (the server can't downgrade it).
+      // conversation encrypted (the server can't downgrade it). Known at once
+      // when the server says so; otherwise this device's memory is read
+      // (async) — after the bubble is up, so the send shows in the same frame.
       const sendTarget = encryptedChat ? e2eeTargetForApiBase(apiBase) : null;
-      const encryptSend = encryptedChat && (
-        Boolean(conversationRef.current?.e2ee) || (await checkRemembered(sendTarget, conversationRef.current))
-      );
-      const encryptChannelId = encryptChannelIdFor(sendTarget, conversationRef.current);
-      if (encryptSend && voice) {
+      const knownEncrypted = encryptedChat && Boolean(conversationRef.current?.e2ee);
+      const encryptSendPromise: Promise<boolean> = !encryptedChat
+        ? Promise.resolve(false)
+        : knownEncrypted
+          ? Promise.resolve(true)
+          : checkRemembered(sendTarget, conversationRef.current).catch(() => true);
+      if (knownEncrypted && voice) {
         toast.error(gt("Voice messages can't be sent in encrypted conversations yet."));
-        return;
-      }
-      if (encryptSend && (!encryptChannelId || !sendTarget)) {
-        toast.error(gt("Failed to send message"));
         return;
       }
 
@@ -1253,12 +1253,6 @@ export function useChatSession<M extends ChatMessage>({
         }
       };
 
-      // Sending from a detached window (jumped to a pin/search result) returns to
-      // the present first, like Discord. Appending to the old window would put
-      // the message next to week-old ones and make it the forward cursor, so the
-      // gap in between would never load.
-      if (hasMoreNewerRef.current) await returnToPresent();
-
       // Upload now, while the MessageBar still holds these files.
       let uploadPromise: Promise<EncryptedAttachmentUpload[]> = Promise.resolve([]);
       if (hasAttachments) {
@@ -1266,7 +1260,7 @@ export function useChatSession<M extends ChatMessage>({
         uploadPromise = (async () => {
           try {
             // Encrypted conversations upload each file as an opaque encrypted blob.
-            const encryptFile = encryptSend ? (await loadE2eeSession()).encryptFileForUpload : undefined;
+            const encryptFile = (await encryptSendPromise) ? (await loadE2eeSession()).encryptFileForUpload : undefined;
             const uploaded = (await messageBarRef.current?.uploadAttachments(encryptFile ? { encryptFile } : undefined)) ?? [];
             // Keep the files in the composer if nothing uploaded, so they can retry.
             if (uploaded.length > 0) messageBarRef.current?.clearAttachments();
@@ -1313,9 +1307,9 @@ export function useChatSession<M extends ChatMessage>({
           customEmojis: [],
           pending: true,
           // The plaintext is ours already: shown at once, never a "Decrypting…"
-          // placeholder. Marked encrypted so it's never persisted as plaintext
-          // (see messageCache).
-          ...(encryptSend ? { e2ee: { status: "ok", verified: true } } : {}),
+          // placeholder. Marked encrypted (once known) for the lock icon; a
+          // bubble still sending is never persisted (see messageCache).
+          ...(knownEncrypted ? { e2ee: { status: "ok", verified: true } } : {}),
         } as unknown as M);
 
       // Every send shows its bubble right away, in queue order (= POST order =
@@ -1324,8 +1318,26 @@ export function useChatSession<M extends ChatMessage>({
       setMessages((prev) => appendCapped(prev, buildOptimistic(voice ? [voice] : []), true));
       latestRef.current.onShouldScrollToBottom?.();
 
+      // Sending from a detached window (jumped to a pin/search result) returns to
+      // the present, like Discord (the bubble moves along with it). The POST
+      // waits for it: appending to the old window would make the message the
+      // forward cursor, so the gap in between would never load.
+      const presentReady = hasMoreNewerRef.current ? returnToPresent() : null;
+
       const run = async () => {
         try {
+          if (presentReady) await presentReady;
+          const encryptSend = await encryptSendPromise;
+          const encryptChannelId = encryptChannelIdFor(sendTarget, conversationRef.current);
+          if (encryptSend && (voice || !encryptChannelId || !sendTarget)) {
+            setMessages((prev) => prev.filter((m) => m.id !== tempId));
+            restoreDraft();
+            toast.error(voice ? gt("Voice messages can't be sent in encrypted conversations yet.") : gt("Failed to send message"));
+            return;
+          }
+          if (encryptSend && !knownEncrypted) {
+            setMessages((prev) => prev.map((m) => (m.id === tempId ? ({ ...m, e2ee: { status: "ok", verified: true } } as M) : m)));
+          }
           const uploadedAttachments = await uploadPromise;
           if (hasAttachments && uploadedAttachments.length === 0) {
             // Nothing uploaded: don't send the text alone either — put the

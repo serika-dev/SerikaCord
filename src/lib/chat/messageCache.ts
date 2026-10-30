@@ -55,10 +55,11 @@ function withoutPlaintext(m: ChatMessage): ChatMessage {
 function lsPersist(key: string, messages: ChatMessage[]): void {
   if (typeof localStorage === "undefined") return;
   try {
-    // An encrypted message still being sent has no envelope yet: nothing to
-    // decrypt after a reload, so it isn't persisted (the server copy will be).
+    // A message still being sent isn't persisted (the server copy will be):
+    // an encrypted one has no envelope yet, and a bubble shown before this
+    // device knew whether the conversation is encrypted may hold plaintext.
     const tail = messages
-      .filter((m) => !(m.e2ee && m.pending))
+      .filter((m) => !m.pending)
       .slice(-LS_PERSIST_TAIL)
       .map(withoutPlaintext);
     localStorage.setItem(LS_MSG_PREFIX + key, JSON.stringify(tail));
