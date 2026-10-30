@@ -377,6 +377,14 @@ if (typeof window !== "undefined") {
     else void ctx.resume().then(done).catch(() => {});
   };
   events.forEach((e) => window.addEventListener(e, unlock, true));
+  // Creating the context opens the audio device, which can block the main
+  // thread for a long time (hundreds of ms on some phones and Linux). Done
+  // once the app is idle, so the first tap only has to resume() it.
+  const w = window as Window & { requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number };
+  if (/^\/(channels|dm)(\/|$)/.test(window.location.pathname)) setTimeout(() => {
+    if (w.requestIdleCallback) w.requestIdleCallback(() => void getAudioCtx(), { timeout: 5000 });
+    else void getAudioCtx();
+  }, 2000);
 }
 
 type SoundPreset = 'chime' | 'ding' | 'pop' | 'coin' | 'none';

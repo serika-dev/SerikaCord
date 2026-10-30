@@ -65,6 +65,7 @@
 - **The phone DM list opens instantly** — tapping Messages shows your conversations right away (refreshing them in the background) instead of placeholders until the list loads, tapping a conversation starts loading its messages at once, and a new message or badge redraws only the rows that changed. The bottom bar no longer redraws for every message either.
 - **Opening a conversation keeps the app responsive** — on phones a DM, group DM or channel now renders in small steps while it slides in (taps and the slide no longer freeze while it builds), and a conversation you've opened before shows its messages in the very first frame instead of after an empty one.
 - **Group DMs stop redrawing for other chats** — an open group DM no longer redraws itself for every message in your other servers and DMs; it only updates for its own read marker and mute.
+- **The first tap after opening the app no longer stalls** — the sound system that plays notification chimes and ringtones now gets ready while the app is idle, instead of during your first tap or click, which could freeze it for a moment on some phones and computers.
 
 ### Security
 
