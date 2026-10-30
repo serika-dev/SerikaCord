@@ -4,7 +4,7 @@ import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useGT } from "gt-next";
-import { Users } from "lucide-react";
+import { User, Users } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { isNativeApp } from "@/lib/native/bridge";
@@ -87,13 +87,22 @@ function pushUrl(href: string) {
   window.history.pushState({ ...state, [PUSH_KEY]: pushMark(href) }, "", href);
 }
 
-const MembersPanel = memo(function MembersPanel({ family, onSlot }: { family: ShellFamily; onSlot: (el: HTMLDivElement | null) => void }) {
+const MembersPanel = memo(function MembersPanel({
+  family,
+  profileOnly,
+  onSlot,
+}: {
+  family: ShellFamily;
+  /** A 1:1 DM: the panel shows the other person's profile, not a member list. */
+  profileOnly: boolean;
+  onSlot: (el: HTMLDivElement | null) => void;
+}) {
   const gt = useGT();
   return (
     <div className="flex h-full min-h-0 flex-col pt-safe">
       <div className="flex h-12 shrink-0 items-center gap-2 border-b border-[var(--app-border)] px-4 font-semibold text-[var(--text-primary)]">
-        <Users className="h-5 w-5" aria-hidden="true" />
-        <h2>{gt("Members")}</h2>
+        {profileOnly ? <User className="h-5 w-5" aria-hidden="true" /> : <Users className="h-5 w-5" aria-hidden="true" />}
+        <h2>{profileOnly ? gt("Profile") : gt("Members")}</h2>
       </div>
       {family === "server" ? (
         <div className="min-h-0 flex-1 pb-safe">
@@ -338,9 +347,13 @@ export function MobileShell({
   const members = useMemo(
     () =>
       nav.family === "dm" || membersReady || nav.panel === "members" ? (
-        <MembersPanel family={nav.family} onSlot={setMembersSlot} />
+        <MembersPanel
+          family={nav.family}
+          profileOnly={nav.family === "dm" && !!nav.conv && !nav.conv.startsWith("/dm/group/")}
+          onSlot={setMembersSlot}
+        />
       ) : null,
-    [membersReady, nav.panel, nav.family],
+    [membersReady, nav.panel, nav.family, nav.conv],
   );
 
   return (
