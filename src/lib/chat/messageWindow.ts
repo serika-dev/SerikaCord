@@ -70,3 +70,32 @@ export function reinsertMessage<M extends ChatMessage>(prev: M[], removed: M, pr
   }
   return [...prev.slice(0, idx), removed, ...prev.slice(idx)];
 }
+
+/**
+ * First group index to mount when a conversation opens (MessageList mounts
+ * the newest `count` groups first, the rest right after that first paint).
+ * Starts earlier when the unread divider is in an older group, so the list
+ * can open at the first unread message.
+ */
+export function initialMountStart(
+  groups: ReadonlyArray<{ messages: ReadonlyArray<{ id: string }> }>,
+  dividerId: string | null | undefined,
+  count: number,
+): number {
+  let start = Math.max(0, groups.length - count);
+  if (dividerId && start > 0) {
+    const at = groups.findIndex((g) => g.messages.some((m) => m.id === dividerId));
+    if (at !== -1 && at < start) start = at;
+  }
+  return start;
+}
+
+/**
+ * Cold open of an encrypted conversation: the newest rows to decrypt and show
+ * before the rest of the page, or null when the page is decrypted in one go
+ * (a short page, or no envelopes). `isEncrypted` tells envelope rows apart.
+ */
+export function headFirstRows<R>(page: R[], count: number, isEncrypted: (row: R) => boolean): R[] | null {
+  if (page.length <= count || !page.some(isEncrypted)) return null;
+  return page.slice(-count);
+}

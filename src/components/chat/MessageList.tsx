@@ -51,6 +51,7 @@ import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import type { useMessageActions } from "@/hooks/useMessageActions";
 import { Loader } from "@/components/ui/Loader";
 import { collapseBlockedGroups } from "@/lib/chat/blocked";
+import { initialMountStart } from "@/lib/chat/messageWindow";
 import { useRelationships } from "@/lib/social/relationshipsStore";
 import { BlockedMessagesRow } from "./BlockedMessagesRow";
 
@@ -180,6 +181,9 @@ interface WatchState {
   floor: ReadMarker | null;
   kept: UnreadDividerInfo | null;
 }
+
+/** Message groups mounted in the first commit of a conversation (about a screen and a half). */
+const INITIAL_MOUNT_GROUPS = 12;
 
 const EMPTY_WATCH: WatchState = { key: "", caughtUp: false, floor: null, kept: null };
 
@@ -313,6 +317,11 @@ function MessageListInner<M extends ChatMessage>(
   // ── Unread divider / bar / read acks ──
   const allMessages = useMemo(() => groups.flatMap((g) => g.messages), [groups]);
   const contextKey = resetKey ?? "";
+  // Opening a conversation mounts its newest groups first and the rest right
+  // after that first paint: mounting a whole page of messages in one commit
+  // held back the paint of the few that are on screen.
+  const [mountedAllFor, setMountedAllFor] = useState<string | null>(null);
+  const fullyMounted = mountedAllFor === contextKey || groups.length <= INITIAL_MOUNT_GROUPS;
   // Reading session for this conversation. While the user is caught up
   // (watching the bottom, window focused) live messages are read as they land,
   // so they never get a "NEW" line: the line shown is the one `kept` from when
@@ -772,6 +781,7 @@ function MessageListInner<M extends ChatMessage>(
       // the user has actually scrolled up.
       if (
         scrollTop < 500 &&
+        fullyMounted &&
         hasMoreOlder &&
         !isLoadingMore &&
         readyForPaginationRef.current &&
@@ -792,7 +802,21 @@ function MessageListInner<M extends ChatMessage>(
         });
       }
     });
-  }, [hasMoreOlder, hasMoreNewer, isLoadingMore, captureScrollAnchor, tryAck, markAway]);
+  }, [hasMoreOlder, hasMoreNewer, isLoadingMore, captureScrollAnchor, tryAck, markAway, fullyMounted]);
+
+  // The rest of the page mounts once the newest groups have painted.
+  useEffect(() => {
+    if (fullyMounted || isLoading) return;
+    const key = contextKey;
+    let timer = 0;
+    const raf = requestAnimationFrame(() => {
+      timer = window.setTimeout(() => setMountedAllFor(key), 0);
+    });
+    return () => {
+      cancelAnimationFrame(raf);
+      window.clearTimeout(timer);
+    };
+  }, [fullyMounted, isLoading, contextKey]);
 
   // Stable handlers for memoized rows.
   const stable = useMemo(() => {
@@ -914,6 +938,7 @@ function MessageListInner<M extends ChatMessage>(
   // (Discord); each row can be expanded on its own.
   const { blocked: blockedIds } = useRelationships();
   const listItems = useMemo(() => collapseBlockedGroups(groups, blockedIds), [groups, blockedIds]);
+  const firstMountedIndex = fullyMounted ? 0 : initialMountStart(groups, dividerId, INITIAL_MOUNT_GROUPS);
   const [revealedBlocked, setRevealedBlocked] = useState<ReadonlySet<string>>(() => new Set());
   const toggleBlocked = useCallback((key: string) => {
     setRevealedBlocked((prev) => {
@@ -1069,7 +1094,7 @@ function MessageListInner<M extends ChatMessage>(
           <div className="flex-1" />
           <div className={cn("flex flex-col py-4 w-full max-w-full", showContentFade && "msg-list-fade-in")}>
             {/* History start header */}
-            {!hasMoreOlder && !isLoading && welcomeHeader}
+            {!hasMoreOlder && !isLoading && fullyMounted && welcomeHeader}
 
             {/* Messages */}
             {isLoading ? (
@@ -1078,7 +1103,8 @@ function MessageListInner<M extends ChatMessage>(
               <div className="text-center text-[var(--text-muted)] py-8">{emptyText || gt("No messages yet. Be the first to say something!")}</div>
             ) : (
               listItems.map((item) => {
-                if (item.kind === "group") return renderGroup(item.group, item.index);
+                if (item.kind === "group") return item.index < firstMountedIndex ? null : renderGroup(item.group, item.index);
+                if ((item.groups[item.groups.length - 1]?.index ?? 0) < firstMountedIndex) return null;
                 const open = revealedBlocked.has(item.key);
                 // A collapsed run that starts a new day keeps its date line above the row.
                 const firstDay = dayLabels[item.groups[0]?.index ?? -1];

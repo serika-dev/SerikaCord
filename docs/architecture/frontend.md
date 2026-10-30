@@ -141,6 +141,10 @@ Channels and DMs run on the same code:
   focus on that message (or a click on the plain button). `LinkEmbed`
   (`LinkEmbedSlot.tsx`) stops at once for messages without a link and loads
   the preview components on the first link.
+- **Opening a conversation mounts the newest groups first**: `MessageList`
+  mounts the newest 12 groups (or from the unread divider) in the first
+  commit and the rest right after that paint (`initialMountStart`);
+  pagination waits for the full mount.
 - **Message revalidation keeps objects**: refetched pages go through
   `reuseUnchanged`, so a revalidation that finds nothing new re-renders no
   `MessageGroup` (they compare message references).

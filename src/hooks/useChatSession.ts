@@ -18,7 +18,7 @@ import {
   type RawMessagePayload,
 } from "@/lib/chat/messages";
 import { buildGalleryFromMessages } from "@/lib/chat/media";
-import { capTail, reconcileLatestPage } from "@/lib/chat/messageWindow";
+import { capTail, headFirstRows, reconcileLatestPage } from "@/lib/chat/messageWindow";
 import { reuseUnchanged } from "@/lib/state/reuseUnchanged";
 import type { ChatMessage, MessageSticker } from "@/lib/chat/types";
 import { parseCallData } from "@/lib/voice/callMessage";
@@ -45,6 +45,7 @@ import {
   hasEnvelope,
   hasPendingPlaceholders,
   hydrateFromMemory,
+  pageKeysOf,
   conversationEncryptionHere,
   forgetConversationEncryption,
   rememberEncrypted,
@@ -73,6 +74,12 @@ const LIVE_TRIM_SLACK = 50;
 
 const messageKey = (m: ChatMessage) => m.id;
 
+/**
+ * Cold open of an encrypted conversation: this many newest rows are decrypted
+ * and shown before the rest of the page (about a screen of messages).
+ */
+const FIRST_DECRYPT_ROWS = 20;
+
 /** Normalize a raw message list and drop duplicate ids, preserving order. */
 function dedupeMessages<M extends ChatMessage>(raw: RawMessagePayload[]): M[] {
   const seen = new Set<string>();
@@ -100,7 +107,9 @@ export function prefetchChannelMessages(apiBase: string, force = false): Promise
 
   const task = (async () => {
     try {
-      const response = await fetch(`${apiBase}/messages?limit=${PAGE_SIZE}`, { cache: "no-store" });
+      // Shared with the conversation's own first fetch: opening it while this
+      // is in flight waits for the same request instead of starting another.
+      const response = await sharedGet(`${apiBase}/messages?limit=${PAGE_SIZE}`);
       if (!response.ok) return;
       const data = await response.json();
       let raw: RawMessagePayload[] = Array.isArray(data) ? data : data.messages || [];
@@ -114,7 +123,7 @@ export function prefetchChannelMessages(apiBase: string, force = false): Promise
         const selfId = getE2eeSnapshot().userId;
         if (!target || !selfId) return;
         const { encrypted } = await conversationEncryptionHere(selfId, target, meta);
-        raw = await decodeConversationRows(raw, { target, meta, encrypted, selfId });
+        raw = await decodeConversationRows(raw, { target, meta, encrypted, selfId, pageKeys: pageKeysOf(data) });
         // The conversation was opened (or prefetched again) meanwhile: its own
         // fetch wins. Never warm with failures (keys still loading, …).
         if (hasCachedMessages(apiBase)) return;
@@ -268,12 +277,12 @@ export function useChatSession<M extends ChatMessage>({
   }, [encryptedChat, e2eeTarget, e2eeUid, encryptionKey, conversation, e2ee.phase, e2ee.keysVersion, e2ee.pinsVersion, e2ee.conversationsVersion, checkEncryption]);
   /** DMs / group DMs: flag plaintext rows of an encrypted conversation and decrypt envelopes (no-op otherwise). */
   const decodeRaw = useCallback(
-    async (raw: RawMessagePayload[], data?: unknown): Promise<RawMessagePayload[]> => {
+    async (raw: RawMessagePayload[], data?: unknown, live = false): Promise<RawMessagePayload[]> => {
       if (!encryptedChat) return raw;
       const target = e2eeTargetForApiBase(apiBase);
       const meta = conversationMetaOf(data) ?? conversationRef.current;
       const encrypted = Boolean(meta?.e2ee) || (await checkRemembered(target, meta));
-      return decodeConversationRows(raw, { target, meta, encrypted, selfId: e2eeUid });
+      return decodeConversationRows(raw, { target, meta, encrypted, selfId: e2eeUid, pageKeys: pageKeysOf(data), live });
     },
     [encryptedChat, apiBase, checkRemembered, e2eeUid],
   );
@@ -461,8 +470,29 @@ export function useChatSession<M extends ChatMessage>({
         const data = await response.json();
         if (activeFetchContextRef.current !== requestedContext) return;
         const meta = encryptedChat ? conversationMetaOf(data) : null;
-        if (meta) setConversation(meta);
-        const raw = await decodeRaw(Array.isArray(data) ? data : data.messages || [], data);
+        const rawPage: RawMessagePayload[] = Array.isArray(data) ? data : data.messages || [];
+        let raw: RawMessagePayload[];
+        try {
+          const headRows = !warm && encryptedChat ? headFirstRows(rawPage, FIRST_DECRYPT_ROWS, hasEnvelope) : null;
+          if (headRows) {
+            // Cold open of an encrypted conversation: decrypt and show the
+            // newest rows (what is on screen) first, then the whole page, in
+            // which those rows are cache hits. The second pass is exactly the
+            // normal decode, so the page ends up the same as before.
+            const head = dedupeMessages<M>(await decodeRaw(headRows, data));
+            if (activeFetchContextRef.current !== requestedContext) return;
+            if (meta) setConversation(meta);
+            setMessages((prev) => capTail(reconcileLatestPage(head, prev), MAX_LOADED_MESSAGES));
+            setIsLoading(false);
+            latestRef.current.onShouldScrollToBottom?.();
+          }
+          raw = await decodeRaw(rawPage, data);
+        } finally {
+          // Set together with the messages below (one render instead of a
+          // whole-page render before decrypting). decodeRaw reads the facts
+          // from `data`, not from this state.
+          if (meta && activeFetchContextRef.current === requestedContext) setConversation(meta);
+        }
         if (activeFetchContextRef.current !== requestedContext) return;
         const page = dedupeMessages<M>(raw);
         // The latest page anchors us to the present again.
@@ -1362,7 +1392,8 @@ export function useChatSession<M extends ChatMessage>({
               setMessages((prev) => prev.filter((m) => m.id !== tempId));
             } else {
               const rawReply = payload?.message || payload;
-              const [raw] = rawReply && hasEnvelope(rawReply) ? await decodeRaw([rawReply]) : [rawReply];
+              // Just sent from here: nothing cached yet (no IndexedDB lookup).
+              const [raw] = rawReply && hasEnvelope(rawReply) ? await decodeRaw([rawReply], undefined, true) : [rawReply];
               if (raw && (raw.id || raw._id)) {
                 const confirmed = normalizeIncomingMessage<M>(raw);
                 setMessages((prev) => {
