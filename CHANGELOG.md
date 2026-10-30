@@ -60,6 +60,7 @@
 - **Phone: channels, chat and members on one page** — on phones and in the iPhone and Android apps, the channel list (or your DMs), the chat and the member list now sit side by side on one page, like Discord: swipe right for your channels, left for members, tap a channel to slide back. Nothing reloads anymore: the panel follows your finger, snaps with a flick, the chat keeps its scroll position, and a channel you've opened before shows its messages straight away. Back, reload and links still land in the right place.
 - **Channels and DMs show their messages sooner** — opening a channel or DM draws the newest messages first and fills in the rest right after, and a channel you hovered or clicked no longer waits for a second request before showing up.
 - **Encrypted chats open in one round trip** — encrypted DMs and group DMs now get their encryption keys together with the messages and decrypt the messages on screen first, so they open noticeably faster (about a third in our tests). Your own encrypted messages are confirmed without decrypting them again.
+- **Avatars draw once** — avatars in lists, messages and the member list no longer redraw themselves (and the rows around them) one by one as each picture loads, so opening a DM, a channel or the DM list does a lot less work, especially with many people on screen.
 
 ### Security
 
