@@ -67,6 +67,7 @@
 - **Group DMs stop redrawing for other chats** — an open group DM no longer redraws itself for every message in your other servers and DMs; it only updates for its own read marker and mute.
 - **The first tap after opening the app no longer stalls** — the sound system that plays notification chimes and ringtones now gets ready while the app is idle, instead of during your first tap or click, which could freeze it for a moment on some phones and computers.
 - **Faster encrypted DM sends** — sending a message in an end-to-end encrypted DM or group DM gets its confirmation much sooner: the server now runs its checks together and finishes message-request and DM-list bookkeeping after replying.
+- **Switching DMs no longer redraws the whole app** — opening a DM or group DM used to redraw the server list, the channel sidebar and the page around it twice even though nothing in them changed; now only the conversation renders, so DM-to-DM switches on desktop do far less work.
 
 ### Security
 

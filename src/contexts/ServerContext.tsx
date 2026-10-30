@@ -1,7 +1,7 @@
 "use client";
 
 import { sharedGet } from "@/lib/bootFetch";
-import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, useTransition, useMemo } from "react";
+import { createContext, useContext, useEffect, useState, ReactNode, useCallback, useRef, startTransition, useMemo } from "react";
 import { usePathname } from "next/navigation";
 import { usePolling } from "@/hooks/usePolling";
 import { reuseUnchanged } from "@/lib/state/reuseUnchanged";
@@ -127,7 +127,6 @@ interface ServerContextType {
   channelsServerId: string | null;
   currentChannel: Channel | null;
   isLoading: boolean;
-  isTransitioning: boolean;
   setCurrentServer: (server: Server | null) => void;
   setCurrentChannel: (channel: Channel | null) => void;
   clearContext: () => void;
@@ -196,6 +195,9 @@ function shallowEqual<T extends object>(a: T, b: T): boolean {
   return ka.every((k) => Object.is(a[k], b[k]));
 }
 
+/** State updater: an empty list, keeping the current one when it is already empty. */
+const keepEmpty = <T,>(prev: T[]): T[] => (prev.length === 0 ? prev : []);
+
 export function ServerProvider({ children }: { children: ReactNode }) {
   const [servers, setServers] = useState<Server[]>([]);
   const [currentServer, setCurrentServerState] = useState<Server | null>(null);
@@ -206,14 +208,17 @@ export function ServerProvider({ children }: { children: ReactNode }) {
   const [members, setMembers] = useState<any[]>([]);
   const [isMembersLoading, setIsMembersLoading] = useState(false);
   const lastMembersServerIdRef = useRef<string | null>(null);
-  const [isTransitioning, startTransition] = useTransition();
   const channelCacheRef = useRef<Map<string, Channel[]>>(new Map());
 
   // Clear all context (used when switching to DMs)
+  // Every DM page calls this on mount. Clearing what is already clear keeps
+  // the same state (no new empty array), so it doesn't re-render every
+  // useServer() consumer (the layout, both sidebars, the page); a plain
+  // startTransition (not useTransition's) also has no pending flag to flip.
   const clearContext = useCallback(() => {
     startTransition(() => {
       setCurrentServerState(null);
-      setChannels([]);
+      setChannels(keepEmpty);
       setChannelsServerId(null);
       setCurrentChannel(null);
     });
@@ -229,7 +234,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       if (!server) {
         activeServerIdRef.current = null;
         setCurrentServerState(null);
-        setChannels([]);
+        setChannels(keepEmpty);
         setChannelsServerId(null);
         setCurrentChannel(null);
         return;
@@ -788,7 +793,6 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       channelsServerId,
       currentChannel,
       isLoading,
-      isTransitioning,
       setCurrentServer,
       setCurrentChannel,
       clearContext,
@@ -804,7 +808,7 @@ export function ServerProvider({ children }: { children: ReactNode }) {
       fetchMembers,
     }),
     [
-      servers, currentServer, channels, channelsServerId, currentChannel, isLoading, isTransitioning,
+      servers, currentServer, channels, channelsServerId, currentChannel, isLoading,
       setCurrentServer, setCurrentChannel, clearContext, fetchServers, fetchChannels,
       prefetchServer, createServer, joinServer, leaveServer, deleteChannel,
       updateChannel, reorderChannels, fetchMembers,
