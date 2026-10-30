@@ -144,6 +144,23 @@ function dateFormatter(locale: string | undefined, kind: keyof typeof DATE_FORMA
   return f;
 }
 
+/**
+ * Create the chat's date formatters ahead of time (app shell, browser idle).
+ * The first Intl.DateTimeFormat of a page loads the locale data, which took
+ * ~60 ms on a 4x-throttled phone profile inside the first conversation open.
+ */
+export function warmDateFormatters(locales: ReadonlyArray<string | undefined>): void {
+  for (const locale of new Set(locales)) {
+    for (const kind of Object.keys(DATE_FORMATS) as Array<keyof typeof DATE_FORMATS>) {
+      try {
+        dateFormatter(locale || undefined, kind);
+      } catch {
+        /* invalid locale: formatted on demand like before */
+      }
+    }
+  }
+}
+
 /** "October 18, 2026" in the viewer's locale, for the date divider. */
 export function formatDayDivider(timestamp: string, locale?: string): string {
   const date = new Date(timestamp);

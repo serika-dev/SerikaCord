@@ -21,6 +21,9 @@ const E2eeHost = dynamic(() => import("@/components/e2ee/E2eeHost"), { ssr: fals
 // first click must not wait on a download: warm their chunks once the browser
 // is idle after startup.
 const IDLE_PREFETCH = [
+  // Not a chunk: the chat's date formatters (locale data), so the first
+  // conversation opened doesn't pay for it.
+  () => import("@/lib/chat/messages").then((m) => m.warmDateFormatters([undefined, document.documentElement.lang, navigator.language])),
   () => import("@/components/dialogs/UserSettingsDialog"),
   () => import("@/components/dialogs/ServerSettingsDialog"),
   () => import("@/components/user/FullProfileDialog"),
