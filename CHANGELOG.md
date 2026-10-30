@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- 1:1 DMs show the other person's profile again instead of a member list of the two of you. On phones the DM header no longer overlaps the back button: it keeps call, pins and search, and tapping their avatar opens the profile; group DMs move Add Friends into the member panel.
 
 ### Performance
 

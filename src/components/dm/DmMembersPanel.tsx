@@ -1,47 +1,43 @@
 "use client";
 
-import { useMemo } from "react";
-import { MemberList } from "@/components/chat/MemberSidebar";
 import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { UserProfileSkeleton } from "@/components/ui/skeleton";
-import { directMessageMembers, type DmPerson } from "@/lib/chat/dmMembers";
+import { cn } from "@/lib/utils";
+import type { DmPerson } from "@/lib/chat/dmMembers";
 
 /**
- * A 1:1 DM's right panel: their profile (about me, mutual servers / friends,
- * note) above the same member list as servers, with them and you; tapping a
- * row opens the same profile card as in a server.
+ * A 1:1 DM's right panel: just their profile (about me, mutual servers /
+ * friends, note), like Discord. A two-person DM has no member list; group DMs
+ * keep theirs (GroupDmMembersPanel).
  */
 export function DmMembersPanel({
   recipient,
   recipientLoading,
-  self,
   className,
 }: {
   recipient: (DmPerson & { isFriend?: boolean }) | null;
   recipientLoading: boolean;
-  self: DmPerson | null;
   className?: string;
 }) {
-  const members = useMemo(() => directMessageMembers(recipientLoading ? null : recipient, self), [recipient, recipientLoading, self]);
   return (
-    <MemberList
-      members={members}
-      isLoading={recipientLoading && !recipient}
-      className={className ?? "w-full md:w-full bg-[var(--bg-app)] border-[var(--border-subtle)]"}
-      header={
-        recipientLoading ? (
-          <UserProfileSkeleton />
-        ) : recipient ? (
-          <ProfileCard
-            user={recipient as unknown as ProfileCardUser}
-            isFriend={recipient.isFriend}
-            hideMessageButton
-            hideConnections
-            noRoundedCorners
-            className="w-full max-w-none"
-          />
-        ) : null
-      }
-    />
+    <div
+      className={cn(
+        "flex h-full min-h-0 w-full flex-col overflow-y-auto overflow-x-hidden border-l border-[var(--border-subtle)] bg-[var(--bg-app)]",
+        className
+      )}
+    >
+      {recipientLoading ? (
+        <UserProfileSkeleton />
+      ) : recipient ? (
+        <ProfileCard
+          user={recipient as unknown as ProfileCardUser}
+          isFriend={recipient.isFriend}
+          hideMessageButton
+          hideConnections
+          noRoundedCorners
+          className="w-full max-w-none flex-1 flex flex-col"
+        />
+      ) : null}
+    </div>
   );
 }

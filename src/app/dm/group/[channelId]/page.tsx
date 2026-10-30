@@ -540,7 +540,7 @@ export default function GroupDMPage() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
         <div data-touch-scope="" className="min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="flex flex-1 items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/channels/messages"
               onClick={(e) => {
@@ -548,7 +548,7 @@ export default function GroupDMPage() {
                 e.preventDefault();
                 shell.showList();
               }}
-              className="-ml-1 flex h-11 w-11 items-center justify-center hover:bg-[var(--bg-hover)] rounded-lg transition-colors active:scale-95 md:hidden"
+              className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center hover:bg-[var(--bg-hover)] rounded-lg transition-colors active:scale-95 md:hidden"
               aria-label={gt("Back")}
             >
               <ArrowLeft className="w-5 h-5 text-[var(--text-secondary)]" />
@@ -584,7 +584,7 @@ export default function GroupDMPage() {
             )}
           </div>
 
-          <div className="flex items-center gap-0.5 sm:gap-2">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-2">
             <button onClick={() => startCall(false)} className={headerButton} title={gt("Start Voice Call")} aria-label={gt("Start Voice Call")}>
               <Phone className="w-5 h-5" />
             </button>
@@ -600,7 +600,7 @@ export default function GroupDMPage() {
             <button
               onClick={() => setShowAddFriends(true)}
               disabled={!canAddMore}
-              className={cn(headerButton, "disabled:opacity-40")}
+              className={cn(headerButton, "disabled:opacity-40 max-sm:hidden")}
               title={gt("Add Friends to DM")}
               aria-label={gt("Add Friends to DM")}
             >

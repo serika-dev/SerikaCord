@@ -8,7 +8,6 @@ import { useConversationParams, useConversationSearchParams, useMembersSlot, use
 import { createPortal } from "react-dom";
 import { DmMembersPanel } from "@/components/dm/DmMembersPanel";
 import { MembersDrawer } from "@/components/chat/MembersDrawer";
-import type { DmPerson } from "@/lib/chat/dmMembers";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
 import { useUnreadGetter, useUnreadSelector, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
@@ -590,7 +589,7 @@ export default function DMConversationPage() {
       <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
         <div data-touch-scope="" className="min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
-          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
+          <div className="flex flex-1 items-center gap-2 sm:gap-3 min-w-0">
             <Link
               href="/channels/messages"
               aria-label={gt("Back")}
@@ -599,12 +598,17 @@ export default function DMConversationPage() {
                 e.preventDefault();
                 shell.showList();
               }}
-              className="-ml-1 flex h-11 w-11 items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] transition-colors active:scale-95"
+              className="-ml-1 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg hover:bg-[var(--bg-hover)] transition-colors active:scale-95"
             >
               <ArrowLeft className="w-5 h-5 text-[var(--text-secondary)]" />
             </Link>
 
-            <div className="relative flex-shrink-0">
+            <button
+              type="button"
+              onClick={() => (shell ? shell.showMembers() : setShowUserProfile(!showUserProfile))}
+              aria-label={gt("View Profile")}
+              className="relative flex-shrink-0 rounded-full active:scale-95 transition-transform"
+            >
               <Avatar className="w-8 h-8">
                 <AvatarImage src={cdnImage(recipient?.avatar)} />
                 <AvatarFallback className="bg-[var(--accent-color)] text-white text-sm">
@@ -612,7 +616,7 @@ export default function DMConversationPage() {
                 </AvatarFallback>
               </Avatar>
               <StatusBadge status={recipient?.status} size={10} ring={3} ringColor="var(--app-bg-solid)" corner />
-            </div>
+            </button>
 
             <div className="flex items-center gap-2 min-w-0">
               <span className={cn("font-semibold text-[var(--text-primary)] truncate self-center", getDisplayNameStyleClasses(recipient?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient?.customization?.displayNameStyle)}>
@@ -631,7 +635,7 @@ export default function DMConversationPage() {
             </div>
           </div>
 
-          <div className="flex items-center gap-0.5 sm:gap-2">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-2">
             {!recipient?.isSystem && (
               <>
                 <button
@@ -653,7 +657,7 @@ export default function DMConversationPage() {
                 {!recipient?.isBot && (
                   <button
                     onClick={() => setShowAddFriends(true)}
-                    className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
+                    className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] max-sm:hidden"
                     title={gt("Add Friends to DM")}
                     aria-label={gt("Add Friends to DM")}
                   >
@@ -666,6 +670,7 @@ export default function DMConversationPage() {
               onClick={() => setShowPins(true)}
               className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
               title={gt("Pinned Messages")}
+              aria-label={gt("Pinned Messages")}
             >
               <Pin className="w-5 h-5" />
             </button>
@@ -705,11 +710,11 @@ export default function DMConversationPage() {
             </button>
             <button
               onClick={() => (shell ? shell.showMembers() : setShowUserProfile(!showUserProfile))}
-              aria-label={gt("Toggle member list")}
-              title={gt("Toggle member list")}
+              aria-label={gt("Profile")}
+              title={gt("Profile")}
               aria-pressed={!shell && showUserProfile}
               className={cn(
-                "p-2 max-sm:p-2.5 transition-colors rounded-md hover:bg-[var(--bg-hover)]",
+                "p-2 transition-colors rounded-md hover:bg-[var(--bg-hover)] max-sm:hidden",
                 showUserProfile
                   ? "text-[var(--text-primary)]"
                   : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -877,19 +882,19 @@ export default function DMConversationPage() {
       {shell
         ? membersSlot &&
           createPortal(
-            <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} self={user as unknown as DmPerson} />,
+            <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} />,
             membersSlot,
           )
         : isCompact
           ? showUserProfile && (
               <MembersDrawer onClose={() => setShowUserProfile(false)}>
-                <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} self={user as unknown as DmPerson} />
+                <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} />
               </MembersDrawer>
             )
           : showUserProfile &&
             !search.open && (
               <div className="w-[340px] shrink-0 hidden lg:flex flex-col h-full overflow-hidden">
-                <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} self={user as unknown as DmPerson} />
+                <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} />
               </div>
             )}
 
