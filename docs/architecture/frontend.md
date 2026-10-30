@@ -135,7 +135,9 @@ Channels and DMs run on the same code:
   it narrowly instead: `useUnreadSelector(u => primitive)` (re-renders only
   when that value changes), `useUnreadGetter()` (read in handlers and effects,
   never re-renders) and `useUnreadLive(open)` (live only while a dialog is
-  open). `ChatArea`, the DM page, `QuickSwitcher` and `useAppHotkeys` use them.
+  open). `ChatArea`, the DM page, `QuickSwitcher` and `useAppHotkeys` use them;
+  the channel and server sidebars subscribe to `unreadBadgeKey` / their rail
+  badges and read the functions with `useUnreadGetter()`.
 - **Per-message toolbars stay light**: `MessageHoverActions` renders plain
   buttons and mounts its Radix popover and menu only after a pointer move or
   focus on that message (or a click on the plain button). `LinkEmbed`
@@ -145,6 +147,11 @@ Channels and DMs run on the same code:
   mounts the newest 12 groups (or from the unread divider) in the first
   commit and the rest right after that paint (`initialMountStart`);
   pagination waits for the full mount.
+- **Group keys and rows stay stable**: a long run from one person is one
+  group, so `MessageList` keys groups with `assignGroupKeys` (a group keeps
+  the key one of its messages had, so prepending older history or appending
+  a live message never remounts it) and `MessageGroup` renders each message
+  as a memoized `MessageRow` (`rowPropsEqual`; add new row props there).
 - **Message revalidation keeps objects**: refetched pages go through
   `reuseUnchanged`, so a revalidation that finds nothing new re-renders no
   `MessageGroup` (they compare message references).

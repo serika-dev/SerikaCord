@@ -1318,6 +1318,18 @@ export function useUnreadSelector<T extends string | number | boolean | null>(se
 }
 
 /**
+ * The badge state of these conversations as one string (unread, mention
+ * count, muted), for `useUnreadSelector`: a list re-renders when one of its
+ * badges changes, not for every message in a conversation that is already
+ * unread.
+ */
+export function unreadBadgeKey(u: UnreadContextValue, channelIds: ReadonlyArray<string>): string {
+  let key = "";
+  for (const id of channelIds) key += `${u.isChannelUnread(id) ? 1 : 0}${u.getMentionCount(id)}${u.isChannelMuted(id) ? "m" : ""},`;
+  return key;
+}
+
+/**
  * The unread state, live only while `enabled` (e.g. a dialog that is open):
  * while disabled the caller doesn't re-render on unread changes, and reads
  * the current state whenever it renders for another reason.

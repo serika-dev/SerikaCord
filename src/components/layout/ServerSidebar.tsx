@@ -25,7 +25,7 @@ import {
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { motion } from "framer-motion";
-import { useUnread } from "@/contexts/UnreadContext";
+import { useUnreadGetter, useUnreadSelector } from "@/contexts/UnreadContext";
 import { useServerMutes } from "@/hooks/useServerMutes";
 import { useMuteOptions, useMutedUntilLabel } from "@/components/notifications/useMuteOptions";
 import { openNotificationSettings } from "@/lib/notifications/events";
@@ -74,7 +74,16 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const confirmDialog = useConfirm();
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer, fetchServers } = useServer();
-  const { isServerUnread, markServerRead: markServerUnreadRead, getServerMentionCount, unreadChannels } = useUnread();
+  // Read here; subscribed to (below) only for what the rail shows, so a
+  // message in a channel that is already unread doesn't re-render the rail.
+  const getUnread = useUnreadGetter();
+  const { isServerUnread, markServerRead: markServerUnreadRead, getServerMentionCount, unreadChannels } = getUnread();
+  useUnreadSelector((u) => {
+    let key = "";
+    for (const sv of servers) key += `${sv.id}:${u.isServerUnread(sv.id) ? 1 : 0}${u.getServerMentionCount(sv.id)},`;
+    for (const c of u.unreadChannels) if (c.isDM) key += `${c.channelId}:${c.mentions},`;
+    return key;
+  });
   // One source for every badge (rail, sidebar, inbox, tab title): the unread
   // engine, which honours per-server/channel notification settings.
   const mentionsFor = getServerMentionCount;
@@ -279,7 +288,9 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   // Newest first, muted ones already left out (UnreadContext). The fetched
   // list only adds the group icon / member avatars; a conversation it doesn't
   // have yet still shows, from the unread entry's own name and avatar.
-  const unreadDMs = useMemo(() => {
+  // (Plain computation: cheap, and this component re-renders only when a rail
+  // badge changes.)
+  const unreadDMs = (() => {
     const byId = new Map(dmChannels.map((c) => [c.id, c]));
     return unreadChannels.flatMap((u) => {
       if (!u.isDM) return [];
@@ -294,7 +305,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
         : recipient?.displayName || recipient?.username || u.name || "";
       return [{ id: u.channelId, href, label, channel, isGroup, avatar: recipient?.avatar ?? u.avatar ?? null }];
     });
-  }, [dmChannels, unreadChannels, pathname]);
+  })();
 
   const totalDMUnread = unreadDMs.length;
 

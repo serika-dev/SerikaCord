@@ -67,7 +67,7 @@ import { isMuteActive, muteUntilFor } from "@/lib/notifications/levels";
 import { updateNotificationOverride, useNotificationPrefs } from "@/lib/notifications/prefsStore";
 import { openNotificationSettings } from "@/lib/notifications/events";
 import { useMuteOptions, useMutedUntilLabel } from "@/components/notifications/useMuteOptions";
-import { useUnread } from "@/contexts/UnreadContext";
+import { unreadBadgeKey, useUnreadGetter, useUnreadSelector } from "@/contexts/UnreadContext";
 import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { prefetchRoute } from "@/lib/navigation/prefetchRoute";
 import { usePermissions } from "@/hooks/usePermissions";
@@ -171,7 +171,11 @@ export function ChannelSidebar({
   const canManageServer = can("MANAGE_SERVER");
   const canInvite = can("CREATE_INVITE");
   const canManageAny = canManageChannels || canManageServer || isAdmin;
-  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel, seedDmChannels, notifyDmActivity, markChannelRead, markChannelsRead, isChannelMuted } = useUnread();
+  // Unread state, read here and subscribed to below only for the badges this
+  // sidebar shows: with useUnread() every message in any channel (busy
+  // servers: many a second) re-rendered every row.
+  const getUnread = useUnreadGetter();
+  const { isChannelUnread, getMentionCount, registerChannels, setActiveChannel, seedDmChannels, notifyDmActivity, markChannelRead, markChannelsRead, isChannelMuted } = getUnread();
   const notifPrefs = useNotificationPrefs();
   const muteOptions = useMuteOptions();
   const mutedUntilLabel = useMutedUntilLabel();
@@ -729,6 +733,7 @@ export function ChannelSidebar({
     setCollapsedCategories(new Set());
   }, [currentServer?.id]);
   const [dmChannels, setDmChannels] = useState<DMChannel[]>([]);
+  useUnreadSelector((u) => unreadBadgeKey(u, currentServer ? channels.map((c) => c.id) : dmChannels.map((c) => c.id)));
   // Until the first /api/dms answer, show placeholders rather than "No direct
   // messages yet" (which flashed on every load for people with DMs).
   const [dmsLoaded, setDmsLoaded] = useState(false);
