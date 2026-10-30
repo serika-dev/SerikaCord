@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.4.0.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.0.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.5.0 — 2026-10-30
+
+**Tag:** `v2.5.0` · **Commit:** `83392d12`
 
 ### Features
 - **Support page** — serika.chat/support shows how to reach the team, report a bug or abuse, and manage your account and data, and the Support link at the bottom of the site now goes there.
