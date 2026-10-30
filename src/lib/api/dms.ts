@@ -38,6 +38,7 @@ import {
   checkE2eeChannelSend,
   checkE2eeKeysFresh,
   conversationE2eeFlags,
+  pageKeySet,
   devicesOf,
   initialConversationE2ee,
   isE2eeNotice,
@@ -1554,11 +1555,15 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       channel = await getOrCreateDMChannel(user.id, params.recipientId);
     }
 
-    const messages = await loadDmMessagesPage(channel.id, query, cursorMsg, user.id);
+    const [messages, e2eeKeys] = await Promise.all([
+      loadDmMessagesPage(channel.id, query, cursorMsg, user.id),
+      pageKeySet(channel, user.id, query),
+    ]);
     return {
       messages,
       channelId: channel.id,
       ...conversationE2eeFlags(channel),
+      ...(e2eeKeys ? { e2eeKeys } : {}),
     };
   }, {
     params: t.Object({
@@ -1633,18 +1638,23 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
 
     // End-to-end encryption: plaintext into an encrypted DM (or an envelope
     // into a plain one) is refused; envelopes must come from a live device.
-    const e2eeGate = await checkE2eeChannelSend(user.id, channel, prepared.e2ee);
+    // The three checks are independent reads: run them together (the key-set
+    // check alone loads every member's identities and devices). Their verdicts
+    // are still applied in this order.
+    const [e2eeGate, keysGate, spam] = await Promise.all([
+      checkE2eeChannelSend(user.id, channel, prepared.e2ee),
+      prepared.e2ee ? checkE2eeKeysFresh(channel, body.e2eeKeys) : Promise.resolve(null),
+      checkDmDuplicateSpam(channel.id, user.id, prepared),
+    ]);
     if (e2eeGate) {
       set.status = e2eeGate.status;
       return { error: e2eeGate.error, ...(e2eeGate.code ? { code: e2eeGate.code } : {}) };
     }
-    const keysGate = prepared.e2ee ? await checkE2eeKeysFresh(channel, body.e2eeKeys) : null;
     if (keysGate) {
       set.status = keysGate.status;
       return { error: keysGate.error, code: keysGate.code };
     }
 
-    const spam = await checkDmDuplicateSpam(channel.id, user.id, prepared);
     if (spam) {
       set.status = spam.status;
       return spam.body;

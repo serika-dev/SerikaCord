@@ -266,6 +266,8 @@ export interface DecodeOptions {
   selfId?: string | null;
   /** Rows that just arrived live (not in any cache yet). */
   live?: boolean;
+  /** The member key set the server sent with the page (`e2eeKeys`). */
+  pageKeys?: unknown;
 }
 
 /**
@@ -283,7 +285,14 @@ export async function decodeConversationRows(raw: RawMessagePayload[], opts: Dec
     ...decryptContextFor(opts.target, opts.meta, rows as Array<{ channelId?: unknown }>),
     selfId: opts.selfId ?? null,
     live: opts.live === true,
+    pageKeys: opts.pageKeys,
   });
+}
+
+/** The key set a DM / group DM page carries (`e2eeKeys`), if any. */
+export function pageKeysOf(data: unknown): unknown {
+  const d = data as { e2eeKeys?: unknown } | null;
+  return d && typeof d === "object" && !Array.isArray(d) ? d.e2eeKeys : undefined;
 }
 
 /**

@@ -64,6 +64,7 @@ import {
   checkE2eeChannelSend,
   checkE2eeKeysFresh,
   conversationE2eeFlags,
+  pageKeySet,
   initialConversationE2ee,
 } from '@/lib/services/e2ee';
 
@@ -479,10 +480,15 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 404;
       return NOT_FOUND;
     }
+    const [messages, e2eeKeys] = await Promise.all([
+      loadDmMessagesPage(channel.id, query, cursorMsg, user.id),
+      pageKeySet(channel, user.id, query),
+    ]);
     return {
-      messages: await loadDmMessagesPage(channel.id, query, cursorMsg, user.id),
+      messages,
       channelId: channel.id,
       ...conversationE2eeFlags(channel),
+      ...(e2eeKeys ? { e2eeKeys } : {}),
     };
   }, { params: t.Object({ channelId: t.String() }) })
   .post('/:channelId/messages', async ({ headers, cookie, params, body, request, set }) => {
@@ -516,12 +522,15 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
     const prepared = preparedResult.prepared;
     // End-to-end encryption: plaintext into an encrypted group (or an envelope
     // into a plain one) is refused; envelopes must come from a live device.
-    const e2eeGate = await checkE2eeChannelSend(user.id, channel, prepared.e2ee);
+    // Independent reads, run together; verdicts applied in this order.
+    const [e2eeGate, keysGate] = await Promise.all([
+      checkE2eeChannelSend(user.id, channel, prepared.e2ee),
+      prepared.e2ee ? checkE2eeKeysFresh(channel, body.e2eeKeys) : Promise.resolve(null),
+    ]);
     if (e2eeGate) {
       set.status = e2eeGate.status;
       return { error: e2eeGate.error, ...(e2eeGate.code ? { code: e2eeGate.code } : {}) };
     }
-    const keysGate = prepared.e2ee ? await checkE2eeKeysFresh(channel, body.e2eeKeys) : null;
     if (keysGate) {
       set.status = keysGate.status;
       return { error: keysGate.error, code: keysGate.code };

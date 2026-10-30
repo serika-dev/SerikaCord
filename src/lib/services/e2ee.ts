@@ -505,6 +505,28 @@ export function conversationE2eeFlags(channel: { e2ee?: boolean | null }) {
   };
 }
 
+/**
+ * The member key set sent with the latest page of an encrypted DM / group DM
+ * (same shape as GET /api/e2ee/channels/:id/keys), so opening the
+ * conversation decrypts without a second round trip for the keys. Null for
+ * conversations that aren't encrypted, older pages, or when the lookup fails
+ * (the client then asks /keys itself, as before).
+ */
+export async function pageKeySet(
+  channel: { id: string; e2ee?: boolean | null; recipientIds?: string[] | null },
+  viewerId: string,
+  query: { before?: unknown; after?: unknown; around?: unknown },
+) {
+  if (channel.e2ee !== true || query.before || query.after || query.around) return null;
+  try {
+    await ensureE2eeSchema();
+    const members = await keyBundles(channel.recipientIds || [], viewerId);
+    return { channelId: channel.id, e2ee: true, version: keysVersionOf(members), members };
+  } catch {
+    return null;
+  }
+}
+
 // ─── Encrypted sends / edits ──────────────────────────────────────────────────
 
 export { E2EE_NOTICE, ENCRYPTED_PREVIEW, e2eeMismatch, e2eeNoticeKind, e2eeOffNotice, isE2eeChannel, isE2eeNotice, offNoticeRecord, storedEnvelope };

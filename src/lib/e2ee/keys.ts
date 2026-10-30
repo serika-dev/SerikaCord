@@ -104,6 +104,33 @@ export async function importEcdsaPublicKey(b64: string): Promise<CryptoKey> {
   return subtle().importKey("raw", publicKeyBytes(b64), ECDSA, true, ["verify"]);
 }
 
+/**
+ * Imported long-lived public keys (device signing / encryption keys, backup
+ * keys), by algorithm and base64. Opening a page of messages verified each
+ * signature after importing the sender's signing key again, and every send
+ * re-imported each recipient's key. Public data only; failures aren't kept.
+ */
+const importedPublicKeys = new Map<string, Promise<CryptoKey>>();
+const MAX_IMPORTED_PUBLIC_KEYS = 512;
+
+function cachedImport(kind: "ecdh" | "ecdsa", b64: string): Promise<CryptoKey> {
+  const k = `${kind}|${b64}`;
+  const hit = importedPublicKeys.get(k);
+  if (hit) return hit;
+  const p = kind === "ecdh" ? importEcdhPublicKey(b64) : importEcdsaPublicKey(b64);
+  if (importedPublicKeys.size >= MAX_IMPORTED_PUBLIC_KEYS) importedPublicKeys.delete(importedPublicKeys.keys().next().value!);
+  importedPublicKeys.set(k, p);
+  p.catch(() => {
+    if (importedPublicKeys.get(k) === p) importedPublicKeys.delete(k);
+  });
+  return p;
+}
+
+/** A recipient's (long-lived) ECDH public key, imported once. Not for ephemeral keys. */
+export function importRecipientPublicKey(b64: string): Promise<CryptoKey> {
+  return cachedImport("ecdh", b64);
+}
+
 // ─── Private keys (backup only) ───────────────────────────────────────────────
 
 export async function exportPrivateJwk(key: CryptoKey): Promise<JsonWebKey> {
@@ -153,7 +180,7 @@ export async function signBytes(privateKey: CryptoKey, data: Bytes): Promise<Byt
 export async function verifyBytes(publicKeyB64: string, signature: Uint8Array, data: Bytes): Promise<boolean> {
   if (signature.byteLength !== SIGNATURE_BYTES) return false;
   try {
-    const key = await importEcdsaPublicKey(publicKeyB64);
+    const key = await cachedImport("ecdsa", publicKeyB64);
     const sig = new Uint8Array(signature.byteLength);
     sig.set(signature);
     return await subtle().verify(SIGN_PARAMS, key, sig, data);

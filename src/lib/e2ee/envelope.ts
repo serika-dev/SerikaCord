@@ -34,6 +34,7 @@ import {
   exportPublicKey,
   generateEphemeralKeyPair,
   importEcdhPublicKey,
+  importRecipientPublicKey,
   isDeviceId,
   isPublicKeyB64,
   publicKeyBytes,
@@ -231,7 +232,7 @@ export async function encryptMessage(opts: {
 
   const keys: EnvelopeKey[] = await Promise.all(
     [...unique.values()].map(async (r) => {
-      const pub = await importEcdhPublicKey(r.pub);
+      const pub = await importRecipientPublicKey(r.pub);
       const shared = await subtle().deriveBits({ name: "ECDH", public: pub }, eph.privateKey, 256);
       const wrapKey = await wrapKeyFor(shared, iv, r.id, epkRaw);
       const wrapIv = randomBytes(GCM_IV_BYTES);

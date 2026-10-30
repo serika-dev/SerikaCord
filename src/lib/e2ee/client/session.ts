@@ -1504,6 +1504,40 @@ function refreshChannelKeys(key: string): Promise<ChannelKeys> {
 }
 
 /**
+ * A key set the server sent along with a conversation page (`e2eeKeys` on
+ * the DM / group DM messages endpoints): processed exactly like a /keys
+ * answer (same bundle checks, trust on first use against the local pins) and
+ * cached like one, so the open conversation decrypts without asking /keys.
+ * Anything malformed or for another conversation is ignored (the normal
+ * fetch then runs). Never throws.
+ */
+async function primeChannelKeys(key: string, data: unknown): Promise<void> {
+  const raw = data as (RawChannelKeys & { unchanged?: boolean }) | null;
+  if (!raw || typeof raw !== "object" || typeof raw.channelId !== "string" || lower(raw.channelId) !== key || !Array.isArray(raw.members)) return;
+  const known = channelKeysSettled.get(key) ?? null;
+  if (known && known.version && raw.version === known.version) {
+    // Same set as the one checked here: only fresher.
+    const next = { ...known, e2ee: raw.e2ee === true, at: Date.now() };
+    channelKeysSettled.set(key, next);
+    channelKeyCache.set(key, { value: Promise.resolve(next), at: next.at });
+    return;
+  }
+  const epoch = trustEpoch;
+  let next: ChannelKeys;
+  try {
+    next = await processChannelKeys(raw, key);
+  } catch {
+    return;
+  }
+  // A security code was accepted meanwhile: checked against old pins, never cached.
+  if (epoch !== trustEpoch) return;
+  void putCachedBundles<RawChannelKeys>(userId, key, { channelId: raw.channelId, e2ee: raw.e2ee === true, version: raw.version ?? null, members: raw.members });
+  channelKeyCache.set(key, { value: Promise.resolve(next), at: Date.now() });
+  channelKeysSettled.set(key, next);
+  if (known && known.version !== next.version) keySetChanged(key);
+}
+
+/**
  * Keys of a DM / group DM's members. Served from memory, else from the copy
  * in IndexedDB (no network on the critical path), and revalidated in the
  * background once older than a minute. `fresh` waits for the server.
@@ -2038,7 +2072,11 @@ async function decryptOne(msg: RawMessageLike, channelId: string): Promise<Decry
 
   let opened: Awaited<ReturnType<typeof openEnvelope>> | null = null;
   const sent = sentPlaintext.get(envelope.sig);
-  const candidates = openingKeys().filter((c) => envelope.keys.some((k) => k.r === c.id));
+  // Our own send from this tab: its plaintext is known, so the envelope isn't
+  // opened again. The signature check below still runs, and it covers the
+  // ciphertext, commitment, iv and ephemeral key, so this is exactly the
+  // envelope we built.
+  const candidates = sent ? [] : openingKeys().filter((c) => envelope.keys.some((k) => k.r === c.id));
   if (candidates.length === 0 && !sent) {
     return { ok: false, reason: !identity && !device && phase === "needs-restore" ? "restore" : "no_key" };
   }
@@ -2223,6 +2261,19 @@ export async function frankingDisclosureFor(message: { id: string; authorId?: st
 
 type RawChat = Record<string, unknown> & RawMessageLike & { referencedMessage?: Record<string, unknown> | null; attachments?: unknown };
 
+/** Encrypted-cache keys of the envelope rows of a page, for the open conversation's channel. */
+function plainKeysOf(raw: ReadonlyArray<Record<string, unknown>>, channelId: string): string[] {
+  const keys: string[] = [];
+  for (const item of raw) {
+    const m = item as unknown as RawChat;
+    if (!m || !m.e2ee || typeof m.e2ee !== "object" || "status" in (m.e2ee as object)) continue;
+    const env = envelopeOf(m.e2ee);
+    const sender = senderOf(m);
+    if (env && sender) keys.push(plainCacheKey(channelId, String(m.id), env.sig, sender));
+  }
+  return keys;
+}
+
 function storedUrlsOf(attachments: unknown): string[] {
   if (!Array.isArray(attachments)) return [];
   return attachments.map((a) => (a && typeof (a as { url?: unknown }).url === "string" ? (a as { url: string }).url : "")).filter(Boolean);
@@ -2243,6 +2294,8 @@ export interface DecryptContext {
   live?: boolean;
   /** `channelId` is the group DM in the URL (not a server-supplied id). */
   group?: boolean;
+  /** The key set the server sent with this page (`e2eeKeys`), if any. */
+  pageKeys?: unknown;
 }
 
 /**
@@ -2257,10 +2310,14 @@ export interface DecryptContext {
 export async function decryptRawMessages<T extends Record<string, unknown>>(raw: T[], ctx: DecryptContext): Promise<T[]> {
   await whenLocalReady(ctx.selfId);
   const expected = ctx.channelId ? lower(ctx.channelId) : null;
+  // The encrypted-cache lookup only needs the rows: run it while the
+  // conversation's keys are checked (hits are re-checked against them below).
+  const plainLookup = ctx.live || !expected ? null : getPlainMany(userId, plainKeysOf(raw, expected)).catch(() => new Map<string, PlainEntry>());
   // Which conversation this is: a 1:1 DM's channel must be exactly us + the URL's person.
   let conversationError: DecryptFailure | null = null;
   if (!expected) conversationError = "keys_unavailable";
   else {
+    if (ctx.pageKeys) await primeChannelKeys(expected, ctx.pageKeys);
     const keys = await getChannelKeys(expected).catch(() => null);
     if (ctx.dmPeer) {
       if (!userId) conversationError = "not_ready";
@@ -2306,9 +2363,7 @@ export async function decryptRawMessages<T extends Record<string, unknown>>(raw:
     jobs.push({ index, m, plainKey: env && sender ? plainCacheKey(expected!, String(m.id), env.sig, sender) : null });
   });
   if (jobs.length === 0) return out;
-  const prefetched = ctx.live
-    ? new Map<string, PlainEntry>()
-    : await getPlainMany(userId, jobs.map((j) => j.plainKey).filter((k): k is string => Boolean(k)));
+  const prefetched = plainLookup ? await plainLookup : new Map<string, PlainEntry>();
 
   const results = new Array<DecryptResult>(jobs.length);
   await Promise.all(

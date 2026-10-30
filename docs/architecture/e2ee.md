@@ -624,7 +624,8 @@ valid disclosure is refused.
 
 Message DTOs (DM, group DM, pins, `GET /api/channels/:id/messages`) carry the
 `e2ee` envelope; DM / group DM pages get `{ channelId, e2ee, e2eeAuto }` with
-each message page; the DM list and `serializeGroup` carry `e2ee`/`e2eeAuto`;
+each message page, and the latest page of an encrypted conversation also
+`e2eeKeys` (the member key set, same shape as `GET /channels/:id/keys`); the DM list and `serializeGroup` carry `e2ee`/`e2eeAuto`;
 SSE `edit` events carry the new envelope; `e2ee_enabled` is published when a
 conversation switches. Encrypted DM / group sends may carry `e2eeKeys`
 (the key-set version); refusals carry a `code` (`e2ee_keys_changed` 409,
@@ -722,9 +723,20 @@ does now:
   + the URL's person). The memory layer is dropped whenever trust changes;
   reply quotes only borrow our own text from the same conversation. Hovering a DM in the sidebar
   prefetches and decrypts its latest page with exactly the checks an open
-  conversation runs. Uncached rows decrypt in parallel, newest first. A
+  conversation runs (it shares the request the conversation itself makes
+  when it opens meanwhile). The latest page carries the key set
+  (`e2eeKeys`): it is processed exactly like a `/keys` answer (bundle checks,
+  trust on first use against the local pins, cached in memory and IndexedDB),
+  so a cold open makes one request instead of the page and then the keys;
+  the encrypted-cache lookup runs while the keys are checked. On a cold open
+  the newest 20 rows are decrypted and shown first, then the whole page goes
+  through the normal decode (those rows are memo hits), so the result is the
+  same. Uncached rows decrypt in parallel, newest first. A
   message still decrypting after 150 ms shows "Decrypting…"; before that it
-  is an empty line (no flash). Envelope shape checks run once per row.
+  is an empty line (no flash). Envelope shape checks run once per row;
+  long-lived public keys (device signing / encryption keys, backup keys) are
+  imported once per session (`importRecipientPublicKey`, the ECDSA verify
+  key cache in `keys.ts`), ephemeral keys every time.
 - **Failures and retries** (`lib/e2ee/decryptRetry.ts`, pure and tested;
   `hooks/useE2eeDecryptRetry.ts` in the chat engine). Reasons are split:
   *transient* — `not_ready` (keys still loading), `keys_unavailable` (the
@@ -757,7 +769,10 @@ does now:
   no IndexedDB lookup for rows that just arrived); the key set is never
   refetched on the critical path. Own sends show their plaintext right away
   (the optimistic bubble is marked encrypted, so it is never persisted as
-  plaintext).
+  plaintext). The server's answer and the stream echo of an own send aren't
+  opened again: the tab still has the plaintext, and the sender signature
+  (which covers ciphertext, commitment, iv and ephemeral key) is still
+  verified against this device's trusted key.
 - **Attachments** are encrypted / decrypted in a module Web Worker
   (`fileWorker.ts`) with transferred buffers: the 50 MB case drops from
   ~35 ms main-thread stalls to ~2 ms. The worker must answer a ping before any
