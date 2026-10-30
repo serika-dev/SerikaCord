@@ -61,6 +61,7 @@
 - **Channels and DMs show their messages sooner** — opening a channel or DM draws the newest messages first and fills in the rest right after, and a channel you hovered or clicked no longer waits for a second request before showing up.
 - **Encrypted chats open in one round trip** — encrypted DMs and group DMs now get their encryption keys together with the messages and decrypt the messages on screen first, so they open noticeably faster (about a third in our tests). Your own encrypted messages are confirmed without decrypting them again.
 - **Avatars draw once** — avatars in lists, messages and the member list no longer redraw themselves (and the rows around them) one by one as each picture loads, so opening a DM, a channel or the DM list does a lot less work, especially with many people on screen.
+- **The phone DM list opens instantly** — tapping Messages shows your conversations right away (refreshing them in the background) instead of placeholders until the list loads, tapping a conversation starts loading its messages at once, and a new message or badge redraws only the rows that changed. The bottom bar no longer redraws for every message either.
 
 ### Security
 

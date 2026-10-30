@@ -2,7 +2,7 @@
 
 import { usePathname, useRouter } from "next/navigation";
 import { useServer } from "@/contexts/ServerContext";
-import { useUnread } from "@/contexts/UnreadContext";
+import { useUnreadSelector } from "@/contexts/UnreadContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Home, MessageSquare, Bell, User } from "lucide-react";
@@ -32,7 +32,9 @@ export function BottomNavigation({
   const pathname = usePathname();
   const router = useRouter();
   const { setCurrentServer, setCurrentChannel } = useServer();
-  const { totalDmUnreadCount, totalMentionCount } = useUnread();
+  // Just the two totals: not a re-render for every unread change.
+  const totalDmUnreadCount = useUnreadSelector((u) => u.totalDmUnreadCount);
+  const totalMentionCount = useUnreadSelector((u) => u.totalMentionCount);
   const { user } = useAuth();
   const gt = useGT();
 

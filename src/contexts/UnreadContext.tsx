@@ -156,7 +156,7 @@ export interface UnreadChannelEntry {
   isDM: boolean;
 }
 
-interface UnreadContextValue {
+export interface UnreadContextValue {
   isChannelUnread: (channelId: string) => boolean;
   getMentionCount: (channelId: string) => number;
   isServerUnread: (serverId: string) => boolean;

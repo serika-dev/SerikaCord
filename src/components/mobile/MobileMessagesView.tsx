@@ -1,7 +1,7 @@
 "use client";
 
 import { sharedGet } from "@/lib/bootFetch";
-import { useState, useEffect, useCallback, useRef } from "react";
+import { memo, useState, useEffect, useCallback, useMemo, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { UserPlus, Star, RefreshCw, Search, X, ChevronLeft, MessageSquarePlus, Inbox } from "lucide-react";
@@ -13,7 +13,8 @@ const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerD
 import { cn, cdnImage } from "@/lib/utils";
 import { useGT } from "gt-next";
 import { useStreamerHides } from "@/hooks/useStreamerMode";
-import { useUnread, type DmSeed } from "@/contexts/UnreadContext";
+import { useUnreadGetter, useUnreadSelector, type DmSeed } from "@/contexts/UnreadContext";
+import { parseRowBadges, reuseRows, rowBadgeKey, type DmListRow } from "@/lib/mobile/dmList";
 import { notificationPreview } from "@/lib/notifications/notify";
 import { groupDmHref } from "@/lib/chat/groupDm";
 import { groupDisplayName } from "@/lib/chat/dmCall";
@@ -34,27 +35,18 @@ import { useMobileShell } from "./MobileShellContext";
 
 const MobileDmSheet = dynamic(() => import("@/components/mobile/MobileDmSheet").then((m) => m.MobileDmSheet), { ssr: false });
 
-interface Message {
-  id: string;
-  recipientId: string;
-  /** Where the row opens (the 1:1 DM or the group page). */
-  href: string;
-  type: "dm" | "group";
-  name: string;
-  username: string;
-  avatar?: string;
-  avatars?: string[];
-  lastMessage: string;
-  timestamp: string;
-  unreadCount?: number;
-  isPinned?: boolean;
-  isFavorite?: boolean;
-  status?: "online" | "idle" | "dnd" | "offline";
-}
+type Message = DmListRow;
 
 interface MobileMessagesViewProps {
   onAddFriend?: () => void;
 }
+
+/**
+ * The last list shown (per account), so opening the Messages tab again paints
+ * the rows at once while the list refreshes, instead of a skeleton until
+ * /api/dms answers.
+ */
+let lastList: { uid: string; rows: Message[] } | null = null;
 
 /** An encrypted last message to decrypt on this device for its row. */
 interface EncryptedRowJob {
@@ -90,7 +82,9 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const gt = useGT();
   // Streamer Mode hides what people wrote.
   const hidePreviews = useStreamerHides("notifications");
-  const { isChannelUnread, registerChannels, getMentionCount, seedDmChannels, notifyDmActivity } = useUnread();
+  // Unread state narrowly: re-render when a row's badge changes, not on every
+  // message anywhere (useUnread()); functions are read through the getter.
+  const getUnread = useUnreadGetter();
   const { user } = useAuth();
   const selfId = user?.id ?? null;
   const selfName = user?.displayName || user?.username || "";
@@ -99,8 +93,13 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   const decryptedPreviewsRef = useRef(new Map<string, string>());
   // Some encrypted preview couldn't be decrypted (keys not ready / unreachable).
   const previewMissRef = useRef(false);
-  const [messages, setMessages] = useState<Message[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [messages, setMessages] = useState<Message[]>(() => (lastList && lastList.uid === selfId ? lastList.rows : []));
+  const [isLoading, setIsLoading] = useState(() => !(lastList && lastList.uid === selfId));
+  useEffect(() => {
+    if (selfId && !isLoading) lastList = { uid: selfId, rows: messages };
+  }, [selfId, messages, isLoading]);
+  const badgeKey = useUnreadSelector((u) => rowBadgeKey(u, messages));
+  const badges = useMemo(() => parseRowBadges(badgeKey), [badgeKey]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [showSearch, setShowSearch] = useState(false);
@@ -235,7 +234,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         // Keep the server's newest-first order across DMs and groups.
         const order = new Map(((data.channels || []) as ListChannel[]).map((c, i) => [c.id, i]));
         const list = [...seenRecipients.values(), ...groups].sort((a, b) => (order.get(a.id) ?? 0) - (order.get(b.id) ?? 0));
-        setMessages(list);
+        setMessages((prev) => reuseRows(prev, list));
         // A live update landed while this request was out: it may predate it.
         if (liveEditsRef.current !== editsAtStart) scheduleRefetch();
         if (selfId && encryptedJobs.length > 0) {
@@ -258,7 +257,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
         }
         // Feed the unread engine so DM rows light up cross-device: the newest
         // message (its own time / author) plus the server's unread counts.
-        registerChannels(
+        getUnread().registerChannels(
           (data.channels || []).map((c: DmSeed) => ({
             id: c.id,
             type: "dm" as const,
@@ -267,7 +266,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             lastMessageAuthorId: c.lastMessage?.authorId ?? null,
           }))
         );
-        seedDmChannels((data.channels || []) as DmSeed[], issuedAt);
+        getUnread().seedDmChannels((data.channels || []) as DmSeed[], issuedAt);
       }
     } catch (error) {
       console.error("Failed to fetch messages:", error);
@@ -275,7 +274,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
       setIsLoading(false);
       setIsRefreshing(false);
     }
-  }, [formatTimestamp, registerChannels, seedDmChannels, selfId, selfName, scheduleRefetch]);
+  }, [formatTimestamp, getUnread, selfId, selfName, scheduleRefetch]);
 
   useEffect(() => {
     fetchRef.current = fetchMessages;
@@ -313,7 +312,7 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
     }
     const authorId = msg.authorId ? String(msg.authorId) : "";
     const createdAt = typeof msg.createdAt === "string" ? msg.createdAt : new Date().toISOString();
-    if (authorId) notifyDmActivity(channelId, createdAt, msg.id, authorId);
+    if (authorId) getUnread().notifyDmActivity(channelId, createdAt, msg.id, authorId);
     const row = messages.find((m) => m.id === channelId);
     if (!row) {
       scheduleRefetch();
@@ -389,16 +388,22 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
   }, [fetchMessages, isRefreshing]);
   const { pullDistance, pullHandlers } = usePullToRefresh(scrollContainerRef, handleRefresh);
 
-  const handleMessageClick = (message: Message) => {
-    if (rowPress.wasLongPress()) return;
+  /** Warm the conversation's message cache as the finger lands. */
+  const warmConversation = useCallback((message: Message) => {
+    const apiBase = conversationApiBase(message.href);
+    if (apiBase) void prefetchChannelMessages(apiBase);
+  }, []);
+  const openConversation = useCallback((message: Message) => {
+    // The request starts before any rendering (a click without a touch or
+    // hover first, e.g. keyboard or an emulator, never warmed it).
+    warmConversation(message);
     // Phone shell: the conversation slides in on the same page.
     if (shell) shell.open(message.href);
     else router.push(message.href);
-  };
-  /** Warm the conversation's message cache as the finger lands. */
-  const warmConversation = (message: Message) => {
-    const apiBase = conversationApiBase(message.href);
-    if (apiBase) void prefetchChannelMessages(apiBase);
+  }, [shell, router, warmConversation]);
+  const handleMessageClick = (message: Message) => {
+    if (rowPress.wasLongPress()) return;
+    openConversation(message);
   };
 
   // Filter messages by search query
@@ -594,92 +599,18 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
             </div>
           ) : (
             <div className="space-y-0.5">
-              {regularMessages.map((message, index) => {
-                const unread = isChannelUnread(message.id);
-                return (
-                <button
-                  key={`${message.recipientId}-${index}`}
-                  type="button"
-                  {...rowPress.bind(message)}
-                  onTouchStartCapture={() => warmConversation(message)}
-                  onPointerEnter={() => warmConversation(message)}
-                  onClick={() => handleMessageClick(message)}
-                  className={cn(
-                    "w-full flex items-center gap-3 px-2 py-2 rounded-lg select-none touch-manipulation transition-colors duration-100",
-                    "active:bg-[var(--bg-hover)]"
-                  )}
-                >
-                  {/* Avatar with status */}
-                  <div className="relative flex-shrink-0">
-                    {message.type === "group" && message.avatars ? (
-                      <div className="w-10 h-10 rounded-full bg-[var(--bg-card)] relative">
-                        <Avatar className="w-6 h-6 absolute top-0 left-0 ring-2 ring-[var(--bg-app)]">
-                          <AvatarImage src={cdnImage(message.avatars[0])} />
-                          <AvatarFallback className="bg-[var(--app-accent)] text-[10px]">
-                            {message.name.charAt(0)}
-                          </AvatarFallback>
-                        </Avatar>
-                        {message.avatars[1] && (
-                          <Avatar className="w-6 h-6 absolute bottom-0 right-0 ring-2 ring-[var(--bg-app)]">
-                            <AvatarImage src={cdnImage(message.avatars[1])} />
-                            <AvatarFallback className="bg-[#6366F1] text-[10px]">+</AvatarFallback>
-                          </Avatar>
-                        )}
-                      </div>
-                    ) : (
-                      <Avatar className="w-10 h-10">
-                        <AvatarImage src={cdnImage(message.avatar)} />
-                        <AvatarFallback className="bg-gradient-to-br from-[var(--app-accent)] to-[var(--app-accent)] text-white text-base font-semibold">
-                          {message.name.charAt(0).toUpperCase()}
-                        </AvatarFallback>
-                      </Avatar>
-                    )}
-                    {/* Status indicator */}
-                    {message.type !== "group" && (
-                    <StatusBadge status={message.status} size={12} ring={3} ringColor="var(--app-bg-solid)" corner />
-                    )}
-                  </div>
-                  
-                  <div className="flex-1 min-w-0 text-left">
-                    <div className="flex items-center justify-between gap-2">
-                      <span className={cn(
-                        "text-[16px] truncate leading-tight text-[var(--text-primary)]",
-                        unread ? "font-bold" : "font-semibold"
-                      )}>
-                        {message.name}
-                      </span>
-                      <span className={cn(
-                        "text-xs flex-shrink-0",
-                        unread ? "text-[var(--app-accent)] font-medium" : "text-[var(--text-muted)]"
-                      )}>
-                        {message.timestamp}
-                      </span>
-                    </div>
-                    <p className={cn(
-                      "text-[14px] truncate leading-snug mt-0.5",
-                      unread ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)]"
-                    )}>
-                      {hidePreviews ? "" : message.lastMessage}
-                    </p>
-                  </div>
-
-                  {/* Unread badge — accent count pill, falling back to a dot. */}
-                  {(() => {
-                    const count = getMentionCount(message.id);
-                    if (count > 0) {
-                      return (
-                        <span className="min-w-[20px] h-5 px-1.5 flex-shrink-0 flex items-center justify-center rounded-full bg-[var(--app-accent)] text-[11px] font-bold text-[var(--text-on-accent)] leading-none shadow-lg">
-                          {count > 99 ? "99+" : count}
-                        </span>
-                      );
-                    }
-                    return unread ? (
-                      <span className="w-2.5 h-2.5 flex-shrink-0 bg-[var(--app-accent)] rounded-full shadow-lg" />
-                    ) : null;
-                  })()}
-                </button>
-                );
-              })}
+              {regularMessages.map((message) => (
+                <DmRow
+                  key={message.id}
+                  message={message}
+                  unread={badges.get(message.id)?.unread ?? false}
+                  mentionCount={badges.get(message.id)?.mentions ?? 0}
+                  hidePreview={hidePreviews}
+                  onOpen={openConversation}
+                  onWarm={warmConversation}
+                  onLongPress={setSheetMessage}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -698,3 +629,100 @@ export function MobileMessagesView({ onAddFriend }: MobileMessagesViewProps) {
     </div>
   );
 }
+
+interface DmRowProps {
+  message: Message;
+  unread: boolean;
+  mentionCount: number;
+  hidePreview: boolean;
+  onOpen: (message: Message) => void;
+  onWarm: (message: Message) => void;
+  onLongPress: (message: Message) => void;
+}
+
+/**
+ * One conversation row. Memoized: opening a conversation, a badge or a new
+ * message elsewhere re-renders only the rows whose content or badge changed.
+ */
+const DmRow = memo(function DmRow({ message, unread, mentionCount, hidePreview, onOpen, onWarm, onLongPress }: DmRowProps) {
+  const press = useLongPress<Message>(onLongPress);
+  return (
+    <button
+      type="button"
+      {...press.bind(message)}
+      onTouchStartCapture={() => onWarm(message)}
+      onPointerEnter={() => onWarm(message)}
+      onClick={() => {
+        if (press.wasLongPress()) return;
+        onOpen(message);
+      }}
+      className={cn(
+        "w-full flex items-center gap-3 px-2 py-2 rounded-lg select-none touch-manipulation transition-colors duration-100",
+        "active:bg-[var(--bg-hover)]"
+      )}
+    >
+      {/* Avatar with status */}
+      <div className="relative flex-shrink-0">
+        {message.type === "group" && message.avatars ? (
+          <div className="w-10 h-10 rounded-full bg-[var(--bg-card)] relative">
+            <Avatar className="w-6 h-6 absolute top-0 left-0 ring-2 ring-[var(--bg-app)]">
+              <AvatarImage src={cdnImage(message.avatars[0])} />
+              <AvatarFallback className="bg-[var(--app-accent)] text-[10px]">
+                {message.name.charAt(0)}
+              </AvatarFallback>
+            </Avatar>
+            {message.avatars[1] && (
+              <Avatar className="w-6 h-6 absolute bottom-0 right-0 ring-2 ring-[var(--bg-app)]">
+                <AvatarImage src={cdnImage(message.avatars[1])} />
+                <AvatarFallback className="bg-[#6366F1] text-[10px]">+</AvatarFallback>
+              </Avatar>
+            )}
+          </div>
+        ) : (
+          <Avatar className="w-10 h-10">
+            <AvatarImage src={cdnImage(message.avatar)} />
+            <AvatarFallback className="bg-gradient-to-br from-[var(--app-accent)] to-[var(--app-accent)] text-white text-base font-semibold">
+              {message.name.charAt(0).toUpperCase()}
+            </AvatarFallback>
+          </Avatar>
+        )}
+        {/* Status indicator */}
+        {message.type !== "group" && (
+        <StatusBadge status={message.status} size={12} ring={3} ringColor="var(--app-bg-solid)" corner />
+        )}
+      </div>
+
+      <div className="flex-1 min-w-0 text-left">
+        <div className="flex items-center justify-between gap-2">
+          <span className={cn(
+            "text-[16px] truncate leading-tight text-[var(--text-primary)]",
+            unread ? "font-bold" : "font-semibold"
+          )}>
+            {message.name}
+          </span>
+          <span className={cn(
+            "text-xs flex-shrink-0",
+            unread ? "text-[var(--app-accent)] font-medium" : "text-[var(--text-muted)]"
+          )}>
+            {message.timestamp}
+          </span>
+        </div>
+        <p className={cn(
+          "text-[14px] truncate leading-snug mt-0.5",
+          unread ? "text-[var(--text-secondary)]" : "text-[var(--text-muted)]"
+        )}>
+          {hidePreview ? "" : message.lastMessage}
+        </p>
+      </div>
+
+      {/* Unread badge — accent count pill, falling back to a dot. */}
+      {mentionCount > 0 ? (
+        <span className="min-w-[20px] h-5 px-1.5 flex-shrink-0 flex items-center justify-center rounded-full bg-[var(--app-accent)] text-[11px] font-bold text-[var(--text-on-accent)] leading-none shadow-lg">
+          {mentionCount > 99 ? "99+" : mentionCount}
+        </span>
+      ) : unread ? (
+        <span className="w-2.5 h-2.5 flex-shrink-0 bg-[var(--app-accent)] rounded-full shadow-lg" />
+      ) : null}
+    </button>
+  );
+});
