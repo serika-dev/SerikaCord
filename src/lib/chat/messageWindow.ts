@@ -99,3 +99,14 @@ export function headFirstRows<R>(page: R[], count: number, isEncrypted: (row: R)
   if (page.length <= count || !page.some(isEncrypted)) return null;
   return page.slice(-count);
 }
+
+/**
+ * How MessageList keeps the reader in place when the older groups of a just
+ * opened conversation mount above the ones on screen: back to the bottom when
+ * the reader was there (or is glued to it, or a force-scroll is pending),
+ * else on the row they were looking at, else by the height that was added.
+ */
+export function fullMountRestoreMode(s: { atBottom: boolean; stuckToBottom: boolean; forcePending: boolean; hasAnchor: boolean }): "bottom" | "anchor" | "height" {
+  if (s.atBottom || s.stuckToBottom || s.forcePending) return "bottom";
+  return s.hasAnchor ? "anchor" : "height";
+}

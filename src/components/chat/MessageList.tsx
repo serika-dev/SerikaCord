@@ -51,7 +51,7 @@ import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import type { useMessageActions } from "@/hooks/useMessageActions";
 import { Loader } from "@/components/ui/Loader";
 import { collapseBlockedGroups } from "@/lib/chat/blocked";
-import { initialMountStart } from "@/lib/chat/messageWindow";
+import { fullMountRestoreMode, initialMountStart } from "@/lib/chat/messageWindow";
 import { useRelationships } from "@/lib/social/relationshipsStore";
 import { BlockedMessagesRow } from "./BlockedMessagesRow";
 
@@ -322,6 +322,9 @@ function MessageListInner<M extends ChatMessage>(
   // held back the paint of the few that are on screen.
   const [mountedAllFor, setMountedAllFor] = useState<string | null>(null);
   const fullyMounted = mountedAllFor === contextKey || groups.length <= INITIAL_MOUNT_GROUPS;
+  // Where the reader was just before the older groups mount above them (they
+  // grow the content above the viewport): restored in the same commit.
+  const fullMountScrollRef = useRef<{ key: string; atBottom: boolean; anchor: { id: string; top: number } | null; height: number } | null>(null);
   // Reading session for this conversation. While the user is caught up
   // (watching the bottom, window focused) live messages are read as they land,
   // so they never get a "NEW" line: the line shown is the one `kept` from when
@@ -810,13 +813,56 @@ function MessageListInner<M extends ChatMessage>(
     const key = contextKey;
     let timer = 0;
     const raf = requestAnimationFrame(() => {
-      timer = window.setTimeout(() => setMountedAllFor(key), 0);
+      timer = window.setTimeout(() => {
+        const viewport = viewportRef.current;
+        const nearBottom = viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80 : true;
+        const atBottom = isAtBottomRef.current || stickToBottomRef.current || nearBottom;
+        let anchor: { id: string; top: number } | null = null;
+        if (!atBottom && viewport) {
+          // Same anchor as top-pagination: the first visible row and its offset.
+          const vpTop = viewport.getBoundingClientRect().top;
+          for (const el of viewport.querySelectorAll<HTMLElement>('[id^="message-"]')) {
+            const rect = el.getBoundingClientRect();
+            if (rect.bottom > vpTop) {
+              anchor = { id: el.id, top: rect.top - vpTop };
+              break;
+            }
+          }
+        }
+        fullMountScrollRef.current = { key, atBottom, anchor, height: viewport?.scrollHeight ?? 0 };
+        setMountedAllFor(key);
+      }, 0);
     });
     return () => {
       cancelAnimationFrame(raf);
       window.clearTimeout(timer);
     };
   }, [fullyMounted, isLoading, contextKey]);
+
+  // The older groups just mounted above the ones on screen: keep the reader
+  // where they were (on the newest messages, or on the row they were reading,
+  // e.g. the unread line), before paint.
+  useLayoutEffect(() => {
+    const saved = fullMountScrollRef.current;
+    if (!fullyMounted || !saved || saved.key !== contextKey) return;
+    fullMountScrollRef.current = null;
+    const viewport = viewportRef.current;
+    if (!viewport) return;
+    const anchorEl = saved.anchor ? document.getElementById(saved.anchor.id) : null;
+    const mode = fullMountRestoreMode({
+      atBottom: saved.atBottom,
+      stuckToBottom: stickToBottomRef.current,
+      forcePending: forceScrollRef.current,
+      hasAnchor: Boolean(anchorEl),
+    });
+    if (mode === "bottom") {
+      viewport.scrollTop = viewport.scrollHeight;
+    } else if (mode === "anchor" && anchorEl && saved.anchor) {
+      viewport.scrollTop += anchorEl.getBoundingClientRect().top - viewport.getBoundingClientRect().top - saved.anchor.top;
+    } else if (saved.height) {
+      viewport.scrollTop += viewport.scrollHeight - saved.height;
+    }
+  }, [fullyMounted, contextKey]);
 
   // Stable handlers for memoized rows.
   const stable = useMemo(() => {
