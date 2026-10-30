@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { memo, startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useGT } from "gt-next";
@@ -9,7 +9,8 @@ import { useServer } from "@/contexts/ServerContext";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { isNativeApp } from "@/lib/native/bridge";
 import { cn } from "@/lib/utils";
-import { conversationParams, parseShellRoute, shellListHref, type PagerPanel, type ShellFamily } from "@/lib/mobile/pager";
+import { conversationApiBase, conversationParams, parseShellRoute, shellListHref, type PagerPanel, type ShellFamily } from "@/lib/mobile/pager";
+import { prefetchChannelMessages } from "@/hooks/useChatSession";
 import { MobilePager, type MobilePagerHandle } from "./MobilePager";
 import { ConversationParamsContext, ConversationSearchContext, MembersSlotContext, MobileShellContext, type MobileShellApi } from "./MobileShellContext";
 
@@ -247,6 +248,10 @@ export function MobileShell({
         pagerRef.current?.goTo("chat");
         return;
       }
+      // Start the messages request now, before any rendering (the
+      // conversation's own first fetch picks up the same request).
+      const apiBase = conversationApiBase(href);
+      if (apiBase) void prefetchChannelMessages(apiBase);
       const fromList = cur.panel === "list" && window.location.pathname === shellListHref(cur);
       const next: ShellNav = { path: href, family: route.family, serverId: route.serverId, conv: href, panel: "chat" };
       // The URL follows once the new chat has rendered: Next re-renders its
@@ -266,13 +271,19 @@ export function MobileShell({
         pagerRef.current?.goTo("chat");
         requestAnimationFrame(() => {
           setTimeout(() => {
-            withUpdate?.();
-            setNav(next);
+            // A transition: the new conversation renders in slices, so the
+            // slide and further taps stay responsive while it mounts.
+            startTransition(() => {
+              withUpdate?.();
+              setNav(next);
+            });
           }, 0);
         });
       } else {
-        withUpdate?.();
-        setNav(next);
+        startTransition(() => {
+          withUpdate?.();
+          setNav(next);
+        });
       }
     },
     showList: () => pagerRef.current?.goTo("list"),

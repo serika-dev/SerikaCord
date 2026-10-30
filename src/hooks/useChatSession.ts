@@ -326,7 +326,10 @@ export function useChatSession<M extends ChatMessage>({
   // channel visibly flashes the old channel's messages (the "buggy switching").
   // We paint the SWR cache instantly (no spinner) or clear to the loading state
   // on a cold open. fetchMessages then revalidates in the background.
-  const [renderedContext, setRenderedContext] = useState<string | null>(apiBase);
+  // Starts unset so the first render takes this path too: a conversation
+  // opened warm mounts with its messages in the first commit, instead of an
+  // empty loading render followed by a second render from fetchMessages.
+  const [renderedContext, setRenderedContext] = useState<string | null>(null);
   if (apiBase !== renderedContext) {
     // Memory: the context we're leaving no longer needs deep scrollback in the
     // cache — trim its entry to one page. Only the active context can grow to
@@ -445,7 +448,9 @@ export function useChatSession<M extends ChatMessage>({
         .catch(() => { /* the network page decrypts them */ });
     }
     if (cached && warm) {
-      setMessages(cached);
+      // Usually painted already by the context switch above (same rows): keep
+      // that array so nothing re-renders.
+      setMessages((prev) => (prev.length === cached.length && prev.every((m, i) => m.id === cached[i].id) ? prev : cached));
       // Be optimistic about older history when painting from cache: the cache may
       // be a short persisted tail (localStorage only keeps ~30 messages), so a
       // strict `>= PAGE_SIZE` check would wrongly disable scroll-up pagination
