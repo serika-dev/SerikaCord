@@ -31,6 +31,17 @@ export function useMobileShell(): MobileShellApi | null {
   return useContext(MobileShellContext);
 }
 
+/**
+ * The phone shell's member panel, for conversations that render their own
+ * member list into it (DMs and group DMs portal theirs here; null elsewhere).
+ */
+export const MembersSlotContext = createContext<HTMLElement | null>(null);
+
+/** Where a conversation page should portal its member list inside the phone shell. */
+export function useMembersSlot(): HTMLElement | null {
+  return useContext(MembersSlotContext);
+}
+
 /** Route params of the conversation a pager panel renders (null elsewhere). */
 export const ConversationParamsContext = createContext<Record<string, string> | null>(null);
 

@@ -4,7 +4,11 @@ import { shouldAutoPlayTts, ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { getJsonCached } from "@/lib/swrJson";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useRouter } from "next/navigation";
-import { useConversationParams, useConversationSearchParams, useMobileShell } from "@/components/mobile/MobileShellContext";
+import { useConversationParams, useConversationSearchParams, useMembersSlot, useMobileShell } from "@/components/mobile/MobileShellContext";
+import { createPortal } from "react-dom";
+import { DmMembersPanel } from "@/components/dm/DmMembersPanel";
+import { MembersDrawer } from "@/components/chat/MembersDrawer";
+import type { DmPerson } from "@/lib/chat/dmMembers";
 import { useAuth } from "@/contexts/AuthContext";
 import { useServer } from "@/contexts/ServerContext";
 import { useUnreadGetter, useUnreadSelector, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
@@ -21,7 +25,7 @@ import { InlineBadges } from "@/components/chat/InlineBadges";
 import { StaffPill } from "@/components/chat/StaffPill";
 import { SystemPill } from "@/components/chat/SystemPill";
 import { ImageLightbox } from "@/components/ui/image-lightbox";
-import { Skeleton, UserProfileSkeleton } from "@/components/ui/skeleton";
+import { Skeleton } from "@/components/ui/skeleton";
 import { voiceService } from "@/lib/services/voiceService";
 import { dmCallRoomId } from "@/lib/chat/dmCall";
 import { startDmCall, updateCallPeer } from "@/lib/services/dmCallController";
@@ -42,7 +46,6 @@ import { useMediaLightbox } from "@/hooks/useMediaLightbox";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { isTouchOnlyInput, useCoarsePointer } from "@/hooks/useVisualViewport";
 import type { ChatMessage, MessageAuthor } from "@/lib/chat/types";
-import { ProfileCard, type ProfileCardUser } from "@/components/user/ProfileCard";
 import { T, useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
@@ -103,7 +106,11 @@ export default function DMConversationPage() {
   );
   // Derived: loading until the fetched recipient matches the current route.
   const recipientLoading = !recipient || recipient.id !== recipientId;
-  const [showUserProfile, setShowUserProfile] = useState(true);
+  // The member list (their profile + you and them): a column from 1024px, a
+  // drawer below that, the members panel in the phone shell.
+  const [showUserProfile, setShowUserProfile] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= 1024 : true));
+  const isCompact = useIsMobile(1024);
+  const membersSlot = useMembersSlot();
   const [showPins, setShowPins] = useState(false);
   const [showAddFriends, setShowAddFriends] = useState(false);
   const messageBarRef = useRef<MessageBarHandle>(null);
@@ -697,9 +704,12 @@ export default function DMConversationPage() {
               <InboxIcon className="w-5 h-5" />
             </button>
             <button
-              onClick={() => setShowUserProfile(!showUserProfile)}
+              onClick={() => (shell ? shell.showMembers() : setShowUserProfile(!showUserProfile))}
+              aria-label={gt("Toggle member list")}
+              title={gt("Toggle member list")}
+              aria-pressed={!shell && showUserProfile}
               className={cn(
-                "p-2 transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden lg:block",
+                "p-2 max-sm:p-2.5 transition-colors rounded-md hover:bg-[var(--bg-hover)]",
                 showUserProfile
                   ? "text-[var(--text-primary)]"
                   : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -863,25 +873,25 @@ export default function DMConversationPage() {
         )}
       </MountWhenOpened>
 
-      {/* User profile sidebar */}
-      {showUserProfile && !(search.open && !isMobile) && (
-        <div className="w-[340px] shrink-0 bg-[var(--bg-app)] border-l border-[var(--border-subtle)] hidden lg:flex flex-col h-full overflow-hidden">
-          {recipientLoading ? (
-            <UserProfileSkeleton />
-          ) : recipient ? (
-            <div className="flex-1 flex flex-col min-h-0 overflow-y-auto overflow-x-hidden">
-              <ProfileCard
-                user={recipient as ProfileCardUser}
-                isFriend={recipient.isFriend}
-                hideMessageButton
-                hideConnections
-                noRoundedCorners
-                className="w-full max-w-none flex-1 flex flex-col"
-              />
-            </div>
-          ) : null}
-        </div>
-      )}
+      {/* Member list (their profile above it), like a server's */}
+      {shell
+        ? membersSlot &&
+          createPortal(
+            <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} self={user as unknown as DmPerson} />,
+            membersSlot,
+          )
+        : isCompact
+          ? showUserProfile && (
+              <MembersDrawer onClose={() => setShowUserProfile(false)}>
+                <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} self={user as unknown as DmPerson} />
+              </MembersDrawer>
+            )
+          : showUserProfile &&
+            !search.open && (
+              <div className="w-[340px] shrink-0 hidden lg:flex flex-col h-full overflow-hidden">
+                <DmMembersPanel recipient={recipient} recipientLoading={recipientLoading} self={user as unknown as DmPerson} />
+              </div>
+            )}
 
       <MountWhenOpened open={showAddFriends}>
         <GroupDmPickerDialog

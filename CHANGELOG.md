@@ -17,6 +17,7 @@
 - **Emoji picker: search by any name, and a skin tone** — searching the picker now finds emoji by every name and keyword (`puke` finds 🤮), and a hand button next to the search box sets your skin tone, which is remembered and also used by the `:` suggestions.
 - **Backslash to send it raw, like Discord** — put `\` in front of an emoji, custom emoji, mention or channel (`\:sob:`, `\@name`, `\#channel`) to send it as plain text in its ID form, e.g. `<@id>`. Escaped mentions never ping anyone.
 - **Emoji picker when editing** — the message edit box has an emoji button (and Ctrl+E) that opens the same picker as the message bar, with your skin tone, favourites and recents; the emoji goes where your cursor is. Esc closes the picker first, a second Esc cancels the edit.
+- **DM member lists like servers** — DMs and group DMs now show the same member list as a server (status, activity, nameplates; group owner, online and offline groups), with a members button in the header. Tap or click someone to open their profile card right there, or the profile sheet on phones. In a 1:1 DM their profile (about me, mutual friends and servers, note) stays at the top of the list. Works on desktop, tablets (slides over the chat) and in the phone layout (swipe left).
 
 ### Changes
 - **The iPhone and iPad app follows the App Store rules for Serika+** — the iOS app shows no Serika+ upgrade buttons, prices or upsells and won't open purchase pages; if you already have Serika+ you still see it and keep your perks. Android and the web are unchanged.

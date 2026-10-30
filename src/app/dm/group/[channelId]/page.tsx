@@ -5,7 +5,9 @@ import { getJsonCached } from "@/lib/swrJson";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
-import { useConversationParams, useConversationSearchParams, useMobileShell } from "@/components/mobile/MobileShellContext";
+import { useConversationParams, useConversationSearchParams, useMembersSlot, useMobileShell } from "@/components/mobile/MobileShellContext";
+import { createPortal } from "react-dom";
+import { MembersDrawer } from "@/components/chat/MembersDrawer";
 import Link from "next/link";
 import { T, useGT } from "gt-next";
 import { toast } from "sonner";
@@ -94,7 +96,10 @@ export default function GroupDMPage() {
   // new group (if any) until its fetch lands.
   const group = groupState && groupState.id === channelId ? groupState : getCachedGroup(channelId);
   const groupLoading = !group;
-  const [showMembers, setShowMembers] = useState(true);
+  // Member list: a column from 1024px, a drawer below, the phone shell's members panel.
+  const [showMembers, setShowMembers] = useState(() => (typeof window !== "undefined" ? window.innerWidth >= 1024 : true));
+  const isCompact = useIsMobile(1024);
+  const membersSlot = useMembersSlot();
   const [showPins, setShowPins] = useState(false);
   const [showAddFriends, setShowAddFriends] = useState(false);
   const [showEdit, setShowEdit] = useState(false);
@@ -609,9 +614,9 @@ export default function GroupDMPage() {
               <InboxIcon className="w-5 h-5" />
             </button>
             <button
-              onClick={() => setShowMembers((v) => !v)}
+              onClick={() => (shell ? shell.showMembers() : setShowMembers((v) => !v))}
               className={cn(
-                "p-2 transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden lg:block",
+                "p-2 max-sm:p-2.5 transition-colors rounded-md hover:bg-[var(--bg-hover)]",
                 showMembers ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
               )}
               title={showMembers ? gt("Hide Member List") : gt("Show Member List")}
@@ -764,9 +769,27 @@ export default function GroupDMPage() {
         )}
       </MountWhenOpened>
 
-      {showMembers && !groupLoading && !(search.open && !isMobile) && (
-        <div className="hidden lg:flex h-full">
-          <GroupDmMembersPanel
+      {/* Member list, like a server's */}
+      {!groupLoading &&
+        (shell
+          ? membersSlot && createPortal(
+            <GroupDmMembersPanel
+            className="flex h-full min-h-0 w-full flex-col"
+            members={members}
+            ownerId={group?.ownerId ?? null}
+            currentUserId={user.id}
+            onAddFriends={() => setShowAddFriends(true)}
+            onRemove={(m) => void removeMember(m)}
+            onLeave={() => void leaveGroup()}
+            canAddMore={canAddMore}
+          />,
+            membersSlot,
+          )
+          : isCompact
+            ? showMembers && (
+                <MembersDrawer onClose={() => setShowMembers(false)}>
+                  <GroupDmMembersPanel
+            className="flex h-full min-h-0 w-full flex-col"
             members={members}
             ownerId={group?.ownerId ?? null}
             currentUserId={user.id}
@@ -775,8 +798,22 @@ export default function GroupDMPage() {
             onLeave={() => void leaveGroup()}
             canAddMore={canAddMore}
           />
-        </div>
-      )}
+                </MembersDrawer>
+              )
+            : showMembers && !search.open && (
+                <div className="hidden lg:flex h-full w-60 shrink-0">
+                  <GroupDmMembersPanel
+            className="flex h-full min-h-0 w-full flex-col"
+            members={members}
+            ownerId={group?.ownerId ?? null}
+            currentUserId={user.id}
+            onAddFriends={() => setShowAddFriends(true)}
+            onRemove={(m) => void removeMember(m)}
+            onLeave={() => void leaveGroup()}
+            canAddMore={canAddMore}
+          />
+                </div>
+              ))}
 
       <MountWhenOpened open={showAddFriends}>
         <GroupDmPickerDialog

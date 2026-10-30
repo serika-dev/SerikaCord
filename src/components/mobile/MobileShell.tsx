@@ -11,7 +11,7 @@ import { isNativeApp } from "@/lib/native/bridge";
 import { cn } from "@/lib/utils";
 import { conversationParams, parseShellRoute, shellListHref, type PagerPanel, type ShellFamily } from "@/lib/mobile/pager";
 import { MobilePager, type MobilePagerHandle } from "./MobilePager";
-import { ConversationParamsContext, ConversationSearchContext, MobileShellContext, type MobileShellApi } from "./MobileShellContext";
+import { ConversationParamsContext, ConversationSearchContext, MembersSlotContext, MobileShellContext, type MobileShellApi } from "./MobileShellContext";
 
 const panelFallback = () => <div className="flex-1 bg-[var(--bg-app)]" />;
 
@@ -86,7 +86,7 @@ function pushUrl(href: string) {
   window.history.pushState({ ...state, [PUSH_KEY]: pushMark(href) }, "", href);
 }
 
-const MembersPanel = memo(function MembersPanel() {
+const MembersPanel = memo(function MembersPanel({ family, onSlot }: { family: ShellFamily; onSlot: (el: HTMLDivElement | null) => void }) {
   const gt = useGT();
   return (
     <div className="flex h-full min-h-0 flex-col pt-safe">
@@ -94,9 +94,14 @@ const MembersPanel = memo(function MembersPanel() {
         <Users className="h-5 w-5" aria-hidden="true" />
         <h2>{gt("Members")}</h2>
       </div>
-      <div className="min-h-0 flex-1 pb-safe">
-        <MemberSidebar />
-      </div>
+      {family === "server" ? (
+        <div className="min-h-0 flex-1 pb-safe">
+          <MemberSidebar />
+        </div>
+      ) : (
+        // DMs and group DMs render their own member list into this slot.
+        <div ref={onSlot} className="flex min-h-0 flex-1 flex-col pb-safe" />
+      )}
     </div>
   );
 });
@@ -170,7 +175,8 @@ export function MobileShell({
     const t = setTimeout(commit, 0);
     return () => clearTimeout(t);
   }, [nav.conv]);
-  const hasMembers = hasChat && nav.family === "server";
+  // Server channels, DMs and group DMs all have a member panel.
+  const hasMembers = hasChat;
 
   // A server's list opened by URL (reload, deep link): select that server.
   useEffect(() => {
@@ -317,10 +323,18 @@ export function MobileShell({
     () => (nav.conv ? <ConversationPanel href={nav.conv} padTop={nav.family === "server"} footer={voiceBar} /> : null),
     [nav.conv, nav.family, voiceBar],
   );
-  const members = useMemo(() => (membersReady || nav.panel === "members" ? <MembersPanel /> : null), [membersReady, nav.panel]);
+  const [membersSlot, setMembersSlot] = useState<HTMLElement | null>(null);
+  const members = useMemo(
+    () =>
+      nav.family === "dm" || membersReady || nav.panel === "members" ? (
+        <MembersPanel family={nav.family} onSlot={setMembersSlot} />
+      ) : null,
+    [membersReady, nav.panel, nav.family],
+  );
 
   return (
     <MobileShellContext.Provider value={api}>
+      <MembersSlotContext.Provider value={nav.family === "dm" ? membersSlot : null}>
       <MobilePager
         ref={pagerRef}
         panel={hasChat ? nav.panel : "list"}
@@ -331,6 +345,7 @@ export function MobileShell({
         chat={chat}
         members={members}
       />
+      </MembersSlotContext.Provider>
     </MobileShellContext.Provider>
   );
 }

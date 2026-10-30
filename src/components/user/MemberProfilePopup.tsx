@@ -3,7 +3,7 @@
 import dynamic from "next/dynamic";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useLayoutEffect, useRef } from "react";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/contexts/AuthContext";
 import {
@@ -146,7 +146,18 @@ function MemberProfilePopupBody({
   const pathname = usePathname();
   const [openOnPath, setOpenOnPath] = useState<string | null>(initialOpen && !isMobile ? pathname : null);
   const open = openOnPath !== null && openOnPath === pathname;
-  const setOpen = (next: boolean) => setOpenOnPath(next ? pathname : null);
+  // A tap (touch tablets) opens the card on pointerup; the click that follows
+  // lands on the trigger and would toggle it shut again at once.
+  const openedAt = useRef(0);
+  useLayoutEffect(() => {
+    if (initialOpen) openedAt.current = Date.now();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const setOpen = (next: boolean) => {
+    if (!next && Date.now() - openedAt.current < 450) return;
+    if (next) openedAt.current = Date.now();
+    setOpenOnPath(next ? pathname : null);
+  };
   const [fullProfileOpen, setFullProfileOpen] = useState(initialOpen && isMobile);
   const [modViewOpen, setModViewOpen] = useState(false);
   const [fullProfile, setFullProfile] = useState<ProfileCardUser>(member);

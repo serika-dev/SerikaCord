@@ -1,20 +1,19 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
 import { useGT } from "gt-next";
-import { Crown, LogOut, UserMinus, UserPlus } from "lucide-react";
+import { LogOut, UserMinus, UserPlus } from "lucide-react";
 import { UserMenuItems } from "@/components/user/UserContextMenu";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
-import { cn, cdnImage } from "@/lib/utils";
-import { getDisplayNameStyleClasses, getDisplayNameStyleInline } from "@/lib/userDisplayNameStyle";
 import type { GroupMember } from "@/lib/chat/groupDmClient";
-import { StatusBadge } from "@/components/user/StatusBadge";
+import { MemberList } from "@/components/chat/MemberSidebar";
+import { toMemberListMember } from "@/lib/chat/dmMembers";
 
 /**
- * The right-hand member list of a group DM: "Members — N", the owner's crown,
- * and per-member actions (message; remove from group for the owner), plus
- * "Add Friends" and "Leave Group".
+ * The member list of a group DM, the same list (rows, presence, activity,
+ * nameplates, profile card on click) as a server's: the owner in a "Group
+ * Owner" group, then Online / Offline. The context menu keeps the group's own
+ * actions (remove from group for the owner, leave), plus "Add Friends" and
+ * "Leave Group" below the list.
  */
 export function GroupDmMembersPanel({
   members,
@@ -24,6 +23,7 @@ export function GroupDmMembersPanel({
   onRemove,
   onLeave,
   canAddMore,
+  className,
 }: {
   members: GroupMember[];
   ownerId: string | null;
@@ -32,9 +32,9 @@ export function GroupDmMembersPanel({
   onRemove: (member: GroupMember) => void;
   onLeave: () => void;
   canAddMore: boolean;
+  className?: string;
 }) {
   const gt = useGT();
-  const router = useRouter();
   const [menu, setMenu] = useState<{ x: number; y: number; member: GroupMember } | null>(null);
   const iOwn = !!ownerId && ownerId.toLowerCase() === currentUserId.toLowerCase();
 
@@ -50,83 +50,45 @@ export function GroupDmMembersPanel({
     };
   }, [menu]);
 
-  const sorted = [...members].sort((a, b) => {
-    const rank = (m: GroupMember) => (m.status && m.status !== "offline" ? 0 : 1);
-    return rank(a) - rank(b) || (a.displayName || a.username).localeCompare(b.displayName || b.username);
-  });
+  const ownerLabel = gt("Group Owner");
+  const listMembers = useMemo(
+    () => members.map((m) => toMemberListMember(m, { ownerId, ownerLabel })),
+    [members, ownerId, ownerLabel],
+  );
 
   return (
-    <aside className="flex h-full w-60 shrink-0 flex-col border-l border-[var(--border-subtle)] bg-[var(--bg-sidebar)]">
-      <div className="px-4 pt-4 pb-2 text-xs font-semibold uppercase tracking-wide text-[var(--text-muted)]">
-        {gt("Members — {count}", { count: members.length })}
-      </div>
-      <div className="flex-1 overflow-y-auto px-2 pb-2">
-        {sorted.map((m) => {
-          const name = m.displayName || m.username;
-          const isOwner = !!ownerId && m.id.toLowerCase() === ownerId.toLowerCase();
-          const isMe = m.id.toLowerCase() === currentUserId.toLowerCase();
-          const offline = !m.status || m.status === "offline";
-          return (
+    <aside className={className ?? "flex h-full w-60 shrink-0 flex-col"}>
+      <MemberList
+        members={listMembers}
+        className="w-full md:w-full bg-[var(--bg-sidebar)] border-[var(--border-subtle)]"
+        onMemberContextMenu={(e, m) => {
+          e.preventDefault();
+          e.stopPropagation();
+          const member = members.find((x) => x.id === m.id);
+          if (member) setMenu({ x: e.clientX, y: e.clientY, member });
+        }}
+        footer={
+          <div data-touch-scope="" className="flex flex-col gap-1 border-t border-[var(--border-subtle)] p-2 bg-[var(--bg-sidebar)]">
             <button
-              key={m.id}
               type="button"
-              onClick={() => { if (!isMe) router.push(`/dm/${m.id}`); }}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                e.stopPropagation();
-                setMenu({ x: e.clientX, y: e.clientY, member: m });
-              }}
-              className={cn(
-                "group flex w-full items-center gap-3 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-[var(--bg-sidebar-elevated)] hover:[--status-ring:var(--app-surface-solid)]",
-                offline && "opacity-50 hover:opacity-100",
-              )}
-              title={isMe ? name : gt("Message {name}", { name })}
+              onClick={onAddFriends}
+              disabled={!canAddMore}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <div className="relative shrink-0">
-                <Avatar className="h-8 w-8">
-                  <AvatarImage src={cdnImage(m.avatar)} alt="" />
-                  <AvatarFallback className="bg-[var(--app-accent)] text-[var(--text-on-accent)] text-xs">
-                    {name.charAt(0).toUpperCase()}
-                  </AvatarFallback>
-                </Avatar>
-                <StatusBadge status={m.status} size={10} ring={3} ringColor="var(--status-ring, var(--bg-sidebar-solid))" corner />
-              </div>
-              <span className="flex min-w-0 flex-1 items-center gap-1">
-                <span
-                  className={cn("truncate text-sm font-medium text-[var(--text-primary)]", getDisplayNameStyleClasses(m.customization?.displayNameStyle))}
-                  style={getDisplayNameStyleInline(m.customization?.displayNameStyle)}
-                >
-                  {name}
-                </span>
-                {isOwner && (
-                  <span title={gt("Group Owner")} aria-label={gt("Group Owner")} className="shrink-0">
-                    <Crown className="h-3.5 w-3.5 text-yellow-500" aria-hidden />
-                  </span>
-                )}
-              </span>
+              <UserPlus className="h-4 w-4" />
+              {gt("Add Friends to DM")}
             </button>
-          );
-        })}
-      </div>
-      <div className="flex flex-col gap-1 border-t border-[var(--border-subtle)] p-2">
-        <button
-          type="button"
-          onClick={onAddFriends}
-          disabled={!canAddMore}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-[var(--text-secondary)] hover:bg-[var(--bg-sidebar-elevated)] hover:text-[var(--text-primary)] disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          <UserPlus className="h-4 w-4" />
-          {gt("Add Friends to DM")}
-        </button>
-        <button
-          type="button"
-          onClick={onLeave}
-          className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-red-400 hover:bg-red-500/10"
-        >
-          <LogOut className="h-4 w-4" />
-          {gt("Leave Group")}
-        </button>
-      </div>
+            <button
+              type="button"
+              onClick={onLeave}
+              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-red-400 hover:bg-red-500/10"
+            >
+              <LogOut className="h-4 w-4" />
+              {gt("Leave Group")}
+            </button>
+          </div>
+        }
+      />
 
       {menu && (
         <div

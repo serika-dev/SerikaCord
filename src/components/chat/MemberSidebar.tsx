@@ -20,7 +20,7 @@ import { StatusBadge } from "@/components/user/StatusBadge";
 import { hasCustomStatus } from "@/lib/social/customStatus";
 
 
-interface MemberRole {
+export interface MemberRole {
   id: string;
   name: string;
   color: string;
@@ -33,9 +33,9 @@ interface MemberRole {
   memberCount: number;
 }
 
-interface Member {
+export interface MemberListMember {
   id: string;
-  membershipId: string;
+  membershipId?: string;
   username: string;
   displayName: string;
   avatar?: string | null;
@@ -48,7 +48,7 @@ interface Member {
   isVerified?: boolean;
   joinedAt?: string | null;
   communicationDisabledUntil?: string | null;
-  roles: MemberRole[];
+  roles?: MemberRole[];
   highestRole?: MemberRole | null;
   highestHoistedRole?: MemberRole | null;
   /** Highest role with an icon (Discord shows it after the name). */
@@ -80,10 +80,10 @@ interface GroupedRoleMembers {
   label: string;
   color?: string;
   position: number;
-  members: Member[];
+  members: MemberListMember[];
 }
 
-function sortMembersByName(items: Member[]): Member[] {
+function sortMembersByName(items: MemberListMember[]): MemberListMember[] {
   return [...items].sort((a, b) => {
     const nameA = (a.displayName || a.username || "").toLowerCase();
     const nameB = (b.displayName || b.username || "").toLowerCase();
@@ -91,17 +91,46 @@ function sortMembersByName(items: Member[]): Member[] {
   });
 }
 
+/** The server member list (right column / drawer / phone members panel). */
 export function MemberSidebar() {
-  const gt = useGT();
   const { currentServer } = useServer();
   const { members, isMembersLoading: isLoading } = useServerMembers();
+  if (!currentServer) return null;
+  return <MemberList members={members as MemberListMember[]} isLoading={isLoading} serverId={currentServer.id} />;
+}
+
+/**
+ * One member list for servers, DMs and group DMs: rows grouped by hoisted
+ * role (then Online / Offline), presence, status, activity, nameplates, and
+ * the same profile card on click (lazy, see MemberProfilePopup). `header` /
+ * `footer` sit above / below the rows; `onMemberContextMenu` replaces the
+ * server user menu (group DMs add their own actions).
+ */
+export function MemberList({
+  members,
+  isLoading = false,
+  serverId,
+  header,
+  footer,
+  onMemberContextMenu,
+  className,
+}: {
+  members: MemberListMember[];
+  isLoading?: boolean;
+  serverId?: string;
+  header?: React.ReactNode;
+  footer?: React.ReactNode;
+  onMemberContextMenu?: (e: React.MouseEvent, member: MemberListMember) => void;
+  className?: string;
+}) {
+  const gt = useGT();
 
   const groupedOnlineMembers = useMemo(() => {
     const onlineMembers = sortMembersByName(members.filter((member) => member.status !== "offline"));
     const groups = new Map<string, GroupedRoleMembers>();
 
     for (const member of onlineMembers) {
-      const hoistedRole = member.roles.find((role) => role.hoist) || null;
+      const hoistedRole = (member.roles ?? []).find((role) => role.hoist) || null;
       const key = hoistedRole ? `role-${hoistedRole.id}` : "no-role";
 
       if (!groups.has(key)) {
@@ -132,12 +161,12 @@ export function MemberSidebar() {
   const flatItems = useMemo(() => {
     type FlatItem =
       | { kind: "header"; key: string; label: string; count: number }
-      | { kind: "member"; key: string; member: Member };
+      | { kind: "member"; key: string; member: MemberListMember };
     const items: FlatItem[] = [];
     for (const group of groupedOnlineMembers) {
       items.push({ kind: "header", key: `h-${group.key}`, label: group.label, count: group.members.length });
       for (const member of group.members) {
-        items.push({ kind: "member", key: member.id || member.membershipId, member });
+        items.push({ kind: "member", key: member.id || member.membershipId || "", member });
       }
     }
     return items;
@@ -148,11 +177,11 @@ export function MemberSidebar() {
     [members]
   );
 
-  if (!currentServer) return null;
 
   return (
-    <div className="w-full md:w-56 shrink-0 h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] overflow-hidden" style={{ touchAction: "pan-y" }}>
-      <ScrollArea className="h-full member-scroll-area">
+    <div data-touch-scope="" className={cn("w-full md:w-56 shrink-0 h-full bg-[var(--app-bg)] border-l border-[var(--app-border)] overflow-hidden flex flex-col", className)} style={{ touchAction: "pan-y" }}>
+      <ScrollArea className="min-h-0 flex-1 member-scroll-area">
+        {header}
         <div className="py-4">
           {isLoading ? (
             <div className="space-y-4">
@@ -187,7 +216,7 @@ export function MemberSidebar() {
                     {item.label} — {item.count}
                   </p>
                 ) : (
-                  <MemberItem key={item.key} member={item.member} serverId={currentServer.id} />
+                  <MemberItem key={item.key} member={item.member} serverId={serverId} onMemberContextMenu={onMemberContextMenu} />
                 )
               )}
 
@@ -197,7 +226,7 @@ export function MemberSidebar() {
                     {gt("Offline")} — {offlineMembers.length}
                   </p>
                   {offlineMembers.map((member) => (
-                    <MemberItem key={member.id || member.membershipId} member={member} serverId={currentServer.id} />
+                    <MemberItem key={member.id || member.membershipId} member={member} serverId={serverId} onMemberContextMenu={onMemberContextMenu} />
                   ))}
                 </>
               )}
@@ -211,20 +240,22 @@ export function MemberSidebar() {
           )}
         </div>
       </ScrollArea>
+      {footer}
     </div>
   );
 }
 
 interface MemberItemProps {
-  member: Member;
+  member: MemberListMember;
   serverId?: string;
+  onMemberContextMenu?: (e: React.MouseEvent, member: MemberListMember) => void;
 }
 
 // Memoized: ServerContext reuses unchanged member objects across polls, so
 // only rows whose member actually changed re-render.
 const MemberItem = memo(MemberItemImpl);
 
-function MemberItemImpl({ member, serverId }: MemberItemProps) {
+function MemberItemImpl({ member, serverId, onMemberContextMenu }: MemberItemProps) {
   const gt = useGT();
   // Discord's full user menu (profile, mention, note, friends, block,
   // nickname, roles, timeout / kick / ban) — the same one as in chat.
@@ -246,7 +277,7 @@ function MemberItemImpl({ member, serverId }: MemberItemProps) {
     <MemberProfilePopup member={member} serverId={serverId} surface="rightPanel">
       <div
         className="relative mt-1"
-        onContextMenu={(e) => openUserMenu(e, member)}
+        onContextMenu={(e) => (onMemberContextMenu ? onMemberContextMenu(e, member) : openUserMenu(e, member))}
       >
       <button
         className={cn(
