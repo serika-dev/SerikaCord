@@ -52,6 +52,7 @@
 - **Finger-sized buttons on touch screens, everywhere** — on iPads, Android tablets and phones the channel and DM lists, member lists, chat and DM headers, the friends list and reactions use 44px touch targets even in the desktop-style layout (mouse users keep the compact sizes). The developer portal's top bar no longer runs off the screen on narrow windows, and the phone layout no longer jumps sideways when the server list loads.
 - **Voice channels on phones** — opening a voice channel on a phone no longer freezes the page in a render loop, and voice and forum channels have a back arrow to your channel list.
 - **Your message shows the moment you send it** — in channels, DMs and group DMs (encrypted ones too) your message now appears immediately, even while the app is still checking whether the conversation is encrypted or jumping back from an older part of the chat; it used to wait for those checks first.
+- **Developer docs fit narrow windows** — at 640px wide (or 200% zoom) the docs no longer run off the right edge; long code scrolls inside its block.
 
 ### Performance
 - **Faster channel and DM switching** — opening a conversation does less than half the work it used to: the react / more buttons on each message are only built when you point at it, messages without links skip the link-preview code, and reloading a conversation no longer redraws messages that didn't change. Messages also show at once instead of fading in over half a second.

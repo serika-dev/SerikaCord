@@ -79,7 +79,7 @@ export default function DevelopersLayoutClient({
           </div>
         </header>
 
-        <div className="flex-1 flex">{children}</div>
+        <div className="flex-1 min-w-0 flex">{children}</div>
       </div>
   );
 }

@@ -47,7 +47,7 @@ export default function DocsLayout({
   }, [search]);
 
   return (
-    <div className="flex-1 flex relative">
+    <div className="flex-1 min-w-0 flex relative">
       {/* Mobile sidebar toggle */}
       <button
         onClick={() => setSidebarOpen(!sidebarOpen)}
