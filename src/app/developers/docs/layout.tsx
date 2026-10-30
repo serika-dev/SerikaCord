@@ -1,12 +1,19 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useSyncExternalStore } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
 import { docNav } from "@/lib/constants/docs-nav";
 import { Search, Menu, X, ExternalLink } from "lucide-react";
 import { useGT } from "gt-next";
+
+const DRAWER_QUERY = "(max-width: 767px)";
+const subscribeDrawer = (cb: () => void) => {
+  const mql = window.matchMedia(DRAWER_QUERY);
+  mql.addEventListener("change", cb);
+  return () => mql.removeEventListener("change", cb);
+};
 
 export default function DocsLayout({
   children,
@@ -17,6 +24,9 @@ export default function DocsLayout({
   const gt = useGT();
   const [search, setSearch] = useState("");
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Under 768px the sidebar is an off-screen drawer: out of the tab order while closed.
+  const narrow = useSyncExternalStore(subscribeDrawer, () => window.matchMedia(DRAWER_QUERY).matches, () => false);
+  const drawer = narrow && !sidebarOpen;
 
   const currentSlug = useMemo(() => {
     const parts = pathname?.replace("/developers/docs/", "").split("/") || [];
@@ -56,6 +66,7 @@ export default function DocsLayout({
 
       {/* Sidebar */}
       <aside
+        inert={drawer ? true : undefined}
         className={cn(
           "w-64 border-r border-white/[0.06] bg-[#0d0d0d] flex flex-col shrink-0",
           "fixed md:sticky top-0 left-0 z-40 transition-transform md:translate-x-0",
