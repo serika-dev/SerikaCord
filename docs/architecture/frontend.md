@@ -191,6 +191,29 @@ popup, sticky header or floating bar without one of those roles needs the
 (`bg-[var(--bg-card)]/90`) on top. Full-screen panels use `theme-backdrop`
 instead, which repaints the gradient underneath.
 
+## Layout tiers (phone, tablet, desktop)
+
+`src/lib/layout/breakpoints.ts` is the one definition, mirrored in CSS by the
+`phone:` / `desk:` Tailwind variants (globals.css):
+
+- **phone** (`PHONE_QUERY`, `useIsMobile()` default): under 768px, or a phone
+  held sideways (short + touch + landscape). The phone shell below.
+- **compact** (`COMPACT_QUERY`, `useIsMobile(1024)`): 768–1023px (iPad
+  portrait, split view, small windows). Server rail + channel list + chat;
+  member lists (servers and DMs) open in the shared `MembersDrawer`, search
+  opens as a full panel.
+- **wide**: 1024px+, every column inline.
+
+Use `desk:hidden` (not `md:hidden`) for phone-shell-only UI. Touch screens get
+44px targets inside `data-touch-scope` containers through `(pointer: coarse)`
+rules in globals.css (mouse layouts stay dense); add the attribute to new
+sidebars, toolbars and lists instead of per-button classes.
+
+Member lists: `MemberList` (in `components/chat/MemberSidebar.tsx`) renders
+server members and DM / group DM people alike (`lib/chat/dmMembers.ts` maps
+DM people; `DmMembersPanel`, `GroupDmMembersPanel`). Rows open the lazy
+`MemberProfilePopup` card.
+
 ## Mobile
 
 `ChannelsLayoutClient` switches to mobile views (`src/components/mobile/*`,
@@ -204,7 +227,8 @@ pages itself (`ConversationParamsContext`; pages read params with
 `useParams()` directly) and updates the URL with `history.pushState` /
 `replaceState` after the motion, so nothing loads a route. Navigate inside it
 with `useMobileShell()` (`open(href)`, `showList()`, `showMembers()`) rather
-than `router.push`. The strip only carries a transform while moving (a
+than `router.push`. DM pages portal their member list into the shell's
+members panel (`useMembersSlot()`). The strip only carries a transform while moving (a
 transformed ancestor would capture `position: fixed` children). Route and
 gesture math is pure in `src/lib/mobile/pager.ts`. Every phone bottom sheet
 closes through `useDragToDismiss` (`src/hooks/useDragToDismiss.ts`), which
