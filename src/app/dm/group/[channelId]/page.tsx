@@ -1,5 +1,6 @@
 "use client";
 
+import { HeaderOverflowMenu } from "@/components/chat/HeaderOverflowMenu";
 import { shouldAutoPlayTts, ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { getJsonCached } from "@/lib/swrJson";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -564,7 +565,7 @@ export default function GroupDMPage() {
                 <button
                   type="button"
                   onClick={() => setShowEdit(true)}
-                  className="min-w-0 truncate rounded px-1 font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
+                  className="min-w-0 truncate rounded px-1 text-left font-semibold text-[var(--text-primary)] hover:bg-[var(--bg-hover)]"
                   title={gt("Edit Group")}
                 >
                   {title}
@@ -588,19 +589,16 @@ export default function GroupDMPage() {
             <button onClick={() => startCall(false)} className={headerButton} title={gt("Start Voice Call")} aria-label={gt("Start Voice Call")}>
               <Phone className="w-5 h-5" />
             </button>
-            <button onClick={() => startCall(true)} className={cn(headerButton, "hidden sm:block")} title={gt("Start Video Call")} aria-label={gt("Start Video Call")}>
+            <button onClick={() => startCall(true)} className={cn(headerButton, "hidden md:block")} title={gt("Start Video Call")} aria-label={gt("Start Video Call")}>
               <Video className="w-5 h-5" />
             </button>
-            <button onClick={() => setShowPins(true)} className={headerButton} title={gt("Pinned Messages")} aria-label={gt("Pinned Messages")}>
+            <button onClick={() => setShowPins(true)} className={cn(headerButton, "max-md:hidden")} title={gt("Pinned Messages")} aria-label={gt("Pinned Messages")}>
               <Pin className="w-5 h-5" />
-            </button>
-            <button type="button" onClick={() => setMobileSearchOpen(true)} className={cn(headerButton, "md:hidden")} title={gt("Search")} aria-label={gt("Search")}>
-              <Search className="w-5 h-5" />
             </button>
             <button
               onClick={() => setShowAddFriends(true)}
               disabled={!canAddMore}
-              className={cn(headerButton, "disabled:opacity-40 max-sm:hidden")}
+              className={cn(headerButton, "disabled:opacity-40 max-md:hidden")}
               title={gt("Add Friends to DM")}
               aria-label={gt("Add Friends to DM")}
             >
@@ -608,19 +606,19 @@ export default function GroupDMPage() {
             </button>
             <button
               onClick={() => openNotificationSettings({ scope: "channel", id: channelId, name: title || gt("Group"), kind: "dm" })}
-              className={cn(headerButton, "hidden sm:block")}
+              className={cn(headerButton, "hidden md:block")}
               title={gt("Notification Settings")}
               aria-label={gt("Notification Settings")}
             >
               {muted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />}
             </button>
-            <button onClick={() => openInbox()} className={cn(headerButton, "hidden sm:block")} title={gt("Inbox")} aria-label={gt("Inbox")}>
+            <button onClick={() => openInbox()} className={cn(headerButton, "hidden md:block")} title={gt("Inbox")} aria-label={gt("Inbox")}>
               <InboxIcon className="w-5 h-5" />
             </button>
             <button
               onClick={() => (shell ? shell.showMembers() : setShowMembers((v) => !v))}
               className={cn(
-                "p-2 max-sm:p-2.5 transition-colors rounded-md hover:bg-[var(--bg-hover)]",
+                "max-md:hidden p-2 max-sm:p-2.5 transition-colors rounded-md hover:bg-[var(--bg-hover)]",
                 showMembers ? "text-[var(--text-primary)]" : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]",
               )}
               title={showMembers ? gt("Hide Member List") : gt("Show Member List")}
@@ -629,6 +627,27 @@ export default function GroupDMPage() {
             >
               <Users className="w-5 h-5" />
             </button>
+            <HeaderOverflowMenu
+              items={[
+                { key: "video", label: gt("Start Video Call"), icon: <Video className="w-5 h-5" />, onSelect: () => startCall(true) },
+                { key: "pins", label: gt("Pinned Messages"), icon: <Pin className="w-5 h-5" />, onSelect: () => setShowPins(true) },
+                { key: "search", label: gt("Search"), icon: <Search className="w-5 h-5" />, onSelect: () => setMobileSearchOpen(true) },
+                { key: "add", label: gt("Add Friends to DM"), icon: <UserPlus className="w-5 h-5" />, onSelect: () => setShowAddFriends(true), hidden: !canAddMore },
+                {
+                  key: "notifications",
+                  label: gt("Notification Settings"),
+                  icon: muted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />,
+                  onSelect: () => openNotificationSettings({ scope: "channel", id: channelId, name: title || gt("Group"), kind: "dm" }),
+                },
+                { key: "inbox", label: gt("Inbox"), icon: <InboxIcon className="w-5 h-5" />, onSelect: () => openInbox() },
+                {
+                  key: "members",
+                  label: showMembers ? gt("Hide Member List") : gt("Show Member List"),
+                  icon: <Users className="w-5 h-5" />,
+                  onSelect: () => (shell ? shell.showMembers() : setShowMembers((v) => !v)),
+                },
+              ]}
+            />
             <MessageSearchBar
               ref={searchBarRef}
               search={search}

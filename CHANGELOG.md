@@ -12,6 +12,8 @@
 
 ### Bug Fixes
 
+- **Names keep their room on phones** — the channel, thread or DM name stays readable on a phone. Search, pins, notifications and the other header buttons move into a More menu, and a DM keeps the call button on the bar.
+
 ### Performance
 
 ### Security

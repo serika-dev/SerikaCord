@@ -1,5 +1,6 @@
 "use client";
 
+import { HeaderOverflowMenu } from "@/components/chat/HeaderOverflowMenu";
 import { shouldAutoPlayTts, ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { getJsonCached } from "@/lib/swrJson";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -618,8 +619,8 @@ export default function DMConversationPage() {
               <StatusBadge status={recipient?.status} size={10} ring={3} ringColor="var(--app-bg-solid)" corner />
             </button>
 
-            <div className="flex items-center gap-2 min-w-0">
-              <span className={cn("font-semibold text-[var(--text-primary)] truncate self-center", getDisplayNameStyleClasses(recipient?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient?.customization?.displayNameStyle)}>
+            <div className="flex flex-1 items-center gap-2 min-w-0">
+              <span className={cn("min-w-0 font-semibold text-[var(--text-primary)] truncate self-center", getDisplayNameStyleClasses(recipient?.customization?.displayNameStyle))} style={getDisplayNameStyleInline(recipient?.customization?.displayNameStyle)}>
                 {recipientName || gt("Loading...")}
               </span>
               <SystemPill isSystem={recipient?.isSystem} />
@@ -648,7 +649,7 @@ export default function DMConversationPage() {
                 </button>
                 <button
                   onClick={() => startCall(true)}
-                  className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+                  className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
                   title={gt("Start Video Call")}
                   aria-label={gt("Start Video Call")}
                 >
@@ -657,7 +658,7 @@ export default function DMConversationPage() {
                 {!recipient?.isBot && (
                   <button
                     onClick={() => setShowAddFriends(true)}
-                    className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] max-sm:hidden"
+                    className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden"
                     title={gt("Add Friends to DM")}
                     aria-label={gt("Add Friends to DM")}
                   >
@@ -668,20 +669,11 @@ export default function DMConversationPage() {
             )}
             <button
               onClick={() => setShowPins(true)}
-              className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)]"
+              className="p-2 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden"
               title={gt("Pinned Messages")}
               aria-label={gt("Pinned Messages")}
             >
               <Pin className="w-5 h-5" />
-            </button>
-            <button
-              type="button"
-              onClick={() => setMobileSearchOpen(true)}
-              className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] md:hidden"
-              title={gt("Search")}
-              aria-label={gt("Search")}
-            >
-              <Search className="w-5 h-5" />
             </button>
             {dmChannelId && (
               <button
@@ -693,7 +685,7 @@ export default function DMConversationPage() {
                     kind: "dm",
                   })
                 }
-                className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+                className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
                 title={gt("Notification Settings")}
                 aria-label={gt("Notification Settings")}
               >
@@ -702,7 +694,7 @@ export default function DMConversationPage() {
             )}
             <button
               onClick={() => openInbox()}
-              className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden sm:block"
+              className="p-2 max-sm:p-2.5 text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition-colors rounded-md hover:bg-[var(--bg-hover)] hidden md:block"
               title={gt("Inbox")}
               aria-label={gt("Inbox")}
             >
@@ -714,7 +706,7 @@ export default function DMConversationPage() {
               title={gt("Profile")}
               aria-pressed={!shell && showUserProfile}
               className={cn(
-                "p-2 transition-colors rounded-md hover:bg-[var(--bg-hover)] max-sm:hidden",
+                "p-2 transition-colors rounded-md hover:bg-[var(--bg-hover)] max-md:hidden",
                 showUserProfile
                   ? "text-[var(--text-primary)]"
                   : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -722,6 +714,36 @@ export default function DMConversationPage() {
             >
               <Users className="w-5 h-5" />
             </button>
+            <HeaderOverflowMenu
+              items={[
+                {
+                  key: "video",
+                  label: gt("Start Video Call"),
+                  icon: <Video className="w-5 h-5" />,
+                  onSelect: () => startCall(true),
+                  hidden: !!recipient?.isSystem,
+                },
+                { key: "pins", label: gt("Pinned Messages"), icon: <Pin className="w-5 h-5" />, onSelect: () => setShowPins(true) },
+                {
+                  key: "add",
+                  label: gt("Add Friends to DM"),
+                  icon: <UserPlus className="w-5 h-5" />,
+                  onSelect: () => setShowAddFriends(true),
+                  hidden: !!recipient?.isSystem || !!recipient?.isBot,
+                },
+                {
+                  key: "notifications",
+                  label: gt("Notification Settings"),
+                  icon: dmMuted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />,
+                  onSelect: () =>
+                    dmChannelId &&
+                    openNotificationSettings({ scope: "channel", id: dmChannelId, name: recipientName || gt("Direct Message"), kind: "dm" }),
+                  hidden: !dmChannelId,
+                },
+                { key: "search", label: gt("Search"), icon: <Search className="w-5 h-5" />, onSelect: () => setMobileSearchOpen(true) },
+                { key: "inbox", label: gt("Inbox"), icon: <InboxIcon className="w-5 h-5" />, onSelect: () => openInbox() },
+              ]}
+            />
             <MessageSearchBar
               ref={searchBarRef}
               search={search}

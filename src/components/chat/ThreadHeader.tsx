@@ -29,7 +29,7 @@ interface ThreadHeaderTitleProps {
 export function ThreadHeaderTitle({ name, parentName, onOpenParent, isPrivate }: ThreadHeaderTitleProps) {
   const gt = useGT();
   return (
-    <div className="flex min-w-0 items-center gap-1.5">
+    <div className="flex min-w-0 flex-1 items-center gap-1.5">
       {onOpenParent && parentName && (
         <>
           <button
@@ -45,7 +45,7 @@ export function ThreadHeaderTitle({ name, parentName, onOpenParent, isPrivate }:
         </>
       )}
       <MessagesSquare className="h-5 w-5 shrink-0 text-[var(--app-muted-2)]" aria-label={isPrivate ? gt("Private thread") : gt("Thread")} />
-      <span className="truncate text-sm font-semibold text-[var(--text-primary)] sm:text-base">{name}</span>
+      <span className="min-w-0 truncate text-sm font-semibold text-[var(--text-primary)] sm:text-base">{name}</span>
       {isPrivate && <Lock className="h-3.5 w-3.5 shrink-0 text-[var(--app-muted)]" aria-label={gt("Private thread")} />}
     </div>
   );

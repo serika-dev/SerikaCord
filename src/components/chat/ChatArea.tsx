@@ -1,5 +1,6 @@
 "use client";
 
+import { HeaderOverflowMenu } from "@/components/chat/HeaderOverflowMenu";
 import { shouldAutoPlayTts, ttsPlaybackOptions } from "@/lib/chat/ttsPrefs";
 import { isMessageRead } from "@/lib/unread/engine";
 import { channelNameMatches } from "@/lib/servers/channelRules";
@@ -1364,7 +1365,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     <div className="chat-shell flex-1 flex flex-col bg-[var(--app-bg)] min-w-0 min-h-0 overflow-hidden">
       {/* Channel Header */}
       <div data-touch-scope="" className="h-12 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--app-border)] bg-[var(--app-surface)] flex-shrink-0">
-        <div className="flex items-center gap-2 min-w-0">
+        <div className="flex flex-1 items-center gap-2 min-w-0">
           {isMobile && !isPanel && (
             <button
               onClick={() => {
@@ -1399,13 +1400,13 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             <Hash className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
           )}
           {!isThread && (
-            <span className="font-semibold text-[var(--text-primary)] truncate text-sm sm:text-base">{currentChannel.name}</span>
+            <span className="min-w-0 font-semibold text-[var(--text-primary)] truncate text-sm sm:text-base">{currentChannel.name}</span>
           )}
           {currentChannel.type === "announcement" && (
             <span className="ml-1 shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/15 text-blue-400 select-none hidden sm:inline">ANNOUNCEMENTS</span>
           )}
         </div>
-        <div className="flex items-center gap-2 sm:gap-4 text-[var(--app-muted)]">
+        <div className="relative flex shrink-0 items-center gap-2 sm:gap-4 pl-2 text-[var(--app-muted)]">
           {isThread && (
             <ThreadHeaderActions
               threadId={currentChannel.id}
@@ -1428,11 +1429,15 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
               <PopoverTrigger asChild>
                 <button
                   className={cn(
-                    "p-2.5 -m-1.5 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors",
+                    "rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors",
+                    "max-md:pointer-events-none max-md:absolute max-md:right-0 max-md:top-0 max-md:h-px max-md:w-px max-md:overflow-hidden max-md:p-0 max-md:m-0 max-md:opacity-0",
+                    "p-2.5 -m-1.5 md:p-0 md:m-0",
                     showThreads && "text-[var(--text-primary)]",
                   )}
                   title={gt("Threads")}
                   aria-label={gt("Threads")}
+                  aria-hidden={isMobile}
+                  tabIndex={isMobile ? -1 : undefined}
                 >
                   <MessagesSquare className="w-5 h-5" />
                 </button>
@@ -1459,7 +1464,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           )}
           {!isPanel && (<>
           <button
-            className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
+            className="hover:text-[var(--text-primary)] transition-colors hidden md:block"
             onClick={() =>
               openNotificationSettings({
                 scope: "channel",
@@ -1478,7 +1483,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             <FollowChannelButton channelId={currentChannel.id} channelName={currentChannel.name} />
           )}
           <button
-            className="p-2.5 -m-1.5 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            className="max-md:hidden p-2.5 -m-1.5 sm:p-0 sm:m-0 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
             onClick={() => {
               setShowPins(true);
               void chat.fetchPinnedMessages();
@@ -1495,6 +1500,52 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           >
             <Users className="w-5 h-5" />
           </button>
+          <HeaderOverflowMenu
+            className="-m-1.5"
+            items={[
+              {
+                key: "pins",
+                label: gt("View pinned messages"),
+                icon: <Pin className="w-5 h-5" />,
+                onSelect: () => {
+                  setShowPins(true);
+                  void chat.fetchPinnedMessages();
+                },
+              },
+              {
+                key: "threads",
+                label: gt("Threads"),
+                icon: <MessagesSquare className="w-5 h-5" />,
+                onSelect: () => setShowThreads(true),
+                hidden: !hostsThreads,
+              },
+              {
+                key: "notifications",
+                label: gt("Notification Settings"),
+                icon: channelMuted ? <BellOff className="w-5 h-5 text-red-400" /> : <Bell className="w-5 h-5" />,
+                onSelect: () =>
+                  openNotificationSettings({
+                    scope: "channel",
+                    id: currentChannel.id,
+                    name: `#${currentChannel.name}`,
+                    serverId: currentServer?.id,
+                    parentId: currentChannel.parentId ?? null,
+                  }),
+              },
+              {
+                key: "search",
+                label: gt("Search"),
+                icon: <Search className="w-5 h-5" />,
+                onSelect: () => setMobileSearchOpen(true),
+              },
+              {
+                key: "inbox",
+                label: gt("Inbox"),
+                icon: <Inbox className="w-5 h-5" />,
+                onSelect: () => openInbox(),
+              },
+            ]}
+          />
           <div className="h-6 w-px bg-[var(--app-border)] hidden lg:block" />
           <MessageSearchBar
             ref={searchBarRef}
@@ -1504,7 +1555,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           />
           <button
             type="button"
-            className="lg:hidden p-2.5 -m-1.5 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            className="max-md:hidden lg:hidden p-2.5 -m-1.5 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
             onClick={() => setMobileSearchOpen(true)}
             title={gt("Search")}
             aria-label={gt("Search")}
@@ -1513,7 +1564,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           </button>
           <button
             className={cn(
-              "hover:text-[var(--text-primary)] transition-colors hidden sm:block relative",
+              "hover:text-[var(--text-primary)] transition-colors hidden md:block relative",
               (inboxBadge > 0 || hasInboxUnreads) && "text-[var(--text-primary)]"
             )}
             onClick={() => openInbox()}
