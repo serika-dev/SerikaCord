@@ -418,7 +418,7 @@ export async function checkE2eeKeysFresh(
   if (!isKeysVersion(keysVersion)) return { status: 400, error: 'Invalid key version', code: 'e2ee_keys_invalid' };
   const members = channel.recipientIds ?? [];
   if (members.length === 0) return null;
-  const current = keysVersionOf(await keyBundles(members));
+  const current = await memberKeysVersion(members);
   if (current === keysVersion) return null;
   return {
     status: 409,
@@ -427,13 +427,50 @@ export async function checkE2eeKeysFresh(
   };
 }
 
+// ─── Key-set version cache (per-send freshness check) ─────────────────────────
+// Every encrypted send compares the version the client encrypted for with the
+// members' current key set, which loaded every member's identity, devices and
+// notification keys. The version is cached in Redis per member set, tagged with
+// each member's key epoch; notifyE2eeKeysChanged bumps the epoch of the user
+// whose keys changed (every key mutation calls it), so a changed member is a
+// miss on every instance. Without Redis it is computed from the database.
+
+const KEY_EPOCH_PREFIX = 'e2ee:keyepoch:';
+const KEYSET_VERSION_PREFIX = 'e2ee:keysetv:';
+const KEYSET_VERSION_TTL = 600;
+
+/** Current key-set version of these members (cached; see above). */
+export async function memberKeysVersion(memberIds: string[]): Promise<string> {
+  const ids = [...new Set(memberIds.map((u) => normalizeId(u)))].sort();
+  const redis = getRedis();
+  const cacheKey = KEYSET_VERSION_PREFIX + createHash('sha256').update(ids.join(',')).digest('hex').slice(0, 32);
+  let epochs: string | null = null;
+  if (redis) {
+    try {
+      const [cached, ...epochValues] = await redis.mget(cacheKey, ...ids.map((id) => KEY_EPOCH_PREFIX + id));
+      epochs = epochValues.map((e) => e ?? '0').join(',');
+      if (cached) {
+        const sep = cached.indexOf('|');
+        if (sep > 0 && cached.slice(sep + 1) === epochs) return cached.slice(0, sep);
+      }
+    } catch {
+      epochs = null;
+    }
+  }
+  const version = keysVersionOf(await keyBundles(ids));
+  if (redis && epochs !== null) void redis.set(cacheKey, `${version}|${epochs}`, 'EX', KEYSET_VERSION_TTL).catch(() => {});
+  return version;
+}
+
 /**
  * A user's keys changed (device added / removed, identity published or
  * reset): tell everyone who shares a DM / group DM with them (and their own
  * other sessions) to refresh cached key bundles. Best effort, fire-and-forget.
+ * Also invalidates the cached key-set versions that include them.
  */
 export function notifyE2eeKeysChanged(userId: string): void {
   const uid = normalizeId(userId);
+  void getRedis()?.incr(KEY_EPOCH_PREFIX + uid).catch(() => {});
   void (async () => {
     const rows = await db
       .select({ recipientIds: schema.channels.recipientIds })

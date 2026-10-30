@@ -678,6 +678,9 @@ two network round trips before anything decrypted, a key refetch on most
 live messages, re-decrypting everything after a reload). What the client
 does now:
 
+- **Opening the app on a DM / group DM** starts loading the crypto module as
+  the page hydrates (`AppProviders`), so the cached messages can be decrypted
+  as soon as the conversation mounts.
 - **Start:** `E2eeHost` starts right after sign-in (first idle moment, ≤ 0.5 s;
   the chat engine starts it itself if it needs keys first). `initE2ee` loads
   this device's keys from IndexedDB in one transaction and marks them ready
@@ -693,7 +696,10 @@ does now:
   revoked devices (`keysVersion.ts`; names / last-seen excluded). Sends carry
   `e2eeKeys: <version>`; the DM / group send routes refuse a stale one with
   `409 { code: "e2ee_keys_changed" }` and the chat re-encrypts with fresh keys
-  and retries once. Registering / revoking a device or publishing / resetting
+  and retries once. The server caches each member set's current version in
+  Redis (`memberKeysVersion`), tagged with every member's key epoch, which
+  `notifyE2eeKeysChanged` bumps on each key change; without Redis it is
+  computed from the database every time. Registering / revoking a device or publishing / resetting
   an identity fans out `{type: "e2ee_keys", userId}` on the activity stream
   to everyone sharing a DM / group with that user (and their own sessions):
   cached sets containing them refetch at once, and a changed set bumps
