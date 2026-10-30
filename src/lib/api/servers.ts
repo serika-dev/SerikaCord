@@ -27,6 +27,7 @@ import { addedRoleLinkTargets, expandLinkedRoles, isLinkableRole, normalizeRoleL
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
 import { insertServerMember, removeServerBan, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
 import { copyPermissionOverwrites, ensureSoundboardIds, sameId, validateChannelReorder } from '@/lib/servers/guards';
+import { isServerOwner, OWNER_CANNOT_LEAVE_ERROR } from '@/lib/servers/ownership';
 import { normalizeChannelName, resolveChannelNsfw } from '@/lib/servers/channelRules';
 import { audit, listAuditLogs } from '@/lib/services/auditLog';
 import { AuditLogEvent, GUILD_AUDIT_KEYS, ROLE_AUDIT_KEYS, auditReason, diffChanges, diffMemberRoles, isAuditLogEventType, snapshotChanges } from '@/lib/audit/auditLog';
@@ -2488,9 +2489,10 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId === user.id) {
+    // Owners can't leave (CORD-77): the server would be left without an owner.
+    if (isServerOwner(server, user.id)) {
       set.status = 400;
-      return { error: 'Server owner cannot leave. Transfer ownership first or delete the server.' };
+      return { error: OWNER_CANNOT_LEAVE_ERROR, code: 'OWNER_CANNOT_LEAVE' };
     }
 
     // Only a real removal changes memberCount (atomically), invalidates the

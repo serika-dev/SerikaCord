@@ -12284,5 +12284,8 @@
   "4587f1f23fa8a776": "Serika+ isn't active on this account.",
   "569ca6d3143b0f2e": "Files can be up to 500MB.",
   "604ec3067171a0d7": "Conversation",
-  "796b966b8fbfdd56": "Back to conversation"
+  "796b966b8fbfdd56": "Back to conversation",
+  "c65acb9bad75087e": "You own this server",
+  "1fef048011e0fb0c": "Owners can't leave their own server. You can delete it in Server Settings.",
+  "551be05ef3c75c95": "Couldn't leave the server"
 }

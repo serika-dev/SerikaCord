@@ -4751,6 +4751,10 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  // An owner can't leave its own guild (Discord answers 400 Invalid Guild and
+  // expects DELETE /guilds/:id instead) (CORD-77).
+  const guild = await Server.findById(params.guildId);
+  if (guild && compareIds(guild.ownerId, auth.botUser.id)) { set.status = 400; return { code: 50055, message: 'Invalid Guild' }; }
   await removeServerMember(params.guildId, auth.botUser.id);
   set.status = 204;
   return '';

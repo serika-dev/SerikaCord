@@ -6,6 +6,8 @@ import { emitHotkey } from "@/lib/keybinds";
 import { sharedGet } from "@/lib/bootFetch";
 import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
+import { isServerOwner } from "@/lib/servers/ownership";
+import { OwnerLeaveHintItem } from "@/components/layout/OwnerLeaveHint";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -1697,17 +1699,27 @@ export function ChannelSidebar({
             {gt("Privacy Settings")}
           </DropdownMenuItem>
           <DropdownMenuSeparator className="bg-[var(--border-subtle)]" />
-          <DropdownMenuItem
-            onClick={async () => {
-              if (currentServer && (await confirmDialog({ title: gt("Leave Server"), description: gt("Leave \"{name}\"? You'll need a new invite to rejoin.", { name: currentServer.name }), confirmLabel: gt("Leave Server") }))) {
-                await leaveServer(currentServer.id);
-              }
-            }}
-            className="text-red-500 focus:bg-red-500 focus:text-[var(--text-on-accent)] cursor-pointer"
-          >
-            <LogOut className="w-4 h-4 mr-2" />
-            {gt("Leave Server")}
-          </DropdownMenuItem>
+          {isServerOwner(currentServer, user?.id) ? (
+            <OwnerLeaveHintItem
+              onOpenSettings={() => (onServerSettings ? onServerSettings() : window.dispatchEvent(new CustomEvent('openServerSettings')))}
+              className="focus:bg-[var(--app-accent)] focus:text-[var(--text-on-accent)]"
+            />
+          ) : (
+            <DropdownMenuItem
+              onClick={async () => {
+                if (!currentServer || !(await confirmDialog({ title: gt("Leave Server"), description: gt("Leave \"{name}\"? You'll need a new invite to rejoin.", { name: currentServer.name }), confirmLabel: gt("Leave Server") }))) return;
+                try {
+                  await leaveServer(currentServer.id);
+                } catch {
+                  toast.error(gt("Couldn't leave the server"));
+                }
+              }}
+              className="text-red-500 focus:bg-red-500 focus:text-[var(--text-on-accent)] cursor-pointer"
+            >
+              <LogOut className="w-4 h-4 mr-2" />
+              {gt("Leave Server")}
+            </DropdownMenuItem>
+          )}
         </DropdownMenuContent>
       </DropdownMenu>
 

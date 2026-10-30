@@ -4,7 +4,7 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useGT } from "gt-next";
 import { toast } from "sonner";
-import { Bell, BellOff, CheckCheck, Copy, FolderPlus, LogOut, Plus, Settings, UserPlus, Users } from "lucide-react";
+import { Bell, BellOff, CheckCheck, Copy, Crown, FolderPlus, LogOut, Plus, Settings, UserPlus, Users } from "lucide-react";
 import { useServer } from "@/contexts/ServerContext";
 import { useUnread } from "@/contexts/UnreadContext";
 import { useAuth } from "@/contexts/AuthContext";
@@ -15,6 +15,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { openNotificationSettings } from "@/lib/notifications/events";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { cdnImage } from "@/lib/utils";
+import { isServerOwner } from "@/lib/servers/ownership";
 import { MobileSheet, SheetGroup, SheetRow } from "./MobileSheet";
 
 type SheetServer = {
@@ -53,7 +54,7 @@ export function MobileServerSheet({ server, onClose }: { server: SheetServer; on
   const [showMute, setShowMute] = useState(false);
 
   const muted = isMuted(server.id);
-  const isOwner = server.isOwner === true || (!!user?.id && server.ownerId === user.id);
+  const isOwner = isServerOwner(server, user?.id);
   const canManageServer = isAdmin || can("MANAGE_SERVER");
   const canManageChannels = isAdmin || can("MANAGE_CHANNELS");
   const isCurrent = currentServer?.id === server.id;
@@ -195,10 +196,28 @@ export function MobileServerSheet({ server, onClose }: { server: SheetServer; on
                   router.push("/channels/me");
                 }
               } catch {
-                /* leaveServer surfaces its own errors */
+                toast.error(gt("Couldn't leave the server"));
               }
             })}
           />
+        )}
+        {isOwner && (
+          // Owners can't leave (CORD-77). Server Settings (open for the current
+          // server) is where they can delete it.
+          <button
+            type="button"
+            disabled={!isCurrent}
+            onClick={run(() => emit("openServerSettings"))}
+            className="flex w-full touch-manipulation items-start gap-3 px-4 py-3 text-left enabled:active:bg-[var(--bg-hover)]"
+          >
+            <Crown className="mt-0.5 h-5 w-5 shrink-0 text-[var(--text-secondary)]" />
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <span className="text-[15px] font-medium text-[var(--text-primary)]">{gt("You own this server")}</span>
+              <span className="text-[13px] leading-snug text-[var(--text-secondary)]">
+                {gt("Owners can't leave their own server. You can delete it in Server Settings.")}
+              </span>
+            </span>
+          </button>
         )}
       </SheetGroup>
     </MobileSheet>

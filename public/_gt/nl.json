@@ -12284,5 +12284,8 @@
   "4587f1f23fa8a776": "Serika+ is niet actief op dit account.",
   "569ca6d3143b0f2e": "Bestanden mogen maximaal 500 MB groot zijn.",
   "604ec3067171a0d7": "Gesprek",
-  "796b966b8fbfdd56": "Terug naar gesprek"
+  "796b966b8fbfdd56": "Terug naar gesprek",
+  "c65acb9bad75087e": "Je bent eigenaar van deze server",
+  "1fef048011e0fb0c": "Eigenaren kunnen hun eigen server niet verlaten. Je kunt hem verwijderen in Serverinstellingen.",
+  "551be05ef3c75c95": "Kon de server niet verlaten"
 }

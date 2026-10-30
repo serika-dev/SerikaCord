@@ -5,6 +5,10 @@ import { sharedGet } from "@/lib/bootFetch";
 import { usePathname, useRouter } from "next/navigation";
 import { useCallback, useMemo, useState } from "react";
 import { useServer } from "@/contexts/ServerContext";
+import { useAuth } from "@/contexts/AuthContext";
+import { isServerOwner } from "@/lib/servers/ownership";
+import { OwnerLeaveHintItem } from "@/components/layout/OwnerLeaveHint";
+import { toast } from "sonner";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from "@/components/ui/tooltip";
 import { Separator } from "@/components/ui/separator";
@@ -74,6 +78,7 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
   const confirmDialog = useConfirm();
   const router = useRouter();
   const { servers, currentServer, setCurrentServer, leaveServer, prefetchServer, fetchServers } = useServer();
+  const { user } = useAuth();
   // Read here; subscribed to (below) only for what the rail shows, so a
   // message in a channel that is already unread doesn't re-render the rail.
   const getUnread = useUnreadGetter();
@@ -335,7 +340,14 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
     try {
       await leaveServer(server.id);
       if (currentServer?.id === server.id) { setCurrentServer(null); router.push("/channels/me"); }
-    } catch { /* leaveServer surfaces its own errors */ }
+    } catch {
+      toast.error(gt("Couldn't leave the server"));
+    }
+  };
+  // Owners can't leave (CORD-77): open that server's settings, where they can delete it.
+  const handleOwnerSettings = (server: Server) => {
+    if (currentServer?.id !== server.id) handleServerClick(server);
+    window.dispatchEvent(new CustomEvent("openServerSettings"));
   };
   const toggleFolder = (id: string) =>
     setOpenFolders((prev) => {
@@ -553,10 +565,14 @@ export function ServerSidebar({ onCreateServer, onInvitePeople }: ServerSidebarP
               {gt("Copy Server ID")}
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem variant="destructive" onClick={() => void handleLeaveServer(server)}>
-              <LogOut className="w-4 h-4" />
-              {gt("Leave Server")}
-            </DropdownMenuItem>
+            {isServerOwner(server, user?.id) ? (
+              <OwnerLeaveHintItem onOpenSettings={() => handleOwnerSettings(server)} />
+            ) : (
+              <DropdownMenuItem variant="destructive" onClick={() => void handleLeaveServer(server)}>
+                <LogOut className="w-4 h-4" />
+                {gt("Leave Server")}
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
