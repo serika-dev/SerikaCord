@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useState } from "react";
 import { BellOff, Pin, Reply, Clock, Lock, ShieldAlert, Loader2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { SwipeReplyRow } from "@/components/chat/SwipeReplyRow";
@@ -201,7 +201,6 @@ function MessageGroupInner<M extends ChatMessage>({
   newSeparatorBeforeId,
   replyTargetId,
 }: MessageGroupProps<M>) {
-  const gt = useChatGt();
   const { user } = useAuth();
   const inlineMediaEnabled = user?.settings?.textImages?.inlineMedia !== false;
   const inlineEmbedsEnabled = user?.settings?.textImages?.inlineEmbeds !== false;
@@ -235,25 +234,155 @@ function MessageGroupInner<M extends ChatMessage>({
     return map;
   }, [mergedMentionUsers, group.messages]);
 
-  // Long-press (touch) opens the same menu as right-click: the action sheet on phones.
-  const openMenuAt = (message: M) => (x: number, y: number) =>
-    onContextMenu({ preventDefault() {}, clientX: x, clientY: y } as unknown as React.MouseEvent, message);
+  const usersKey = useMemo(() => JSON.stringify(mergedMentionUsers), [mergedMentionUsers]);
 
   return (
     <div className="chat-message-row group py-0.5">
-      {group.messages.map((message, index) => {
-        const isFirst = index === 0;
-        const isEditing = editingMessageId === message.id;
-        const pickerOpen = reactionPickerMessageId === message.id;
-        // Pings you (mention, @everyone/@here, or a reply to you): Discord's
-        // highlighted row.
-        const pingsMe =
-          Boolean(currentUserId) &&
-          message.authorId !== currentUserId &&
-          (Boolean(message.mentionEveryone) || Boolean(message.mentionedUserIds?.includes(currentUserId!)));
-        return (
-          <Fragment key={message.id}>
-            {index > 0 && newSeparatorBeforeId === message.id && (
+      {group.messages.map((message, index) => (
+        <MessageRow
+          key={message.id}
+          message={message}
+          isFirst={index === 0}
+          showNewSeparator={index > 0 && newSeparatorBeforeId === message.id}
+          author={group.author}
+          formattedTimestamp={formattedTimestamp}
+          currentUserId={currentUserId}
+          canModerate={canModerate}
+          canPin={canPin}
+          serverId={serverId}
+          serverName={serverName}
+          swipeEnabled={swipeEnabled}
+          mentionRoles={mentionRoles}
+          userRoleColorMap={userRoleColorMap}
+          userRoleIconMap={userRoleIconMap}
+          serverEmojis={serverEmojis}
+          availableServerEmojis={availableServerEmojis}
+          isEditing={editingMessageId === message.id}
+          editContent={editContent}
+          onEditContentChange={onEditContentChange}
+          onEditKeyDown={onEditKeyDown}
+          onEditCancel={onEditCancel}
+          onEditSave={onEditSave}
+          pickerOpen={reactionPickerMessageId === message.id}
+          onReactionPickerChange={onReactionPickerChange}
+          onContextMenu={onContextMenu}
+          onReply={onReply}
+          onCopy={onCopy}
+          onPinToggle={onPinToggle}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onAddReaction={onAddReaction}
+          onToggleReaction={onToggleReaction}
+          onOpenReactionPicker={onOpenReactionPicker}
+          onViewReactions={onViewReactions}
+          onMediaClick={onMediaClick}
+          onSuppressEmbeds={onSuppressEmbeds}
+          onJumpToMessage={onJumpToMessage}
+          canCreateThread={canCreateThread}
+          onCreateThread={onCreateThread}
+          onOpenThread={onOpenThread}
+          isReplyTarget={replyTargetId === message.id}
+          mergedMentionUsers={mergedMentionUsers}
+          reactionUsersMap={reactionUsersMap}
+          usersKey={usersKey}
+          inlineMediaEnabled={inlineMediaEnabled}
+          inlineEmbedsEnabled={inlineEmbedsEnabled}
+        />
+      ))}
+    </div>
+  );
+}
+
+type MessageRowProps<M extends ChatMessage> = Pick<
+  MessageGroupProps<M>,
+  | "currentUserId" | "canModerate" | "canPin" | "serverId" | "serverName" | "swipeEnabled" | "mentionRoles"
+  | "userRoleColorMap" | "userRoleIconMap" | "serverEmojis" | "availableServerEmojis" | "editContent"
+  | "onEditContentChange" | "onEditKeyDown" | "onEditCancel" | "onEditSave" | "onReactionPickerChange"
+  | "onContextMenu" | "onReply" | "onCopy" | "onPinToggle" | "onEdit" | "onDelete" | "onAddReaction"
+  | "onToggleReaction" | "onOpenReactionPicker" | "onViewReactions" | "onMediaClick" | "onSuppressEmbeds"
+  | "onJumpToMessage" | "canCreateThread" | "onCreateThread" | "onOpenThread" | "formattedTimestamp"
+> & {
+  message: M;
+  isFirst: boolean;
+  showNewSeparator: boolean;
+  author: MessageGroupProps<M>["group"]["author"];
+  isEditing: boolean;
+  pickerOpen: boolean;
+  isReplyTarget: boolean;
+  mergedMentionUsers: ReturnType<typeof mergeMentionUsers>;
+  reactionUsersMap: Record<string, { id: string; username?: string; displayName?: string; avatar?: string }>;
+  /** Content signature of mergedMentionUsers / reactionUsersMap (they are rebuilt with every group change). */
+  usersKey: string;
+  inlineMediaEnabled: boolean;
+  inlineEmbedsEnabled: boolean;
+};
+
+/**
+ * One message row. Memoized on its own (rowPropsEqual): a long run from one
+ * person is a single group, and adding a message to it (live, or older
+ * history above it) used to re-render, re-parse and re-lay out every row in
+ * the group.
+ */
+function MessageRowInner<M extends ChatMessage>({
+  message,
+  isFirst,
+  showNewSeparator,
+  author,
+  formattedTimestamp,
+  currentUserId,
+  canModerate = false,
+  canPin = false,
+  serverId,
+  serverName,
+  swipeEnabled = false,
+  mentionRoles,
+  userRoleColorMap,
+  userRoleIconMap,
+  serverEmojis,
+  availableServerEmojis,
+  isEditing,
+  editContent,
+  onEditContentChange,
+  onEditKeyDown,
+  onEditCancel,
+  onEditSave,
+  pickerOpen,
+  onReactionPickerChange,
+  onContextMenu,
+  onReply,
+  onCopy,
+  onPinToggle,
+  onEdit,
+  onDelete,
+  onAddReaction,
+  onToggleReaction,
+  onOpenReactionPicker,
+  onViewReactions,
+  onMediaClick,
+  onSuppressEmbeds,
+  onJumpToMessage,
+  canCreateThread = false,
+  onCreateThread,
+  onOpenThread,
+  isReplyTarget,
+  mergedMentionUsers,
+  reactionUsersMap,
+  inlineMediaEnabled,
+  inlineEmbedsEnabled,
+}: MessageRowProps<M>) {
+  const gt = useChatGt();
+  // Pings you (mention, @everyone/@here, or a reply to you): Discord's
+  // highlighted row.
+  const pingsMe =
+    Boolean(currentUserId) &&
+    message.authorId !== currentUserId &&
+    (Boolean(message.mentionEveryone) || Boolean(message.mentionedUserIds?.includes(currentUserId!)));
+  // Long-press (touch) opens the same menu as right-click: the action sheet on phones.
+  const openMenuAt = (m: M) => (x: number, y: number) =>
+    onContextMenu({ preventDefault() {}, clientX: x, clientY: y } as unknown as React.MouseEvent, m);
+  return (
+          <>
+            {showNewSeparator && (
               <UnreadDivider label={gt("New")} />
             )}
             {message.interaction?.name && (
@@ -280,7 +409,7 @@ function MessageGroupInner<M extends ChatMessage>({
               id={`message-${message.id}`}
               className={cn(
                 "flex gap-4 relative group/message rounded transition-colors -mx-1 px-1 hover:z-50",
-                replyTargetId === message.id
+                isReplyTarget
                   ? "chat-reply-target"
                   : pingsMe ? "chat-mention-row" : "hover:bg-[var(--app-surface-alt)]/80",
                 message.pending && "opacity-60",
@@ -289,12 +418,12 @@ function MessageGroupInner<M extends ChatMessage>({
               onContextMenu={(e) => onContextMenu(e, message)}
             >
               <div className="w-10 flex-shrink-0">
-                {isFirst && <GroupAvatar author={group.author} serverId={serverId} />}
+                {isFirst && <GroupAvatar author={author} serverId={serverId} />}
               </div>
 
               <div className="flex-1 min-w-0">
                 {isFirst && (
-                  <GroupHeader author={group.author} formattedTimestamp={formattedTimestamp} serverId={serverId} roleColor={userRoleColorMap?.[group.author.id]} roleIcon={userRoleIconMap?.[group.author.id]} />
+                  <GroupHeader author={author} formattedTimestamp={formattedTimestamp} serverId={serverId} roleColor={userRoleColorMap?.[author.id]} roleIcon={userRoleIconMap?.[author.id]} />
                 )}
 
                 {isEditing ? (
@@ -404,7 +533,7 @@ function MessageGroupInner<M extends ChatMessage>({
                       // Deferred interaction reply (callback 5) until the app edits it.
                       <span className="chat-message-body inline-flex items-center gap-1.5 italic text-[var(--app-muted)]" aria-busy="true">
                         <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                        {gt("{name} is thinking…", { name: group.author.displayName || group.author.username })}
+                        {gt("{name} is thinking…", { name: author.displayName || author.username })}
                       </span>
                     ) : (
                     <MessageContent
@@ -574,12 +703,36 @@ function MessageGroupInner<M extends ChatMessage>({
               </div>
             </div>
           </SwipeReplyRow>
-          </Fragment>
-        );
-      })}
-    </div>
+          </>
   );
 }
+
+/** Row props compared by reference, except the derived ones that only matter in some rows. */
+function rowPropsEqual<M extends ChatMessage>(prev: MessageRowProps<M>, next: MessageRowProps<M>): boolean {
+  for (const key of Object.keys(next) as Array<keyof MessageRowProps<M>>) {
+    if (prev[key] === next[key]) continue;
+    switch (key) {
+      // Rebuilt with every group change; their content is in usersKey.
+      case "mergedMentionUsers":
+      case "reactionUsersMap":
+        continue;
+      // Only the first row shows the header.
+      case "author":
+      case "formattedTimestamp":
+        if (!prev.isFirst && !next.isFirst) continue;
+        return false;
+      // Only the row being edited shows the edit box.
+      case "editContent":
+        if (!prev.isEditing && !next.isEditing) continue;
+        return false;
+      default:
+        return false;
+    }
+  }
+  return Object.keys(prev).length === Object.keys(next).length;
+}
+
+const MessageRow = memo(MessageRowInner, rowPropsEqual) as typeof MessageRowInner;
 
 /**
  * True when the given messageId belongs to one of the group's messages.

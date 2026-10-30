@@ -101,6 +101,36 @@ export function headFirstRows<R>(page: R[], count: number, isEncrypted: (row: R)
 }
 
 /**
+ * Stable React keys for message groups. Keying a group by its first message
+ * remounted the whole group whenever older history was prepended to it (a
+ * long run from one person is one group, so in a busy 1:1 DM that was every
+ * row on screen). A group keeps the key one of its messages had before, so
+ * prepending to or appending to a group never changes it; only a group split
+ * in two (a deletion) gives the second half a new key. `memory` (message id →
+ * key) carries the assignment between renders and is updated in place.
+ */
+export function assignGroupKeys(groups: ReadonlyArray<{ messages: ReadonlyArray<{ id: string }> }>, memory: Map<string, string>): string[] {
+  const used = new Set<string>();
+  return groups.map((g) => {
+    let key: string | null = null;
+    for (const m of g.messages) {
+      const k = memory.get(m.id);
+      if (k !== undefined && !used.has(k)) {
+        key = k;
+        break;
+      }
+    }
+    if (key === null) {
+      key = `group-${g.messages[0]?.id ?? "empty"}`;
+      for (let n = 2; used.has(key); n++) key = `group-${g.messages[0]?.id ?? "empty"}-${n}`;
+    }
+    used.add(key);
+    for (const m of g.messages) memory.set(m.id, key);
+    return key;
+  });
+}
+
+/**
  * How MessageList keeps the reader in place when the older groups of a just
  * opened conversation mount above the ones on screen: back to the bottom when
  * the reader was there (or is glued to it, or a force-scroll is pending),

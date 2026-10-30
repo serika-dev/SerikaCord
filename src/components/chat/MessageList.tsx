@@ -51,7 +51,8 @@ import type { ChatMessage, MessageGroupData } from "@/lib/chat/types";
 import type { useMessageActions } from "@/hooks/useMessageActions";
 import { Loader } from "@/components/ui/Loader";
 import { collapseBlockedGroups } from "@/lib/chat/blocked";
-import { fullMountRestoreMode, initialMountStart } from "@/lib/chat/messageWindow";
+import { assignGroupKeys, fullMountRestoreMode, initialMountStart } from "@/lib/chat/messageWindow";
+import { BoundedMap } from "@/lib/utils/boundedMap";
 import { useRelationships } from "@/lib/social/relationshipsStore";
 import { BlockedMessagesRow } from "./BlockedMessagesRow";
 
@@ -181,6 +182,9 @@ interface WatchState {
   floor: ReadMarker | null;
   kept: UnreadDividerInfo | null;
 }
+
+/** Group keys by message id (assignGroupKeys), shared by every list: ids are unique. */
+const groupKeyMemory = new BoundedMap<string, string>(5000);
 
 /** Message groups mounted in the first commit of a conversation (about a screen and a half). */
 const INITIAL_MOUNT_GROUPS = 12;
@@ -984,6 +988,7 @@ function MessageListInner<M extends ChatMessage>(
   // (Discord); each row can be expanded on its own.
   const { blocked: blockedIds } = useRelationships();
   const listItems = useMemo(() => collapseBlockedGroups(groups, blockedIds), [groups, blockedIds]);
+  const groupKeys = useMemo(() => assignGroupKeys(groups, groupKeyMemory), [groups]);
   const firstMountedIndex = fullyMounted ? 0 : initialMountStart(groups, dividerId, INITIAL_MOUNT_GROUPS);
   const [revealedBlocked, setRevealedBlocked] = useState<ReadonlySet<string>>(() => new Set());
   const toggleBlocked = useCallback((key: string) => {
@@ -1008,7 +1013,7 @@ function MessageListInner<M extends ChatMessage>(
         ? dividerId
         : undefined;
     return (
-    <Fragment key={`group-${group.messages[0].id}`}>
+    <Fragment key={groupKeys[idx] ?? `group-${group.messages[0].id}`}>
     {dayLabels[idx] && !skipDay ? (
       <DateDivider label={dayLabels[idx]} unreadLabel={showNewSeparator ? gt("New") : undefined} className="mx-4" />
     ) : (
