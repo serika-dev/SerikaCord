@@ -19,8 +19,8 @@ import { e2eeGateFor } from "@/lib/e2ee/client/state";
 import { useAuth } from "@/contexts/AuthContext";
 import { sharedGet } from "@/lib/bootFetch";
 import { useServer } from "@/contexts/ServerContext";
-import { useUnread, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
-import { readMarkerMs } from "@/lib/chat/unreadMarker";
+import { useUnreadGetter, useUnreadSelector, type ReadMarkerSnapshot } from "@/contexts/UnreadContext";
+import { parseReadMarkerKey, readMarkerKey, readMarkerMs } from "@/lib/chat/unreadMarker";
 import { onJumpToMessage, openInbox, openNotificationSettings } from "@/lib/notifications/events";
 import { emitHotkey, onHotkey } from "@/lib/keybinds";
 import { cn } from "@/lib/utils";
@@ -195,12 +195,15 @@ export default function GroupDMPage() {
     return () => { cancelled = true; };
   }, [channelId, applyGroup, leaveRoute]);
 
-  const { setActiveChannel, markChannelRead, markChannelUnread, getReadMarker, isChannelMuted } = useUnread();
+  // Unread state narrowly (like the DM page): this page re-renders when its
+  // own read marker or mute changes, not for every message anywhere.
+  const getUnread = useUnreadGetter();
   useEffect(() => {
     if (!channelId) return;
-    setActiveChannel(channelId);
-    return () => setActiveChannel(null);
-  }, [channelId, setActiveChannel]);
+    const unread = getUnread();
+    unread.setActiveChannel(channelId);
+    return () => unread.setActiveChannel(null);
+  }, [channelId, getUnread]);
 
   // Read marker as of opening (red "NEW" line); acked once actually seen.
   const [openMarker, setOpenMarker] = useState<{ channelId: string | null; marker: ReadMarkerSnapshot | null; acked: boolean }>({
@@ -208,7 +211,8 @@ export default function GroupDMPage() {
     marker: null,
     acked: false,
   });
-  const liveMarker = channelId ? getReadMarker(channelId) : null;
+  const liveMarkerKey = useUnreadSelector((u) => (channelId ? readMarkerKey(u.getReadMarker(channelId)) : null));
+  const liveMarker = useMemo(() => parseReadMarkerKey(liveMarkerKey), [liveMarkerKey]);
   if (
     openMarker.channelId !== channelId ||
     (!openMarker.acked && readMarkerMs(liveMarker) > readMarkerMs(openMarker.marker))
@@ -218,15 +222,15 @@ export default function GroupDMPage() {
   const handleReadUpTo = useCallback(
     (message: { id: string; createdAt: string }) => {
       setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
-      markChannelRead(channelId, message);
+      getUnread().markChannelRead(channelId, message);
     },
-    [channelId, markChannelRead],
+    [channelId, getUnread],
   );
   const handleMarkRead = useCallback(() => {
     setOpenMarker((prev) => (prev.acked ? prev : { ...prev, acked: true }));
-    markChannelRead(channelId);
-  }, [channelId, markChannelRead]);
-  const muted = channelId ? isChannelMuted(channelId) : false;
+    getUnread().markChannelRead(channelId);
+  }, [channelId, getUnread]);
+  const muted = useUnreadSelector((u) => (channelId ? u.isChannelMuted(channelId) : false));
 
   // Bots in the group bring their slash commands (one cached request per group).
   const hasBotMember = !!group?.members?.some((m) => m.isBot);
@@ -680,7 +684,7 @@ export default function GroupDMPage() {
           onReadUpTo={handleReadUpTo}
           onMarkRead={handleMarkRead}
           onMarkUnread={(plan) => {
-            if (channelId) markChannelUnread(channelId, plan);
+            if (channelId) getUnread().markChannelUnread(channelId, plan);
           }}
           onJumpToPresent={chat.returnToPresent}
         />
