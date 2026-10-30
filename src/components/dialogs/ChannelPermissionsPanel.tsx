@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, Check, Lock, Plus, RefreshCw, Shield, Slash, Trash2, User as UserIcon, X } from "lucide-react";
 import { useGT } from "gt-next";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -547,6 +547,28 @@ function TargetPicker({
   const gt = useGT();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
+  const wheelCleanup = useRef<(() => void) | null>(null);
+  // The settings dialog's scroll lock eats wheel events on this portaled
+  // list (Firefox: the scrollbar still drags). Scroll it ourselves. A
+  // callback ref binds whenever the popover actually mounts the node.
+  const listRef = useCallback((node: HTMLDivElement | null) => {
+    wheelCleanup.current?.();
+    wheelCleanup.current = null;
+    if (!node) return;
+    const onWheel = (e: WheelEvent) => {
+      const max = node.scrollHeight - node.clientHeight;
+      if (max <= 0) return;
+      const dy = e.deltaMode === 1 ? e.deltaY * 16 : e.deltaMode === 2 ? e.deltaY * node.clientHeight : e.deltaY;
+      if (!dy) return;
+      const atEdge = (node.scrollTop <= 0 && dy < 0) || (node.scrollTop >= max - 1 && dy > 0);
+      if (atEdge) return;
+      e.preventDefault();
+      e.stopPropagation();
+      node.scrollTop = Math.min(max, Math.max(0, node.scrollTop + dy));
+    };
+    node.addEventListener("wheel", onWheel, { passive: false });
+    wheelCleanup.current = () => node.removeEventListener("wheel", onWheel);
+  }, []);
 
   const results = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -583,7 +605,7 @@ function TargetPicker({
             inputClassName="h-8"
           />
         </div>
-        <div className="max-h-72 overflow-y-auto p-1.5">
+        <div ref={listRef} className="max-h-72 overflow-y-auto overscroll-contain p-1.5">
           {results.roleItems.length > 0 && (
             <p className="px-2 pb-0.5 pt-1 text-[10px] font-bold uppercase tracking-wide text-[var(--text-muted)]">{gt("Roles")}</p>
           )}

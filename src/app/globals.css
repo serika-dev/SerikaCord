@@ -28,6 +28,33 @@
     display: flex !important;
   }
 }
+/* The inline search field owns search from the lg breakpoint up. This icon
+   covers only the gap between a phone and that, and only while the header
+   itself is wide enough to show extras. A bare `flex` used to beat
+   `lg:hidden`, so a wide header drew the field and the icon together. */
+.chat-header-search-icon {
+  display: none !important;
+}
+@media (min-width: 768px) and (max-width: 1023.98px) and (min-height: 501px),
+       (min-width: 768px) and (max-width: 1023.98px) and (orientation: portrait),
+       (min-width: 768px) and (max-width: 1023.98px) and (not (pointer: coarse)) {
+  @container chat-header (min-width: 761px) {
+    .chat-header-search-icon {
+      display: flex !important;
+    }
+  }
+}
+/* A phone, including one held sideways (wider than 760px), keeps the More
+   menu. The inline buttons and the search field would cover the back button
+   and the call button, and a landscape phone is too short for them. */
+@media (max-width: 767px), (max-height: 500px) and (orientation: landscape) and (pointer: coarse) {
+  .chat-header-extra {
+    display: none !important;
+  }
+  .chat-header-more {
+    display: flex !important;
+  }
+}
 
 @theme inline {
   --color-background: var(--background);

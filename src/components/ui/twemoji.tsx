@@ -18,6 +18,9 @@ interface TwemojiProps {
   children: React.ReactNode;
   className?: string;
   size?: "normal" | "large";
+  /** A message that is only emoji grows. Reaction chips pass false so one
+   *  emoji stays the small artwork instead of the jumbo size. */
+  allowJumbo?: boolean;
   customEmojis?: CustomEmojiData[]; // Pre-parsed custom emoji data from backend
 }
 
@@ -84,7 +87,7 @@ function parseCustomEmojis(content: string, customEmojis?: CustomEmojiData[], st
   return parts.join('');
 }
 
-export function Twemoji({ children, className, size = "normal", customEmojis }: TwemojiProps) {
+export function Twemoji({ children, className, size = "normal", allowJumbo = true, customEmojis }: TwemojiProps) {
   const ref = useRef<HTMLSpanElement>(null);
   const animateMedia = useAnimatedMedia();
   
@@ -109,7 +112,7 @@ export function Twemoji({ children, className, size = "normal", customEmojis }: 
 
   // Auto-detect large emojis if the content is only emojis
   const textContent = typeof children === "string" ? children : "";
-  const autoSize = isOnlyEmoji(textContent) ? "large" : size;
+  const autoSize = allowJumbo && isOnlyEmoji(textContent) ? "large" : size;
   const sizeClass = autoSize === "large" ? "twemoji-large" : "twemoji";
 
   // If we processed custom emojis, use innerHTML

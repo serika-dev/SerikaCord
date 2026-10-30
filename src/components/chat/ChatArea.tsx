@@ -85,7 +85,6 @@ import {
 import { useThreadInfo } from "@/hooks/useThreadInfo";
 import { ThreadHeaderActions, ThreadHeaderTitle } from "@/components/chat/ThreadHeader";
 import { MessageContent } from "@/components/chat/MessageContent";
-import { Popover, PopoverAnchor, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { isSilentMessage } from "@/lib/chat/messageFlags";
 import type { RoleIconData } from "@/components/chat/RoleIcon";
 
@@ -781,6 +780,13 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   const markThreadJoined = threadState.markJoined;
   // Threads browser (header popout) and the panel openers.
   const [showThreads, setShowThreads] = useState(false);
+  // Close the threads window when the open channel changes, so it can't
+  // stay up over a channel that doesn't have threads.
+  const [threadsChannelId, setThreadsChannelId] = useState(currentChannel?.id ?? null);
+  if ((currentChannel?.id ?? null) !== threadsChannelId) {
+    setThreadsChannelId(currentChannel?.id ?? null);
+    setShowThreads(false);
+  }
   const [threadsVersion, setThreadsVersion] = useState(0);
   const currentChannelId = currentChannel?.id ?? null;
   // Announcement channels: "Publish" sends the message to following channels.
@@ -1400,10 +1406,27 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             <Hash className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
           )}
           {!isThread && (
-            <span className="min-w-0 font-semibold text-[var(--text-primary)] truncate text-sm sm:text-base">{currentChannel.name}</span>
+            <span className="min-w-0 shrink truncate font-semibold text-[var(--text-primary)] text-sm sm:text-base">{currentChannel.name}</span>
           )}
           {currentChannel.type === "announcement" && (
             <span className="ml-1 shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold bg-blue-500/15 text-blue-400 select-none hidden sm:inline">ANNOUNCEMENTS</span>
+          )}
+          {!isThread && currentChannel.type !== "forum" && currentChannel.topic?.trim() && (
+            <>
+              <span aria-hidden className="chat-header-extra h-4 w-px shrink-0 bg-[var(--app-border)]" />
+              <span className="chat-header-topic chat-header-extra min-w-0 flex-1 truncate text-[13px] font-normal text-[var(--app-muted)]" title={decodeHtmlEntities(currentChannel.topic)}>
+                <MessageContent
+                  content={currentChannel.topic}
+                  inline
+                  className="block max-w-full truncate"
+                  serverEmojis={serverEmojis}
+                  mentionUsers={mentionUsers}
+                  mentionRoles={mentionRoles}
+                  currentUserId={user?.id}
+                  serverId={currentServer?.id}
+                />
+              </span>
+            </>
           )}
         </div>
         <div className="relative flex shrink-0 items-center gap-2 sm:gap-4 pl-2 text-[var(--app-muted)]">
@@ -1425,39 +1448,18 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             />
           )}
           {hostsThreads && (
-            <Popover open={showThreads} onOpenChange={setShowThreads}>
-              <PopoverAnchor className="pointer-events-none absolute right-0 top-0 h-px w-px" />
-              <PopoverTrigger asChild>
-                <button
-                  className={cn(
-                    "chat-header-extra rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors p-2.5 -m-1.5 sm:p-0 sm:m-0",
-                    showThreads && "text-[var(--text-primary)]",
-                  )}
-                  title={gt("Threads")}
-                  aria-label={gt("Threads")}
-                >
-                  <MessagesSquare className="w-5 h-5" />
-                </button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-auto p-0 border-[var(--app-border)] bg-[var(--app-surface)] text-[var(--text-primary)]">
-                <MountWhenOpened open={showThreads}>
-                  <ThreadsBrowser
-                    channelId={currentChannel.id}
-                    channelName={currentChannel.name}
-                    version={threadsVersion}
-                    canCreate={canCreateThreads}
-                    onOpenThread={(threadId) => {
-                      setShowThreads(false);
-                      handleOpenThread(threadId);
-                    }}
-                    onCreate={() => {
-                      setShowThreads(false);
-                      openCreateThread(currentChannel.id, null);
-                    }}
-                  />
-                </MountWhenOpened>
-              </PopoverContent>
-            </Popover>
+            <button
+              type="button"
+              className={cn(
+                "chat-header-extra rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors p-2.5 -m-1.5 sm:p-0 sm:m-0",
+                showThreads && "text-[var(--text-primary)]",
+              )}
+              title={gt("Threads")}
+              aria-label={gt("Threads")}
+              onClick={() => setShowThreads(true)}
+            >
+              <MessagesSquare className="w-5 h-5" />
+            </button>
           )}
           {!isPanel && (<>
           <button
@@ -1545,7 +1547,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
               },
             ]}
           />
-          <div className="h-6 w-px bg-[var(--app-border)] hidden lg:block" />
+          <div className="chat-header-extra h-6 w-px bg-[var(--app-border)] hidden lg:block" />
           <MessageSearchBar
             ref={searchBarRef}
             search={search}
@@ -1554,7 +1556,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           />
           <button
             type="button"
-            className="chat-header-extra max-md:hidden lg:hidden p-2.5 -m-1.5 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            className="chat-header-search-icon chat-header-extra items-center justify-center p-2.5 -m-1.5 rounded-lg hover:text-[var(--text-primary)] transition-colors"
             onClick={() => setMobileSearchOpen(true)}
             title={gt("Search")}
             aria-label={gt("Search")}
@@ -1820,6 +1822,32 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           onConfirm={() => void chat.actions.confirmDelete()}
         />
       </MountWhenOpened>
+
+      <Dialog open={showThreads} onOpenChange={setShowThreads}>
+        <DialogContent className="gap-0 overflow-hidden bg-[var(--app-surface)] p-0 text-[var(--text-primary)] sm:max-w-[26rem]">
+          <DialogHeader className="sr-only">
+            <DialogTitle>{gt("Threads")}</DialogTitle>
+          </DialogHeader>
+          <MountWhenOpened open={showThreads}>
+            {showThreads && hostsThreads && currentChannel && (
+              <ThreadsBrowser
+                channelId={currentChannel.id}
+                channelName={currentChannel.name}
+                version={threadsVersion}
+                canCreate={canCreateThreads}
+                onOpenThread={(threadId) => {
+                  setShowThreads(false);
+                  handleOpenThread(threadId);
+                }}
+                onCreate={() => {
+                  setShowThreads(false);
+                  openCreateThread(currentChannel.id, null);
+                }}
+              />
+            )}
+          </MountWhenOpened>
+        </DialogContent>
+      </Dialog>
 
       <MountWhenOpened open={showPins}>
       <PinnedMessagesDialog

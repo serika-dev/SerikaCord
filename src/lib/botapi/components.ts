@@ -737,29 +737,61 @@ export function componentsV2Conflicts(
   if (filled(body.sticker_ids)) errors.add(['sticker_ids'], FE.INVALID, 'The sticker_ids field cannot be used when using MessageFlags.IS_COMPONENTS_V2');
 }
 
-/**
- * A readable text version of a v2 message: text displays, then the http(s)
- * media of thumbnails / galleries and link buttons that aren't uploads. Used
- * where layouts can't be shown (the Discord bridge's fallback).
- */
-export function componentsToText(list: readonly MessageComponent[] | null | undefined, max = 4000): string {
-  const parts: string[] = [];
+const VIDEO_URL = /\.(?:mp4|webm|mov|mkv|m4v|m3u8)(?:$|[?#])/i;
+
+type ComponentPart = { kind: 'text' | 'image'; value: string };
+
+/** Text displays, link buttons and external media, in walk order. Uploads are skipped. */
+function componentParts(list: readonly MessageComponent[] | null | undefined): ComponentPart[] {
+  const parts: ComponentPart[] = [];
   const seen = new Set<string>();
   const addUrl = (raw: string | undefined, label?: string) => {
     const url = raw ? safeHttpUrl(raw, COMPONENT_LIMITS.MEDIA_URL) : null;
     if (!url || seen.has(url)) return;
     seen.add(url);
-    parts.push(label ? `${cleanLabel(label)}: ${url}` : url);
+    // A gallery or thumbnail picture. Videos stay in the text so Discord can
+    // unfurl them; a bare image URL would otherwise pin on as a file.
+    if (!label && !VIDEO_URL.test(url)) parts.push({ kind: 'image', value: url });
+    else parts.push({ kind: 'text', value: label ? `${cleanLabel(label)}: ${url}` : url });
   };
   for (const comp of walkComponents(list)) {
-    if (comp.type === ComponentType.TEXT_DISPLAY && comp.content) parts.push(cleanText(comp.content));
+    if (comp.type === ComponentType.TEXT_DISPLAY && comp.content) parts.push({ kind: 'text', value: cleanText(comp.content) });
     else if (comp.type === ComponentType.THUMBNAIL && !comp.media?.attachment_id) addUrl(comp.media?.url);
     else if (comp.type === ComponentType.MEDIA_GALLERY) {
       for (const item of comp.items ?? []) if (!item?.media?.attachment_id) addUrl(item?.media?.url);
     } else if (comp.type === ComponentType.BUTTON && comp.style === ButtonStyle.LINK) addUrl(comp.url, comp.label);
   }
-  const text = parts.join('\n').trim();
+  return parts;
+}
+
+/**
+ * A readable text version of a v2 message: text displays, then the http(s)
+ * media of thumbnails / galleries and link buttons that aren't uploads. Used
+ * where layouts can't be shown (search previews, and the bridge's text).
+ */
+export function componentsToText(list: readonly MessageComponent[] | null | undefined, max = 4000): string {
+  const text = componentParts(list).map((p) => p.value).join('\n').trim();
   return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+export interface ComponentsDiscordFallback {
+  /** Markdown text. Image URLs are not included, so a heading still starts the line. */
+  text: string;
+  /** External pictures from galleries and thumbnails, in order. */
+  imageUrls: string[];
+}
+
+/**
+ * The Discord bridge's split of a v2 message: markdown stays in the message
+ * content, pictures become embed images instead of a file stuck underneath.
+ */
+export function componentsForDiscord(list: readonly MessageComponent[] | null | undefined, max = 4000): ComponentsDiscordFallback {
+  const parts = componentParts(list);
+  const text = parts.filter((p) => p.kind === 'text').map((p) => p.value).join('\n').trim();
+  return {
+    text: text.length > max ? `${text.slice(0, max - 1)}…` : text,
+    imageUrls: parts.filter((p) => p.kind === 'image').map((p) => p.value),
+  };
 }
 
 export type ComponentClickCheck =

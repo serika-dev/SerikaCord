@@ -3,6 +3,7 @@ import { FormErrors } from "@/lib/botapi/formErrors";
 import {
   COMPONENT_LIMITS,
   IS_COMPONENTS_V2,
+  componentsForDiscord,
   componentsToText,
   componentsV2Conflicts,
   countComponents,
@@ -361,6 +362,11 @@ describe("components v2: text fallback (Discord bridge)", () => {
     expect(componentsToText(list)).toBe("# Title\nBody\nOpen: https://serika.chat/docs\nhttps://e.x/a.png\nAgain");
     expect(componentsToText([text("x".repeat(50))] as MessageComponent[], 10)).toHaveLength(10);
     expect(componentsToText(null)).toBe("");
+    // The bridge keeps the heading at the start of the text and sends the picture as an embed.
+    expect(componentsForDiscord(list)).toEqual({
+      text: "# Title\nBody\nOpen: https://serika.chat/docs\nAgain",
+      imageUrls: ["https://e.x/a.png"],
+    });
   });
 });
 

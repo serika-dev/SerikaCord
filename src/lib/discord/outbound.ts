@@ -151,13 +151,16 @@ async function replicate(action: 'create' | 'edit' | 'delete', channelId: string
     // Text: the message content, plus what components carry (a components-v2
     // message has no content of its own; link buttons become "label: url").
     // Interactive components can't work across, so they are dropped.
-    const { componentsToText, isComponentsV2 } = await import('@/lib/botapi/components');
+    // Pictures in a v2 layout become embed images. Leaving them as bare URLs
+    // in the text makes Discord pin the file under the message, and a heading
+    // only renders when it still starts the line.
+    const { componentsForDiscord, componentsToText, isComponentsV2 } = await import('@/lib/botapi/components');
     const components = (stored?.components ?? message.components ?? null) as Parameters<typeof componentsToText>[0];
-    const componentText = isApp ? componentsToText(components, DISCORD_CONTENT_MAX) : '';
+    const v2 = isComponentsV2(stored?.flags ?? message.flags ?? 0);
+    const v2Parts = v2 && isApp ? componentsForDiscord(components, DISCORD_CONTENT_MAX) : null;
+    const componentText = v2Parts ? v2Parts.text : (isApp ? componentsToText(components, DISCORD_CONTENT_MAX) : '');
     const rawContent: string = typeof message.content === 'string' ? message.content : '';
-    const rawText = isComponentsV2(stored?.flags ?? message.flags ?? 0)
-      ? componentText
-      : [rawContent, componentText].filter(Boolean).join('\n');
+    const rawText = v2 ? componentText : [rawContent, componentText].filter(Boolean).join('\n');
     const rawEmbeds = isApp ? (stored?.embeds ?? message.embeds ?? []) : [];
 
     // Webhooks can't create native replies, so a reply is rendered as a
@@ -200,6 +203,7 @@ async function replicate(action: 'create' | 'edit' | 'delete', channelId: string
     const namedBody = options.showIdentity || !body ? body : `**${discordSafeName(username, 'User')}:** ${body}`;
     const discordContent = `${interactionLine(stored?.interaction ?? message.interaction)}${replyPrefix}${namedBody}`;
     const appEmbeds = toDiscordEmbeds(rawEmbeds, format);
+    const componentImageEmbeds = (v2Parts?.imageUrls ?? []).map((url) => ({ image: { url } }));
 
     // Build embeds from attachments — handle images, videos, and other files.
     // Spoilered images are returned as URLs to be appended to the content as
@@ -233,8 +237,17 @@ async function replicate(action: 'create' | 'edit' | 'delete', channelId: string
     };
     const spoilerSuffix = () => (spoileredImageUrls.length > 0 ? '\n' + spoileredImageUrls.map((u) => `||${u}||`).join('\n') : '');
 
-    const post = async (content: string, embeds: unknown[]) => {
-      const res = await fetch(webhookUrl, {
+    // wait=true makes Discord return the created message (else 204), so its id
+    // can be stored. A webhook URL that already has a query must use "&".
+    const withWait = (url: string) => `${url}${url.includes('?') ? '&' : '?'}wait=true`;
+    const rememberDiscordId = async (res: Response) => {
+      const discordMsg = await res.json().catch(() => null);
+      const id = discordMsg && typeof discordMsg.id === 'string' ? discordMsg.id : '';
+      if (id && message.id) await Message.updateById(message.id, { discordMessageId: id }).catch(() => {});
+    };
+
+    const post = async (content: string, embeds: unknown[], wait = false) => {
+      const res = await fetch(wait ? withWait(webhookUrl) : webhookUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ content: content.slice(0, DISCORD_CONTENT_MAX), ...webhookUserPart, ...(embeds.length > 0 ? { embeds: embeds.slice(0, 10) } : {}) }),
@@ -246,34 +259,17 @@ async function replicate(action: 'create' | 'edit' | 'delete', channelId: string
         return null;
       }
       recordBridgeSuccess(server.id, channel.id, 'outbound');
+      if (wait) await rememberDiscordId(res);
       return res;
     };
 
     if (action === 'create') {
-      const embeds = [...appEmbeds, ...buildAttachmentEmbeds(message.attachments)];
+      const embeds = [...appEmbeds, ...componentImageEmbeds, ...buildAttachmentEmbeds(message.attachments)];
       // Add sticker as embed if present
       if (options.attachments && message.sticker?.imageUrl) embeds.push({ image: { url: message.sticker.imageUrl } });
       const content = discordContent + spoilerSuffix();
       if (!content.trim() && embeds.length === 0) return;
-      // ?wait=true makes Discord return the created message (else 204), so
-      // its id can be stored for later edits and deletes.
-      const res = await fetch(`${webhookUrl}?wait=true`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: content.slice(0, DISCORD_CONTENT_MAX), ...webhookUserPart, ...(embeds.length > 0 ? { embeds: embeds.slice(0, 10) } : {}) }),
-        signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-      }).catch(() => null);
-      if (!res) return;
-      if (!res.ok) {
-        noteWebhookFailure(server.id, channel.id, res.status);
-        return;
-      }
-      recordBridgeSuccess(server.id, channel.id, 'outbound');
-      // Store the Discord message ID for future edit/delete
-      const discordMsg = await res.json().catch(() => null);
-      if (discordMsg?.id && message.id) {
-        await Message.updateById(message.id, { discordMessageId: discordMsg.id }).catch(() => {});
-      }
+      await post(content, embeds, true);
       return;
     }
 
@@ -281,7 +277,7 @@ async function replicate(action: 'create' | 'edit' | 'delete', channelId: string
       // Look up the Discord message ID from the Serika message
       const serikaMsg = message.id ? await Message.findById(message.id) : null;
       const discordMsgId = serikaMsg?.discordMessageId;
-      const embeds = [...appEmbeds, ...buildAttachmentEmbeds(message.attachments)];
+      const embeds = [...appEmbeds, ...componentImageEmbeds, ...buildAttachmentEmbeds(message.attachments)];
       const content = discordContent + spoilerSuffix();
       // App messages are edited as a whole (removed embeds go away on Discord
       // too); a person's edit payload may not carry attachments, so theirs only
@@ -302,27 +298,17 @@ async function replicate(action: 'create' | 'edit' | 'delete', channelId: string
           recordBridgeSuccess(server.id, channel.id, 'outbound');
         } else if (res && res.status === 404 && (await res.clone().json().catch(() => null))?.code === 10008) {
           // The Discord copy is gone (Unknown Message): repost it.
-          const repost = await fetch(`${webhookUrl}?wait=true`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ content: content.slice(0, DISCORD_CONTENT_MAX), ...webhookUserPart, ...(embeds.length > 0 ? { embeds: embeds.slice(0, 10) } : {}) }),
-            signal: AbortSignal.timeout(WEBHOOK_TIMEOUT_MS),
-          }).catch(() => null);
-          if (repost && repost.ok) {
-            recordBridgeSuccess(server.id, channel.id, 'outbound');
-            const newDiscordMsg = await repost.json().catch(() => null);
-            if (newDiscordMsg?.id && message.id) {
-              await Message.updateById(message.id, { discordMessageId: newDiscordMsg.id }).catch(() => {});
-            }
-          } else if (repost) {
-            noteWebhookFailure(server.id, channel.id, repost.status);
-          }
+          await post(content, embeds, true);
         } else if (res) {
           noteWebhookFailure(server.id, channel.id, res.status);
         }
-      } else {
-        // No Discord message ID stored — post as new message with edit indicator
-        await post(`*(edited)* ${content}`, embeds);
+      } else if (content.trim() || embeds.length > 0) {
+        // The create never stored a Discord id, so this edit cannot patch the
+        // copy. Post the message as it reads: a "(edited)" prefix sits in
+        // front of markdown that has to start the line ("# Title"). Remember
+        // the new id so the next edit updates that copy instead of adding
+        // another one.
+        await post(content, embeds, true);
       }
       return;
     }

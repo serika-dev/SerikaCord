@@ -13,6 +13,12 @@
 ### Bug Fixes
 
 - **Names keep their room on phones** — the channel, thread or DM name stays readable, and the back and call buttons stay clear. Search, pins, notifications and the other header buttons move into a More menu whenever the header is narrow, including a phone on its side. A DM keeps the call button on the bar.
+- **Threads open in the middle of the screen** — the threads button opens a centered window with a dimmed background, the same way pins and notification settings do (CORD-86).
+- **One search, and the channel topic is back** — a wide header no longer shows a stray divider or two search icons, and the search menu opens below the bar instead of being cut off. A phone on its side keeps search in the More menu. A channel topic set in settings shows next to the channel name (CORD-80, CORD-83, CORD-84).
+- **The role list scrolls with the wheel** — adding a role or member in channel permissions scrolls when you roll the mouse wheel, not only when you drag the scrollbar (CORD-85).
+- **A single gallery image sits in the middle of the card** — one picture in a gallery embed is centered in the card instead of stuck to the left (CORD-79).
+- **Reactions use the same emoji art as messages** — a reaction chip draws SerikaCord's emoji artwork instead of the phone's built-in emoji (CORD-82).
+- **Bridged webhook posts keep their layout on Discord** — a webhook message mirrored to Discord keeps its pictures in the embed and its markdown titles intact. A missing link used to post a fresh copy starting with "(edited)" on every save; that prefix is gone, and once a Discord copy exists, later edits update it (CORD-81).
 
 ### Performance
 

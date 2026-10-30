@@ -5,6 +5,7 @@ import { useChatGt } from "./ChatGtContext";
 import { cn, cdnImage } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { Twemoji } from "@/components/ui/twemoji";
 import { reactionEmojiIdentifier, type MessageReaction } from "@/lib/chat/types";
 
 interface ReactionUser {
@@ -92,7 +93,7 @@ export function MessageReactions({
                     data-emoji-animated={reaction.emoji.animated ? "true" : undefined}
                   />
                 ) : (
-                  <span className="leading-none">{reaction.emoji.name}</span>
+                  <Twemoji allowJumbo={false} className="inline-flex items-center text-base leading-none">{reaction.emoji.name}</Twemoji>
                 )}
                 <span className={hasReacted ? "text-[var(--text-primary)]" : "text-[var(--app-muted)]"}>
                   {reaction.count}

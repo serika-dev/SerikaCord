@@ -188,8 +188,10 @@ function MediaGallery({ items, attachments, onOpen }: { items: GalleryItem[]; at
     );
   };
   if (shown.length === 1) {
+    // Natural size, centered in the embed. A left-aligned image leaves an
+    // empty band down the right of the card.
     return (
-      <div className="max-w-full">
+      <div className="flex max-w-full justify-center">
         {tile(shown[0], 0, "w-fit max-w-full", 520, true)}
       </div>
     );

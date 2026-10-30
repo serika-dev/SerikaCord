@@ -8,6 +8,7 @@ import { cdnImage, cn } from "@/lib/utils";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { Loader } from "@/components/ui/Loader";
+import { Twemoji } from "@/components/ui/twemoji";
 import { reactionEmojiIdentifier, type ChatMessage, type MessageReaction } from "@/lib/chat/types";
 
 interface ReactionUser {
@@ -144,7 +145,7 @@ export function ReactionsDialog({ message, initialEmoji, currentUserId, canManag
                   {r.emoji.url ? (
                     <img src={cdnImage(r.emoji.url)} alt={`:${r.emoji.name}:`} className="h-5 w-5 object-contain" />
                   ) : (
-                    <span className="text-lg leading-none">{r.emoji.name}</span>
+                    <Twemoji allowJumbo={false} className="inline-flex items-center text-lg leading-none">{r.emoji.name}</Twemoji>
                   )}
                   <span className="font-semibold tabular-nums">{r.count}</span>
                 </button>

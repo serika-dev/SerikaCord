@@ -1,6 +1,7 @@
 "use client";
 
-import { forwardRef, useId, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { forwardRef, useEffect, useId, useImperativeHandle, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useGT } from "gt-next";
 import { AtSign, Bot, Calendar, Clock, FileText, Hash, Pin, Search, User, X } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
@@ -54,6 +55,7 @@ export const MessageSearchBar = forwardRef<MessageSearchBarHandle, {
   const inputRef = useRef<HTMLInputElement>(null);
   const mirrorRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const listboxId = useId();
   const [focused, setFocused] = useState(false);
   const [caret, setCaret] = useState(0);
@@ -185,6 +187,25 @@ export const MessageSearchBar = forwardRef<MessageSearchBarHandle, {
   const isDateToken = token.key === "before" || token.key === "after" || token.key === "during";
   const popoverOpen = focused && !dismissed && (suggestions.length > 0 || isDateToken);
   const activeIndex = suggestions.length ? Math.min(active, suggestions.length - 1) : 0;
+  // The header clips overflow, so a menu positioned inside it never clears
+  // the bar. Measure the field and paint the menu on the document.
+  const [menuBox, setMenuBox] = useState<{ top: number; left: number; right: number; width: number } | null>(null);
+  useEffect(() => {
+    if (!popoverOpen) return;
+    const place = () => {
+      const el = rootRef.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      setMenuBox({ top: r.bottom + 8, left: r.left, right: window.innerWidth - r.right, width: r.width });
+    };
+    place();
+    window.addEventListener("resize", place);
+    window.addEventListener("scroll", place, true);
+    return () => {
+      window.removeEventListener("resize", place);
+      window.removeEventListener("scroll", place, true);
+    };
+  }, [popoverOpen, expanded, draft]);
 
   const moveCaret = (pos: number) => {
     requestAnimationFrame(() => {
@@ -286,7 +307,7 @@ export const MessageSearchBar = forwardRef<MessageSearchBarHandle, {
   const wide = expanded || focused || Boolean(draft);
 
   return (
-    <div className={cn("relative", className)}>
+    <div ref={rootRef} className={cn("relative", className)}>
       <div
         className={cn(
           "relative flex items-center rounded bg-[var(--app-surface-alt)] transition-all",
@@ -376,14 +397,18 @@ export const MessageSearchBar = forwardRef<MessageSearchBarHandle, {
         )}
       </div>
 
-      {popoverOpen && (
+      {popoverOpen && menuBox && typeof document !== "undefined" && createPortal(
         <div
           role="listbox"
           id={listboxId}
-          className={cn(
-            "absolute z-50 mt-2 rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] shadow-xl py-2 text-[var(--text-primary)]",
-            expanded ? "left-0 right-0" : "right-0 w-80",
-          )}
+          className="z-[70] rounded-lg border border-[var(--app-border)] bg-[var(--app-surface)] py-2 text-[var(--text-primary)] shadow-xl"
+          style={{
+            position: "fixed",
+            top: menuBox.top,
+            left: expanded ? menuBox.left : undefined,
+            right: expanded ? undefined : menuBox.right,
+            width: expanded ? menuBox.width : 320,
+          }}
           ref={popoverRef}
           onMouseDown={(e) => {
             // Keep focus in the search input, except for the date picker.
@@ -449,7 +474,8 @@ export const MessageSearchBar = forwardRef<MessageSearchBarHandle, {
               </button>
             )}
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

@@ -136,8 +136,8 @@ export function ThreadsBrowser({ channelId, channelName, version, canCreate, onO
   const empty = tab === "active" ? parts.joined.length + parts.other.length === 0 : parts.archived.length === 0;
 
   return (
-    <div className="flex max-h-[min(32rem,70vh)] w-[min(26rem,calc(100vw-1rem))] flex-col">
-      <div className="flex items-center gap-2 border-b border-[var(--app-border)] px-3 py-2">
+    <div className="flex max-h-[min(32rem,70vh)] w-full flex-col">
+      <div className="flex items-center gap-2 border-b border-[var(--app-border)] px-3 py-2 pr-10">
         <MessagesSquare className="h-5 w-5 shrink-0 text-[var(--app-muted)]" />
         <span className="font-semibold text-[var(--text-primary)]">{gt("Threads")}</span>
         <div className="relative ml-auto min-w-0 flex-1">
