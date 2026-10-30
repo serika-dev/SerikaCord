@@ -48,6 +48,13 @@ interface SoundboardSound {
   emoji?: string;
 }
 
+/** Same people with the same audio / video / share state (no re-render needed). */
+function sameParticipants(a: VoiceParticipant[], b: VoiceParticipant[]): boolean {
+  if (a === b) return true;
+  if (a.length !== b.length) return false;
+  return a.every((p, i) => JSON.stringify(p) === JSON.stringify(b[i]));
+}
+
 function VoiceChannelView({ channelId, channelName, serverId }: { channelId: string; channelName: string; serverId?: string }) {
   const { user } = useAuth();
   const router = useRouter();
@@ -64,6 +71,8 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
   const [soundboardSounds, setSoundboardSounds] = useState<SoundboardSound[]>([]);
   const [playingSoundId, setPlayingSoundId] = useState<string | null>(null);
   const isMobile = useIsMobile();
+  // Phone shell: back slides to the channel list instead of loading a page.
+  const mobileShell = useMobileShell();
   const [noiseSuppression, setNoiseSuppression] = useState(voiceService.noiseSuppressionEnabled);
   const [serverVoice, setServerVoice] = useState(() => ({ mute: voiceService.serverMute, deaf: voiceService.serverDeaf }));
   const { openVoiceUserMenu, voiceUserMenu } = useVoiceUserMenu({ serverId, channelId });
@@ -100,7 +109,10 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
     setIsDeafened(voiceService.deafened);
     setIsVideoOn(voiceService.videoOn);
     setIsScreenSharing(voiceService.screenSharing);
-    setParticipants(voiceService.currentParticipants);
+    // Keep the same array when nothing changed: this re-runs whenever the
+    // effect below does, and a fresh array every time re-rendered in a loop.
+    const next = voiceService.currentParticipants;
+    setParticipants((prev) => (sameParticipants(prev, next) ? prev : next));
   }, [roomId]);
 
   useEffect(() => {
@@ -236,7 +248,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
         <div className="flex items-center gap-2 min-w-0">
           {isMobile && serverId && (
             <button
-              onClick={() => router.push(`/channels/${serverId}`)}
+              onClick={() => (mobileShell ? mobileShell.showList() : router.push(`/channels/${serverId}`))}
               className="flex items-center justify-center w-8 h-8 -ml-2 rounded-lg text-[var(--app-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-hover)] transition-colors"
               title={gt("Back")}
             >

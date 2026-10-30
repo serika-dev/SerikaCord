@@ -40,6 +40,7 @@ import { toast } from "sonner";
 import { useGT } from "gt-next";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { useIsMobile } from "@/hooks/useIsMobile";
+import { useMobileShell } from "@/components/mobile/MobileShellContext";
 import { cn, cdnImage } from "@/lib/utils";
 import { Loader } from "@/components/ui/Loader";
 import { MarkdownRenderer } from "@/components/chat/MarkdownRenderer";
@@ -117,6 +118,8 @@ export function ForumChannelView({
   const gt = useGT();
   const router = useRouter();
   const isMobile = useIsMobile();
+  // Phone shell: a back arrow to the channel list (like the chat header).
+  const mobileShell = useMobileShell();
   const [threads, setThreads] = useState<ForumThread[]>([]);
   const [availableTags, setAvailableTags] = useState<ForumTag[]>([]);
   const [forumMode, setForumMode] = useState<"posts" | "tickets">("posts");
@@ -428,6 +431,16 @@ export function ForumChannelView({
       {/* Header */}
       <div className="px-4 py-3 border-b border-[var(--border-subtle)] shrink-0 space-y-3">
         <div className="flex items-center gap-2">
+          {mobileShell && (
+            <button
+              type="button"
+              onClick={() => mobileShell.showList()}
+              aria-label={gt("Back")}
+              className="-ml-2 flex h-11 w-11 shrink-0 items-center justify-center rounded-lg text-[var(--text-muted)] hover:bg-[var(--bg-hover)]"
+            >
+              <ArrowLeft className="w-5 h-5" />
+            </button>
+          )}
           {isTickets ? (
             <Ticket className="w-5 h-5 text-[var(--text-muted)]" />
           ) : (
