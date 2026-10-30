@@ -231,6 +231,10 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   // Phone shell: the back arrow slides to the channel list (no route load).
   const mobileShell = useMobileShell();
   const isMobile = useIsMobile();
+  // Under 1024px (phones, tablets, split view) search opens as a full panel
+  // over the chat instead of a results column beside it.
+  const isCompact = useIsMobile(1024);
+  const searchSheet = isMobile || isCompact;
   // Touch tablets (≥768px) still need long-press menus and swipe-to-reply.
   const coarsePointer = useCoarsePointer();
   const messageBarRef = useRef<MessageBarHandle>(null);
@@ -1138,7 +1142,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
 
   /** Search result click: jump in place, or open its channel at that message. */
   const handleSearchJump = useCallback((hit: SearchHit, channel: SearchHitChannel | null) => {
-    if (isMobile) setMobileSearchOpen(false);
+    if (searchSheet) setMobileSearchOpen(false);
     if (currentChannel?.id === hit.channelId) {
       void jumpToMessage(hit.id);
       return;
@@ -1146,7 +1150,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
     const serverId = channel?.serverId || hit.serverId || currentServer?.id;
     if (!serverId) return;
     router.push(`/channels/${serverId}/${hit.channelId}?jump=${encodeURIComponent(hit.id)}`);
-  }, [isMobile, currentChannel?.id, currentServer?.id, jumpToMessage, router]);
+  }, [searchSheet, currentChannel?.id, currentServer?.id, jumpToMessage, router]);
 
   // Honor a ?jump=<messageId> query param (from a copied message link) once the
   // channel's messages have had a moment to load.
@@ -1267,7 +1271,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       onHotkey("jump-oldest-unread", () => messageListRef.current?.jumpToUnread()),      // Ctrl+F searches this channel (pre-filled in:), Ctrl+Shift+F the server.
       onHotkey("search-channel", () => {
         const prefill = currentChannel?.name ? `in:${quoteSearchValue(currentChannel.name)} ` : undefined;
-        if (isMobile) {
+        if (searchSheet) {
           setMobileSearchOpen(true);
           if (prefill) setSearchDraft(prefill);
           return;
@@ -1275,7 +1279,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         searchBarRef.current?.focus(prefill);
       }),
       onHotkey("search-all", () => {
-        if (isMobile) {
+        if (searchSheet) {
           setMobileSearchOpen(true);
           return;
         }
@@ -1284,7 +1288,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       onHotkey("edit-last-message", () => editLastOwnMessage()),
     ];
     return () => unsubs.forEach((u) => u());
-  }, [onToggleMembers, editLastOwnMessage, isPanel, currentChannel?.name, isMobile, setSearchDraft]);
+  }, [onToggleMembers, editLastOwnMessage, isPanel, currentChannel?.name, searchSheet, setSearchDraft]);
 
 
   // Opening a channel doesn't mark it read: MessageList acks the newest message
@@ -1491,16 +1495,16 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
           >
             <Users className="w-5 h-5" />
           </button>
-          <div className="h-6 w-px bg-[var(--app-border)] hidden md:block" />
+          <div className="h-6 w-px bg-[var(--app-border)] hidden lg:block" />
           <MessageSearchBar
             ref={searchBarRef}
             search={search}
             placeholder={currentServer?.name ? gt("Search {server}", { server: currentServer.name }) : gt("Search")}
-            className="hidden md:block"
+            className="hidden lg:block"
           />
           <button
             type="button"
-            className="md:hidden p-2.5 -m-1.5 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
+            className="lg:hidden p-2.5 -m-1.5 rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors"
             onClick={() => setMobileSearchOpen(true)}
             title={gt("Search")}
             aria-label={gt("Search")}
@@ -1526,7 +1530,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             ) : null}
           </button>
           <button
-            className="hover:text-[var(--text-primary)] transition-colors hidden sm:block"
+            className="hover:text-[var(--text-primary)] transition-colors hidden lg:block"
             onClick={() => setShowHelp(true)}
             title={gt("Open help")}
           >
@@ -1713,8 +1717,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       />
       </div>
 
-      <MountWhenOpened open={search.open && !isMobile}>
-        {search.open && !isMobile && (
+      <MountWhenOpened open={search.open && !searchSheet}>
+        {search.open && !searchSheet && (
           <MessageSearchPanel
             search={search}
             onJump={handleSearchJump}
@@ -1725,8 +1729,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       </MountWhenOpened>
       </div>
 
-      <MountWhenOpened open={isMobile && mobileSearchOpen}>
-        {isMobile && mobileSearchOpen && (
+      <MountWhenOpened open={searchSheet && mobileSearchOpen}>
+        {searchSheet && mobileSearchOpen && (
           <MessageSearchPanel
             mobile
             search={search}

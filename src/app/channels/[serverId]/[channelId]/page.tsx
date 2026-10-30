@@ -8,9 +8,10 @@ import { useServer } from "@/contexts/ServerContext";
 import { useAuth } from "@/contexts/AuthContext";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { MemberSidebar } from "@/components/chat/MemberSidebar";
+import { MembersDrawer } from "@/components/chat/MembersDrawer";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, Users, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, X, Sparkles, ArrowLeft } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, X, Sparkles, ArrowLeft } from "lucide-react";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { voiceErrorText } from "@/components/voice/IncomingCall";
@@ -20,7 +21,6 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useGT } from "gt-next";
 import { Loader } from "@/components/ui/Loader";
 import { SwipeNav } from "@/components/mobile/SwipeNav";
-import { useBackHandler } from "@/hooks/useBackHandler";
 import { useThreadPanel } from "@/lib/chat/threadPanelStore";
 import { canHostThreads, isThreadType } from "@/lib/chat/threads";
 
@@ -473,12 +473,14 @@ export default function ChannelPage() {
   const { servers, setCurrentServer, channels, channelsServerId, setCurrentChannel, isLoading, fetchChannels, currentServer, currentChannel } = useServer();
   // Discord's thread side panel, next to a text / announcement channel.
   const threadPanel = useThreadPanel(currentChannel && canHostThreads(currentChannel.type) ? currentChannel.id : null);
+  // The member list starts open only where it has its own column (1024px+).
   const [showMembers, setShowMembers] = useState(() =>
-    typeof window !== "undefined" ? window.innerWidth >= 768 : true
+    typeof window !== "undefined" ? window.innerWidth >= 1024 : true
   );
   const [isMobile, setIsMobile] = useState(false);
-  // Phones: the Android back button closes the member drawer first.
-  useBackHandler(isMobile && showMembers, () => setShowMembers(false));
+  // Tablets / narrow windows (768–1023px): the member list slides over the chat.
+  const isCompact = useIsMobile(1024);
+  const drawerMembers = isMobile || isCompact;
 
   // Member list rendering: inline sidebar on desktop, slide-in drawer on mobile.
   const renderMembers = (mobile: boolean) => {
@@ -487,35 +489,9 @@ export default function ChannelPage() {
     if (mobile) {
       if (!showMembers) return null;
       return (
-        <>
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 z-40 bg-black/60 md:hidden animate-in fade-in duration-200"
-            onClick={() => setShowMembers(false)}
-          />
-          {/* Drawer */}
-          <SwipeNav
-            onSwipeRight={() => setShowMembers(false)}
-            className="theme-solid fixed top-0 right-0 bottom-0 z-50 w-72 max-w-[85vw] md:hidden shadow-2xl flex flex-col bg-[var(--bg-app)] animate-in slide-in-from-right duration-200 ease-out pt-safe pb-safe"
-          >
-            <div className="flex items-center justify-between h-12 px-4 border-b border-[var(--app-border)] shrink-0">
-              <span className="flex items-center gap-2 font-semibold text-[var(--text-primary)]">
-                <Users className="w-5 h-5" />
-                {gt("Members")}
-              </span>
-              <button
-                onClick={() => setShowMembers(false)}
-                aria-label={gt("Close member list")}
-                className="p-2 -mr-2 rounded-lg text-[var(--app-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--app-surface-alt)] transition-colors"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="flex-1 min-h-0">
-              <MemberSidebar />
-            </div>
-          </SwipeNav>
-        </>
+        <MembersDrawer onClose={() => setShowMembers(false)}>
+          <MemberSidebar />
+        </MembersDrawer>
       );
     }
     return showMembers ? <MemberSidebar /> : null;
@@ -792,7 +768,7 @@ export default function ChannelPage() {
           channelId={currentChannel.id}
           channelName={currentChannel.name}
         />
-        {renderMembers(isMobile)}
+        {renderMembers(drawerMembers)}
       </>
     );
   }
@@ -806,7 +782,7 @@ export default function ChannelPage() {
           channelName={currentChannel.name}
           serverId={currentServer?.id}
         />
-        {renderMembers(isMobile)}
+        {renderMembers(drawerMembers)}
       </>
     );
   }
@@ -847,7 +823,7 @@ export default function ChannelPage() {
         // The member list makes way for the thread panel (Discord).
         <ThreadPanel parentChannel={currentChannel} state={threadPanel} serverId={serverId} />
       ) : (
-        renderMembers(isMobile)
+        renderMembers(drawerMembers)
       )}
     </>
   );

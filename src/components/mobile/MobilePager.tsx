@@ -5,6 +5,7 @@ import { useGT } from "gt-next";
 import { gestureAxis, type GestureAxis } from "@/lib/mobile/gestures";
 import {
   PAGER_EDGE_DEAD_ZONE,
+  PAGER_MAX_SIDE,
   PAGER_PEEK,
   dragOffset,
   pagerLayout,
@@ -346,7 +347,7 @@ export function MobilePager({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const sideWidth = hasChat ? `calc(100% - ${PAGER_PEEK}px)` : "100%";
+  const sideWidth = hasChat ? `min(calc(100% - ${PAGER_PEEK}px), ${PAGER_MAX_SIDE}px)` : "100%";
   const atList = panel === "list";
   const atMembers = panel === "members";
 

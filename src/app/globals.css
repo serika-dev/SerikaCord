@@ -2,6 +2,11 @@
 @import "tw-animate-css";
 
 @custom-variant dark (&:is(.dark *));
+/* Layout tiers (mirrors src/lib/layout/breakpoints.ts). `phone:` = the phone
+   shell (under 768px, or a phone held sideways); `desk:` = everything else.
+   Use `desk:hidden` (not `md:hidden`) for phone-shell-only UI. */
+@custom-variant phone (@media (max-width: 767px), (max-height: 500px) and (orientation: landscape) and (pointer: coarse));
+@custom-variant desk (@media (min-width: 768px) and (min-height: 501px), (min-width: 768px) and (orientation: portrait), (min-width: 768px) and (not (pointer: coarse)));
 
 @theme inline {
   --color-background: var(--background);

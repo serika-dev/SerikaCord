@@ -11,6 +11,8 @@ export type ShellFamily = "server" | "dm";
 
 /** How much of the chat stays visible beside an open side panel. */
 export const PAGER_PEEK = 56;
+/** Side panels never get wider than this (split view, iPad mini, phones held sideways). */
+export const PAGER_MAX_SIDE = 440;
 /** Touches starting this close to the left edge belong to the browser's back swipe (Safari). */
 export const PAGER_EDGE_DEAD_ZONE = 16;
 /** Release speed (px/ms) above which a flick moves one panel even when short. */
@@ -91,13 +93,13 @@ export interface PagerLayout {
 
 /**
  * Strip geometry for a viewport `width`. Without a conversation the list is
- * the only panel and fills the screen; with one, side panels leave `peek` px
- * of the chat visible.
+ * the only panel and fills the screen; with one, side panels leave at least
+ * `peek` px of the chat visible and are capped at `maxSide` on wide screens.
  */
-export function pagerLayout(width: number, opts: { hasChat: boolean; hasMembers: boolean; peek?: number }): PagerLayout {
+export function pagerLayout(width: number, opts: { hasChat: boolean; hasMembers: boolean; peek?: number; maxSide?: number }): PagerLayout {
   const peek = Math.min(opts.peek ?? PAGER_PEEK, Math.max(0, width * 0.3));
   if (!opts.hasChat) return { panels: ["list"], positions: [0], sideWidth: width };
-  const side = Math.max(0, width - peek);
+  const side = Math.max(0, Math.min(width - peek, opts.maxSide ?? PAGER_MAX_SIDE));
   const panels: PagerPanel[] = ["list", "chat"];
   const positions = [0, -side];
   if (opts.hasMembers) {

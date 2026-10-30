@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { PHONE_QUERY } from "@/lib/layout/breakpoints";
 
 /**
  * Flipped true once any consumer has hydrated. Before that we must return the
@@ -11,14 +12,16 @@ import { useEffect, useState } from "react";
 let hydrated = false;
 
 /**
- * True below the given viewport width (default 768px).
+ * True below the given viewport width; by default, the phone layout tier
+ * (below 768px, or a phone in landscape — see lib/layout/breakpoints).
  *
  * Subscribes to a `matchMedia` change event rather than a `resize` listener —
  * a lightweight subscription instead of a handler firing on every pixel of a
  * drag.
  */
 export function useIsMobile(breakpoint = 768): boolean {
-  const query = `(max-width: ${breakpoint - 1}px)`;
+  // The default is the phone shell's tier (also phones held sideways).
+  const query = breakpoint === 768 ? PHONE_QUERY : `(max-width: ${breakpoint - 1}px)`;
 
   const [isMobile, setIsMobile] = useState<boolean>(() => {
     if (typeof window === "undefined" || !window.matchMedia || !hydrated) return false;

@@ -92,7 +92,7 @@ export function MessageActionSheet<M extends ChatMessage>({
     "flex w-full items-center gap-3 px-4 h-12 text-left text-[15px] font-medium text-[var(--text-primary)] active:bg-[var(--bg-hover)] touch-manipulation";
 
   return (
-    <MobileSheet onClose={onClose} label={gt("Message actions")} containerClassName="md:hidden">
+    <MobileSheet onClose={onClose} label={gt("Message actions")} containerClassName="desk:hidden">
         {onReact && (
           <div
             className="flex items-center justify-between gap-1.5 px-4 pb-3"

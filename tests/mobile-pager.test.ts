@@ -60,6 +60,12 @@ describe("pager layout", () => {
     expect(side + l.positions[2] + 390).toBe(PAGER_PEEK);
   });
 
+  test("side panels are capped on wide screens (split view, landscape)", () => {
+    const l = pagerLayout(852, { hasChat: true, hasMembers: true });
+    expect(l.sideWidth).toBe(440);
+    expect(l.positions).toEqual([0, -440, -880]);
+  });
+
   test("DMs have no member panel", () => {
     expect(pagerLayout(390, { hasChat: true, hasMembers: false }).panels).toEqual(["list", "chat"]);
   });

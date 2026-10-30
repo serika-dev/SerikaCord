@@ -27,6 +27,7 @@ import { ServerOnboardingAutoRoute } from "@/components/server/community/ServerO
 import type { ServerSettingsTab } from "@/components/dialogs/ServerSettingsDialog";
 import { useVisualViewportVars } from "@/hooks/useVisualViewport";
 import { parseShellRoute } from "@/lib/mobile/pager";
+import { PHONE_QUERY } from "@/lib/layout/breakpoints";
 
 const dialogFallback = () => <div className="hidden" />;
 const mobileFallback = () => <div className="flex-1 bg-[var(--bg-app)]" />;
@@ -67,7 +68,7 @@ const QuickSwitcher = dynamic(
 
 // Phone layout breakpoint, read synchronously (no desktop-first render that
 // mounts both sidebars and then swaps to the phone shell).
-const MOBILE_QUERY = "(max-width: 767px)";
+const MOBILE_QUERY = PHONE_QUERY;
 function subscribeMobile(onChange: () => void) {
   const mql = window.matchMedia(MOBILE_QUERY);
   mql.addEventListener("change", onChange);
@@ -233,7 +234,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         const newUrl = window.location.pathname;
         window.history.replaceState({}, document.title, newUrl);
 
-        if (window.matchMedia('(max-width: 767px)').matches) {
+        if (window.matchMedia(PHONE_QUERY).matches) {
           router.push(`/channels/settings/${settingsTab}`);
         } else {
           setShowUserSettings(true);
@@ -360,14 +361,14 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // Mobile Layout
   if (isMobile) {
     return (
-      <div className="flex h-[var(--app-height,100dvh)] bg-[var(--bg-app)] overflow-hidden">
+      <div className="flex h-[var(--app-height,100dvh)] bg-[var(--bg-app)] overflow-hidden pl-safe pr-safe">
         {shellRoute ? (
           <MobileShell
             pathname={pathname || ""}
             onCreateServer={() => setShowCreateServer(true)}
             voiceBar={
               showInFlowVoiceBar ? (
-                <VoiceBar channelName={voiceChannelName} className="md:hidden pb-[calc(0.5rem+var(--safe-area-bottom))]" />
+                <VoiceBar channelName={voiceChannelName} className="desk:hidden pb-[calc(0.5rem+var(--safe-area-bottom))]" />
               ) : null
             }
           />
@@ -447,7 +448,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
           {showInFlowVoiceBar && (
             <VoiceBar
               channelName={voiceChannelName}
-              className="md:hidden pb-[calc(0.5rem+var(--safe-area-bottom))]"
+              className="desk:hidden pb-[calc(0.5rem+var(--safe-area-bottom))]"
             />
           )}
         </div>
@@ -458,7 +459,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
         {!isInChannel && !isSettingsRoute && (
           <VoiceBar
             channelName={voiceChannelName}
-            className="theme-solid fixed bottom-[var(--mobile-content-pb)] left-0 right-0 z-40 md:hidden"
+            className="theme-solid fixed bottom-[var(--mobile-content-pb)] left-0 right-0 z-40 desk:hidden"
           />
         )}
         <VoiceAudioSink />
@@ -521,7 +522,7 @@ function ChannelsContent({ children }: { children: React.ReactNode }) {
   // view runs edge to edge: keep the shell clear of the status bar and the
   // home indicator; both insets are 0 in browsers and the desktop apps).
   return (
-    <div className="flex h-dvh bg-[var(--bg-app)] overflow-hidden pt-safe pb-safe">
+    <div className="flex h-dvh bg-[var(--bg-app)] overflow-hidden pt-safe pb-safe pl-safe pr-safe">
       {/* Combined Sidebars */}
       <div className="flex flex-shrink-0 h-full min-h-0">
         <ServerSidebar
