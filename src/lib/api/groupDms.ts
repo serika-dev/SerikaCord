@@ -36,11 +36,13 @@ import {
   emitDmListUpdate,
   listDmPins,
   loadDmMessagesPage,
+  mayContainCustomEmoji,
   persistDmMessage,
   prepareDmSend,
   publishToDm,
   removeDmReaction,
   setDmPinned,
+  startEarly,
   suppressDmEmbeds,
 } from '@/lib/api/dms';
 import {
@@ -66,6 +68,7 @@ import {
   conversationE2eeFlags,
   pageKeySet,
   initialConversationE2ee,
+  senderDeviceLookup,
 } from '@/lib/services/e2ee';
 
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
@@ -497,35 +500,62 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
-    const rateLimit = await checkRateLimit('message', `${user.id}:${getClientIP(request)}`);
+    // Every read the send needs before its insert is independent of the
+    // others: start them all now (one concurrent round instead of five
+    // sequential ones) and apply the verdicts below in their usual order, so
+    // the responses don't change. Nothing is written before the checks pass.
+    const preparedPromise = startEarly(prepareDmSend(user, body));
+    const preparedSend = (r: Awaited<typeof preparedPromise>) => ('prepared' in r ? r.prepared : null);
+    const rateLimitPromise = checkRateLimit('message', `${user.id}:${getClientIP(request)}`);
+    const restrictedPromise = startEarly(chatRestrictionDenial(user.id));
+    const channelPromise = startEarly(loadGroupForMember(params.channelId, user.id));
+    // Encrypted sends: the sender's device and the members' key-set version (cached).
+    const senderDevicePromise = startEarly(preparedPromise.then((r) => senderDeviceLookup(user.id, preparedSend(r)?.e2ee)));
+    const keysGatePromise = startEarly(Promise.all([channelPromise, preparedPromise]).then(([ch, r]) => (
+      ch && preparedSend(r)?.e2ee ? checkE2eeKeysFresh(ch, body.e2eeKeys) : null
+    )));
+    const spamPromise = startEarly(Promise.all([channelPromise, preparedPromise]).then(([ch, r]) => {
+      const p = preparedSend(r);
+      return ch && p ? checkDmDuplicateSpam(ch.id, user.id, p) : null;
+    }));
+    // The user's servers for emoji validation, only when the message has a
+    // custom-emoji token (most don't; without one the parser needs no list).
+    const membershipsPromise = startEarly(preparedPromise.then((r) => {
+      const p = preparedSend(r);
+      return p && mayContainCustomEmoji(p.sanitizedContent)
+        ? ServerMember.find({ userId: user.id })
+        : ([] as Array<{ serverId: string }>);
+    }));
+
+    const rateLimit = await rateLimitPromise;
     if (!rateLimit.success) {
       set.status = 429;
       return { error: 'Too many messages', retryAfter: rateLimit.retryAfter };
     }
     // Trust & Safety: a temporary chat restriction (e.g. after a scam-image strike).
-    const restricted = await chatRestrictionDenial(user.id);
+    const restricted = await restrictedPromise;
     if (restricted) {
       set.status = restricted.status;
       return restricted.body;
     }
-    const channel = await loadGroupForMember(params.channelId, user.id);
+    const channel = await channelPromise;
     if (!channel) {
       set.status = 404;
       return NOT_FOUND;
     }
 
-    const preparedResult = await prepareDmSend(user, body);
+    const preparedResult = await preparedPromise;
     if ('error' in preparedResult) {
       set.status = preparedResult.error.status;
       return preparedResult.error.body;
     }
     const prepared = preparedResult.prepared;
     // End-to-end encryption: plaintext into an encrypted group (or an envelope
-    // into a plain one) is refused; envelopes must come from a live device.
-    // Independent reads, run together; verdicts applied in this order.
+    // into a plain one) is refused; envelopes must come from a live device and
+    // name the members' current key set. Verdicts applied in this order.
     const [e2eeGate, keysGate] = await Promise.all([
-      checkE2eeChannelSend(user.id, channel, prepared.e2ee),
-      prepared.e2ee ? checkE2eeKeysFresh(channel, body.e2eeKeys) : Promise.resolve(null),
+      checkE2eeChannelSend(user.id, channel, prepared.e2ee, senderDevicePromise),
+      keysGatePromise,
     ]);
     if (e2eeGate) {
       set.status = e2eeGate.status;
@@ -536,9 +566,9 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       return { error: keysGate.error, code: keysGate.code };
     }
     const [memberships, encryptedContent, spam] = await Promise.all([
-      ServerMember.find({ userId: user.id }),
+      membershipsPromise,
       encryptForStorage(prepared.sanitizedContent),
-      checkDmDuplicateSpam(channel.id, user.id, prepared),
+      spamPromise,
     ]);
     if (spam) {
       set.status = spam.status;

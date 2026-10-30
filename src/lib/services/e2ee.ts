@@ -574,19 +574,30 @@ export function parseEncryptedBody(userId: string, body: Parameters<typeof parse
 }
 
 /**
+ * The sender-device lookup of checkE2eeChannelSend, startable before the
+ * channel is known (send routes run it alongside their other reads). Never
+ * rejects: a failed lookup counts as no device.
+ */
+export function senderDeviceLookup(userId: string, envelope: Envelope | null | undefined): Promise<DeviceRow | null> {
+  return envelope ? findUserDevice(userId, envelope.sd).catch(() => null) : Promise.resolve(null);
+}
+
+/**
  * Gate for a send/edit into `channel`: plaintext into an encrypted
  * conversation (or an envelope into a plain one) is refused, and an envelope
- * must come from one of the sender's active devices.
+ * must come from one of the sender's active devices. `senderDevice` is an
+ * already started senderDeviceLookup(userId, envelope) for this envelope.
  */
 export async function checkE2eeChannelSend(
   userId: string,
   channel: ChannelLike,
   envelope: Envelope | null | undefined,
+  senderDevice?: Promise<DeviceRow | null>,
 ): Promise<{ status: number; error: string; code?: string } | null> {
   const mismatch = e2eeMismatch(channel, Boolean(envelope));
   if (mismatch) return { ...mismatch, code: isE2eeChannel(channel) ? 'e2ee_required' : 'e2ee_not_encrypted' };
   if (!envelope) return null;
-  const device = await findUserDevice(userId, envelope.sd).catch(() => null);
+  const device = await (senderDevice ?? senderDeviceLookup(userId, envelope));
   if (!device || device.revokedAt) {
     return { status: 403, error: 'This device is not registered for end-to-end encryption', code: 'e2ee_device_inactive' };
   }

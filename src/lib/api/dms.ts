@@ -40,6 +40,7 @@ import {
   conversationE2eeFlags,
   pageKeySet,
   devicesOf,
+  senderDeviceLookup,
   initialConversationE2ee,
   isE2eeNotice,
   e2eeNoticeKind,
@@ -360,6 +361,35 @@ type DmChannelRef = { id: string; recipientIds?: string[] | null; lastMessageId?
 
 /** A route reply: the HTTP status plus the JSON body. */
 export type DmReply = { status: number; body: Record<string, unknown> };
+
+/**
+ * Start a read now and await it later, or never (a send refused by an earlier
+ * check): a rejection is only raised where the promise is awaited, never as an
+ * unhandled rejection. The send routes start every independent read up front
+ * and apply the verdicts in their usual order, so responses don't change.
+ */
+export function startEarly<T>(promise: Promise<T>): Promise<T> {
+  promise.catch(() => {});
+  return promise;
+}
+
+/**
+ * Whether sanitized content may hold a custom-emoji token (a superset of the
+ * emoji parser's pattern). Without one the parser needs no server list.
+ */
+export function mayContainCustomEmoji(content: string): boolean {
+  return /<?a?:[A-Za-z0-9_-]{1,32}:[0-9a-f]{8}-[0-9a-f]{4}-/i.test(content);
+}
+
+/** A user id as stored (normalized, lowercase like Postgres prints uuids). */
+const canonicalUserId = (id: string) => normalizeId(id).toLowerCase();
+
+/** Same member set (ids compared canonical, order and duplicates ignored). */
+function sameMemberSet(a: readonly string[] | null | undefined, b: readonly string[]): boolean {
+  const left = new Set((a ?? []).map(canonicalUserId));
+  const right = new Set(b.map(canonicalUserId));
+  return left.size === right.size && [...left].every((id) => right.has(id));
+}
 
 const ok = (body: Record<string, unknown> = { success: true }): DmReply => ({ status: 200, body });
 const fail = (status: number, error: string, extra: Record<string, unknown> = {}): DmReply => ({ status, body: { error, ...extra } });
@@ -732,12 +762,15 @@ export async function persistDmMessage(
   userServerIds: string[],
 ) {
   const { sanitizedContent, stickerData, attachments, replyTo } = prepared;
+  // The author's customization (server tag) only shapes the payload: it runs
+  // alongside everything up to and including the insert (never rejects).
+  const authorCustomizationPromise = resolveCustomization(user);
   // Parse custom emojis and look up the reply target concurrently — they're
-  // independent, and each can cost a DB round-trip.
-  const [emojiResult, replyMsg, authorCustomization] = await Promise.all([
+  // independent, and each can cost a DB round-trip. Both are needed before the
+  // insert (the reply id is only stored when its target exists).
+  const [emojiResult, replyMsg] = await Promise.all([
     parseCustomEmojis(sanitizedContent, undefined, userServerIds),
     replyTo ? Message.findOne({ id: replyTo, channelId: channel.id, isDeleted: false }) : Promise.resolve(null),
-    resolveCustomization(user),
   ]);
 
   // Store parsed emoji data for the message response
@@ -748,24 +781,27 @@ export async function persistDmMessage(
     url: e.url,
   }));
 
-  // Validate reply target if provided
-  let replyRef: string | undefined;
-  let referencedMessage: { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean; customEmojis?: ReturnType<typeof customEmojiPayload> } | undefined;
-  if (replyTo && replyMsg) {
-    replyRef = replyTo;
-    const [refAuthor, refDecrypted] = await Promise.all([
-      replyMsg.authorId ? User.findById(replyMsg.authorId) : Promise.resolve(null),
-      replyMsg.content ? decryptFromStorage(replyMsg.content) : Promise.resolve(''),
-    ]);
-    referencedMessage = {
-      id: replyMsg.id,
-      content: refDecrypted,
-      customEmojis: await referencedCustomEmojis(refDecrypted),
-      author: referenceAuthor(refAuthor),
-      createdAt: replyMsg.createdAt instanceof Date ? replyMsg.createdAt.toISOString() : (replyMsg.createdAt ?? undefined),
-      ...(storedEnvelope(replyMsg.e2ee) ? { encrypted: true } : {}),
-    };
-  }
+  // Validate reply target if provided. The quoted message shown with the reply
+  // (author, decrypted text, its emojis) is built alongside the insert; a
+  // failed lookup leaves that part out instead of failing a stored message.
+  const replyRef: string | undefined = replyTo && replyMsg ? replyTo : undefined;
+  type ReferencedMessage = { id: string; content: string; author?: ReturnType<typeof referenceAuthor>; createdAt?: string; encrypted?: boolean; customEmojis?: ReturnType<typeof customEmojiPayload> };
+  const referencedMessagePromise: Promise<ReferencedMessage | undefined> = replyRef && replyMsg
+    ? (async () => {
+      const [refAuthor, refDecrypted] = await Promise.all([
+        replyMsg.authorId ? User.findById(replyMsg.authorId).catch(() => null) : Promise.resolve(null),
+        replyMsg.content ? decryptFromStorage(replyMsg.content).catch(() => '') : Promise.resolve(''),
+      ]);
+      return {
+        id: replyMsg.id,
+        content: refDecrypted,
+        customEmojis: await referencedCustomEmojis(refDecrypted).catch(() => undefined),
+        author: referenceAuthor(refAuthor),
+        createdAt: replyMsg.createdAt instanceof Date ? replyMsg.createdAt.toISOString() : (replyMsg.createdAt ?? undefined),
+        ...(storedEnvelope(replyMsg.e2ee) ? { encrypted: true } : {}),
+      };
+    })()
+    : Promise.resolve(undefined);
 
   // Mentioned users (highlight + Inbox), plus the replied-to author unless the
   // sender switched the reply ping off.
@@ -775,18 +811,22 @@ export async function persistDmMessage(
     mentionRepliedUser: prepared.mentionRepliedUser,
   }).filter((id) => isValidObjectId(id));
 
-  const message = await Message.create({
-    channelId: channel.id,
-    authorId: user.id,
-    content: prepared.e2ee ? '' : encryptedContent,
-    type: replyRef ? 'reply' : 'default',
-    referencedMessageId: replyRef,
-    sticker: stickerData,
-    attachments,
-    mentionedUserIds,
-    flags: prepared.flags,
-    ...(prepared.e2ee ? { e2ee: prepared.e2ee } : {}),
-  });
+  const [message, referencedMessage, authorCustomization] = await Promise.all([
+    Message.create({
+      channelId: channel.id,
+      authorId: user.id,
+      content: prepared.e2ee ? '' : encryptedContent,
+      type: replyRef ? 'reply' : 'default',
+      referencedMessageId: replyRef,
+      sticker: stickerData,
+      attachments,
+      mentionedUserIds,
+      flags: prepared.flags,
+      ...(prepared.e2ee ? { e2ee: prepared.e2ee } : {}),
+    }),
+    referencedMessagePromise,
+    authorCustomizationPromise,
+  ]);
 
   // Update channel's last message — fire-and-forget so the sender's response
   // (and thus their optimistic-confirm) isn't blocked on this bookkeeping
@@ -1583,13 +1623,44 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       return { error: 'Invalid recipient ID' };
     }
 
-    // Rate limit, Trust & Safety chat restriction (e.g. after a scam-image
-    // strike) and the recipient lookup are independent: one concurrent round.
+    // Every read the send needs before its insert is independent of the
+    // others: start them all now (one concurrent round instead of six
+    // sequential ones) and apply the verdicts below in their usual order, so
+    // the responses don't change. Nothing is written before the checks pass.
+    // Encrypted sends need two of them: the sender's device and the key-set
+    // version of the two members (cached, see memberKeysVersion).
+    const recipientId = params.recipientId;
     const ip = getClientIP(request);
+    const preparedPromise = startEarly(prepareDmSend(user, body));
+    const preparedSend = (r: Awaited<typeof preparedPromise>) => ('prepared' in r ? r.prepared : null);
+    const recipientPromise = startEarly(User.findById(recipientId));
+    const sharedServersPromise = startEarly(recipientPromise.then((r) => (r ? dmSharedServers(user, r) : undefined)));
+    // The existing DM only (read-only); a first message creates it once every check passed.
+    const existingChannelPromise = startEarly(findDMChannel(user.id, recipientId));
+    const senderDevicePromise = startEarly(preparedPromise.then((r) => senderDeviceLookup(user.id, preparedSend(r)?.e2ee)));
+    const pairMembers = [user.id, recipientId].map(canonicalUserId);
+    const pairKeysGatePromise = startEarly(preparedPromise.then((r) => (
+      preparedSend(r)?.e2ee ? checkE2eeKeysFresh({ recipientIds: pairMembers }, body.e2eeKeys) : null
+    )));
+    const spamInExistingPromise = startEarly(Promise.all([existingChannelPromise, preparedPromise]).then(([ch, r]) => {
+      const p = preparedSend(r);
+      return ch && p ? checkDmDuplicateSpam(ch.id, user.id, p) : null;
+    }));
+    // The user's servers for emoji validation, only when the message has a
+    // custom-emoji token (most don't).
+    const membershipsPromise = startEarly(preparedPromise.then((r) => {
+      const p = preparedSend(r);
+      return p && mayContainCustomEmoji(p.sanitizedContent)
+        ? ServerMember.find({ userId: user.id })
+        : ([] as Array<{ serverId: string }>);
+    }));
+
+    // Rate limit, Trust & Safety chat restriction (e.g. after a scam-image
+    // strike) and the recipient lookup.
     const [rateLimit, restricted, recipient] = await Promise.all([
       checkRateLimit('message', `${user.id}:${ip}`),
       chatRestrictionDenial(user.id),
-      User.findById(params.recipientId),
+      recipientPromise,
     ]);
     if (!rateLimit.success) {
       set.status = 429;
@@ -1610,14 +1681,14 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // /channels/:dmChannelId routes so neither path can bypass it.
     const dmDenied = dmSendDenyReason(user, recipient, {
       recipientIsSystem: isSystemUser(recipient.id),
-      sharedServerIds: await dmSharedServers(user, recipient),
+      sharedServerIds: await sharedServersPromise,
     });
     if (dmDenied) {
       set.status = 403;
       return { error: dmDenied };
     }
 
-    const preparedResult = await prepareDmSend(user, body);
+    const preparedResult = await preparedPromise;
     if ('error' in preparedResult) {
       set.status = preparedResult.error.status;
       return preparedResult.error.body;
@@ -1625,26 +1696,25 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     const prepared = preparedResult.prepared;
     const { sanitizedContent, stickerData, attachments } = prepared;
 
-    // Get user's servers for emoji validation (only when the message has a
-    // custom-emoji token; most don't), create/get DM channel, and encrypt
-    // content — all three are independent and can run in parallel.
-    const hasCustomEmoji = /<?a?:[A-Za-z0-9_-]{1,32}:[0-9a-f]{8}-[0-9a-f]{4}-/i.test(sanitizedContent);
-    const [userServerMemberships, channel, encryptedContent] = await Promise.all([
-      hasCustomEmoji ? ServerMember.find({ userId: user.id }) : Promise.resolve([] as Array<{ serverId: string }>),
-      getOrCreateDMChannel(user.id, params.recipientId),
+    const [userServerMemberships, existingChannel, encryptedContent] = await Promise.all([
+      membershipsPromise,
+      existingChannelPromise,
       encryptForStorage(sanitizedContent),
     ]);
+    const channel = existingChannel ?? await getOrCreateDMChannel(user.id, recipientId);
     const userServerIds = userServerMemberships.map((m) => m.serverId);
 
     // End-to-end encryption: plaintext into an encrypted DM (or an envelope
-    // into a plain one) is refused; envelopes must come from a live device.
-    // The three checks are independent reads: run them together (the key-set
-    // check alone loads every member's identities and devices). Their verdicts
-    // are still applied in this order.
+    // into a plain one) is refused; envelopes must come from a live device and
+    // name the members' current key set. Verdicts applied in this order. The
+    // early key-set check is used when the DM's members are the pair it
+    // checked (a 1:1 DM always is).
     const [e2eeGate, keysGate, spam] = await Promise.all([
-      checkE2eeChannelSend(user.id, channel, prepared.e2ee),
-      prepared.e2ee ? checkE2eeKeysFresh(channel, body.e2eeKeys) : Promise.resolve(null),
-      checkDmDuplicateSpam(channel.id, user.id, prepared),
+      checkE2eeChannelSend(user.id, channel, prepared.e2ee, senderDevicePromise),
+      prepared.e2ee
+        ? (sameMemberSet(channel.recipientIds, pairMembers) ? pairKeysGatePromise : checkE2eeKeysFresh(channel, body.e2eeKeys))
+        : Promise.resolve(null),
+      existingChannel ? spamInExistingPromise : checkDmDuplicateSpam(channel.id, user.id, prepared),
     ]);
     if (e2eeGate) {
       set.status = e2eeGate.status;
@@ -1685,37 +1755,18 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       }
     }
 
-    // Message Requests: decided alongside the write (it doesn't depend on it).
-    // Only the DM-list bump below needs it, so the message is delivered to the
-    // open conversation as soon as it's stored (recordDmSend handles its own
-    // errors; the catch only keeps a rejection from going unhandled).
+    // Message Requests: decided alongside the write (it doesn't depend on it)
+    // and off the response path: only the DM-list bump and the recipient's
+    // signals below need it (recordDmSend handles its own errors; the catch
+    // only keeps a rejection from going unhandled).
     const isMessageRequestPromise = recordDmSend(channel.id, user, recipient).catch(() => false);
     const { message, messageData } = await persistDmMessage(user, channel, prepared, encryptedContent, userServerIds);
 
     // Deliver everywhere: local SSE + cross-instance Redis fan-out (non-blocking).
     publishToDm(channel.id, { type: 'message', message: messageData });
 
-    const isMessageRequest = await isMessageRequestPromise;
-
-    // A message request doesn't bump the recipient's DM list (it lives in
-    // Message Requests until accepted).
-    emitDmListUpdate(
-      isMessageRequest ? [user.id] : [user.id, params.recipientId],
-      {
-        type: 'dm:list:update',
-        channelId: channel.id,
-        recipientId: params.recipientId,
-        message: {
-          id: message.id,
-          content: prepared.e2ee ? ENCRYPTED_PREVIEW : sanitizedContent.slice(0, 180),
-          authorId: user.id,
-          createdAt: message.createdAt,
-          // Encrypted: the envelope, so DM lists can decrypt the preview on the device.
-          ...(prepared.e2ee ? { encrypted: true, e2ee: prepared.e2ee } : {}),
-        },
-      }
-    );
-
+    // Off the response path: DM lists, the sender's read marker and the
+    // recipient's unread signal.
     // Realtime unread signal: fan out a dm_activity event through the activity
     // stream (always connected via /api/users/@me/activity) so the recipient
     // gets an instant unread badge even when they're viewing a server, not the
@@ -1723,6 +1774,27 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
     // this, DM unread badges don't appear until the user navigates to the DM list.
     void (async () => {
       try {
+        const isMessageRequest = await isMessageRequestPromise;
+
+        // A message request doesn't bump the recipient's DM list (it lives in
+        // Message Requests until accepted).
+        emitDmListUpdate(
+          isMessageRequest ? [user.id] : [user.id, params.recipientId],
+          {
+            type: 'dm:list:update',
+            channelId: channel.id,
+            recipientId: params.recipientId,
+            message: {
+              id: message.id,
+              content: prepared.e2ee ? ENCRYPTED_PREVIEW : sanitizedContent.slice(0, 180),
+              authorId: user.id,
+              createdAt: message.createdAt,
+              // Encrypted: the envelope, so DM lists can decrypt the preview on the device.
+              ...(prepared.e2ee ? { encrypted: true, e2ee: prepared.e2ee } : {}),
+            },
+          }
+        );
+
         const { fanoutToUsers, ackOwnMessage } = await import('@/lib/api/activity');
         const createdAtIso = message.createdAt instanceof Date ? message.createdAt.toISOString() : new Date(message.createdAt ?? Date.now()).toISOString();
         // Sending reads the DM up to your message, on all your devices.
