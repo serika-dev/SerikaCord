@@ -72,7 +72,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
-import { RichComposer, type RichComposerHandle, type ComposerEmoji } from "@/components/chat/RichComposer";
+import { RichComposer, type RichComposerHandle, type ComposerEmoji, type ComposerChangeInfo } from "@/components/chat/RichComposer";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { onHotkey } from "@/lib/keybinds";
 import { onMentionRequest } from "@/lib/social/userActions";
@@ -1231,17 +1231,26 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
     }, [commandsEnabled, ensureEmojiEngine]);
 
     // ---- Handlers ----
-    const handleComposerChange = useCallback((value: string, caret: number) => {
-      const prevText = latestTextRef.current;
+    // The text as of the last change outside an IME composition: what a
+    // committed word is compared against for `:name:` conversion.
+    const settledTextRef = useRef("");
+    const handleComposerChange = useCallback((value: string, caret: number, info?: ComposerChangeInfo) => {
       latestTextRef.current = value;
       setHasText(value.trim().length > 0);
+      // While a keyboard is still composing (Samsung Keyboard holds whole
+      // words or sentences), rewriting the text corrupts the composition:
+      // doubled or lost letters, a jumping caret. Conversions wait for the
+      // committed text; suggestions (state only) keep following along.
+      const composing = !!info?.composing;
+      const prevText = settledTextRef.current;
+      if (!composing) settledTextRef.current = value;
       // Typing the closing `:` of a known `:name:` turns it into the emoji.
       // The replace re-enters this handler with the new text, which reports it.
       // Text was inserted ending at the caret (one key, or a word committed by
       // a phone keyboard / IME) and its last character is that colon.
       const insertedAtCaret =
         value.length > prevText.length && value.slice(caret) === prevText.slice(prevText.length - (value.length - caret));
-      if (!suppressConvertRef.current && shortcodeOpts && insertedAtCaret && value[caret - 1] === ":") {
+      if (!composing && !suppressConvertRef.current && shortcodeOpts && insertedAtCaret && value[caret - 1] === ":") {
         const composer = composerRef.current;
         const match = composer ? findClosingShortcode(value, caret, shortcodeOpts) : null;
         if (composer && match) {
@@ -1262,11 +1271,36 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
           return;
         }
       }
+      // A keyboard that held a whole phrase in its composition commits it at
+      // once: every closed `:name:` in the committed part converts now (it
+      // couldn't while composing).
+      if (info?.committed && !suppressConvertRef.current && shortcodeOpts && insertedAtCaret && value.includes(":")) {
+        const composer = composerRef.current;
+        const from = caret - (value.length - prevText.length);
+        const matches = composer ? findShortcodesForSend(value, shortcodeOpts).filter((m) => m.start >= from && m.end <= caret) : [];
+        if (composer && matches.length > 0) {
+          suppressConvertRef.current = true;
+          try {
+            for (let i = matches.length - 1; i >= 0; i--) replaceWithEmoji(composer, matches[i].start, matches[i].end, matches[i].emoji);
+            // Back to where the keyboard left the caret.
+            const shift = matches.reduce((n, m) => n + (m.end - m.start) - emojiText(m.emoji).length, 0);
+            composer.setCaret(caret - shift);
+          } finally {
+            suppressConvertRef.current = false;
+          }
+          matches.forEach((m) => recordResolvedEmoji(m.emoji));
+          const text = composer.getText();
+          const at = composer.getCaret();
+          updateEmojiQuery(text, at);
+          onChange(text, at);
+          return;
+        }
+      }
       updateEmojiQuery(value, caret);
       if (commandsEnabled && catalog.length > 0) {
         const atEnd = caret >= value.length;
         // `/kick ` (space after a unique full name) picks the command.
-        const picked = atEnd ? autoPickOnSpace(value, catalog) : null;
+        const picked = atEnd && !composing ? autoPickOnSpace(value, catalog) : null;
         if (picked) {
           enterCommand(picked);
           return;
@@ -1371,10 +1405,42 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
         submitCommand();
         return;
       }
+      // A word still being composed is part of the message: commit it so the
+      // send reads the final text and the keyboard forgets it.
+      composerRef.current?.commitComposition();
       convertShortcodesForSend();
       noteOutgoing();
       onSend();
     }, [activeCommand, submitCommand, convertShortcodesForSend, noteOutgoing, onSend]);
+
+    // Touch taps on Send fire on finger-up: committing a composition can
+    // resize the keyboard's suggestion strip under the finger, and the moved
+    // button then never got its click (the "tap Send twice" bug). Pointer
+    // capture keeps the finger-up on the button; the click that may follow
+    // is ignored. Mouse and keyboard activation use the click as before.
+    const sendTapRef = useRef<{ id: number; x: number; y: number } | null>(null);
+    const sentByTapAtRef = useRef(0);
+    const handleSendPointerDown = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+      e.preventDefault();
+      if (e.pointerType === "mouse" || e.button !== 0) return;
+      sendTapRef.current = { id: e.pointerId, x: e.clientX, y: e.clientY };
+      try { e.currentTarget.setPointerCapture(e.pointerId); } catch { /* not capturable */ }
+    }, []);
+    const handleSendPointerUp = useCallback((e: React.PointerEvent<HTMLButtonElement>) => {
+      const tap = sendTapRef.current;
+      sendTapRef.current = null;
+      if (!tap || tap.id !== e.pointerId) return;
+      // A drag that started on the button is not a tap.
+      if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) > 24) return;
+      if (e.currentTarget.disabled) return;
+      sentByTapAtRef.current = performance.now();
+      handleSendClick();
+    }, [handleSendClick]);
+    const handleSendPointerCancel = useCallback(() => { sendTapRef.current = null; }, []);
+    const handleSendButtonClick = useCallback(() => {
+      if (performance.now() - sentByTapAtRef.current < 800) return; // already sent on finger-up
+      handleSendClick();
+    }, [handleSendClick]);
 
     const handlePickerEmojiSelect = useCallback((
       emoji: string,
@@ -1714,6 +1780,7 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                   aria-label={ariaLabel ?? placeholder}
                   disabled={disabled}
                   resolveEmojiUrl={resolvePasteEmojiUrl}
+                  onFiles={addFiles}
                 />
               </div>
               {activeCommand && (
@@ -1879,8 +1946,10 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                 <button
                   type="button"
                   // Keep focus (and the phone keyboard) in the composer when tapped.
-                  onPointerDown={(e) => e.preventDefault()}
-                  onClick={handleSendClick}
+                  onPointerDown={handleSendPointerDown}
+                  onPointerUp={handleSendPointerUp}
+                  onPointerCancel={handleSendPointerCancel}
+                  onClick={handleSendButtonClick}
                   disabled={commandMode ? !!activeCommand?.sending : isUploading}
                   aria-label={commandMode ? gt("Send command") : isUploading ? gt("Uploading attachments") : isSending ? gt("Sending") : gt("Send message")}
                   className="flex h-10 w-10 items-center justify-center sm:block sm:h-auto sm:w-auto text-[var(--app-accent)] hover:text-[var(--accent-hover)] transition-colors disabled:opacity-70"

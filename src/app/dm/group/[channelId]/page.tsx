@@ -727,7 +727,11 @@ export default function GroupDMPage() {
             placeholder={`${gt("Message")} ${title || "..."}`}
             ariaLabel={`${gt("Message")} ${title || "..."}`}
             onSend={() => void handleSend()}
-            onChange={(value) => chat.signalTyping(value)}
+            onChange={(value, caret) => {
+              chat.signalTyping(value);
+              // Follow the text too (a phone keyboard's composition changes it without key events).
+              composerSuggestions.onCaretMove(value, caret);
+            }}
             onCaretMove={(text, caret) => composerSuggestions.onCaretMove(text, caret)}
             mentionSuggestions={composerSuggestions.mentionSuggestions}
             onMentionSelect={(s) => composerSuggestions.onMentionSelect(s as unknown as ComposerSuggestion)}

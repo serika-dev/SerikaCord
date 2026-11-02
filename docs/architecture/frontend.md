@@ -110,6 +110,21 @@ Channels and DMs run on the same code:
   `useCommandRunner` plus `appLeaves` / `commandPickers`.
 - Chat translations go through `useChatGt()` (`ChatGtContext`, provided by
   `MessageList`); interpolated strings must be in its `map`.
+- The composer (`RichComposer`, contentEditable) and on-screen keyboards:
+  Samsung Keyboard and Gboard keep words in an IME composition and report
+  Enter / Backspace as keyCode 229. Rules (pure parts in
+  `lib/chat/composerIme.ts`, tests in `tests/composer-ime.test.ts`): never
+  rewrite the editor while composing (`onChange` gets `{ composing }`;
+  MessageBar runs `:name:` conversion and command auto-pick on the
+  `committed` change); any programmatic edit first calls
+  `commitComposition()` and then restarts the Android keyboard (blur + focus
+  in one task, `scheduleImeRestart`) so it drops its cached text; an IME Enter
+  is the `beforeinput` insertParagraph / insertLineBreak, replayed once
+  through the same `onKeyDown` chain (after `compositionend` when composing);
+  Backspace removes a chip or a whole grapheme; keyboard GIFs / stickers come
+  in through paste / `insertFromPaste` and go to `onFiles` (attachments);
+  foreign markup in the editor is stripped on input. Mention pills draw their
+  label with CSS (`data-mention-label`) so keyboards can't re-compose it.
 
 ## Performance patterns
 

@@ -98,6 +98,11 @@ export interface ClipWalkOptions {
   skip?: (node: ClipNode) => boolean;
   /** Starts a new line (block-level). Defaults to a tag list. */
   isBlock?: (node: ClipNode) => boolean;
+  /**
+   * Text for an element copied as one unit, without walking into it (the
+   * composer's mention pills draw their label from an attribute).
+   */
+  atomText?: (node: ClipNode) => string | null;
 }
 
 /**
@@ -148,6 +153,11 @@ export function collectClipSegments(nodes: ArrayLike<ClipNode>, options: ClipWal
       if (node.nodeType !== ELEMENT_NODE) continue;
       const tag = node.nodeName.toUpperCase();
       if (options.skip?.(node)) continue;
+      const atom = options.atomText?.(node);
+      if (atom != null) {
+        push({ kind: "text", text: atom });
+        continue;
+      }
       const emoji = emojiFromElement(node);
       if (emoji) {
         push(emoji);

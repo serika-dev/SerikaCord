@@ -642,6 +642,12 @@ html.keyboard-open .mobile-bottom-nav {
   display: none;
 }
 
+/* Composer mention pills draw their label from an attribute, so on-screen
+   keyboards never see (and re-compose) its letters as a word (RichComposer). */
+[data-mention-label]::before {
+  content: attr(data-mention-label);
+}
+
 /* Phone screen transitions: enter-only (the old screen is gone at once, so a
    tap never waits on an exit animation), transform + opacity only. */
 @keyframes mobile-screen-enter {

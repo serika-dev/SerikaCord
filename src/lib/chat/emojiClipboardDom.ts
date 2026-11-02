@@ -18,6 +18,9 @@ import {
 /** Elements that are (or may be) emoji images. */
 const EMOJI_SELECTOR = "img.emoji, img.custom-emoji, img[data-emoji-token], img[data-emoji-id], img[alt], [data-serika-emoji]";
 
+/** Composer mention pills: their label is an attribute (drawn by CSS), copied as text. */
+const ATOM_SELECTOR = "[data-mention-label]";
+
 const asClip = (node: Node) => node as unknown as ClipNode;
 const asNode = (node: ClipNode) => node as unknown as Node;
 
@@ -68,6 +71,10 @@ export function rangeToClipSegments(range: Range, opts: { editable?: boolean } =
       }
       return false;
     },
+    atomText: (clip) => {
+      const el = asNode(clip) as Element;
+      return el.getAttribute?.("data-mention-label") ?? null;
+    },
     isBlock: (clip) => {
       const display = styleOf(asNode(clip) as Element).display;
       return !display.startsWith("inline") && display !== "contents" && display !== "none" && !display.startsWith("ruby");
@@ -95,6 +102,20 @@ function selectionHasEmoji(selection: Selection): boolean {
   return false;
 }
 
+/** Does the selection cover a mention pill (whose label the browser's copy would drop)? */
+function selectionHasAtom(selection: Selection): boolean {
+  for (let i = 0; i < selection.rangeCount; i++) {
+    const range = selection.getRangeAt(i);
+    const root = range.commonAncestorContainer;
+    if (root.nodeType !== Node.ELEMENT_NODE) continue;
+    if (root instanceof Element && root.matches(ATOM_SELECTOR)) return true;
+    for (const el of Array.from((root as Element).querySelectorAll(ATOM_SELECTOR))) {
+      if (range.intersectsNode(el)) return true;
+    }
+  }
+  return false;
+}
+
 /**
  * Clipboard payload for the current selection inside `container`, or null
  * when there's nothing special to do (no emoji images selected: the
@@ -105,7 +126,7 @@ export function selectionPayloadWithin(container: Element, opts: { editable?: bo
   if (!selection || selection.isCollapsed || selection.rangeCount === 0) return null;
   const range = selection.getRangeAt(0);
   if (!container.contains(range.commonAncestorContainer)) return null;
-  if (!selectionHasEmoji(selection)) return null;
+  if (!selectionHasEmoji(selection) && !(opts.editable && selectionHasAtom(selection))) return null;
   return segmentsToClipboard(selectionToClipSegments(selection, opts));
 }
 

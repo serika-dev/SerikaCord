@@ -107,6 +107,14 @@ describe("selection → clipboard text", () => {
     expect(segmentsToPlainText(segs)).toBe("😭😭:blob-wave:");
   });
 
+  test("composer mention pills (label in an attribute) copy as their label", () => {
+    const segs = collectClipSegments(
+      [text("hey "), el("span", { "data-mention-label": "@alice", "data-mention-token": "<@1>" }), text(" look "), customImg("blob-wave", UUID)],
+      { atomText: (n) => n.getAttribute?.("data-mention-label") ?? null },
+    );
+    expect(segmentsToPlainText(segs)).toBe("hey @alice look :blob-wave:");
+  });
+
   test("blocks start new lines, <br> is a newline, nothing doubles up", () => {
     const segs = collectClipSegments([
       el("div", {}, [el("span", {}, [text("alice")]), el("div", {}, [text("hi "), twemoji("👋")])]),

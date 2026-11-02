@@ -511,8 +511,11 @@ export default function DMConversationPage() {
     }
   };
 
-  const handleMessageInputChange = (value: string) => {
+  const handleMessageInputChange = (value: string, caret: number) => {
     chat.signalTyping(value);
+    // Follow the text too, not only caret moves: a phone keyboard's
+    // composition or suggestion tap changes the word without a key event.
+    composerSuggestions.onCaretMove(value, caret);
   };
 
   const handleAddFriend = async () => {
