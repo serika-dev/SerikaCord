@@ -239,9 +239,17 @@ jobs:
           # only (no v1 JAR signature), which keytool can't read: use apksigner.
           # The bundle (.aab) is JAR-signed, so keytool still works for it.
           APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
+          echo "Using $APKSIGNER"
           cert_sha256() {
             case "$1" in
-              *.apk) "$APKSIGNER" verify --print-certs "$1" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 ;;
+              *.apk)
+                # Certificate digests are public; print them so a mismatch is debuggable.
+                # Newer apksigner versions name signers "Signer #1" or
+                # "Signer (minSdkVersion=…)", so match any SHA-256 digest line.
+                "$APKSIGNER" verify --verbose --print-certs "$1" >"$RUNNER_TEMP/apksigner.txt" 2>&1 || true
+                grep -iE "verif|signer|digest|error" "$RUNNER_TEMP/apksigner.txt" >&2 || true
+                grep -m1 -iE "certificate SHA-256 digest" "$RUNNER_TEMP/apksigner.txt" | sed -E 's/.*digest:[[:space:]]*//'
+                ;;
               *) keytool -printcert -jarfile "$1" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 ;;
             esac
           }
