@@ -231,15 +231,26 @@ jobs:
           EXPECTED_CERT_SHA256: E9:2E:EE:4B:95:6B:34:F4:36:5A:9B:A2:EC:48:86:D1:D2:26:55:C3:4A:32:BC:8D:E4:C1:FD:00:03:93:C6:BF
         run: |
           set -euo pipefail
+          # Compare as lowercase hex without colons: keytool and apksigner
+          # print the same digest in different formats.
+          normalize() { tr -d ':[:space:]' | tr '[:upper:]' '[:lower:]'; }
+          EXPECTED=$(printf '%s' "$EXPECTED_CERT_SHA256" | normalize)
+          # With minSdk 24 the APK is signed with APK Signature Scheme v2/v3
+          # only (no v1 JAR signature), which keytool can't read: use apksigner.
+          # The bundle (.aab) is JAR-signed, so keytool still works for it.
+          APKSIGNER=$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -1)apksigner
           cert_sha256() {
-            keytool -printcert -jarfile "$1" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1
+            case "$1" in
+              *.apk) "$APKSIGNER" verify --print-certs "$1" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -1 ;;
+              *) keytool -printcert -jarfile "$1" | sed -n 's/^[[:space:]]*SHA256: //p' | head -1 ;;
+            esac
           }
           APK=$(ls mobile/android/app/build/outputs/apk/release/*.apk | head -1)
           AAB=$(ls mobile/android/app/build/outputs/bundle/release/*.aab | head -1)
           for artifact in "$APK" "$AAB"; do
-            ACTUAL=$(cert_sha256 "$artifact")
+            ACTUAL=$(cert_sha256 "$artifact" | normalize)
             echo "$(basename "$artifact") certificate: $ACTUAL"
-            if [ "$ACTUAL" != "$EXPECTED_CERT_SHA256" ]; then
+            if [ -z "$ACTUAL" ] || [ "$ACTUAL" != "$EXPECTED" ]; then
               echo "::error::$(basename "$artifact") is signed with $ACTUAL, expected $EXPECTED_CERT_SHA256"
               exit 1
             fi
