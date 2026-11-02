@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.1.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.2.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.5.2 — 2026-11-02
+
+**Tag:** `v2.5.2` · **Commit:** `f4717ebf`
 
 ### Features
 
@@ -38,12 +56,6 @@
 - **Enter and Send are reliable on phone keyboards** — the send button sends on the first tap, also while a word is still underlined, and sends the finished word. A message is never sent twice or with half a word, and no stray empty line is left behind. Enter still adds a new line on phones; where Enter sends (a pen, mouse or keyboard attached), Samsung Keyboard's Enter now sends instead of adding a line.
 - **GIFs and stickers from your keyboard arrive** — GIFs, stickers and images from Samsung Keyboard's or Gboard's panel are added as attachments (or as a link when the keyboard only gives a link) instead of disappearing or breaking the message box. Pasted formatting never ends up in the box.
 - **The message box sits right on the keyboard** — no gap between the box and the keyboard, none left below the box after the keyboard closes, the box no longer hides behind Samsung's suggestion bar, and the chat stays on the newest message when the keyboard opens. In the Android app on Android 15 and newer, the box no longer floats a keyboard's height above the keyboard.
-
-### Performance
-
-### Security
-
-### Removed
 
 ---
 
