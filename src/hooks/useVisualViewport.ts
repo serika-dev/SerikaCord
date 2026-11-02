@@ -2,52 +2,71 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import { isNativeApp } from "@/lib/native/bridge";
+import { measureKeyboard, type ViewportBaseline } from "@/lib/layout/keyboardViewport";
 
-/** Shrink of the visual viewport (px) that counts as an on-screen keyboard. */
-const KEYBOARD_THRESHOLD_PX = 80;
+/** A text field has focus (the keyboard can only be up then). */
+function editableFocused(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  if (!el || el === document.body) return false;
+  if (el.isContentEditable) return true;
+  const tag = el.tagName;
+  if (tag === "TEXTAREA") return true;
+  if (tag !== "INPUT") return false;
+  const type = (el as HTMLInputElement).type;
+  return !["button", "checkbox", "radio", "range", "color", "file", "submit", "reset", "image", "hidden"].includes(type);
+}
 
 /**
  * Tracks `window.visualViewport` on phones and exposes it as CSS variables on
- * `<html>`, because iOS Safari ignores `interactive-widget=resizes-content`:
- * the keyboard only shrinks the visual viewport, so an `h-dvh` shell keeps its
- * full height and the header scrolls away.
+ * `<html>`, so the phone shell is exactly the visible area whichever way the
+ * browser reports the keyboard (see lib/layout/keyboardViewport.ts): iOS
+ * Safari ignores `interactive-widget=resizes-content` and only shrinks the
+ * visual viewport; Chrome and Samsung Internet shrink the layout viewport;
+ * the app's WebView may do either, or neither (native insets then).
  *
  * - `--app-height`: the visible height in px (size the phone shell with
  *   `height: var(--app-height, 100dvh)`).
  * - `--keyboard-inset`: how much of the layout viewport the keyboard covers.
  * - `html.keyboard-open` while the keyboard is up (hides the bottom nav and
- *   collapses the bottom safe-area padding, see globals.css).
+ *   collapses the bottom safe-area padding, see globals.css). In the app,
+ *   NativeAppBridge owns the class (the native keyboard state is exact).
  *
  * Writes are coalesced to one per animation frame and skipped when unchanged.
- * No-op without visualViewport and inside the native app (NativeAppBridge
- * measures insets there). Mount it once, in the phone shell.
+ * No-op without visualViewport. Mount it once, in the phone shell.
  */
 export function useVisualViewportVars(enabled = true) {
   useEffect(() => {
     if (!enabled) return;
     const vv = window.visualViewport;
-    if (!vv || isNativeApp()) return;
+    if (!vv) return;
+    const native = isNativeApp();
     const root = document.documentElement;
     let frame: number | null = null;
     let lastKey = "";
+    let baseline: ViewportBaseline | null = null;
 
     const write = () => {
       frame = null;
       // Pinch zoom also shrinks the visual viewport: keep the last values.
       if (vv.scale > 1.01) return;
+      const m = measureKeyboard(
+        { width: window.innerWidth, innerHeight: window.innerHeight, vvHeight: vv.height, vvOffsetTop: vv.offsetTop, editableFocused: editableFocused() },
+        baseline,
+      );
+      baseline = m.baseline;
       const height = Math.round(vv.height);
-      const inset = Math.max(0, Math.round(window.innerHeight - vv.height - vv.offsetTop));
-      const open = inset > KEYBOARD_THRESHOLD_PX;
-      const key = `${height}:${inset}:${open}`;
+      const key = `${height}:${m.inset}:${m.open}`;
       if (key !== lastKey) {
         lastKey = key;
         root.style.setProperty("--app-height", `${height}px`);
-        root.style.setProperty("--keyboard-inset", `${inset}px`);
-        root.classList.toggle("keyboard-open", open);
+        root.style.setProperty("--keyboard-inset", `${m.inset}px`);
+        if (!native) root.classList.toggle("keyboard-open", m.open);
       }
-      // iOS scrolls the layout viewport to reveal the focused field; the
-      // shell already fits the visible area, so keep the header in view.
-      if (open && window.scrollY !== 0) window.scrollTo(0, 0);
+      // The shell already fits the visible area, so the document itself never
+      // scrolls. Browsers scroll it anyway to reveal the focused field while
+      // the keyboard opens (iOS, Samsung Internet), which hid the header and
+      // left a gap under the composer after the keyboard closed.
+      if (window.scrollY !== 0) window.scrollTo(0, 0);
     };
     const schedule = () => {
       if (frame === null) frame = requestAnimationFrame(write);
@@ -56,13 +75,18 @@ export function useVisualViewportVars(enabled = true) {
     schedule();
     vv.addEventListener("resize", schedule);
     vv.addEventListener("scroll", schedule);
+    // Focus moving in or out of a text field decides whether a shrink is the keyboard.
+    document.addEventListener("focusin", schedule);
+    document.addEventListener("focusout", schedule);
     return () => {
       vv.removeEventListener("resize", schedule);
       vv.removeEventListener("scroll", schedule);
+      document.removeEventListener("focusin", schedule);
+      document.removeEventListener("focusout", schedule);
       if (frame !== null) cancelAnimationFrame(frame);
       root.style.removeProperty("--app-height");
       root.style.removeProperty("--keyboard-inset");
-      root.classList.remove("keyboard-open");
+      if (!native) root.classList.remove("keyboard-open");
     };
   }, [enabled]);
 }

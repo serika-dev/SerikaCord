@@ -125,6 +125,11 @@ Channels and DMs run on the same code:
   in through paste / `insertFromPaste` and go to `onFiles` (attachments);
   foreign markup in the editor is stripped on input. Mention pills draw their
   label with CSS (`data-mention-label`) so keyboards can't re-compose it.
+- Phone keyboard layout: `useVisualViewportVars` sizes the shell to
+  `visualViewport.height` everywhere (also in the app) and detects the
+  keyboard for `html.keyboard-open` even when the layout viewport shrinks
+  (`lib/layout/keyboardViewport.ts`); in the app NativeAppBridge pads only the
+  part of the keyboard the WebView didn't absorb itself.
 
 ## Performance patterns
 

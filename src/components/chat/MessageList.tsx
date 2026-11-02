@@ -710,9 +710,28 @@ function MessageListInner<M extends ChatMessage>(
     const content = contentRef.current;
     const scroller = viewportRef.current;
     if (!content || typeof ResizeObserver === "undefined") return;
+    // Focusing the composer at the bottom: the keyboard is about to open.
+    // Its resize can come with scroll events of its own (the browser revealing
+    // the field) that read as "scrolled away" before this observer runs, which
+    // left the newest messages under the keyboard. For a moment, a shrinking
+    // list re-pins to the bottom whatever those said.
+    let keyboardPinUntil = 0;
+    const onFocusIn = (e: FocusEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest?.("[data-chat-composer]")) return;
+      const viewport = viewportRef.current;
+      const nearBottom = viewport ? viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 80 : false;
+      keyboardPinUntil = isAtBottomRef.current || nearBottom ? performance.now() + 1500 : 0;
+    };
+    // The user scrolling the list themselves ends it (scroll-to-dismiss included).
+    const onUserScroll = () => { keyboardPinUntil = 0; };
+    document.addEventListener("focusin", onFocusIn);
+    scroller?.addEventListener("touchstart", onUserScroll, { passive: true });
+    scroller?.addEventListener("wheel", onUserScroll, { passive: true });
     const ro = new ResizeObserver((entries) => {
       const viewportResized = entries.some((entry) => entry.target === scroller);
-      if (!stickToBottomRef.current && !(viewportResized && isAtBottomRef.current)) return;
+      const keyboardPin = viewportResized && performance.now() < keyboardPinUntil;
+      if (!stickToBottomRef.current && !(viewportResized && isAtBottomRef.current) && !keyboardPin) return;
       const viewport = viewportRef.current;
       if (!viewport) return;
       if (pendingScrollRestoreRef.current) return; // top-pagination owns scroll
@@ -725,7 +744,12 @@ function MessageListInner<M extends ChatMessage>(
     });
     ro.observe(content);
     if (scroller) ro.observe(scroller);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      document.removeEventListener("focusin", onFocusIn);
+      scroller?.removeEventListener("touchstart", onUserScroll);
+      scroller?.removeEventListener("wheel", onUserScroll);
+    };
   }, [tryAck]);
 
   // Copying selected messages keeps emoji shown as images: Unicode emoji as

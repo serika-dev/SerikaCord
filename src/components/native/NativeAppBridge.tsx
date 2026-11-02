@@ -8,6 +8,7 @@ import { addNativeListener, callNative, hasNativePlugin, isNativeApp, nativePlat
 import { backStack, isAppRoute, parentRoute, routeFromOpenedUrl } from "@/lib/native/navigation";
 import { registerForPush, reportAppState } from "@/lib/native/push";
 import { firstOpaque, isDarkColor, toHex } from "@/lib/native/systemBars";
+import { remainingKeyboardInset } from "@/lib/layout/keyboardViewport";
 import { navigateInApp } from "@/lib/services/notificationService";
 
 /** Overlays that close on Escape (Radix dialogs, sheets, menus, popovers). */
@@ -20,7 +21,10 @@ const OPEN_LAYER_SELECTOR = [
 
 interface NativeInsets {
   top?: number;
+  /** max(navigation bar, keyboard) overlap of the WebView. */
   bottom?: number;
+  /** Navigation bar overlap alone (newer APKs). */
+  navigationBottom?: number;
   left?: number;
   right?: number;
   keyboard?: number;
@@ -28,8 +32,40 @@ interface NativeInsets {
 }
 
 let pendingInsets: NativeInsets | null = null;
+let lastInsets: NativeInsets | null = null;
 let insetsFrame: number | null = null;
 let lastInsetsKey = "";
+/** The visible height with the keyboard closed, at `closedWidth`. */
+let closedHeight = 0;
+let closedWidth = 0;
+
+/**
+ * Bottom padding the keyboard still needs. The native side measures how much
+ * of the WebView *view* the keyboard covers, but WebView 140+ drawn edge to
+ * edge (Android 15+) shrinks the page's viewport itself: padding by the full
+ * keyboard as well left a keyboard-sized gap above it (and the shell is now
+ * sized to the visible height, see useVisualViewportVars). Only what the
+ * WebView didn't absorb is padded; with the keyboard closed, the navigation bar.
+ */
+function bottomInset(insets: NativeInsets): number {
+  const vv = window.visualViewport;
+  const visible = Boolean(insets.keyboardVisible);
+  const vvHeight = vv ? vv.height : window.innerHeight;
+  if (!visible) {
+    closedHeight = vvHeight;
+    closedWidth = window.innerWidth;
+    return Number(insets.bottom) || 0;
+  }
+  const keyboard = Number(insets.keyboard) || 0;
+  const left = remainingKeyboardInset({
+    keyboard,
+    keyboardVisible: true,
+    closedHeight: closedWidth === window.innerWidth ? closedHeight : 0,
+    vvHeight,
+  });
+  // Keyboard up: the navigation bar is under it.
+  return left;
+}
 
 function writeInsets() {
   insetsFrame = null;
@@ -37,7 +73,7 @@ function writeInsets() {
   pendingInsets = null;
   if (!insets) return;
   const px = (n: unknown) => `${Math.max(0, Math.round(Number(n) || 0))}px`;
-  const values = [px(insets.top), px(insets.bottom), px(insets.left), px(insets.right), px(insets.keyboard)];
+  const values = [px(insets.top), px(bottomInset(insets)), px(insets.left), px(insets.right), px(insets.keyboard)];
   const visible = Boolean(insets.keyboardVisible);
   const key = `${values.join(",")}:${visible}`;
   if (key === lastInsetsKey) return;
@@ -55,6 +91,7 @@ function writeInsets() {
  *  them to one root style write per frame, skipped when nothing changed. */
 function applyInsets(insets: NativeInsets | null) {
   if (!insets) return;
+  lastInsets = insets;
   pendingInsets = insets;
   if (insetsFrame === null) insetsFrame = requestAnimationFrame(writeInsets);
 }
@@ -116,6 +153,12 @@ export function NativeAppBridge() {
     if (hasNativePlugin("SerikaNative", "getInsets")) {
       void callNative<NativeInsets>("SerikaNative", "getInsets").then(applyInsets);
       cleanups.push(addNativeListener("SerikaNative", "insetsChange", (d) => applyInsets(d as NativeInsets)));
+      // The WebView's own viewport change can land after the native inset
+      // event: recompute what's left to pad when it does.
+      const vv = window.visualViewport;
+      const onViewport = () => applyInsets(lastInsets);
+      vv?.addEventListener("resize", onViewport);
+      cleanups.push(() => vv?.removeEventListener("resize", onViewport));
     } else {
       cleanups.push(addNativeListener("Keyboard", "keyboardWillShow", () => root.classList.add("keyboard-open")));
       cleanups.push(addNativeListener("Keyboard", "keyboardWillHide", () => root.classList.remove("keyboard-open")));
@@ -221,6 +264,7 @@ export function NativeAppBridge() {
       if (insetsFrame !== null) cancelAnimationFrame(insetsFrame);
       insetsFrame = null;
       pendingInsets = null;
+      lastInsets = null;
       lastInsetsKey = "";
       root.classList.remove("native-app", `native-${nativePlatform()}`, "keyboard-open");
     };
