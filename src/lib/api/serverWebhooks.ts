@@ -3,9 +3,10 @@
 //   GET /servers/:serverId/webhooks   every channel webhook in the server
 //
 // Like Discord's GET /guilds/{id}/webhooks: needs MANAGE_WEBHOOKS (owner,
-// ADMINISTRATOR or the bit). Managers get each webhook's URL except an
-// application's own webhooks, whose token stays with that app. Editing goes
-// through the per-channel routes in channels.ts.
+// ADMINISTRATOR or the bit), and lists only webhooks of channels the manager
+// can view. Managers get each webhook's URL except an application's own
+// webhooks, whose token stays with that app. Editing goes through the
+// per-channel routes in channels.ts.
 import { Elysia, t } from 'elysia';
 import { Server, ServerMember } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
@@ -31,7 +32,12 @@ export const serverWebhookRoutes = new Elysia({ prefix: '/servers' })
     }
     const { ChannelWebhook } = await import('@/lib/models');
     const { serializeWebhookForUser, loadWebhookCreators } = await import('@/lib/services/channelWebhooks');
-    const webhooks = await ChannelWebhook.find({ serverId: server.id });
+    // Only webhooks of channels this manager can view: a webhook's URL posts into
+    // its channel, and its name and channel id would give a hidden channel away.
+    const { listViewableServerChannels } = await import('@/lib/api/channels');
+    const viewable = new Set(((await listViewableServerChannels(user.id, server.id)) ?? []).map((c) => c.id.toLowerCase()));
+    const webhooks = (await ChannelWebhook.find({ serverId: server.id }))
+      .filter((w) => !!w.channelId && viewable.has(w.channelId.toLowerCase()));
     const creators = await loadWebhookCreators(webhooks);
     return webhooks
       .sort((a, b) => new Date(a.createdAt ?? 0).getTime() - new Date(b.createdAt ?? 0).getTime())

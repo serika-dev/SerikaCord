@@ -32,6 +32,7 @@ import {
 import {
   buildEventViews,
   emitEventGateway,
+  eventChannelScope,
   ensureScheduledEventSchema,
   notifyEventStarted,
   publishEventsChanged,
@@ -311,7 +312,7 @@ export const scheduledEventRoutes = new Elysia({ prefix: '/servers' })
       void import('@/lib/services/gatewayEvents')
         .then(({ emitGuildScheduledEvent }) => emitGuildScheduledEvent('GUILD_SCHEDULED_EVENT_USER_ADD', row.serverId, {
           guild_scheduled_event_id: row.id, user_id: user.id, guild_id: row.serverId,
-        }))
+        }, eventChannelScope(row)))
         .catch(() => {});
     }
     return { success: true };
@@ -332,7 +333,7 @@ export const scheduledEventRoutes = new Elysia({ prefix: '/servers' })
       void import('@/lib/services/gatewayEvents')
         .then(({ emitGuildScheduledEvent }) => emitGuildScheduledEvent('GUILD_SCHEDULED_EVENT_USER_REMOVE', row.serverId, {
           guild_scheduled_event_id: row.id, user_id: user.id, guild_id: row.serverId,
-        }))
+        }, eventChannelScope(row)))
         .catch(() => {});
     }
     return { success: true };

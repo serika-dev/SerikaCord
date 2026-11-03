@@ -563,8 +563,13 @@ export function emitAutoModActionExecution(guildId: string, d: Record<string, un
   }, PERMISSION_BITS.MANAGE_SERVER);
 }
 
-/** GUILD_SCHEDULED_EVENT_CREATE / _UPDATE / _DELETE / _USER_ADD / _USER_REMOVE. */
-export function emitGuildScheduledEvent(t: string, guildId: string, d: unknown) {
+/**
+ * GUILD_SCHEDULED_EVENT_CREATE / _UPDATE / _DELETE / _USER_ADD / _USER_REMOVE.
+ * An event in a voice / stage channel (`channelId`) only reaches bots that can
+ * view that channel; external events reach every bot in the guild.
+ */
+export function emitGuildScheduledEvent(t: string, guildId: string, d: unknown, channelId?: string | null) {
+  if (channelId) return publishChannelScoped({ t, guildId, intent: Intents.GUILD_SCHEDULED_EVENTS, d }, channelId);
   return publish({ t, guildId, intent: Intents.GUILD_SCHEDULED_EVENTS, d });
 }
 

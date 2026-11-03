@@ -78,7 +78,7 @@ export async function resolveOutboundMentions(opts: {
             .where(and(eq(schema.roles.serverId, serverId), inArray(schema.roles.id, ids.roleIds)))
         : Promise.resolve([]),
       ids.channelIds.length
-        ? db.select({ id: schema.channels.id, name: schema.channels.name })
+        ? db.select({ id: schema.channels.id, name: schema.channels.name, type: schema.channels.type, permissionOverwrites: schema.channels.permissionOverwrites })
             .from(schema.channels)
             .where(and(eq(schema.channels.serverId, serverId), inArray(schema.channels.id, ids.channelIds)))
         : Promise.resolve([]),
@@ -122,8 +122,17 @@ export async function resolveOutboundMentions(opts: {
 
     for (const r of roles) lookup.roles[String(r.id).toLowerCase()] = r.name;
     const bridged = new Map(opts.links.map((l) => [l.serikaChannelId.toLowerCase(), l.discordChannelId]));
+    // People on Discord aren't members: only name channels that are bridged or
+    // that every member can see. Others (staff channels, threads, tickets) stay
+    // unnamed instead of giving a hidden channel away.
+    const { everyoneCanViewServer } = await import('@/lib/api/channels');
+    const everyoneSeesServer = channels.length > 0 && await everyoneCanViewServer(serverId).catch(() => false);
     for (const c of channels) {
       const id = String(c.id).toLowerCase();
+      const isPublic = everyoneSeesServer
+        && c.type !== 'public_thread' && c.type !== 'private_thread'
+        && !(Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0);
+      if (!bridged.has(id) && !isPublic) continue;
       lookup.channels[id] = { name: c.name, discordChannelId: bridged.get(id) ?? null };
     }
   } catch (err) {

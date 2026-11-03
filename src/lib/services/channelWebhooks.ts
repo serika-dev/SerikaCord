@@ -379,7 +379,7 @@ export async function executeWebhook(
       messageCount: 0,
     });
     const { publishToChannel } = await import('@/lib/api/channels');
-    publishToChannel(forum.id, { type: 'thread_create', threadId: channel.id });
+    publishToChannel(forum.id, (await import('@/lib/services/threads')).threadCreateEvent(channel));
     // Bots: THREAD_CREATE before the post's MESSAGE_CREATE.
     const { emitThreadCreate } = await import('@/lib/services/gatewayEvents');
     await emitThreadCreate(channel);

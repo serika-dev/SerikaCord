@@ -85,7 +85,7 @@ export function onThreadsBrowserRequest(fn: (parentId: string) => void): () => v
 // ── "My joined threads changed" ───────────────────────────────────────────
 const changeListeners = new Set<(serverId: string) => void>();
 
-/** Joined / left / archived / created: the sidebar's thread list is stale for `serverId`. */
+/** Joined / left / archived / created, or channel access changed: the sidebar's channel list is stale for `serverId`. */
 export function emitThreadsChanged(serverId: string): void {
   changeListeners.forEach((fn) => fn(serverId));
 }

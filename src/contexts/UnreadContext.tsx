@@ -250,6 +250,8 @@ interface DmActivityEvent {
 // stream and the DM-list stream; alert once. (Counting is idempotent in the
 // engine — badges are kept by message id.)
 const alertedMessageIds = new Set<string>();
+/** One pending channel-list refetch per server after `channel_access_changed`. */
+const accessRefetchTimers = new Map<string, ReturnType<typeof setTimeout>>();
 function markAlerted(messageId: string | undefined): boolean {
   if (!messageId) return true;
   if (alertedMessageIds.has(messageId)) return false;
@@ -853,6 +855,21 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
         dispatchUnread({ type: "reset", channelId, lastMessageAt: lastMessageAt ?? null, deleted });
         afterRead(channelId);
         refreshMentionsNow();
+        return;
+      }
+
+      // Which channels this user may see changed (permissions, roles, a channel
+      // added or removed): the channel list refetches, already filtered.
+      if (data.type === "channel_access_changed") {
+        const serverId = (data as { serverId?: string }).serverId;
+        // A role edit reaches every online member at once: spread the refetches,
+        // one pending refetch per server.
+        if (serverId && !accessRefetchTimers.has(serverId)) {
+          accessRefetchTimers.set(serverId, setTimeout(() => {
+            accessRefetchTimers.delete(serverId);
+            emitThreadsChanged(serverId);
+          }, Math.random() * 1500));
+        }
         return;
       }
 

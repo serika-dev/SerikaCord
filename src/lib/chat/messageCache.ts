@@ -116,7 +116,7 @@ export function writeCache<M extends ChatMessage>(key: string, messages: M[], pe
   if (persist) lsPersist(key, messages);
 }
 
-/** Clear all cached messages (in-memory + localStorage). Call on account switch / login / logout to prevent cross-account message leakage. */
+/** Clear all cached messages and the persisted server/channel lists (in-memory + localStorage). Call on account switch / login / logout to prevent cross-account leakage. */
 export function clearMessageCache(): void {
   messageCache.clear();
   inflightPrefetch.clear();
@@ -132,6 +132,18 @@ export function clearMessageCache(): void {
       localStorage.removeItem(LS_MSG_PREFIX + key);
     }
     localStorage.removeItem(LS_INDEX_KEY);
+  } catch {
+    /* ignore */
+  }
+  // The persisted server list and per-server channel lists (ServerContext) are
+  // per account too: another account must never paint channels it can't see.
+  try {
+    const stale: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const key = localStorage.key(i);
+      if (key && (key === "sc:servers" || key.startsWith("sc:channels:"))) stale.push(key);
+    }
+    for (const key of stale) localStorage.removeItem(key);
   } catch {
     /* ignore */
   }

@@ -736,10 +736,21 @@ export function ServerProvider({ children }: { children: ReactNode }) {
 
   // Joined / left / created / archived a thread (here or on another device):
   // the sidebar's thread rows come from the channel list.
+  // Also on channel access changes: another server's cached list may now hold a
+  // channel this user can no longer see, so it's dropped and refetched on open.
   useEffect(
     () =>
       onThreadsChanged((serverId) => {
-        if (activeServerIdRef.current === serverId) void fetchChannels(serverId);
+        if (activeServerIdRef.current === serverId) {
+          void fetchChannels(serverId);
+          return;
+        }
+        channelCacheRef.current.delete(serverId);
+        try {
+          localStorage.removeItem(LS_CHANNELS_PREFIX + serverId);
+        } catch {
+          /* storage unavailable */
+        }
       }),
     [fetchChannels],
   );

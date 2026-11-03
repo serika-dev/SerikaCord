@@ -48,8 +48,8 @@ function resolve(
 /**
  * Whether the current user can send messages in a channel. Mirrors the server's
  * canSendInChannel: base role permissions, then overwrites in Discord order
- * (@everyone, the member's roles, the member). Owner, admin flag, ADMINISTRATOR
- * and MANAGE_CHANNELS bypass the overwrites.
+ * (@everyone, the member's roles, the member). Owner, admin flag and
+ * ADMINISTRATOR bypass the overwrites.
  */
 export function canSendInChannel(
   channel: { permissionOverwrites?: PermissionOverwrite[]; serverId?: string | null } | null | undefined,

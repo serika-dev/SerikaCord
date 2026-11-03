@@ -1139,7 +1139,8 @@ export function useChatSession<M extends ChatMessage>({
       if (data.type === "thread_update") {
         // A thread started here changed (new reply, renamed, archived, deleted):
         // its starter message chip / "started a thread" row follows.
-        if (typeof data.threadId === "string") {
+        // `hidden`: a private thread's content-free hint; it has no chip here.
+        if (typeof data.threadId === "string" && !data.hidden) {
           setMessages((prev) =>
             applyThreadUpdate(prev, {
               threadId: data.threadId,

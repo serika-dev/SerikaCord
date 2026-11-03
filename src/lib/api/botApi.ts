@@ -1034,7 +1034,8 @@ async function reorderGuildRoles(g: GuildOk, botId: string, updates: Array<{ id:
 function afterMemberChange(serverId: string, userId: string, opts: { roles?: boolean } = {}) {
   void import('./activity').then((m) => m.invalidateServerMemberCache(serverId)).catch(() => {});
   if (opts.roles) {
-    void import('@/lib/realtime/channelStreams').then((m) => m.requestUserChannelStreamRecheck(normalizeId(userId))).catch(() => {});
+    // Their sidebar and open streams follow the channels their roles now show.
+    void import('@/lib/services/channelAccess').then((m) => m.channelAccessChanged(serverId, { userIds: [userId] })).catch(() => {});
   }
   void guildEvents.emitMemberUpdate(serverId, userId);
 }
@@ -1878,9 +1879,25 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
 
   if (!isValidObjectId(params.guildId)) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
-  // Discord lists the guild's channels without threads (those come from the thread routes).
-  const channels = (await Channel.find({ serverId: params.guildId }))
-    .filter((c) => !isThreadChannel(c) && !isDmChannel(c));
+  const botId = auth.botUser.id;
+  const [server, member, roles, all] = await Promise.all([
+    Server.findById(params.guildId),
+    ServerMember.findOne({ serverId: params.guildId, userId: botId }),
+    Role.find({ serverId: params.guildId }),
+    Channel.find({ serverId: params.guildId }),
+  ]);
+  if (!server || !member) { set.status = 404; return { code: 10004, message: 'Unknown Guild' }; }
+  // Only channels the bot can view (VIEW_CHANNEL after overwrites, as in
+  // GUILD_CREATE). Discord lists them without threads (the thread routes have those).
+  const { botViewChecker } = await import('@/lib/gateway/guildPayload');
+  const canView = botViewChecker({
+    isOwner: compareIds(server.ownerId ?? '', botId),
+    serverId: server.id,
+    botId,
+    memberRoleIds: (member.roles ?? []) as string[],
+    roles,
+  });
+  const channels = all.filter((c) => !isThreadChannel(c) && !isDmChannel(c) && canView(c));
   return channels.sort((a, b) => (a.position ?? 0) - (b.position ?? 0)).map(formatChannel);
 })
 // Serika extension: which of this guild's channels the Discord bridge links,
@@ -3549,6 +3566,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     reason: auditReason(headers['x-audit-log-reason']),
   });
   void guildEvents.emitChannelCreate(channel);
+  void import('@/lib/services/channelAccess').then((m) => m.channelAccessChanged(g.server.id)).catch(() => {});
   set.status = 201;
   return formatChannel(channel);
 })
@@ -3685,7 +3703,12 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     if (!r.ok) { set.status = r.status; return r.body; }
   }
   const updated = Object.keys(updates).length > 0 ? await Role.updateById(role.id, updates) : await Role.findById(role.id);
-  if (updates.permissions !== undefined) invalidateRolePerms(g.server.id, role.id);
+  if (updates.permissions !== undefined) {
+    invalidateRolePerms(g.server.id, role.id);
+    if (String(updates.permissions) !== String(role.permissions ?? '')) {
+      void import('@/lib/services/channelAccess').then((m) => m.channelAccessChanged(g.server.id)).catch(() => {});
+    }
+  }
   const changes = diffChanges(role as Record<string, unknown>, updates as Record<string, unknown>, ROLE_AUDIT_KEYS);
   if (changes.length > 0) {
     audit({
@@ -3713,6 +3736,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     .where(and(eq(schema.serverMembers.serverId, normalizeId(g.server.id)), sql`${schema.serverMembers.roles} @> ARRAY[${role.id}]::uuid[]`));
   await Role.deleteById(role.id);
   invalidateRolePerms(g.server.id, role.id);
+  void import('@/lib/services/channelAccess').then((m) => m.channelAccessChanged(g.server.id)).catch(() => {});
   audit({
     serverId: g.server.id, userId: auth.botUser.id, actionType: AuditLogEvent.ROLE_DELETE, targetId: role.id,
     changes: snapshotChanges(role as Record<string, unknown>, ROLE_AUDIT_KEYS, 'old'),
@@ -4147,6 +4171,12 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     const g = await loadBotGuild(webhook.serverId, auth.botUser.id);
     if (!g.ok && !isCreator) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
     canManage = g.ok && standingHas(g.standing, P.MANAGE_WEBHOOKS);
+    // Like Discord: someone else's webhook needs Manage Webhooks and a channel the bot can view.
+    if (!isCreator) {
+      const { checkChannelAccess } = await import('@/lib/api/channels');
+      const visible = !!webhook.channelId && (await checkChannelAccess(auth.botUser.id, webhook.channelId)).hasAccess;
+      if (!canManage || !visible) { set.status = 403; return { code: 50013, message: 'Missing Permissions' }; }
+    }
   } else if (!isCreator) {
     set.status = 404; return { code: 10015, message: 'Unknown Webhook' };
   }

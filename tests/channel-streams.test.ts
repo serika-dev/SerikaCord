@@ -1,7 +1,10 @@
 import { describe, expect, test } from "bun:test";
 import {
+  recheckLocalChannelStreams,
   recheckLocalUserChannelStreams,
+  requestChannelStreamsRecheck,
   requestUserChannelStreamRecheck,
+  setChannelsRecheckPublisher,
   setChannelStreamRecheckPublisher,
   trackUserChannelStream,
 } from "@/lib/realtime/channelStreams";
@@ -46,5 +49,30 @@ describe("channel stream access recheck registry", () => {
     requestUserChannelStreamRecheck("user-e");
     expect(published).toEqual(["user-e"]);
     setChannelStreamRecheckPublisher(() => {});
+  });
+
+  test("a channel-wide recheck covers every user's streams of those channels only", async () => {
+    const calls: string[] = [];
+    const untrack = [
+      trackUserChannelStream("user-d", { channelId: "AA", revalidate: async () => { calls.push("d:aa"); } }),
+      trackUserChannelStream("user-e", { channelId: "aa", revalidate: async () => { calls.push("e:aa"); } }),
+      trackUserChannelStream("user-e", { channelId: "bb", revalidate: async () => { calls.push("e:bb"); } }),
+    ];
+    await recheckLocalChannelStreams(["aa"]);
+    expect(calls.sort()).toEqual(["d:aa", "e:aa"]);
+    untrack.forEach((fn) => fn());
+  });
+
+  test("a channel-wide recheck request also goes to other instances", async () => {
+    const published: string[][] = [];
+    setChannelsRecheckPublisher((ids) => { published.push(ids); });
+    let count = 0;
+    const untrack = trackUserChannelStream("user-f", { channelId: "cc", revalidate: async () => { count += 1; } });
+    requestChannelStreamsRecheck(["cc"]);
+    requestChannelStreamsRecheck([]);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(count).toBe(1);
+    expect(published).toEqual([["cc"]]);
+    untrack();
   });
 });

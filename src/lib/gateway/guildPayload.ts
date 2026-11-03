@@ -142,10 +142,12 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
   const botRoles = managedBotRoles(members, users, roles);
 
   let events: unknown[] = [];
+  let eventRows: Array<{ channelId?: string | null; entityType?: string | null }> = [];
   try {
     const { toDiscordEvent } = await import('@/lib/services/scheduledEvents');
     const rows = await db.select().from(schema.serverScheduledEvents)
       .where(and(eq(schema.serverScheduledEvents.serverId, sid), inArray(schema.serverScheduledEvents.status, ['scheduled', 'active'])));
+    eventRows = rows;
     events = rows.map((r) => toDiscordEvent(r));
   } catch { /* table may not exist yet */ }
 
@@ -168,7 +170,13 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
         ? { member: toDiscordThreadMember(c, botMember.userId) }
         : {}),
     }));
-  const guildChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'group_dm' && !isThreadChannelType(c.type));
+  // Events in a voice / stage channel the bot can't view stay hidden (REST does the same).
+  const visibleEvents = events.filter((_, i) => {
+    const row = eventRows[i];
+    return !row?.channelId || row.entityType === 'external' || canViewParent(byId.get(row.channelId.toLowerCase()) ?? null);
+  });
+  // Only channels (and categories) the bot can view, like the REST list.
+  const guildChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'group_dm' && !isThreadChannelType(c.type) && canViewParent(c));
 
   // WP7: who is in voice (GUILD_VOICE_STATES), WP1: presences of the members
   // sent here (GUILD_PRESENCES, privileged), online members only.
@@ -217,7 +225,7 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
     threads,
     presences,
     stage_instances: stageInstances,
-    guild_scheduled_events: events,
+    guild_scheduled_events: visibleEvents,
     soundboard_sounds: soundboardSounds,
     roles: roles.map((r) => toDiscordRole(r, botRoles.get(r.id) ?? null)),
     emojis: emojis.map((e) => toDiscordEmoji(e)),

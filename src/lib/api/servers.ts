@@ -16,7 +16,7 @@ import { db, schema } from '@/lib/db/postgres';
 import { and, eq, gt, gte, inArray, notInArray, sql } from 'drizzle-orm';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
-import { computeChannelPermissions, DEFAULT_EVERYONE_PERMISSIONS, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
+import { DEFAULT_EVERYONE_PERMISSIONS } from '@/lib/permissions/channelOverwrites';
 import { publicServerSettings, verifyDiscordGuildControl } from '@/lib/services/discordGuildLink';
 import { pickClientIntegrations } from '@/lib/discord/bridgeConfig';
 import { INTEGRATION_KINDS, MENTION_TYPES, MESSAGE_TEMPLATE_MAX, integrationKeys, normalizeMention, parseTwitchLogin, parseYouTubeChannelInput } from '@/lib/integrations/notifications';
@@ -37,6 +37,8 @@ import { admitScreenedMember, getScreeningConfig } from '@/lib/services/serverCo
 import { fanoutToUsers, invalidateServerMemberCache } from '@/lib/api/activity';
 import { VERIFICATION_ACTIONS, VERIFICATION_MAX_MINUTES, normalizeVerificationOptions, type VerificationAction } from '@/lib/servers/verification';
 import { normalizeOverwrites } from '@/lib/permissions/overwriteEditor';
+import { channelViewerFromRoles, visibleServerChannels } from '@/lib/permissions/channelVisibility';
+import { channelAccessChanged } from '@/lib/services/channelAccess';
 import { normalizeRoleIconInput, pickIconRole } from '@/lib/roles/roleIcon';
 import { parseSoundVolume } from '@/lib/servers/soundboardVolume';
 import { invitesPaused } from '@/lib/botapi/guildIncidentRules';
@@ -129,7 +131,6 @@ const DEFAULT_PERMISSIONS = {
 const PERM_ADMINISTRATOR = 1n << 3n;
 const PERM_MANAGE_SERVER = 1n << 5n;
 const PERM_MANAGE_ROLES = 1n << 28n;
-const PERM_MANAGE_CHANNELS = 1n << 4n;
 const PERM_BAN_MEMBERS = 1n << 2n;
 const PERM_KICK_MEMBERS = 1n << 1n;
 const PERM_MODERATE_MEMBERS = 1n << 40n;
@@ -788,6 +789,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       reason: auditReason(headers['x-audit-log-reason']),
     });
     void guildEvents.emitChannelCreate(channel);
+    // Members who can see it get it in their sidebar live.
+    channelAccessChanged(server.id);
 
     return {
       success: true,
@@ -865,9 +868,13 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     // Positions / parents only (overwrites are copied, not inherited), so nobody's view changes.
     void guildEvents.emitChannelUpdates(server.id, channelUpdates.map((u) => u.id));
 
-    // Fetch fresh channel list
-    const updatedChannels = await Channel.find({ serverId: server.id });
-    updatedChannels.sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
+    // Only what changed, for the channels in the request: the full rows would hand
+    // a Manage Channels holder every hidden channel, thread and ticket.
+    const requested = new Set(channelUpdates.map((u) => String(u.id).toLowerCase()));
+    const updatedChannels = (await Channel.find({ serverId: server.id }))
+      .filter((c) => requested.has(String(c.id).toLowerCase()))
+      .sort((a, b) => (a.position ?? 0) - (b.position ?? 0))
+      .map((c) => ({ id: c.id, position: c.position, parentId: c.parentId ?? null, nsfw: Boolean(c.nsfw) }));
 
     return { success: true, channels: updatedChannels };
   }, {
@@ -915,11 +922,15 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     channels.sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
     roles.sort((a: any, b: any) => (b.position ?? 0) - (a.position ?? 0));
-    // Rules screening with restricted channels: don't reveal hidden channels.
+    // Only the channels this member may view (VIEW_CHANNEL after overwrites, joined
+    // threads), and under rules screening only the restricted ones.
     const pendingAccess = await pendingChannelAccess(server.id, user, membership).catch(() => null);
-    const visibleChannels = pendingAccess
-      ? channels.filter((c) => isChannelAccessibleWhilePending(c, channels.find((p) => p.id === c.parentId) ?? null, pendingAccess, channels))
-      : channels;
+    const viewer = channelViewerFromRoles({
+      userId: user.id, serverId: server.id, ownerId: server.ownerId, roles, memberRoleIds: membership.roles,
+    });
+    const visibleChannels = visibleServerChannels(channels, viewer, pendingAccess
+      ? (c) => isChannelAccessibleWhilePending(c, channels.find((p) => p.id === c.parentId) ?? null, pendingAccess, channels)
+      : undefined);
 
     return {
       server: {
@@ -2060,6 +2071,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     await ServerMember.updateById(member.id, { roles: requestedWithEveryone });
     void guildEvents.emitMemberUpdate(params.serverId, params.memberUserId);
+    // Their roles decide which channels they see: sidebar and open streams follow now.
+    channelAccessChanged(params.serverId, { userIds: [params.memberUserId] });
 
     // Manual populate
     const populatedUser = member.userId ? await User.findById(member.userId) : null;
@@ -2748,74 +2761,23 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    // Check if user is server owner (bypasses all permission checks)
-    const isOwner = server.ownerId === user.id;
-
-    // Compute admin permissions from the already-fetched roles (no extra DB round-trip).
-    const userRoleIds = (membership.roles || []) as string[];
-    const userRoleSet = new Set(userRoleIds);
-    let hasAdmin = isOwner;
-    if (!hasAdmin && userRoleIds.length > 0) {
-      for (const role of allRoles as IRole[]) {
-        if (!userRoleSet.has(role.id)) continue;
-        // Warm the shared cache (same expiry as a miss) so later checks hit.
-        const permsStr = role.permissions || '0';
-        primeRolePermissions(params.serverId, role.id, permsStr);
-        const perms = parsePermissionBitfield(permsStr);
-        if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR || (perms & PERM_MANAGE_CHANNELS) === PERM_MANAGE_CHANNELS) {
-          hasAdmin = true;
-          break;
-        }
-      }
-    }
-
-    // VIEW_CHANNEL from base role permissions + overwrites in Discord order
-    // (@everyone, then the member's roles, then the member), so a role or member
-    // allow beats the @everyone deny of a "Private Channel". Shared with
-    // checkChannelAccess via src/lib/permissions/channelOverwrites.ts.
-    const everyoneRole = (allRoles as IRole[]).find((r) => r.isDefault) ?? null;
-    const everyoneRoleId = everyoneRole?.id ?? null;
-    const memberRolePerms: bigint[] = [];
+    // VIEW_CHANNEL from base role permissions + overwrites in Discord order, joined
+    // threads only, categories only when they hold a visible channel
+    // (src/lib/permissions/channelVisibility.ts, shared with GET /:serverId).
     for (const role of allRoles as IRole[]) {
-      if (role.id === everyoneRoleId || !userRoleSet.has(role.id)) continue;
-      try { memberRolePerms.push(BigInt(role.permissions || '0')); } catch { /* malformed bitfield */ }
+      // Warm the shared cache (same expiry as a miss) so later checks hit.
+      if ((membership.roles || []).includes(role.id)) primeRolePermissions(params.serverId, role.id, role.permissions || '0');
     }
-    let everyonePermissions: bigint | null = null;
-    if (everyoneRole) {
-      try { everyonePermissions = BigInt(everyoneRole.permissions || '0'); } catch { everyonePermissions = 0n; }
-    }
-    const canViewNonThread = (ch: { permissionOverwrites?: unknown }): boolean => {
-      if (isOwner || hasAdmin) return true;
-      const perms = computeChannelPermissions({
-        everyonePermissions,
-        rolePermissions: memberRolePerms,
-        overwrites: (ch.permissionOverwrites || []) as ChannelOverwrite[],
-        ctx: { serverId: params.serverId, everyoneRoleId, memberRoleIds: userRoleIds, userId: user.id },
-      });
-      return (perms & PERMISSION_BITS.VIEW_CHANNEL) === PERMISSION_BITS.VIEW_CHANNEL;
-    };
+    const viewer = channelViewerFromRoles({
+      userId: user.id, serverId: params.serverId, ownerId: server.ownerId, roles: allRoles as IRole[], memberRoleIds: membership.roles,
+    });
     // Rules screening with restricted channels: pending members only see the
     // listed channels / categories until they're let in.
     const pendingAccess = await pendingChannelAccess(params.serverId, user, membership).catch(() => null);
     const channelNodes = allChannels as Array<{ id: string; type?: string | null; parentId?: string | null; permissionOverwrites?: unknown }>;
-    const visibleIds = new Set(
-      channelNodes
-        .filter((ch) => ch.type !== 'public_thread' && ch.type !== 'private_thread' && canViewNonThread(ch))
-        .filter((ch) => !pendingAccess || isChannelAccessibleWhilePending(ch, null, pendingAccess, channelNodes))
-        .map((ch) => ch.id as string),
-    );
-
-    const channels = allChannels
-      .filter((ch: any) => {
-        if (ch.type === 'public_thread' || ch.type === 'private_thread') {
-          // Joined threads only, and never one whose parent the member can't see.
-          if (!(Array.isArray(ch.threadMemberIds) && ch.threadMemberIds.includes(user.id))) return false;
-          // Archived threads leave the sidebar (Discord); the threads browser lists them.
-          if (ch.archived) return false;
-          return !ch.parentId || visibleIds.has(ch.parentId) || !allChannels.some((p: { id: string }) => p.id === ch.parentId);
-        }
-        return visibleIds.has(ch.id);
-      })
+    const channels = visibleServerChannels(allChannels, viewer, pendingAccess
+      ? (ch) => isChannelAccessibleWhilePending(ch, null, pendingAccess, channelNodes)
+      : undefined)
       .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0));
 
     // Batch-resolve the timestamp of each channel's last message so the client
@@ -3080,7 +3042,11 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       Object.assign(updates, icon);
     }
     await Role.updateById(role.id, updates);
-    if (permissions !== undefined) invalidateRolePerms(params.serverId, role.id);
+    if (permissions !== undefined) {
+      invalidateRolePerms(params.serverId, role.id);
+      // The role editor always sends permissions: only a real change moves channels.
+      if (String(updates.permissions ?? '') !== String(role.permissions ?? '')) channelAccessChanged(params.serverId);
+    }
     void guildEvents.emitRoleUpdate(params.serverId, role.id);
 
     const roles = await getNormalizedRoles(params.serverId);
@@ -3397,6 +3363,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     await Role.deleteById(role.id);
     invalidateRolePerms(params.serverId, role.id);
     void guildEvents.emitRoleDelete(params.serverId, role.id);
+    channelAccessChanged(params.serverId);
     audit({
       serverId: params.serverId,
       userId: user.id,
@@ -3457,18 +3424,27 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     // Get categories + text/voice/announcement channels, ordered like the
     // real client so the embed's sidebar matches the server's layout.
     const allServerChannels = await Channel.find({ serverId: params.serverId });
+    // Public means visible to @everyone: no overwrites, and the server doesn't
+    // hold VIEW_CHANNEL back from @everyone (a "verified role only" server).
+    const { everyoneCanViewServer } = await import('@/lib/api/channels');
+    const everyoneSeesServer = await everyoneCanViewServer(params.serverId).catch(() => false);
+    const channels = everyoneSeesServer
+      ? allServerChannels
+        .filter((c: any) =>
+          ['text', 'voice', 'announcement'].includes(c.type) &&
+          c.nsfw !== true &&
+          (!c.permissionOverwrites || c.permissionOverwrites.length === 0)
+        )
+        .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
+        .slice(0, 50)
+      : [];
+    // Only the categories that head a listed channel: a category name alone can
+    // give a private section away.
+    const usedCategoryIds = new Set(channels.map((c: any) => c.parentId).filter(Boolean));
     const categories = allServerChannels
-      .filter((c: any) => c.type === 'category')
+      .filter((c: any) => c.type === 'category' && usedCategoryIds.has(c.id))
       .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
       .slice(0, 25);
-    const channels = allServerChannels
-      .filter((c: any) =>
-        ['text', 'voice', 'announcement'].includes(c.type) &&
-        c.nsfw !== true &&
-        (!c.permissionOverwrites || c.permissionOverwrites.length === 0)
-      )
-      .sort((a: any, b: any) => (a.position ?? 0) - (b.position ?? 0))
-      .slice(0, 50);
 
     const rawWidgetChannelId = (widgetSettings.channelId || undefined) as string | undefined;
     // Only honour the configured widget channel if it survived the public

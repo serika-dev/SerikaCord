@@ -1405,7 +1405,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
 
     // Names for mention markup in the last-message previews.
     const { lookupMentionNames } = await import('@/lib/services/mentionNames');
-    const mentionNames = await lookupMentionNames(channelsWithRecipients.map((c) => c.lastMessage?.content ?? null));
+    const mentionNames = await lookupMentionNames(channelsWithRecipients.map((c) => c.lastMessage?.content ?? null), { viewerId: user.id });
 
     return { channels: channelsWithRecipients, mentionNames, messageRequestCount };
   })

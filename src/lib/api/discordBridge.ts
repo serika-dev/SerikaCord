@@ -131,9 +131,21 @@ async function heavyLimit(ctx: Ctx, userId: string, serverId: string): Promise<{
 
 type SerikaChannelRow = { id: string; name: string; type: string; parentId: string | null; position: number | null };
 
-async function serikaChannelsOf(serverId: string): Promise<SerikaChannelRow[]> {
-  const rows = await Channel.find({ serverId });
-  return rows.map((c) => ({ id: String(c.id).toLowerCase(), name: c.name, type: c.type, parentId: c.parentId ? String(c.parentId).toLowerCase() : null, position: c.position ?? 0 }));
+/**
+ * The server's channels this manager can view (and the categories that head
+ * them). Manage Server alone must not show, link or mirror a hidden channel.
+ */
+async function serikaChannelsOf(serverId: string, userId: string): Promise<SerikaChannelRow[]> {
+  const { listViewableServerChannels } = await import('@/lib/api/channels');
+  const [rows, viewable] = await Promise.all([Channel.find({ serverId }), listViewableServerChannels(userId, serverId)]);
+  const visible = new Set((viewable ?? []).map((c) => String(c.id).toLowerCase()));
+  const headings = new Set((viewable ?? []).map((c) => (c.parentId ? String(c.parentId).toLowerCase() : '')).filter(Boolean));
+  return rows
+    .filter((c) => {
+      const id = String(c.id).toLowerCase();
+      return visible.has(id) || (c.type === 'category' && headings.has(id));
+    })
+    .map((c) => ({ id: String(c.id).toLowerCase(), name: c.name, type: c.type, parentId: c.parentId ? String(c.parentId).toLowerCase() : null, position: c.position ?? 0 }));
 }
 
 const SERIKA_BRIDGEABLE = new Set(['text', 'announcement']);
@@ -227,7 +239,7 @@ async function bridgeState(server: IServer, userId: string, opts: { recheckAccou
     readBotHeartbeat(),
     resolveLinkedDiscord(userId, { fresh: opts.recheckAccount }),
     readBridgeHealth(server.id),
-    serikaChannelsOf(server.id),
+    serikaChannelsOf(server.id, userId),
   ]);
 
   // Another server that stores the same guild with the bridge on and wins the
@@ -512,7 +524,7 @@ export const discordBridgeRoutes = new Elysia({ prefix: '/servers' })
       set.status = 404;
       return { error: 'That Discord channel is not a text or announcement channel in the linked server' };
     }
-    const serikaChannels = await serikaChannelsOf(access.server.id);
+    const serikaChannels = await serikaChannelsOf(access.server.id, access.userId);
 
     let existingTarget: SerikaChannelRow | null = null;
     if (body.create) {
@@ -698,9 +710,10 @@ export const discordBridgeRoutes = new Elysia({ prefix: '/servers' })
     const bridge = bridgeOf(access.server);
 
     if (body.action === 'unlink_all') {
-      const serikaChannels = await serikaChannelsOf(access.server.id);
       // Category pairs from older syncs stay (they only place new channels).
-      const categories = new Set(serikaChannels.filter((c) => c.type === 'category').map((c) => c.id));
+      const categories = new Set((await Channel.find({ serverId: access.server.id }))
+        .filter((c) => c.type === 'category')
+        .map((c) => String(c.id).toLowerCase()));
       const kept = bridge.links.filter((l) => categories.has(l.serikaChannelId));
       const saveError = await saveLinks(ctx, access.server.id, bridge.guildId, kept);
       if (saveError) return saveError;
@@ -716,7 +729,7 @@ export const discordBridgeRoutes = new Elysia({ prefix: '/servers' })
     }
     const discordChannels = await loadGuildChannels(ctx, bridge.guildId!, true);
     if (!Array.isArray(discordChannels)) return discordChannels;
-    let serikaChannels = await serikaChannelsOf(access.server.id);
+    let serikaChannels = await serikaChannelsOf(access.server.id, access.userId);
     const linkedDiscord = new Set(bridge.links.map((l) => l.discordChannelId));
     const bridgeableDiscord = discordChannels.filter((c) => isBridgeableKind(c.kind) && !linkedDiscord.has(c.id)).sort((a, b) => a.position - b.position);
 

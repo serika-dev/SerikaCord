@@ -9,12 +9,17 @@
 ### Features
 
 ### Changes
+- Manage Channels alone no longer shows channels that are hidden from you (as on Discord); owners and Administrators still see everything
 
 ### Bug Fixes
 
 ### Performance
 
 ### Security
+- Hidden channels stay hidden everywhere: the server info, bot channel lists, bots' startup data, the public widget, webhook lists, the Discord bridge panel and #channel names in DMs and the Inbox now only show channels you can open
+- Private threads and tickets no longer send their latest message, title or id to everyone watching the parent channel, and switching a ticket forum back to posts keeps old tickets private
+- Losing access to a channel takes effect at once: it leaves your channel list live, open chats close, and you're removed from a voice call you can no longer see
+- Deleted messages, removed @everyone pings and event start alerts from hidden channels no longer reach members who can't see them, and logging out clears the saved channel lists
 
 ### Removed
 

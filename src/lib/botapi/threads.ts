@@ -77,8 +77,8 @@ function forumTags(c: { availableTags?: unknown }): ForumTag[] {
 /** Web clients + sidebars after a thread appeared (same events the web routes send). */
 async function announceNewThread(parent: IChannel, row: IChannel, botId: string) {
   const { publishToChannel } = await import('@/lib/api/channels');
-  const { broadcastThreadUpdate, notifyThreadMembership } = await import('@/lib/services/threads');
-  publishToChannel(parent.id, { type: 'thread_create', threadId: row.id });
+  const { broadcastThreadUpdate, notifyThreadMembership, threadCreateEvent } = await import('@/lib/services/threads');
+  publishToChannel(parent.id, threadCreateEvent(row));
   await broadcastThreadUpdate(row).catch(() => null);
   notifyThreadMembership(parent.serverId, row.id, [botId]);
 }
@@ -567,13 +567,18 @@ export async function listArchivedThreads(botId: string, channelId: string, kind
     }
   }
   if (beforeAt) conds.push(sql`${order} < ${beforeAt}`);
-  const rows = await db.select().from(c).where(and(...conds)).orderBy(desc(order), desc(c.id)).limit(limit + 1);
   // Same visibility as everywhere else (private threads: member, owner,
   // ticket-access role or server-wide MANAGE_THREADS), on top of the
-  // channel-level MANAGE_THREADS Discord asks for.
+  // channel-level MANAGE_THREADS Discord asks for. Filtered in the query, so
+  // paging and has_more never count threads the bot can't see.
   const { listViewableServerChannels } = await import('@/lib/api/channels');
-  const visible = new Set(((await listViewableServerChannels(botId, parent.serverId)) ?? []).map((t) => t.id.toLowerCase()));
-  const page = (rows.slice(0, limit) as IChannel[]).filter((t) => visible.has(t.id.toLowerCase()));
+  const visibleIds = ((await listViewableServerChannels(botId, parent.serverId)) ?? [])
+    .filter((t) => t.parentId && t.parentId.toLowerCase() === parent.id.toLowerCase())
+    .map((t) => t.id);
+  if (visibleIds.length === 0) return { status: 200, body: { threads: [], members: [], has_more: false } };
+  conds.push(inArray(c.id, visibleIds));
+  const rows = await db.select().from(c).where(and(...conds)).orderBy(desc(order), desc(c.id)).limit(limit + 1);
+  const page = rows.slice(0, limit) as IChannel[];
   return { status: 200, body: { threads: page.map((t) => toDiscordChannel(t)), members: ownMembers(page, botId), has_more: rows.length > limit } };
 }
 

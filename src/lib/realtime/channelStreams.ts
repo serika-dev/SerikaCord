@@ -74,3 +74,41 @@ export function requestUserChannelStreamRecheck(userId: string): void {
   }
 }
 
+
+/** Re-check every open stream (any user) of these channels on THIS process. */
+export async function recheckLocalChannelStreams(channelIds: Iterable<string>): Promise<void> {
+  const wanted = new Set([...channelIds].map((id) => id.toLowerCase()));
+  if (wanted.size === 0) return;
+  const hits: TrackedChannelStream[] = [];
+  for (const set of streamsByUser.values()) {
+    for (const entry of set) if (wanted.has(entry.channelId.toLowerCase())) hits.push(entry);
+  }
+  await Promise.all(hits.map((entry) => entry.revalidate().catch(() => { /* keep stream on transient errors */ })));
+}
+
+type ChannelsRecheckPublisher = (channelIds: string[], serverId?: string) => void;
+const channelsRecheckPublisher = processShared<{ fn: ChannelsRecheckPublisher | null }>(
+  'channelStreamsByChannelRecheckPublisher',
+  () => ({ fn: null }),
+);
+
+/** channels.ts registers the cross-instance fan-out for channel-wide re-checks. */
+export function setChannelsRecheckPublisher(fn: ChannelsRecheckPublisher): void {
+  channelsRecheckPublisher.fn = fn;
+}
+
+/**
+ * Ask every instance to re-check all open streams (text and voice) of these
+ * channels now: their permissions changed (overwrites, a role's permissions),
+ * so some viewers may have lost access. With `serverId`, other instances drop
+ * their cached role permissions for it first, so the re-check sees the edit.
+ */
+export function requestChannelStreamsRecheck(channelIds: string[], serverId?: string): void {
+  if (channelIds.length === 0) return;
+  void recheckLocalChannelStreams(channelIds);
+  try {
+    channelsRecheckPublisher.fn?.(channelIds, serverId);
+  } catch {
+    /* best-effort cross-instance fan-out */
+  }
+}

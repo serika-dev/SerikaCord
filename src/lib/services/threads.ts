@@ -139,6 +139,15 @@ async function publish(channelId: string, data: object) {
 }
 
 /**
+ * The `thread_create` event for the parent channel's stream: open threads
+ * browsers and forum views refetch (the lists filter per viewer). A private
+ * thread or ticket carries no id, so its existence isn't handed to everyone.
+ */
+export function threadCreateEvent(row: { id: string; type?: string | null }): { type: 'thread_create'; threadId?: string } {
+  return row.type === 'private_thread' ? { type: 'thread_create' } : { type: 'thread_create', threadId: row.id };
+}
+
+/**
  * Tell everyone watching that a thread changed: the parent channel re-renders
  * the starter chip / "started a thread" row and its threads browser, the
  * thread's own view updates its header (archived, locked, name).
@@ -146,13 +155,20 @@ async function publish(channelId: string, data: object) {
 export async function broadcastThreadUpdate(row: IChannel, opts: { deleted?: boolean } = {}): Promise<ThreadSummary | null> {
   if (opts.deleted) {
     if (row.parentId) {
-      await publish(row.parentId, { type: 'thread_update', threadId: row.id, messageId: row.starterMessageId ?? null, thread: null });
+      await publish(row.parentId, row.type === 'private_thread'
+        ? { type: 'thread_update', hidden: true }
+        : { type: 'thread_update', threadId: row.id, messageId: row.starterMessageId ?? null, thread: null });
     }
     return null;
   }
   const summary = (await loadThreadSummaries([row])).get(row.id) ?? toThreadSummary(row);
   if (row.parentId) {
-    await publish(row.parentId, { type: 'thread_update', threadId: row.id, messageId: row.starterMessageId ?? null, thread: summary });
+    // Everyone who can see the parent watches its stream, but a private thread or
+    // ticket is only theirs if they're in it: they get a hint without content or
+    // id and refetch the threads list, which filters per viewer.
+    await publish(row.parentId, row.type === 'private_thread'
+      ? { type: 'thread_update', hidden: true }
+      : { type: 'thread_update', threadId: row.id, messageId: row.starterMessageId ?? null, thread: summary });
   }
   await publish(row.id, { type: 'thread_state', thread: summary });
   return summary;

@@ -15,6 +15,7 @@ import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
 import { fanoutToUsers } from './activity';
 import { checkChannelAccess, getMemberChannelPermissions } from './channels';
 import { BoundedMap } from '@/lib/utils/boundedMap';
+import { CHANNEL_STREAM_RECHECK_MS, CHANNEL_STREAM_REVOKED_EVENT, trackUserChannelStream } from '@/lib/realtime/channelStreams';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
 import {
   parseVoiceRoomId,
@@ -613,6 +614,37 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
   }
 }
 
+/**
+ * Re-checks a server voice channel stream's access (VIEW_CHANNEL, membership)
+ * on demand (requestUserChannelStreamRecheck: kick, ban, leave) and every
+ * CHANNEL_STREAM_RECHECK_MS. Calls `revoke` once when access is gone. Returns
+ * a dispose function.
+ */
+function attachVoiceAccessGuard(userId: string, roomId: string, channelId: string, revoke: () => void): () => void {
+  let done = false;
+  const revalidate = async () => {
+    if (done) return;
+    let hasAccess = true;
+    try {
+      ({ hasAccess } = await checkChannelAccess(userId, channelId));
+    } catch {
+      return; // transient DB error: keep the stream, try again next tick
+    }
+    if (hasAccess || done) return;
+    dispose();
+    revoke();
+  };
+  const timer = setInterval(() => { void revalidate(); }, CHANNEL_STREAM_RECHECK_MS);
+  const untrack = trackUserChannelStream(userId, { channelId, revalidate });
+  function dispose() {
+    if (done) return;
+    done = true;
+    clearInterval(timer);
+    untrack();
+  }
+  return dispose;
+}
+
 // Shared body of the offer/answer/ice relays: only joined participants may
 // signal each other.
 function relaySignal(
@@ -1045,7 +1077,9 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
 
     let controllerRef: ReadableStreamDefaultController | null = null;
     let pingInterval: NodeJS.Timeout | null = null;
+    let disposeAccessGuard: (() => void) | null = null;
     const streamSession = typeof query.session === 'string' && query.session.length <= 64 ? query.session : null;
+    const parsedRoom = parseVoiceRoomId(roomId);
 
     const stream = new ReadableStream({
       start(controller) {
@@ -1078,9 +1112,30 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
             if (pingInterval) clearInterval(pingInterval);
           }
         }, 25000);
+
+        // Server voice channels: like text channel streams, re-check access on
+        // kick / ban / leave and on a timer (role or overwrite edits). Someone who
+        // can no longer see the channel leaves the call and stops hearing who's in it.
+        if (parsedRoom?.kind === 'channel') {
+          disposeAccessGuard = attachVoiceAccessGuard(userId, roomId, parsedRoom.channelId, () => {
+            if (pingInterval) clearInterval(pingInterval);
+            roomAuthCache.delete(`${userId}|${roomId}`);
+            sendToUser(roomId, userId, { type: 'voice:force_disconnect' });
+            evictFromRoom(roomId, userId);
+            const roomConns = voiceSignalingConnections.get(roomId);
+            roomConns?.get(userId)?.delete(controller);
+            if (roomConns?.get(userId)?.size === 0) roomConns.delete(userId);
+            if (roomConns?.size === 0) voiceSignalingConnections.delete(roomId);
+            try {
+              controller.enqueue(sseEncoder.encode(CHANNEL_STREAM_REVOKED_EVENT));
+              controller.close();
+            } catch { /* already closed */ }
+          });
+        }
       },
       cancel() {
         if (pingInterval) clearInterval(pingInterval);
+        disposeAccessGuard?.();
         if (!controllerRef) return;
         const roomConns = voiceSignalingConnections.get(roomId);
         if (!roomConns) return;

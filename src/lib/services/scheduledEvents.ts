@@ -296,9 +296,14 @@ export async function publishEventsChanged(serverId: string, eventId: string): P
   }
 }
 
+/** The channel whose viewers may hear about an event (null: external, everyone). */
+export function eventChannelScope(row: Pick<ScheduledEventRow, 'channelId' | 'entityType'>): string | null {
+  return row.entityType === 'external' ? null : row.channelId ?? null;
+}
+
 export function emitEventGateway(t: 'CREATE' | 'UPDATE' | 'DELETE', row: ScheduledEventRow): void {
   void import('@/lib/services/gatewayEvents')
-    .then(({ emitGuildScheduledEvent }) => emitGuildScheduledEvent(`GUILD_SCHEDULED_EVENT_${t}`, row.serverId, toDiscordEvent(row)))
+    .then(({ emitGuildScheduledEvent }) => emitGuildScheduledEvent(`GUILD_SCHEDULED_EVENT_${t}`, row.serverId, toDiscordEvent(row), eventChannelScope(row)))
     .catch(() => {});
 }
 
@@ -315,7 +320,17 @@ export async function interestedUserIds(eventId: string, limit = 5000): Promise<
  */
 export async function notifyEventStarted(row: ScheduledEventRow, actorId?: string | null): Promise<void> {
   try {
-    const recipients = startNotifyRecipients(await interestedUserIds(row.id), actorId);
+    let recipients = startNotifyRecipients(await interestedUserIds(row.id), actorId);
+    if (recipients.length === 0) return;
+    // Only people who can still see where it happens: still members, and able to
+    // view its channel (they may have lost access since marking it Interested).
+    const { Channel } = await import('@/lib/models');
+    const { filterUsersWhoCanViewChannel } = await import('@/lib/api/channels');
+    const scope = eventChannelScope(row);
+    const target = scope
+      ? await Channel.findById(scope).catch(() => null)
+      : { id: '', serverId: row.serverId, type: 'text', permissionOverwrites: [] };
+    recipients = target ? await filterUsersWhoCanViewChannel(target, recipients).catch(() => []) : [];
     if (recipients.length === 0) return;
     const [server] = await db
       .select({ name: schema.servers.name, icon: schema.servers.icon })

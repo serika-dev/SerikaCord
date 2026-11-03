@@ -103,8 +103,8 @@ export function applyChannelOverwrites(
  *
  * `rolePermissions` are the bitfields of the member's roles, `everyonePermissions`
  * the @everyone role's (null when unknown: falls back to DEFAULT_EVERYONE_PERMISSIONS).
- * Owner and ADMINISTRATOR get everything. MANAGE_CHANNELS keeps its long-standing
- * bypass of channel overwrites for viewing and sending.
+ * Owner and ADMINISTRATOR get everything. Nothing else bypasses the overwrites: as on
+ * Discord, MANAGE_CHANNELS alone does not reveal a channel that denies VIEW_CHANNEL.
  */
 export function computeChannelPermissions(opts: {
   isOwner?: boolean;
@@ -118,11 +118,7 @@ export function computeChannelPermissions(opts: {
   for (const p of opts.rolePermissions || []) base |= p;
   if ((base & PERMISSION_BITS.ADMINISTRATOR) === PERMISSION_BITS.ADMINISTRATOR) return ALL_PERMISSIONS;
 
-  let perms = applyChannelOverwrites(base, opts.overwrites, opts.ctx);
-  if ((base & PERMISSION_BITS.MANAGE_CHANNELS) === PERMISSION_BITS.MANAGE_CHANNELS) {
-    perms |= PERMISSION_BITS.VIEW_CHANNEL | PERMISSION_BITS.SEND_MESSAGES | PERMISSION_BITS.SEND_MESSAGES_IN_THREADS;
-  }
-  return perms;
+  return applyChannelOverwrites(base, opts.overwrites, opts.ctx);
 }
 
 export function hasBit(perms: bigint, bit: bigint): boolean {

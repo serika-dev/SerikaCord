@@ -1261,6 +1261,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       const { lookupMentionNames } = await import('@/lib/services/mentionNames');
       const mentionNames = await lookupMentionNames(decryptedMentionContents, {
         serverIds: [...serversWithMentions],
+        viewerId: user.id,
       });
 
       return {
@@ -3670,9 +3671,8 @@ const bugReportRoutes = new Elysia({ prefix: '/bug-reports' })
 
 // Notifications routes
 /**
- * Drop server channels the user can't view (permission overwrites, private
- * threads). Channels without overwrites are visible to every member, so only
- * restricted ones pay for a full access check.
+ * Drop server channels the user can't view (permission overwrites, server-wide
+ * VIEW_CHANNEL, private threads, rules screening).
  */
 async function filterViewableChannels<C extends { id: string; serverId?: string | null; type?: string | null; permissionOverwrites?: unknown }>(
   userId: string,

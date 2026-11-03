@@ -15,15 +15,18 @@ import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared
 import {
   CHANNEL_STREAM_RECHECK_MS,
   CHANNEL_STREAM_REVOKED_EVENT,
+  recheckLocalChannelStreams,
   recheckLocalUserChannelStreams,
+  setChannelsRecheckPublisher,
   setChannelStreamRecheckPublisher,
   trackUserChannelStream,
 } from '@/lib/realtime/channelStreams';
 import { config } from '@/lib/config';
 import { randomUUID } from 'crypto';
 import { BoundedMap } from '@/lib/utils/boundedMap';
+import { channelAccessChanged } from '@/lib/services/channelAccess';
 import { normalizeId } from '@/lib/db/normalizeId';
-import { getRolePermissions, hasServerPermission } from '@/lib/permissions/serverPermissions';
+import { getRolePermissions, hasServerPermission, invalidateRolePerms } from '@/lib/permissions/serverPermissions';
 import { DEFAULT_SERVER_SAFETY, exceedsMentionLimit, resolveServerSafety, type ServerSafety } from '@/lib/servers/guards';
 import { ALL_PERMISSIONS, PERMISSION_BITS } from '@/lib/permissions/bits';
 import { computeChannelPermissions, hasBit as hasPermissionBit, type ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
@@ -42,6 +45,7 @@ import { signalChannelMessage } from '@/lib/services/messageSignals';
 import {
   addThreadMembers,
   broadcastThreadUpdate,
+  threadCreateEvent,
   claimStarterMessage,
   loadThreadSummaries,
   loadThreadSummariesByIds,
@@ -196,7 +200,7 @@ async function permissionSourceFor(channel: PermissionChannel): Promise<Permissi
  * A member's full permission bitfield in a channel: base permissions from the
  * @everyone role and their other roles, then the channel overwrites in Discord
  * order (see src/lib/permissions/channelOverwrites.ts). Owner and ADMINISTRATOR
- * get everything; MANAGE_CHANNELS keeps its bypass for view and send. Pass the
+ * get everything; nothing else bypasses the overwrites. Pass the
  * channel whose overwrites apply (for threads, the parent: permissionSourceFor).
  */
 export async function computeMemberChannelPermissions(
@@ -260,6 +264,19 @@ export async function getMemberChannelPermissions(
   ]);
   if (!member && !(serverOwnerId && compareIds(serverOwnerId, userId))) return 0n;
   return computeMemberChannelPermissions(source, userId, member ?? null, serverOwnerId);
+}
+
+/**
+ * Whether @everyone's server-wide permissions include VIEW_CHANNEL. When they do,
+ * a channel without overwrites (and whose parent has none) is visible to every
+ * member, so fan-outs may skip the per-member check; when they don't, members
+ * only see channels a role or overwrite grants them.
+ */
+export async function everyoneCanViewServer(serverId: string): Promise<boolean> {
+  const everyoneRoleId = await getEveryoneRoleId(serverId);
+  if (!everyoneRoleId) return true; // no @everyone row: the default permissions apply (they include it)
+  const perms = (await getRolePermissions([everyoneRoleId], serverId)).get(everyoneRoleId);
+  return perms == null || hasPermissionBit(perms, PERM_VIEW_CHANNEL);
 }
 
 /** Whether a user can view a channel (VIEW_CHANNEL after base perms + overwrites). */
@@ -781,6 +798,14 @@ setChannelStreamRecheckPublisher((userId: string) => {
     .catch(() => { /* best-effort cross-instance fan-out */ });
 });
 
+setChannelsRecheckPublisher((channelIds: string[], serverId?: string) => {
+  const pub = getPublisher();
+  if (!pub) return;
+  pub
+    .publish(SSE_BUS, JSON.stringify({ originId: INSTANCE_ID, control: 'recheck_channels', channelIds, serverId }))
+    .catch(() => { /* best-effort cross-instance fan-out */ });
+});
+
 export function publishToChannel(channelId: string, data: object) {
   deliverToLocalChannel(channelId, data);
   const pub = getPublisher();
@@ -801,13 +826,20 @@ export async function startChannelSSEBridge(): Promise<() => void> {
   await sub.subscribe(SSE_BUS);
   sub.on('message', (_ch: string, payload: string) => {
     try {
-      const { originId, channelId, data, control, userId } = JSON.parse(payload) as {
-        originId: string; channelId?: string; data?: object; control?: string; userId?: string;
+      const { originId, channelId, data, control, userId, channelIds, serverId } = JSON.parse(payload) as {
+        originId: string; channelId?: string; data?: object; control?: string; userId?: string; channelIds?: string[]; serverId?: string;
       };
       // Skip events this instance already delivered locally.
       if (originId === INSTANCE_ID) return;
       if (control === 'recheck_user') {
         if (userId) void recheckLocalUserChannelStreams(userId);
+        return;
+      }
+      if (control === 'recheck_channels') {
+        // Role permissions are cached per process: drop this server's first, so
+        // the re-check sees the edit that caused it.
+        if (typeof serverId === 'string') invalidateRolePerms(serverId);
+        if (Array.isArray(channelIds)) void recheckLocalChannelStreams(channelIds.filter((id) => typeof id === 'string'));
         return;
       }
       if (!channelId || !data) return;
@@ -1052,8 +1084,8 @@ const hasOverwrites = (c: { permissionOverwrites?: unknown }) =>
  *
  * Same rules as checkChannelAccess: threads resolve against their parent's
  * overwrites; private threads need creator / member / server owner / ticket
- * access role / MANAGE_THREADS. Channels with no overwrites (and DMs) stay
- * visible without a check, as before. Pass `memberships` when already loaded.
+ * access role / MANAGE_THREADS. Channels with no overwrites share one check per
+ * server (the server-wide VIEW_CHANNEL); DMs pass. Pass `memberships` when already loaded.
  */
 export async function filterViewableServerChannels<C extends ViewableCandidate>(
   userId: string,
@@ -1115,8 +1147,9 @@ async function filterByPermissions<C extends ViewableCandidate>(
   const sourceOf = (c: ViewableCandidate): ViewableCandidate =>
     (isThread(c) && c.parentId ? byId.get(c.parentId) : undefined) ?? c;
 
-  const needsCheck = (c: ViewableCandidate) =>
-    Boolean(c.serverId) && (c.type === 'private_thread' || hasOverwrites(sourceOf(c)));
+  // Every server channel: a channel without overwrites still follows the
+  // server-wide @everyone / role VIEW_CHANNEL (one computation per server).
+  const needsCheck = (c: ViewableCandidate) => Boolean(c.serverId);
   const toCheck = channels.filter(needsCheck);
   if (toCheck.length === 0) return channels;
 
@@ -1162,7 +1195,8 @@ async function filterByPermissions<C extends ViewableCandidate>(
           if (!(await canManage)) return false;
         }
       }
-      let view = canViewSource.get(source.id);
+      const viewKey = hasOverwrites(source) ? source.id : `server:${serverId}`;
+      let view = canViewSource.get(viewKey);
       if (!view) {
         view = canViewChannel(
           { permissionOverwrites: (source.permissionOverwrites || []) as ChannelOverwrite[], serverId },
@@ -1170,7 +1204,7 @@ async function filterByPermissions<C extends ViewableCandidate>(
           membership,
           serverOwnerId,
         ).catch(() => false);
-        canViewSource.set(source.id, view);
+        canViewSource.set(viewKey, view);
       }
       return view;
     }),
@@ -1499,7 +1533,7 @@ async function createChannelThread(
   }
 
   // Open threads browsers refetch; the starter's chip appears.
-  publishToChannel(parent.id, { type: 'thread_create', threadId: thread.id });
+  publishToChannel(parent.id, threadCreateEvent(thread));
   await broadcastThreadUpdate(row);
   notifyThreadMembership(parent.serverId, thread.id, [user.id]);
 
@@ -1905,6 +1939,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (channel.serverId && updateData.permissionOverwrites !== undefined) {
       void import('@/lib/services/gatewayAudience').then((m) => m.invalidateServerAudience(channel.serverId)).catch(() => {});
     }
+    // Members' channel lists and open streams follow overwrites and moves.
+    const movedParent = updateData.parentId !== undefined
+      && String(updateData.parentId ?? '').toLowerCase() !== String(channel.parentId ?? '').toLowerCase();
+    if (channel.serverId && !isThread && (updateData.permissionOverwrites !== undefined || movedParent)) {
+      channelAccessChanged(channel.serverId);
+    }
     // CHANNEL_UPDATE (or CREATE / DELETE when a bot gained or lost view). Threads: thread routes.
     if (!isThread && channel.serverId) {
       void emitChannelUpdates(channel.serverId, [...new Set([channel.id, ...resyncedIds, ...nsfwCascadeIds, ...viewerIds])], viewersBefore);
@@ -2054,6 +2094,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     await Promise.all(orphaned.map((child) => Channel.updateById(child.id, { parentId: null })));
 
     await Channel.deleteById(channel.id);
+    // Sidebars drop it live; its open streams end on the next check.
+    if (!deletingThread && channel.serverId) channelAccessChanged(channel.serverId, { channelIds: [channel.id] });
 
     // A deleted thread: its starter loses the chip, members' sidebars drop it.
     if (deletingThread && channel.parentId) {
@@ -2175,6 +2217,9 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         );
       }
     }
+    // Private threads (tickets, also after a forum switched back to posts) only for
+    // the people who may open them: creator, members, access roles, MANAGE_THREADS.
+    threads = await filterViewableServerChannels(user.id, threads);
     // Limit after the ticket filter so a member's own tickets are never cut.
     threads = threads.slice(0, 100);
 
@@ -2382,7 +2427,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       .catch(() => {});
 
     // Open forum views refetch their post list on this.
-    publishToChannel(forum.id, { type: 'thread_create', threadId: thread.id });
+    publishToChannel(forum.id, threadCreateEvent(thread));
     if (forum.serverId) {
       audit({
         serverId: forum.serverId,
@@ -3808,7 +3853,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
           .then(({ fanoutToUsers, notifyMentionRetract }) => {
             if (everyoneRemoved && channel.serverId) {
               void fanoutToUsers(
-                { serverId: channel.serverId },
+                { serverId: channel.serverId, channelId: params.channelId },
                 { type: 'mention_retract', channelId: params.channelId, messageId: message.id, keepUserIds: [...after] },
               );
             } else {

@@ -164,12 +164,17 @@ describe("channel overwrite checks (client mirror of the server rules)", () => {
     expect(canViewChannel(ch, [OTHER_ROLE], [P.SEND_MESSAGES], false, false)).toBeFalse();
   });
 
-  test("owner, admin flag, ADMINISTRATOR or MANAGE_CHANNELS role bypass overwrites", () => {
+  test("owner, admin flag or ADMINISTRATOR role bypass overwrites", () => {
     const ch = channel(everyone(0n, P.VIEW_CHANNEL | P.SEND_MESSAGES));
     expect(canViewChannel(ch, [], [], true, false)).toBeTrue();
     expect(canViewChannel(ch, [], [], false, true)).toBeTrue();
     expect(canViewChannel(ch, [MOD_ROLE], [P.ADMINISTRATOR], false, false)).toBeTrue();
-    expect(canSendInChannel(ch, [MOD_ROLE], [P.MANAGE_CHANNELS], false, false)).toBeTrue();
+  });
+
+  test("MANAGE_CHANNELS alone does not bypass a hidden channel", () => {
+    const ch = channel(everyone(0n, P.VIEW_CHANNEL | P.SEND_MESSAGES));
+    expect(canViewChannel(ch, [MOD_ROLE], [P.MANAGE_CHANNELS], false, false)).toBeFalse();
+    expect(canSendInChannel(ch, [MOD_ROLE], [P.MANAGE_CHANNELS], false, false)).toBeFalse();
   });
 
   test("a role deny blocks, a role allow permits when @everyone is neutral", () => {
@@ -240,12 +245,12 @@ describe("computeChannelPermissions", () => {
     expect(hasBit(perms, P.VIEW_CHANNEL) && hasBit(perms, P.SEND_MESSAGES) && hasBit(perms, P.ATTACH_FILES)).toBeTrue();
   });
 
-  test("MANAGE_CHANNELS keeps view and send through overwrites", () => {
+  test("MANAGE_CHANNELS does not get through a VIEW_CHANNEL deny", () => {
     const overwrites = [{ id: SERVER, type: "role", allow: "0", deny: (P.VIEW_CHANNEL | P.SEND_MESSAGES | P.ADD_REACTIONS).toString() }];
     const perms = computeChannelPermissions({ everyonePermissions: P.MANAGE_CHANNELS | P.ADD_REACTIONS, overwrites, ctx: { serverId: SERVER } });
-    expect(hasBit(perms, P.VIEW_CHANNEL)).toBeTrue();
-    expect(hasBit(perms, P.SEND_MESSAGES)).toBeTrue();
-    expect(hasBit(perms, P.ADD_REACTIONS)).toBeFalse();
+    expect(hasBit(perms, P.VIEW_CHANNEL)).toBeFalse();
+    expect(hasBit(perms, P.SEND_MESSAGES)).toBeFalse();
+    expect(hasBit(perms, P.MANAGE_CHANNELS)).toBeTrue();
   });
 
   test("malformed bitfields are treated as empty", () => {

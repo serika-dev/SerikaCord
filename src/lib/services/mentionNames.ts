@@ -21,12 +21,20 @@ function uuids(ids: Iterable<string>): string[] {
 
 /**
  * Resolve the mentions found in `texts`. `serverId` (when every text comes
- * from one server) prefers server nicknames; `serverIdByIndex` does the same
- * per text for mixed lists.
+ * from one server) prefers server nicknames; `serverIds` lists the servers of
+ * a mixed list.
+ *
+ * Channel and role names must not give away what a reader can't see:
+ * - `viewerId` (a response for one person): channels that person can open
+ *   (their DMs / group DMs, server channels they can view) and roles of their
+ *   servers.
+ * - no `viewerId` (a payload fanned out to many): only channels of `serverId(s)`
+ *   that every member sees (no overwrites, not a thread, @everyone may view),
+ *   and roles of those servers. Clients resolve the rest from their own lists.
  */
 export async function lookupMentionNames(
   texts: Array<string | null | undefined>,
-  opts: { serverId?: string | null; serverIds?: Array<string | null | undefined> } = {},
+  opts: { serverId?: string | null; serverIds?: Array<string | null | undefined>; viewerId?: string | null } = {},
 ): Promise<MentionNames> {
   const userIds = new Set<string>();
   const roleIds = new Set<string>();
@@ -66,18 +74,54 @@ export async function lookupMentionNames(
             .where(and(eq(schema.serverMembers.serverId, serverIds[0]), inArray(schema.serverMembers.userId, uIds)))
         : Promise.resolve([] as Array<{ userId: string; nickname: string | null }>),
       rIds.length
-        ? db.select({ id: schema.roles.id, name: schema.roles.name }).from(schema.roles).where(inArray(schema.roles.id, rIds))
+        ? db.select({ id: schema.roles.id, name: schema.roles.name, serverId: schema.roles.serverId }).from(schema.roles).where(inArray(schema.roles.id, rIds))
         : Promise.resolve([]),
       cIds.length
-        ? db.select({ id: schema.channels.id, name: schema.channels.name }).from(schema.channels).where(inArray(schema.channels.id, cIds))
+        ? db.select().from(schema.channels).where(inArray(schema.channels.id, cIds))
         : Promise.resolve([]),
     ]);
     for (const u of users) names.users[u.id] = u.displayName || u.username;
     for (const n of nicknames) if (n.nickname) names.users[n.userId] = n.nickname;
-    for (const r of roles) names.roles[r.id] = r.name;
-    for (const c of channels) names.channels[c.id] = c.name;
+
+    const viewerId = opts.viewerId ? opts.viewerId.toLowerCase() : null;
+    const { ServerMember } = await import('@/lib/models');
+    const viewerServers = viewerId && (rIds.length || channels.some((c) => c.serverId))
+      ? new Set((await ServerMember.find({ userId: viewerId })).map((m) => String(m.serverId).toLowerCase()))
+      : new Set<string>();
+    const readableServers = viewerId ? viewerServers : new Set(serverIds);
+    for (const r of roles) if (readableServers.has(String(r.serverId).toLowerCase())) names.roles[r.id] = r.name;
+
+    for (const c of await readableChannels(channels, viewerId, readableServers)) names.channels[c.id] = c.name;
   } catch (err) {
     console.error('Mention name lookup failed:', (err as Error).message);
   }
   return names;
+}
+
+type ChannelRow = typeof schema.channels.$inferSelect;
+
+/** The mentioned channels whose names this reader may see (see lookupMentionNames). */
+async function readableChannels(channels: ChannelRow[], viewerId: string | null, servers: ReadonlySet<string>): Promise<ChannelRow[]> {
+  if (channels.length === 0) return [];
+  if (viewerId) {
+    const dms = channels.filter((c) => (c.type === 'dm' || c.type === 'group_dm')
+      && (c.recipientIds ?? []).some((r) => String(r).toLowerCase() === viewerId));
+    const inServers = channels.filter((c) => c.serverId && servers.has(String(c.serverId).toLowerCase()));
+    const { filterViewableServerChannels } = await import('@/lib/api/channels');
+    const viewable = inServers.length ? await filterViewableServerChannels(viewerId, inServers).catch(() => []) : [];
+    return [...dms, ...viewable];
+  }
+  const candidates = channels.filter((c) => c.serverId && servers.has(String(c.serverId).toLowerCase())
+    && c.type !== 'public_thread' && c.type !== 'private_thread'
+    && !(Array.isArray(c.permissionOverwrites) && c.permissionOverwrites.length > 0));
+  if (candidates.length === 0) return [];
+  const { everyoneCanViewServer } = await import('@/lib/api/channels');
+  const open = new Map<string, boolean>();
+  const out: ChannelRow[] = [];
+  for (const c of candidates) {
+    const sid = String(c.serverId);
+    if (!open.has(sid)) open.set(sid, await everyoneCanViewServer(sid).catch(() => false));
+    if (open.get(sid)) out.push(c);
+  }
+  return out;
 }

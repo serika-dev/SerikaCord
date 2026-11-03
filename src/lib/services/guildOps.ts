@@ -6,6 +6,7 @@
  * `channel:*` notifications, category permission re-sync, and
  * CHANNEL_* / MESSAGE_DELETE_BULK dispatches.
  */
+import { channelAccessChanged } from '@/lib/services/channelAccess';
 import { and, eq, gte, inArray } from 'drizzle-orm';
 import { db, schema } from '@/lib/db/postgres';
 import { getPublisher } from '@/lib/db';
@@ -81,6 +82,11 @@ export async function updateGuildChannel(opts: {
       .set({ permissionOverwrites: updates.permissionOverwrites, updatedAt: new Date() })
       .where(inArray(schema.channels.id, resync));
   }
+  // Members' channel lists and open streams follow overwrite edits and real moves
+  // (a bulk position update repeats every parent; those don't change anything).
+  const movedParent = updates.parentId !== undefined
+    && String(updates.parentId ?? '').toLowerCase() !== String(channel.parentId ?? '').toLowerCase();
+  if (updates.permissionOverwrites !== undefined || movedParent) channelAccessChanged(serverId);
 
   await publishTopic('channel:update', { channelId: channel.id, serverId, updates });
   for (const id of resync) await publishTopic('channel:update', { channelId: id, serverId, updates: { permissionOverwrites: updates.permissionOverwrites } });
@@ -146,6 +152,7 @@ export async function deleteGuildChannel(opts: { channel: ChannelRow; actorId: s
     : [];
 
   await db.delete(schema.channels).where(eq(schema.channels.id, channel.id));
+  channelAccessChanged(serverId, { channelIds: [channel.id] });
 
   for (const child of orphaned) await publishTopic('channel:update', { channelId: child.id, serverId, updates: { parentId: null } });
   await publishTopic('channel:delete', { channelId: channel.id, serverId });

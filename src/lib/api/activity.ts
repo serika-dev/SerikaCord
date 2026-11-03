@@ -161,10 +161,6 @@ async function getServerMemberEntry(serverId: string): Promise<{ ids: Set<string
   return entry;
 }
 
-async function getServerMemberIds(serverId: string): Promise<Set<string>> {
-  return (await getServerMemberEntry(serverId)).ids;
-}
-
 /**
  * Invalidate the member cache for a server (call on join/leave/kick/ban).
  * The cache is per-process, so the invalidation is also fanned out to other
@@ -205,6 +201,37 @@ function hasOverwrites(value: unknown): boolean {
   return Array.isArray(value) && value.length > 0;
 }
 
+/**
+ * The recipients allowed to learn about activity in `channel`: VIEW_CHANNEL after
+ * overwrites (threads resolve against their parent), private thread access, and
+ * rules screening. Channels that every member can see (no overwrites here or on
+ * the parent, and @everyone may view the server) skip the per-member check except
+ * for members still in screening. An unknown channel reaches nobody.
+ */
+async function filterRecipientsWhoCanView(
+  channel: Awaited<ReturnType<typeof Channel.findById>> | null,
+  serverId: string,
+  recipients: string[],
+  pendingIds: ReadonlySet<string>,
+): Promise<string[]> {
+  if (!channel || recipients.length === 0) return [];
+  let restricted = channel.type === 'private_thread' || hasOverwrites(channel.permissionOverwrites);
+  if (!restricted && channel.type === 'public_thread' && channel.parentId) {
+    const parent = await Channel.findById(channel.parentId).catch(() => null);
+    restricted = !parent || hasOverwrites(parent.permissionOverwrites);
+  }
+  const { everyoneCanViewServer, filterUsersWhoCanViewChannel } = await import('@/lib/api/channels');
+  if (!restricted) restricted = !(await everyoneCanViewServer(serverId).catch(() => false));
+  // Members waiting in rules screening may have channels hidden from them
+  // (restrictChannels): check those few individually even on open channels.
+  const needsCheck = (id: string) => restricted || pendingIds.has(id);
+  const toCheck = recipients.filter(needsCheck);
+  if (toCheck.length === 0) return recipients;
+  // One batched membership query instead of checkChannelAccess per member.
+  const allowed = new Set(await filterUsersWhoCanViewChannel(channel, toCheck).catch(() => []));
+  return recipients.filter((id) => !needsCheck(id) || allowed.has(id));
+}
+
 async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
   const connectedUserIds = [...activeActivityConnections.keys()];
   if (connectedUserIds.length === 0 || !payload.serverId) return;
@@ -226,26 +253,7 @@ async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
     recipients = recipients.filter((id) => members.has(id.toLowerCase()));
     if (recipients.length === 0) return;
   }
-  let restricted = !!channel && (channel.type === 'private_thread' || hasOverwrites(channel.permissionOverwrites));
-  if (channel && !restricted && channel.type === 'public_thread' && channel.parentId) {
-    const parent = await Channel.findById(channel.parentId).catch(() => null);
-    restricted = !parent || hasOverwrites(parent.permissionOverwrites);
-  }
-  // Members waiting in rules screening may have channels hidden from them
-  // (restrictChannels): check those few individually even on open channels.
-  const needsCheck = (id: string) => restricted || pendingIds.has(id);
-  const toCheck = recipients.filter(needsCheck);
-  if (toCheck.length > 0) {
-    let allowed: Set<string>;
-    if (channel) {
-      // One batched membership query instead of checkChannelAccess per member.
-      const { filterUsersWhoCanViewChannel } = await import('@/lib/api/channels');
-      allowed = new Set(await filterUsersWhoCanViewChannel(channel, toCheck).catch(() => []));
-    } else {
-      allowed = new Set();
-    }
-    recipients = recipients.filter((id) => !needsCheck(id) || allowed.has(id));
-  }
+  recipients = await filterRecipientsWhoCanView(channel, payload.serverId, recipients, pendingIds);
   if (recipients.length > 0) emitLocal(recipients, payload);
 }
 
@@ -253,13 +261,22 @@ async function deliverLocally(payload: ChannelActivityPayload): Promise<void> {
  * Target for a user-scoped fan-out: either explicit user ids (DMs, the acting
  * user's own devices) or every connected member of a server.
  */
-type FanoutTarget = { userIds?: string[]; serverId?: string };
+type FanoutTarget = {
+  userIds?: string[];
+  serverId?: string;
+  /** With serverId: the event is about this channel, so only members who can view it get it. */
+  channelId?: string;
+};
 
 async function deliverUserFanout(target: FanoutTarget, payload: Record<string, unknown>): Promise<void> {
   let recipients: string[];
   if (target.serverId) {
-    const memberIds = await getServerMemberIds(target.serverId);
+    const { ids: memberIds, pending: pendingIds } = await getServerMemberEntry(target.serverId);
     recipients = [...activeActivityConnections.keys()].filter((id) => memberIds.has(id));
+    if (target.channelId && recipients.length > 0) {
+      const channel = await Channel.findById(target.channelId).catch(() => null);
+      recipients = await filterRecipientsWhoCanView(channel, target.serverId, recipients, pendingIds);
+    }
   } else {
     recipients = (target.userIds || []).filter((id) => activeActivityConnections.has(id));
   }
@@ -322,7 +339,9 @@ export function notifyUnreadReset(
   /** The deleted messages, so clients drop exactly their badges. */
   deleted?: Array<{ id: string; at: string | null }>,
 ): void {
-  void fanoutToUsers(target, { type: 'unread_reset', channelId, lastMessageAt, ...(deleted?.length ? { deleted } : {}) });
+  // Server-wide resets only reach members who can see the channel.
+  const scoped = target.serverId ? { ...target, channelId } : target;
+  void fanoutToUsers(scoped, { type: 'unread_reset', channelId, lastMessageAt, ...(deleted?.length ? { deleted } : {}) });
 }
 
 /**
