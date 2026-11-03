@@ -1,4 +1,5 @@
 import { Elysia, t } from 'elysia';
+import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { authenticateRequest } from '@/lib/services/auth';
 import { User, RichPresence, WidgetConfig, WidgetUserData, Application, type IUser, type IRichPresence } from '@/lib/models';
 import { activityHiddenByStatus, activitySharing } from '@/lib/settings/privacy';
@@ -91,7 +92,8 @@ function publicUser(u: any) {
     banner: u.banner ?? null,
     bio: u.bio ?? null,
     pronouns: u.pronouns ?? null,
-    status: u.status ?? 'offline',
+    // Public status: invisible / stale sessions read as offline.
+    status: resolveEffectiveStatus(u),
     badges: u.badges ?? [],
     bot: !!u.isBot,
     created_at: u.createdAt ?? null,

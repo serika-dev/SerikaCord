@@ -134,7 +134,9 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       stats: {
         servers: serverCount,
         messages: messageCount,
-      }
+      },
+      // Signs of a client mod the web app reported (log only, last 30 days).
+      clientIntegrity: await import('./clientIntegrity').then((m) => m.getClientIntegrity(targetUser.id)).catch(() => null),
     };
   }, {
     params: t.Object({

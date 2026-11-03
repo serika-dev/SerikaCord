@@ -57,6 +57,11 @@ export const rateLimiters_config = {
   handoffStart: { points: 30, duration: 600 },
   handoffCallback: { points: 30, duration: 600 },
 
+  // Client mod reports (src/lib/api/clientIntegrity.ts), per user.
+  clientIntegrity: { points: 10, duration: 3600 },
+  // CSP violation reports (src/lib/api/cspReport.ts), per IP.
+  cspReport: { points: 60, duration: 60 },
+
   // Incoming channel webhooks, per webhook
   webhookExecute: { points: 30, duration: 10 },
   // Interactions a user starts (slash commands, button clicks, select menus,
@@ -109,6 +114,14 @@ export const rateLimiters_config = {
   // Message search (server / DM / channel), per user. Each query decrypts a page.
   search: { points: 40, duration: 60 },
   reactionManage: { points: 30, duration: 60 }, // moderators removing others' reactions
+  reactionAdd: { points: 30, duration: 10 }, // adding reactions (channels, DMs, group DMs), per user
+  messageEdit: { points: 20, duration: 10 }, // editing messages, per user
+  // Profile writes (PUT / POST /users/me): each one fans presence out to friends and bots.
+  profileUpdate: { points: 30, duration: 60 },
+  richPresence: { points: 30, duration: 60 }, // rich presence (game activity) updates, per user
+  soundboard: { points: 5, duration: 10 }, // soundboard plays in a call, per user
+  voiceState: { points: 60, duration: 10 }, // voice join / state / speaking updates, per user
+  audioUpload: { points: 10, duration: 60 }, // voice message / audio uploads, per user
   
   // Upload rate limits
   upload: { points: 10, duration: 60 }, // 10 uploads per minute

@@ -11,6 +11,7 @@ import { ForwardDialogHost } from "@/components/chat/ForwardDialogHost";
 import { InteractionModalHost } from "@/components/chat/InteractionModalHost";
 import { UserActionsHost } from "@/components/user/UserActionsHost";
 import { ChangelogHost } from "@/components/changelog/ChangelogHost";
+import { ClientIntegrityReporter } from "@/components/boot/ClientIntegrityReporter";
 import dynamic from "next/dynamic";
 import ChannelsLayoutClient from "@/app/channels/ChannelsLayoutClient";
 
@@ -82,6 +83,7 @@ export default function AppShellProviders({ children }: { children: ReactNode })
           <UserActionsHost />
           <ChangelogHost />
           <E2eeHost />
+          <ClientIntegrityReporter />
         </ConfirmProvider>
       </UnreadProvider>
     </ServerProvider>

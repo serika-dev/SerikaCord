@@ -6,6 +6,19 @@
 
 namespace {
 constexpr int POLL_MS = 15;
+
+// Keys that make up typed text (letters, digits, punctuation, numpad, space,
+// enter...). A toggle on one of these without a modifier would report what
+// the user types in other apps; F-keys, Pause, Insert, mouse buttons are fine.
+bool isTypingKey(const QString &token) {
+    if (token.size() == 1) return true;
+    static const QStringList typing = {
+        QStringLiteral("space"), QStringLiteral("tab"), QStringLiteral("enter"),
+        QStringLiteral("backspace"), QStringLiteral("delete"),
+    };
+    const QString t = token.toLower();
+    return typing.contains(t) || t.startsWith(QLatin1String("num"));
+}
 }
 
 GlobalShortcuts::GlobalShortcuts(QObject *parent)
@@ -55,11 +68,19 @@ QStringList GlobalShortcuts::setShortcuts(const QVariantList &list) {
     }
     m_bindings.clear();
     QStringList bound;
+    // Page JS sets these, and a binding reports key presses made in other apps:
+    // only the app's own voice actions, once each, and toggles on typing keys
+    // need a modifier, so a client mod can't turn this into a keylogger.
+    static const QStringList kAllowedActions = {
+        QStringLiteral("push-to-talk"), QStringLiteral("toggle-mute"), QStringLiteral("toggle-deafen"),
+    };
     for (const QVariant &v : list) {
         const QVariantMap m = v.toMap();
         const QString action = m.value("action").toString();
         const Parsed p = parseAccelerator(m.value("accelerator").toString());
         if (action.isEmpty() || !p.valid) continue;
+        if (!kAllowedActions.contains(action) || bound.contains(action)) continue;
+        if (action != QStringLiteral("push-to-talk") && p.modifiers == 0 && isTypingKey(p.keyToken)) continue;
         const int key = KeyState::nativeKey(p.keyToken.toStdString());
         if (key < 0) continue;
         Binding b;

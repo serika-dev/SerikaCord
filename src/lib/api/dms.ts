@@ -9,13 +9,13 @@ import { canStartDm, dmPairKey, dmPrivacy, isDmBlocked, isDmListedFor, pickDmCha
 import { dmSharedServers } from '@/lib/services/dmPrivacy';
 import { typingIndicatorsEnabled } from '@/lib/settings/privacy';
 import { authenticateRequest } from '@/lib/services/auth';
-import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji, customEmojiPayload, referencedCustomEmojis, authorCustomEmojis } from '@/lib/services/emoji';
+import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji, checkReactionEmoji, customEmojiPayload, referencedCustomEmojis, authorCustomEmojis } from '@/lib/services/emoji';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams, isValidObjectId } from '@/lib/security';
 import { isSystemUser } from '@/lib/services/systemUsers';
 import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
 import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
-import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
+import { matchReactionEmoji, addReaction, removeReaction, MAX_REACTION_EMOJIS_ERROR, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
 import { referenceMentions } from '@/lib/chat/mentionResolver';
@@ -357,7 +357,7 @@ export async function openDMChannelForViewer(
 // known.
 
 type AuthUser = NonNullable<Awaited<ReturnType<typeof authenticateRequest>>['user']>;
-type DmChannelRef = { id: string; recipientIds?: string[] | null; lastMessageId?: string | null; e2ee?: boolean | null };
+type DmChannelRef = { id: string; type?: string | null; recipientIds?: string[] | null; lastMessageId?: string | null; e2ee?: boolean | null };
 
 /** A route reply: the HTTP status plus the JSON body. */
 export type DmReply = { status: number; body: Record<string, unknown> };
@@ -679,6 +679,12 @@ export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{
   if (sticker?.id) {
     const stickerDoc = await ServerSticker.findById(sticker.id);
     if (!stickerDoc || !stickerDoc.available) return { error: fail(400, 'Sticker not found') };
+    // Only stickers of servers the sender is in (the picker's rule; a DM has
+    // no "current server" exception).
+    if (stickerDoc.serverId) {
+      const stickerMember = await ServerMember.findOne({ serverId: stickerDoc.serverId, userId: user.id });
+      if (!stickerMember) return { error: fail(403, 'You can only use stickers from servers you are in') };
+    }
     let stickerServerName: string | undefined;
     if (stickerDoc.serverId) {
       const cacheKey = `server:name:${stickerDoc.serverId}`;
@@ -701,9 +707,16 @@ export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{
     };
   }
 
-  const validation = validateMessageContent(sanitizedContent);
-  if (!validation.valid && !stickerData && (!attachments || attachments.length === 0)) {
-    return { error: fail(400, validation.error || 'Invalid message') };
+  // Any text is validated (length, spam patterns), also next to a sticker or
+  // attachments; whitespace-only text counts as none.
+  if (sanitizedContent.trim()) {
+    const validation = validateMessageContent(sanitizedContent);
+    if (!validation.valid) return { error: fail(400, validation.error || 'Invalid message') };
+  } else {
+    sanitizedContent = '';
+    if (!stickerData && (!attachments || attachments.length === 0)) {
+      return { error: fail(400, 'Message content cannot be empty') };
+    }
   }
   // Voice messages (IS_VOICE_MESSAGE): one audio file with duration + waveform.
   const voice = normalizeVoiceMessage({ requestedFlags: body.flags, content, hasSticker: !!stickerData, attachments: attachments || [] });
@@ -871,12 +884,35 @@ export async function persistDmMessage(
   return { message, messageData };
 }
 
+/**
+ * Blocks + DM privacy for writes into an existing 1:1 DM (edits, reactions):
+ * the same rule as a send (dmSendDenyReason) and as the generic
+ * /channels/:dmChannelId routes (checkCanPostInChannel), so a block can't be
+ * sidestepped by editing old messages or reacting. Group DMs have no
+ * per-pair rule (members are managed by the group).
+ */
+async function dmWriteDenial(channel: DmChannelRef, user: AuthUser): Promise<DmReply | null> {
+  if (channel.type !== 'dm') return null;
+  const otherId = (channel.recipientIds || []).find((r) => !compareIds(r, user.id));
+  if (!otherId) return null;
+  const recipient = await User.findById(otherId);
+  if (!recipient) return null;
+  const reason = dmSendDenyReason(user, recipient, {
+    recipientIsSystem: isSystemUser(recipient.id),
+    sharedServerIds: await dmSharedServers(user, recipient),
+  });
+  return reason ? fail(403, reason) : null;
+}
+
 async function findLiveMessage(channelId: string, messageId: string) {
   return Message.findOne({ id: messageId, channelId, isDeleted: false });
 }
 
 /** Edit your own message in a DM conversation. */
 export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messageId: string, content: string, e2ee?: unknown): Promise<DmReply> {
+  // Shared per-user bucket with the server-channel edit route.
+  const editLimit = await checkRateLimit('messageEdit', user.id);
+  if (!editLimit.success) return fail(429, 'You are editing too fast', { retryAfter: editLimit.retryAfter });
   const message = await findLiveMessage(channel.id, messageId);
   if (!message) return fail(404, 'Message not found');
   if (message.authorId !== user.id) return fail(403, 'You can only edit your own messages');
@@ -884,6 +920,9 @@ export async function editDmMessage(channel: DmChannelRef, user: AuthUser, messa
   // A chat restriction covers edits too (post "hi", edit a scam link in).
   const restricted = await chatRestrictionDenial(user.id);
   if (restricted) return fail(403, String(restricted.body.error));
+  // In a 1:1 DM, a block (or DM privacy) also stops rewriting old messages.
+  const blocked = await dmWriteDenial(channel, user);
+  if (blocked) return blocked;
 
   // End-to-end encrypted conversation: an edit is a whole new envelope.
   let envelope: Envelope | null = null;
@@ -1005,25 +1044,48 @@ export async function softDeleteDmMessage(
 
 /** Add your reaction to a message. */
 export async function addDmReaction(channel: DmChannelRef, user: AuthUser, messageId: string, emoji: string): Promise<DmReply> {
-  const message = await findLiveMessage(channel.id, messageId);
-  if (!message) return fail(404, 'Message not found');
+  // Shared per-user bucket with the server-channel reaction route.
+  const reactLimit = await checkRateLimit('reactionAdd', user.id);
+  if (!reactLimit.success) return fail(429, 'You are reacting too fast', { retryAfter: reactLimit.retryAfter });
   if (!emoji) return fail(400, 'Missing emoji parameter');
-  const emojiData = await getReactionEmoji(emoji);
-  if (!emojiData) return fail(400, 'Invalid emoji');
+  // One real emoji only. Starting a new custom-emoji reaction needs a server
+  // the reactor is in; joining an existing one doesn't (Discord).
+  const [message, checked] = await Promise.all([
+    findLiveMessage(channel.id, messageId),
+    checkReactionEmoji(emoji),
+  ]);
+  if (!message) return fail(404, 'Message not found');
+  if (!checked.ok) return fail(checked.status, checked.error);
+  const emojiData = checked.emoji;
+  if (emojiData.id && !((message.reactions || []) as StoredReaction[]).some(matchReactionEmoji(emojiData))) {
+    const own = await checkReactionEmoji(emoji, { userId: user.id });
+    if (!own.ok) return fail(own.status, own.error);
+  }
+  // A chat restriction, a block or the recipient's DM privacy stop reactions
+  // too (same as the /channels/:dmChannelId route).
+  const restricted = await chatRestrictionDenial(user.id);
+  if (restricted) return restricted;
+  const blocked = await dmWriteDenial(channel, user);
+  if (blocked) return blocked;
 
-  // Row-locked so concurrent reactions can't overwrite each other.
+  // Row-locked so concurrent reactions can't overwrite each other. A new
+  // distinct emoji past MAX_REACTION_EMOJIS is refused (no write).
   let alreadyReacted = false;
+  let limitReached = false;
   const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) => {
     alreadyReacted = current.find(matchReactionEmoji(emojiData))?.userIds?.some((id) => compareIds(id, user.id)) ?? false;
-    return addReaction(
+    const result = addReaction(
       current,
       matchReactionEmoji(emojiData),
       { name: emojiData.name, id: emojiData.id, animated: emojiData.animated, url: emojiData.url },
       user.id,
       compareIds,
-    ).reactions;
+    );
+    limitReached = result.limitReached;
+    return result.limitReached ? null : result.reactions;
   });
   if (!stored) return fail(404, 'Message not found');
+  if (limitReached) return fail(400, MAX_REACTION_EMOJIS_ERROR);
 
   publishToDm(channel.id, { type: 'reaction_add', messageId, emoji, userId: user.id });
   if (!alreadyReacted) {

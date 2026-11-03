@@ -1,6 +1,7 @@
 import { ServerEmoji, type IServerEmoji } from '@/lib/models/ServerEmoji';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { customEmojiTokenRegex } from '@/lib/chat/customEmoji';
+import { isValidUnicodeReactionEmoji } from '@/lib/chat/unicodeReactionEmoji';
 
 function isValidUUID(id: string): boolean {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
@@ -28,6 +29,8 @@ const CUSTOM_EMOJI_REGEX = /<?(a)?:([A-Za-z0-9_-]{1,32}):([0-9a-f]{8}-[0-9a-f]{4
 // regex returns matched substrings, not capture groups — so single-token
 // parsers must use this (or .exec) to read the name/id groups.
 const CUSTOM_EMOJI_REGEX_SINGLE = /<?(a)?:([A-Za-z0-9_-]{1,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>?/i;
+// A reaction is exactly one custom emoji token (anchored: no text around it).
+const REACTION_CUSTOM_EMOJI_REGEX = /^<?(a)?:([A-Za-z0-9_-]{1,32}):([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>?$/i;
 
 // Cache for emoji lookups - expires after 5 minutes
 const emojiCache = new BoundedMap<string, { emoji: IServerEmoji | null; timestamp: number }>(5000);
@@ -127,7 +130,9 @@ export async function batchParseCustomEmojis(
     }
   }
 
-  // Build accessible servers set
+  // Build accessible servers set. Passing either param asks for the server
+  // check; an empty set then allows no custom emoji at all (never "all").
+  const restrictToServers = userServerId !== undefined || userServerIds !== undefined;
   const accessibleServers = new Set<string>();
   if (userServerId) accessibleServers.add(userServerId);
   if (userServerIds) for (const id of userServerIds) accessibleServers.add(id);
@@ -175,7 +180,7 @@ export async function batchParseCustomEmojis(
       continue;
     }
 
-    if (accessibleServers.size > 0 && !accessibleServers.has(emoji.serverId)) {
+    if (restrictToServers && !accessibleServers.has(emoji.serverId)) {
       result.invalidEmojis.push(fullMatch);
       seen.set(emojiId, null);
       continue;
@@ -238,7 +243,10 @@ export async function parseCustomEmojis(
     emojiMap.set(id, emoji);
   }
 
-  // Convert user server IDs to string set for comparison
+  // Convert user server IDs to string set for comparison. Passing either
+  // param asks for the server check: a user in no servers (empty set) may use
+  // no custom emoji, rather than every emoji (the old size > 0 shortcut).
+  const restrictToServers = userServerId !== undefined || userServerIds !== undefined;
   const accessibleServers = new Set<string>();
   if (userServerId) {
     accessibleServers.add(userServerId);
@@ -285,8 +293,8 @@ export async function parseCustomEmojis(
       continue;
     }
 
-    // Validate server access if provided
-    if (accessibleServers.size > 0 && !accessibleServers.has(emoji.serverId)) {
+    // Validate server access if requested
+    if (restrictToServers && !accessibleServers.has(emoji.serverId)) {
       invalidEmojis.push(fullMatch);
       seenIds.set(emojiId, null);
       continue;
@@ -383,42 +391,67 @@ export function isCustomEmoji(str: string): boolean {
   return CUSTOM_EMOJI_REGEX_SINGLE.test(str);
 }
 
-/**
- * Get emoji data for a reaction
- */
-export async function getReactionEmoji(emojiStr: string): Promise<{
+export type ReactionEmojiData = {
   name: string;
   id?: string;
   animated?: boolean;
   url?: string;
-} | null> {
-  // Check if it's a custom emoji (non-global regex so capture groups resolve)
-  const match = CUSTOM_EMOJI_REGEX_SINGLE.exec(emojiStr);
+};
 
+export type ReactionEmojiCheck =
+  | { ok: true; emoji: ReactionEmojiData }
+  | { ok: false; status: 400 | 403; error: string };
+
+/**
+ * Validate and resolve the emoji of a reaction someone is ADDING. Nothing the
+ * client sends is trusted:
+ *  - unicode: exactly one emoji (isValidUnicodeReactionEmoji: no text, URLs,
+ *    whitespace, length-capped);
+ *  - custom: the whole string is one `<:name:id>` / `<a:name:id>` token of an
+ *    available emoji, and — when `opts.userId` is given — the reacting user is
+ *    a member of the emoji's server. That is the same rule as custom emoji in
+ *    message text (parseCustomEmojis with the sender's server list); there is
+ *    no premium / external-emoji exception for users.
+ */
+export async function checkReactionEmoji(
+  emojiStr: string,
+  opts: { userId?: string } = {},
+): Promise<ReactionEmojiCheck> {
+  if (typeof emojiStr !== 'string' || !emojiStr) return { ok: false, status: 400, error: 'Invalid emoji' };
+  const match = REACTION_CUSTOM_EMOJI_REGEX.exec(emojiStr);
   if (match) {
-    const [, animated, name, id] = match;
-    
-    if (!isValidUUID(id)) {
-      return null;
-    }
-
+    const [, , , id] = match;
+    if (!isValidUUID(id)) return { ok: false, status: 400, error: 'Invalid emoji' };
     const emoji = await getCachedEmoji(id);
-    if (!emoji || !emoji.available) {
-      return null;
+    if (!emoji || !emoji.available) return { ok: false, status: 400, error: 'Invalid emoji' };
+    if (opts.userId && emoji.serverId) {
+      const { ServerMember } = await import('@/lib/models/ServerMember');
+      const member = await ServerMember.findOne({ serverId: emoji.serverId, userId: opts.userId }).catch(() => null);
+      if (!member) return { ok: false, status: 403, error: 'You can only use emoji from servers you are in' };
     }
-
     return {
-      name: emoji.name,
-      id,
-      animated: emoji.animated ?? false,
-      url: emoji.imageUrl,
+      ok: true,
+      // The stored id (canonical case), so `<:x:ABC…>` and `<:x:abc…>` are one reaction.
+      emoji: { name: emoji.name, id: emoji.id || id.toLowerCase(), animated: emoji.animated ?? false, url: emoji.imageUrl },
     };
   }
+  if (!isValidUnicodeReactionEmoji(emojiStr)) return { ok: false, status: 400, error: 'Invalid emoji' };
+  return { ok: true, emoji: { name: emojiStr } };
+}
 
-  // It's a unicode emoji
-  return {
-    name: emojiStr,
-  };
+/**
+ * Get emoji data for a reaction, or null when it is not a valid reaction
+ * emoji (see checkReactionEmoji). Pass `opts.userId` when ADDING a reaction
+ * so a custom emoji also requires membership of its server; removal callers
+ * fall back to the raw string when this returns null, so old stored
+ * reactions can still be removed.
+ */
+export async function getReactionEmoji(
+  emojiStr: string,
+  opts?: { userId?: string },
+): Promise<ReactionEmojiData | null> {
+  const result = await checkReactionEmoji(emojiStr, opts);
+  return result.ok ? result.emoji : null;
 }
 
 /**

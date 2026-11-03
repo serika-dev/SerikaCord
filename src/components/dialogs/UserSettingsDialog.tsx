@@ -515,6 +515,7 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
     premiumSince?: string;
     createdAt?: string;
     stats?: { servers: number; messages: number };
+    clientIntegrity?: { signals: string[]; lastSeen: string } | null;
   } | null>(null);
   const [selectedServer, setSelectedServer] = useState<{
     id: string;
@@ -2160,22 +2161,6 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                             variant="secondary"
                             size="sm"
                             onClick={() => {
-                              const token = localStorage.getItem("serika-token") || localStorage.getItem("auth-token") || "";
-                              if (token) {
-                                navigator.clipboard?.writeText(token);
-                                toast.success(gt("Session token copied to clipboard"));
-                              } else {
-                                toast.error(gt("No session token found"));
-                              }
-                            }}
-                          >
-                            <Activity />
-                            {gt("Copy Session Token")}
-                          </SettingsButton>
-                          <SettingsButton
-                            variant="secondary"
-                            size="sm"
-                            onClick={() => {
                               const keys = Object.keys(localStorage).filter((k) => k.startsWith("serika") || k.startsWith("sc:"));
                               keys.forEach((k) => localStorage.removeItem(k));
                               toast.success(gt("Cleared {count} cache entries", { count: keys.length }));
@@ -2347,6 +2332,23 @@ export function UserSettingsDialog({ open, onOpenChange, initialTab }: UserSetti
                                   <SettingsRow
                                     label={gt("Staff")}
                                     control={<SettingsStatusPill tone={selectedUser.isStaff ? "accent" : "neutral"}>{selectedUser.isStaff ? selectedUser.staffRole || gt("Yes") : gt("No")}</SettingsStatusPill>}
+                                  />
+                                  {/* Signs of a client mod the web app reported (log only, last 30 days). */}
+                                  <SettingsRow
+                                    label={gt("Client mod")}
+                                    description={selectedUser.clientIntegrity?.signals.length
+                                      ? gt("Seen {signals}, last {date}", {
+                                          signals: selectedUser.clientIntegrity.signals.join(", "),
+                                          date: new Date(selectedUser.clientIntegrity.lastSeen).toLocaleDateString(),
+                                        })
+                                      : undefined}
+                                    control={
+                                      selectedUser.clientIntegrity?.signals.some((sig) => sig === "mod_global" || sig === "webpack_hook")
+                                        ? <SettingsStatusPill tone="warning">{gt("Detected")}</SettingsStatusPill>
+                                        : selectedUser.clientIntegrity?.signals.length
+                                          ? <SettingsStatusPill tone="neutral">{gt("Possible")}</SettingsStatusPill>
+                                          : <SettingsStatusPill tone="neutral">{gt("None seen")}</SettingsStatusPill>
+                                    }
                                   />
                                   <SettingsRow
                                     label={gt("Premium")}

@@ -222,7 +222,9 @@ void configure(int argc, char **argv) {
     // The user's own flags go last so they win over ours (Chromium keeps the
     // last value of a repeated switch); they are never dropped.
     const EnvValue userFlags = original("QTWEBENGINE_CHROMIUM_FLAGS");
-    if (!userFlags.value.trimmed().isEmpty()) flags += ' ' + userFlags.value.trimmed();
+    const QString kept = withoutDebugSwitches(QString::fromLocal8Bit(userFlags.value).trimmed());
+    if (!kept.isEmpty()) flags += ' ' + kept.toLocal8Bit();
+    if (!devToolsAllowed()) qunsetenv("QTWEBENGINE_REMOTE_DEBUGGING");
     g_flags = flags;
     qputenv("QTWEBENGINE_CHROMIUM_FLAGS", flags);
 
@@ -233,6 +235,44 @@ void configure(int argc, char **argv) {
 }
 
 bool diagnostics() { return g_diagnostics; }
+
+bool devToolsAllowed() {
+#ifdef QT_DEBUG
+    return true;
+#else
+    return qEnvironmentVariable("SERIKACORD_DEVTOOLS") == QLatin1String("1");
+#endif
+}
+
+static bool isDebugSwitch(const QString &arg) {
+    return arg.startsWith(QLatin1String("--remote-debugging"))
+        || arg.startsWith(QLatin1String("--remote-allow-origins"))
+        || arg.startsWith(QLatin1String("--auto-open-devtools"));
+}
+
+QString withoutDebugSwitches(const QString &flags) {
+    if (devToolsAllowed() || flags.isEmpty()) return flags;
+    QStringList kept;
+    for (const QString &arg : flags.split(QLatin1Char(' '), Qt::SkipEmptyParts)) {
+        if (isDebugSwitch(arg)) log(QStringLiteral("ignoring %1 (set SERIKACORD_DEVTOOLS=1 to allow)").arg(arg));
+        else kept << arg;
+    }
+    return kept.join(QLatin1Char(' '));
+}
+
+void stripDebugArguments(int &argc, char **argv) {
+    if (devToolsAllowed()) return;
+    int out = 0;
+    for (int i = 0; i < argc; ++i) {
+        if (i > 0 && isDebugSwitch(QString::fromLocal8Bit(argv[i]))) {
+            log(QStringLiteral("ignoring %1 (set SERIKACORD_DEVTOOLS=1 to allow)").arg(QString::fromLocal8Bit(argv[i])));
+            continue;
+        }
+        argv[out++] = argv[i];
+    }
+    argc = out;
+    argv[argc] = nullptr;
+}
 int level() { return g_level; }
 
 QString levelName(int level) {

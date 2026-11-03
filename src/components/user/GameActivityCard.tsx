@@ -5,6 +5,7 @@ import { WidgetImage } from "@/components/widgets/WidgetShell";
 import { Gamepad2, Code2, Music, Layers, Terminal, Bot, Wind } from "lucide-react";
 import type { GameActivity } from "@/hooks/useMoeActivity";
 import { useGT } from "gt-next";
+import { safeRichPresenceImageUrl } from "@/lib/presence/richPresenceSafety";
 
 function formatElapsed(startedAt: string | null, gt: (key: string, vars?: Record<string, unknown>) => string): string {
   if (!startedAt) return "";
@@ -58,6 +59,9 @@ export function GameActivityCard({ game }: { game: GameActivity }) {
 
   const cfg = typeConfig[game.type] ?? typeConfig.other;
   const { Icon } = cfg;
+  // Reported by any client: only https images on the allowed hosts render.
+  const largeImageUrl = safeRichPresenceImageUrl(game.largeImageUrl);
+  const smallImageUrl = safeRichPresenceImageUrl(game.smallImageUrl);
 
   return (
     <div className="sw-card overflow-hidden">
@@ -80,18 +84,18 @@ export function GameActivityCard({ game }: { game: GameActivity }) {
               <Icon className="w-6 h-6" style={{ color: cfg.color }} />
             </div>
           );
-          if (!game.largeImageUrl) return iconTile;
+          if (!largeImageUrl) return iconTile;
           return (
             <div className="relative shrink-0">
               <WidgetImage
-                src={game.largeImageUrl}
+                src={largeImageUrl}
                 alt={game.largeImageText ?? game.name}
                 className="w-14 h-14 rounded-[8px] object-cover shadow-md ring-1 ring-inset ring-white/[0.06]"
                 fallback={iconTile}
               />
-              {game.smallImageUrl && (
+              {smallImageUrl && (
                 <WidgetImage
-                  src={game.smallImageUrl}
+                  src={smallImageUrl}
                   alt={game.smallImageText ?? ""}
                   className="absolute -bottom-1 -right-1 w-5 h-5 rounded-full border-2 border-[#0b0b0f] object-cover"
                 />

@@ -65,6 +65,8 @@ private:
 int main(int argc, char *argv[]) {
     // Chromium flags and the render safe mode must be set before QApplication.
     RenderSafeMode::configure(argc, argv);
+    // Chromium also reads switches from argv: no remote debugging in release builds.
+    RenderSafeMode::stripDebugArguments(argc, argv);
     QGuiApplication::setHighDpiScaleFactorRoundingPolicy(Qt::HighDpiScaleFactorRoundingPolicy::PassThrough);
 
     QApplication app(argc, argv);

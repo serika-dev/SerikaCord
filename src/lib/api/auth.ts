@@ -1,5 +1,5 @@
 import { Elysia, t } from 'elysia';
-import { createHash, randomBytes } from 'crypto';
+import { createHash, randomBytes, timingSafeEqual } from 'crypto';
 import { config } from '../config';
 import {
   verifyEmail,
@@ -665,13 +665,11 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       const cookies = await finishAccountsSignIn(data, cookie);
       if (cookies.length) setCookies(set, cookies);
 
+      // The session lives in HttpOnly cookies only: a token in the body would be
+      // readable by any page script (a client mod) and reusable from anywhere.
       return {
         success: true,
         user: data.user,
-        tokens: {
-          accessToken: data.token,
-          refreshToken: data.refreshToken,
-        },
       };
     } catch (error) {
       console.error('Login proxy error:', error);
@@ -814,12 +812,20 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     const limited = await authRateLimit(set, [['qrCreate', getClientIP(request)]]);
     if (limited) return limited;
     const token = randomBytes(32).toString('hex');
+    // Only the browser that asked for the code may collect the session: a
+    // secret in an HttpOnly cookie, stored hashed with the code. Stops login
+    // CSRF (sending someone to an approved code's status URL) and page scripts
+    // handing a code to someone else's browser.
+    const pollSecret = randomBytes(32).toString('hex');
     const now = Date.now();
     const ttlSeconds = 120; // QR codes are short-lived
     await cache.set(`qrlogin:${token}`, {
       status: 'pending',
       createdAt: now,
+      pollHash: createHash('sha256').update(pollSecret).digest('hex'),
     }, ttlSeconds);
+    // One cookie per code (its own path), so a second login tab doesn't void the first's.
+    setCookies(set, [`qr_poll=${pollSecret}; HttpOnly; Secure; SameSite=Strict; Path=/api/auth/qr/${token}; Max-Age=${ttlSeconds}`]);
     set.status = 201;
     return {
       token,
@@ -832,10 +838,18 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
   // Poll the QR token status. Called by the WAITING (unauthenticated) device.
   // On "approved" this sets the auth cookies and consumes the token.
-  .get('/qr/:token/status', async ({ params, set }) => {
+  .get('/qr/:token/status', async ({ params, set, cookie }) => {
     const entry = await cache.get<any>(`qrlogin:${params.token}`);
     if (!entry) {
       set.status = 404;
+      return { status: 'expired' };
+    }
+    // Not the browser that created this code: it never gets the session.
+    const pollCookie = (cookie as Record<string, { value?: unknown }>).qr_poll?.value;
+    const given = typeof pollCookie === 'string' ? createHash('sha256').update(pollCookie).digest() : null;
+    const expected = typeof entry.pollHash === 'string' ? Buffer.from(entry.pollHash, 'hex') : null;
+    if (!given || !expected || given.length !== expected.length || !timingSafeEqual(given, expected)) {
+      set.status = 403;
       return { status: 'expired' };
     }
 
@@ -850,10 +864,6 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       return {
         status: 'approved',
         user: entry.user ?? null,
-        tokens: {
-          accessToken: entry.tokens.accessToken,
-          refreshToken: entry.tokens.refreshToken,
-        },
       };
     }
 
@@ -1124,10 +1134,9 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
         set.headers['Set-Cookie'] = `auth_token=${data.tokens.accessToken}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${30 * 24 * 60 * 60}`;
       }
 
-      return {
-        success: true,
-        tokens: data.tokens,
-      };
+      // Cookie only (see /login): returning the token would let any page script
+      // turn the HttpOnly refresh cookie into a bearer token.
+      return { success: true };
     } catch (error) {
       console.error('Refresh token proxy error:', error);
       set.status = 500;
@@ -1456,11 +1465,6 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
           displayName: result.user!.displayName,
           avatar: result.user!.avatar,
         },
-        tokens: {
-          accessToken: result.tokens.accessToken,
-          refreshToken: result.tokens.refreshToken,
-          expiresAt: result.tokens.expiresAt,
-        },
       };
     } catch (err) {
       console.error('Discord OAuth error:', err);
@@ -1536,7 +1540,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       }
 
       const lastfmState = await createOAuthState('lastfm', userId, linkServerId ?? undefined);
-      const stateCookie = `lastfm_state=${encodeURIComponent(lastfmState)}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`;
+      const stateCookie = `lastfm_state=${encodeURIComponent(lastfmState)}; HttpOnly; Secure; Path=/; Max-Age=600; SameSite=Lax`;
       const callbackUrl = encodeURIComponent(`${base}/api/auth/lastfm/callback`);
       return oauthRedirect(`https://www.last.fm/api/auth/?api_key=${apiKey}&cb=${callbackUrl}`, stateCookie);
     }
@@ -1548,7 +1552,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     }
 
     const state = await createOAuthState(provider, userId, linkServerId ?? undefined);
-    const stateCookie = `oauth2_state=${encodeURIComponent(state)}; HttpOnly; Path=/; Max-Age=600; SameSite=Lax`;
+    const stateCookie = `oauth2_state=${encodeURIComponent(state)}; HttpOnly; Secure; Path=/; Max-Age=600; SameSite=Lax`;
     const callbackUrl = encodeURIComponent(`${base}/api/auth/${provider}/callback`);
     const authUrl = prov.getAuthUrl(prov.clientId, callbackUrl, prov.scopes);
     return oauthRedirect(authUrl, stateCookie);

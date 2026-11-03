@@ -5,8 +5,8 @@ import { acceptsFriendRequests, activityHiddenByStatus, activitySharing, friendR
 import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
+import { isCrossSiteWrite } from '@/lib/security/csrf';
 import { readServerTheme, sanitizeAppearanceSettingsPatch } from '@/lib/appearance/customization';
-import { sanitizeNameplate } from '@/lib/constants/nameplates';
 import { connectDB, cache } from '@/lib/db';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, isGlobalRateLimitExempt, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
@@ -22,6 +22,8 @@ import type { ServerActiveEvent } from '@/lib/chat/serverEventBadge';
 import { discordBridgeRoutes } from './discordBridge';
 import { channelRoutes } from './channels';
 import { serverWebhookRoutes } from './serverWebhooks';
+import { clientIntegrityRoutes } from './clientIntegrity';
+import { cspReportRoutes } from './cspReport';
 import { uploadRoutes } from './uploads';
 import { recentMediaRoutes } from './recentMedia';
 import { dmRoutes } from './dms';
@@ -69,6 +71,10 @@ import { inArray } from 'drizzle-orm';
 import { getRedis } from '@/lib/db/redis';
 import { isCustomStatusExpired, sanitizeExpiry, sanitizeStatusEmoji, type CustomStatusEmoji } from '@/lib/social/customStatus';
 import { ACTIVE_DEVICE_TTL_SECONDS, AUTO_IDLE_FLAG_TTL_SECONDS, decideAutoIdle, parseHeartbeatIdle } from '@/lib/presence/autoIdle';
+import { RICH_PRESENCE_LIMITS, safeRichPresenceImageUrl, sanitizeRichPresenceReport } from '@/lib/presence/richPresenceSafety';
+import { applyCustomizationPatchSafe } from '@/lib/profiles/customizationPatch';
+import { PROFILE_PATCH_LIMITS, parseProfilePatchBody, validateProfilePatchBody } from '@/lib/profiles/profilePatchBody';
+import { isDmBlocked } from '@/lib/chat/dmAccess';
 // Helper to safely compare IDs (normalizes MongoDB ObjectId format to UUID)
 function compareIds(id1: string, id2: string): boolean {
   return normalizeId(id1) === normalizeId(id2);
@@ -230,21 +236,18 @@ function normalizeSettingsPatch(patch: Record<string, any>, userId: string) {
 }
 
 /**
- * Merge a profile customization patch. The nameplate is validated (hex
- * colours, known presets, own CDN image) and replaces the stored one as a
- * whole, so no stale fields from an earlier type linger.
+ * Merge a profile customization patch. Only the keys the profile editors
+ * write are accepted, each validated / clamped (display name style and theme
+ * colours as hex, nameplate via sanitizeNameplate, enums, slider ranges) and
+ * the patch is size-capped: see applyCustomizationPatchSafe
+ * (src/lib/profiles/customizationPatch.ts). serverTag and the custom status
+ * emoji / expiry have their own validated fields and are dropped here.
  */
 function applyCustomizationPatch(
   user: { id: string; customization?: unknown },
   patch: Record<string, unknown>,
 ): { customization: Record<string, unknown> } | { error: string } {
-  const merged = mergeDeep((user.customization || {}) as Record<string, unknown>, patch);
-  if ('nameplate' in patch) {
-    const result = sanitizeNameplate(patch.nameplate, { userId: user.id, cdnUrl: config.CDN_URL });
-    if ('error' in result) return { error: result.error };
-    merged.nameplate = result.nameplate;
-  }
-  return { customization: merged };
+  return applyCustomizationPatchSafe(user.customization, patch, { userId: user.id, cdnUrl: config.CDN_URL });
 }
 
 function mergeDeep<T extends Record<string, any>>(base: T, patch: Record<string, any>): T {
@@ -926,9 +929,10 @@ async function loadUserActivities(userIds: string[]): Promise<Map<string, Record
       name: doc.name,
       details: doc.details ?? null,
       state: doc.state ?? null,
-      largeImageUrl: doc.largeImageUrl ?? null,
+      // Re-checked on read too (rows written before the host allowlist).
+      largeImageUrl: safeRichPresenceImageUrl(doc.largeImageUrl),
       largeImageText: doc.largeImageText ?? null,
-      smallImageUrl: doc.smallImageUrl ?? null,
+      smallImageUrl: safeRichPresenceImageUrl(doc.smallImageUrl),
       smallImageText: doc.smallImageText ?? null,
       startedAt: doc.startedAt ?? null,
       endsAt: doc.endsAt ?? null,
@@ -958,6 +962,32 @@ async function loadUserActivities(userIds: string[]): Promise<Map<string, Record
 async function loadUserActivity(userId: string): Promise<Record<string, unknown> | null> {
   const results = await loadUserActivities([userId]);
   return results.get(activityUserKey(userId)) ?? null;
+}
+
+/**
+ * Which of `userIds` (as activityUserKey) the viewer may not see live
+ * activity for because either side blocked the other (same rule as
+ * /api/v1/users/:id/presences and DMs: isDmBlocked). The cached activity
+ * snapshot is shared by every viewer, so this is applied per request.
+ */
+async function activityBlockedIds(
+  viewer: { id: string; blockedUsers?: string[] | null },
+  userIds: string[],
+): Promise<Set<string>> {
+  const blocked = new Set<string>();
+  const viewerKey = activityUserKey(viewer.id);
+  const others = [...new Set(userIds.map(activityUserKey))].filter((id) => id !== viewerKey);
+  if (others.length === 0) return blocked;
+  // Fail closed: if the block lists can't be read, show no one's activity.
+  const rows = await db.select({ id: schema.users.id, blockedUsers: schema.users.blockedUsers })
+    .from(schema.users)
+    .where(inArray(schema.users.id, others))
+    .catch(() => null);
+  if (!rows) return new Set(others);
+  for (const row of rows) {
+    if (isDmBlocked(viewer, { id: row.id, blockedUsers: row.blockedUsers })) blocked.add(activityUserKey(row.id));
+  }
+  return blocked;
 }
 
 const userRoutes = new Elysia({ prefix: '/users' })
@@ -1705,6 +1735,11 @@ const userRoutes = new Elysia({ prefix: '/users' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    const putLimit = await checkRateLimit('profileUpdate', authUser.id);
+    if (!putLimit.success) {
+      set.status = 429;
+      return { error: 'Too many profile updates. Try again in a moment.', retryAfter: putLimit.retryAfter };
+    }
 
     try {
       // Fetch the actual user document
@@ -1825,14 +1860,15 @@ const userRoutes = new Elysia({ prefix: '/users' })
     }
   }, {
     body: t.Object({
-      displayName: t.Optional(t.String({ maxLength: 32 })),
-      bio: t.Optional(t.String({ maxLength: 1000 })),
-      pronouns: t.Optional(t.String({ maxLength: 32 })),
-      timezone: t.Optional(t.Union([t.String(), t.Null()])),
+      // Same limits as validateProfilePatchBody (POST /me below): keep in step.
+      displayName: t.Optional(t.String({ maxLength: PROFILE_PATCH_LIMITS.displayName })),
+      bio: t.Optional(t.String({ maxLength: PROFILE_PATCH_LIMITS.bio })),
+      pronouns: t.Optional(t.String({ maxLength: PROFILE_PATCH_LIMITS.pronouns })),
+      timezone: t.Optional(t.Union([t.String({ maxLength: PROFILE_PATCH_LIMITS.timezone }), t.Null()])),
       showTimezone: t.Optional(t.Boolean()),
-      customStatus: t.Optional(t.Union([t.String({ maxLength: 128 }), t.Null()])),
+      customStatus: t.Optional(t.Union([t.String({ maxLength: PROFILE_PATCH_LIMITS.customStatus }), t.Null()])),
       customStatusEmoji: t.Optional(t.Union([t.Object({}, { additionalProperties: true }), t.Null()])),
-      customStatusExpiresAt: t.Optional(t.Union([t.String({ maxLength: 64 }), t.Null()])),
+      customStatusExpiresAt: t.Optional(t.Union([t.String({ maxLength: PROFILE_PATCH_LIMITS.customStatusExpiresAt }), t.Null()])),
       status: t.Optional(t.Union([
         t.Literal('online'),
         t.Literal('idle'),
@@ -1856,27 +1892,35 @@ const userRoutes = new Elysia({ prefix: '/users' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    const postLimit = await checkRateLimit('profileUpdate', authUser.id);
+    if (!postLimit.success) {
+      set.status = 429;
+      return { error: 'Too many profile updates. Try again in a moment.', retryAfter: postLimit.retryAfter };
+    }
+
+    // The body may be a string (text/plain beacon), so it has no route schema:
+    // parse it and apply the same limits as PUT /me by hand.
+    const data = parseProfilePatchBody(body);
+    if (!data) {
+      set.status = 400;
+      return { error: 'Body must be a JSON object' };
+    }
+    const bodyError = validateProfilePatchBody(data);
+    if (bodyError) {
+      set.status = 400;
+      return { error: bodyError };
+    }
 
     try {
       const userId = authUser.id;
       const user = await User.findById(userId);
-      
+
       if (!user) {
         set.status = 404;
         return { error: 'User not found in local database' };
       }
 
-      // Parse body if it is sent as string (e.g. from text/plain beacon)
-      let data = body as Record<string, unknown>;
-      if (typeof body === 'string') {
-        try {
-          data = JSON.parse(body);
-        } catch {
-          // ignore
-        }
-      }
-
-      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone, customStatusEmoji, customStatusExpiresAt } = data || {};
+      const { displayName, bio, pronouns, customStatus, status, settings, customization, gifFavorites, timezone, showTimezone, customStatusEmoji, customStatusExpiresAt } = data as Record<string, any>;
       const prevStatus = user.status;
 
       const updateFields: Record<string, any> = {};
@@ -2687,6 +2731,14 @@ const userRoutes = new Elysia({ prefix: '/users' })
     body: t.Object({ serverId: t.Union([t.String({ maxLength: 64 }), t.Null()]) }),
   })
   .get('/:userId', async ({ params, headers, cookie, set }) => {
+    // Profiles (bio, connections, customization) are for signed-in users only;
+    // every in-app caller is inside the authenticated shell.
+    const { user: requester, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!requester) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+
     const targetUser = await User.findById(params.userId);
 
     if (!targetUser) {
@@ -2694,30 +2746,21 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: 'User not found' };
     }
 
-    // Optionally check friend status if the requester is authenticated
-    let isFriend = false;
-    let friendRequestSent = false;
-    let friendRequestReceived = false;
-    let isBlocked = false;
-    let isSelf = false;
+    const isFriend = (requester.friends || []).some((f: string) => compareIds(f, targetUser.id));
+    const outgoing = ((requester.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
+    const incoming = ((requester.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
+    const friendRequestSent = outgoing.some((f: string) => compareIds(f, targetUser.id));
+    const friendRequestReceived = incoming.some((f: string) => compareIds(f, targetUser.id));
+    const isBlocked = (requester.blockedUsers || []).some((b: string) => compareIds(b, targetUser.id));
+    const isSelf = compareIds(requester.id, targetUser.id);
     let note: string | undefined;
-    try {
-      const { user: requester } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
-      if (requester) {
-        isFriend = (requester.friends || []).some((f: string) => compareIds(f, targetUser.id));
-        const outgoing = ((requester.pendingFriendRequests as IPendingFriendRequests)?.outgoing || []) as string[];
-        const incoming = ((requester.pendingFriendRequests as IPendingFriendRequests)?.incoming || []) as string[];
-        friendRequestSent = outgoing.some((f: string) => compareIds(f, targetUser.id));
-        friendRequestReceived = incoming.some((f: string) => compareIds(f, targetUser.id));
-        isBlocked = (requester.blockedUsers || []).some((b: string) => compareIds(b, targetUser.id));
-        isSelf = compareIds(requester.id, targetUser.id);
-        if (!isSelf) {
-          const { getUserNote } = await import('@/lib/services/userNotes');
-          note = await getUserNote(requester.id, targetUser.id).catch(() => undefined);
-        }
+    if (!isSelf) {
+      try {
+        const { getUserNote } = await import('@/lib/services/userNotes');
+        note = await getUserNote(requester.id, targetUser.id).catch(() => undefined);
+      } catch {
+        // Notes are optional on a profile.
       }
-    } catch {
-      // Not authenticated — leave isFriend false
     }
 
     // Public connections — strip sensitive metadata (e.g. session keys).
@@ -2841,12 +2884,22 @@ const userRoutes = new Elysia({ prefix: '/users' })
   })
   // Live activity for a user: "now watching" (serika.moe), Last.fm scrobble, and game/rich presence.
   // Respects the target user's "show activity" privacy setting.
-  .get('/:userId/activity', async ({ params, set }) => {
-    const result = await loadUserActivity(params.userId);
+  // Signed-in only; empty when either side blocked the other.
+  .get('/:userId/activity', async ({ params, headers, cookie, set }) => {
+    const { user: viewer, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!viewer) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const [result, blocked] = await Promise.all([
+      loadUserActivity(params.userId),
+      activityBlockedIds(viewer, [params.userId]),
+    ]);
     if (!result) {
       set.status = 404;
       return { error: 'User not found' };
     }
+    if (blocked.has(activityUserKey(params.userId))) return { ...EMPTY_ACTIVITY };
     return result;
   }, {
     params: t.Object({
@@ -2855,25 +2908,40 @@ const userRoutes = new Elysia({ prefix: '/users' })
   })
   // Same data for many users in one request (member list, DM list): the
   // client batches every visible user into one poll instead of one per row.
-  .get('/activity/batch', async ({ query, set }) => {
+  // Signed-in only; users blocked either way get the empty activity.
+  .get('/activity/batch', async ({ query, headers, cookie, set }) => {
+    const { user: viewer, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!viewer) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
     const ids = [...new Set(String(query.ids || '').split(',').map((id) => id.trim()).filter(isUuidLike))].slice(0, 100);
     if (ids.length === 0) {
       set.status = 400;
       return { error: 'ids is required' };
     }
-    const results = await loadUserActivities(ids).catch(() => new Map<string, Record<string, unknown>>());
+    const [results, blocked] = await Promise.all([
+      loadUserActivities(ids).catch(() => new Map<string, Record<string, unknown>>()),
+      activityBlockedIds(viewer, ids),
+    ]);
     const activities: Record<string, unknown> = {};
     for (const id of ids) {
-      const result = results.get(activityUserKey(id));
-      if (result) activities[id] = result;
+      const key = activityUserKey(id);
+      const result = results.get(key);
+      if (result) activities[id] = blocked.has(key) ? { ...EMPTY_ACTIVITY } : result;
     }
     return { activities };
   }, {
     query: t.Object({ ids: t.String() }),
   })
-  // Public recent-activity history for a user's profile. Respects the target
-  // user's activity privacy (games & apps switch) and Invisible status.
-  .get('/:userId/activity-history', async ({ params, query, set }) => {
+  // Recent-activity history for a user's profile. Respects the target user's
+  // activity privacy (games & apps switch), Invisible status and blocks.
+  .get('/:userId/activity-history', async ({ params, query, headers, cookie, set }) => {
+    const { user: viewer, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!viewer) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
     const targetUser = await User.findById(params.userId);
     if (!targetUser) {
       set.status = 404;
@@ -2881,7 +2949,11 @@ const userRoutes = new Elysia({ prefix: '/users' })
     }
     // History is games and apps, so it follows that switch; hidden while
     // Invisible too (its "last seen" times would give you away).
-    if (!activitySharing(targetUser.settings).games || activityHiddenByStatus(targetUser.status)) {
+    if (
+      !activitySharing(targetUser.settings).games ||
+      activityHiddenByStatus(targetUser.status) ||
+      (!compareIds(viewer.id, targetUser.id) && isDmBlocked(viewer, targetUser))
+    ) {
       return { activities: [] };
     }
     const rawLimit = Number((query as Record<string, string | undefined>).limit);
@@ -2891,7 +2963,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       activities: sortActivitiesByPriority(rows.map((r) => ({
         type: r.type,
         name: r.name,
-        imageUrl: r.imageUrl ?? null,
+        imageUrl: safeRichPresenceImageUrl(r.imageUrl),
         firstSeenAt: r.firstSeenAt,
         lastSeenAt: r.lastSeenAt,
         durationSeconds: r.durationSeconds,
@@ -2910,43 +2982,41 @@ const userRoutes = new Elysia({ prefix: '/users' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const raw = body as Record<string, unknown>;
-    const incoming = Array.isArray(raw.activities)
-      ? raw.activities.filter((a: any) => a?.name)
-      : raw?.name ? [raw] : [];
+    const rl = await checkRateLimit('richPresence', authUser.id);
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Too many presence updates', retryAfter: rl.retryAfter };
+    }
+
+    // Cleaned and capped (≤10 activities, deduped by type+name). Image URLs
+    // must be https on an allowed host (else dropped), button links http(s).
+    const incoming = sanitizeRichPresenceReport(body);
 
     // Desktop app sends a heartbeat every 15s; TTL = 60s gives 3 missed beats before expiry
     const expiresAt = new Date(Date.now() + 60_000);
     const authUserId = authUser.id;
-    const activeKeys = new Set<string>();
 
     // Upsert each activity individually
     for (const item of incoming) {
-      const type = item.type || 'other';
-      const name = item.name;
-      activeKeys.add(`${type}:${name}`);
-      
-      // Serika RPC extensions (assets/buttons/applicationId). Nullable and
-      // optional so legacy desktop reports keep working unchanged.
-      const rpcExtras = {
-        applicationId: item.applicationId ?? null,
-        assets: item.assets ?? null,
-        buttons: item.buttons ?? null,
-        partyId: item.partyId ?? null,
-        partySize: item.partySize ?? null,
-      };
+      const { type, name } = item;
 
       const fields = {
-        details: item.details ?? null,
-        state: item.state ?? null,
-        largeImageUrl: item.largeImageUrl ?? null,
-        largeImageText: item.largeImageText ?? null,
-        smallImageUrl: item.smallImageUrl ?? null,
-        smallImageText: item.smallImageText ?? null,
-        startedAt: item.startedAt ? new Date(item.startedAt) : null,
-        endsAt: item.endsAt ? new Date(item.endsAt) : null,
+        details: item.details,
+        state: item.state,
+        largeImageUrl: item.largeImageUrl,
+        largeImageText: item.largeImageText,
+        smallImageUrl: item.smallImageUrl,
+        smallImageText: item.smallImageText,
+        startedAt: item.startedAt,
+        endsAt: item.endsAt,
         expiresAt,
-        ...rpcExtras,
+        // Serika RPC extensions (assets/buttons/applicationId). Nullable and
+        // optional so legacy desktop reports keep working unchanged.
+        applicationId: item.applicationId,
+        assets: item.assets,
+        buttons: item.buttons,
+        partyId: item.partyId,
+        partySize: item.partySize,
       };
 
       // One atomic upsert per (user, type, name) on the existing unique index:
@@ -2963,7 +3033,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     // Anything not reported in this batch is no longer active.
     const allPresence = await RichPresence.find({ userId: authUserId });
     const toDelete = allPresence.filter((p: any) => {
-      return !incoming.some((item: any) => (item.type || 'other') === p.type && item.name === p.name);
+      return !incoming.some((item) => item.type === p.type && item.name === p.name);
     });
     for (const p of toDelete) {
       await RichPresence.deleteById(p.id);
@@ -2980,13 +3050,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
     const storeHistory = (authUser.settings as IUserSettings | undefined)?.privacy?.storeActivityHistory ?? true;
     if (storeHistory) {
       for (const item of incoming) {
-        const type = item.type || 'other';
+        const type = item.type;
         // Remember games and recognised apps; skip unclassified "other" noise.
         if (type === 'other') continue;
         ActivityHistory.record(authUserId, {
           type,
           name: item.name,
-          imageUrl: item.largeImageUrl ?? null,
+          imageUrl: item.largeImageUrl,
         }).catch(() => {});
       }
     }
@@ -2995,7 +3065,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
   }, {
     body: t.Union([
       t.Object({
-        type: t.Optional(t.String()),
+        type: t.Optional(t.String({ maxLength: RICH_PRESENCE_LIMITS.type })),
         name: t.String({ minLength: 1, maxLength: 128 }),
         details: t.Optional(t.String({ maxLength: 128 })),
         state: t.Optional(t.String({ maxLength: 128 })),
@@ -3003,13 +3073,13 @@ const userRoutes = new Elysia({ prefix: '/users' })
         largeImageText: t.Optional(t.String({ maxLength: 128 })),
         smallImageUrl: t.Optional(t.String({ maxLength: 512 })),
         smallImageText: t.Optional(t.String({ maxLength: 128 })),
-        startedAt: t.Optional(t.String()),
-        endsAt: t.Optional(t.String()),
+        startedAt: t.Optional(t.String({ maxLength: 64 })),
+        endsAt: t.Optional(t.String({ maxLength: 64 })),
         ...rpcPresenceExtras,
       }),
       t.Object({
         activities: t.Array(t.Object({
-          type: t.Optional(t.String()),
+          type: t.Optional(t.String({ maxLength: RICH_PRESENCE_LIMITS.type })),
           name: t.String({ minLength: 1, maxLength: 128 }),
           details: t.Optional(t.String({ maxLength: 128 })),
           state: t.Optional(t.String({ maxLength: 128 })),
@@ -3017,10 +3087,10 @@ const userRoutes = new Elysia({ prefix: '/users' })
           largeImageText: t.Optional(t.String({ maxLength: 128 })),
           smallImageUrl: t.Optional(t.String({ maxLength: 512 })),
           smallImageText: t.Optional(t.String({ maxLength: 128 })),
-          startedAt: t.Optional(t.String()),
-          endsAt: t.Optional(t.String()),
+          startedAt: t.Optional(t.String({ maxLength: 64 })),
+          endsAt: t.Optional(t.String({ maxLength: 64 })),
           ...rpcPresenceExtras,
-        })),
+        }), { maxItems: RICH_PRESENCE_LIMITS.maxActivities }),
       }),
     ]),
   })
@@ -3055,7 +3125,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
       activities: sortActivitiesByPriority(rows.map((r) => ({
         type: r.type,
         name: r.name,
-        imageUrl: r.imageUrl ?? null,
+        imageUrl: safeRichPresenceImageUrl(r.imageUrl),
         firstSeenAt: r.firstSeenAt,
         lastSeenAt: r.lastSeenAt,
         durationSeconds: r.durationSeconds,
@@ -4227,6 +4297,13 @@ export const api = new Elysia({ prefix: '/api' })
     secret: config.JWT_SECRET,
   }))
   .use(rateLimitPlugin)
+  // Cookie-authenticated writes only from the app's own origins (src/lib/security/csrf.ts).
+  .onRequest(({ request, set }) => {
+    if (isCrossSiteWrite(request, config.ALLOWED_ORIGINS)) {
+      set.status = 403;
+      return { error: 'Cross-site request refused' };
+    }
+  })
   .get('/', () => ({
     message: 'Hi! This is the SerikaCord API — a Discord-compatible bot & app API.',
     service: 'serikacord',
@@ -4485,6 +4562,8 @@ export const api = new Elysia({ prefix: '/api' })
   .use(pushRoutes)
   .use(recentMediaRoutes)
   .use(userRoutes)
+  .use(clientIntegrityRoutes)
+  .use(cspReportRoutes)
   .use(bugReportRoutes)
   .use(notificationsRoutes)
   .use(friendsRoutes)

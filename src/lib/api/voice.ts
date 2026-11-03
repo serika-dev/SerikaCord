@@ -738,6 +738,11 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    const joinLimit = await checkRateLimit('voiceState', user.id);
+    if (!joinLimit.success) {
+      set.status = 429;
+      return { error: 'Rate limited', retryAfter: joinLimit.retryAfter };
+    }
 
     const auth = await authorizeRoom(user.id, body.roomId, { fresh: true });
     if (!auth.ok) {
@@ -1232,10 +1237,33 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       set.status = 403;
       return { error: 'You must be connected to this voice channel' };
     }
+    const soundLimit = await checkRateLimit('soundboard', user.id);
+    if (!soundLimit.success) {
+      set.status = 429;
+      return { error: 'Slow down with the sounds', retryAfter: soundLimit.retryAfter };
+    }
+    // Server-muted: no sounds either.
+    if (room.get(user.id)?.serverMute) {
+      set.status = 403;
+      return { error: 'You are server muted' };
+    }
 
     // Channel rooms: verify the sound belongs to the channel's server and
-    // the server's soundboard is enabled.
+    // the server's soundboard is enabled. Other calls: only files on our CDN,
+    // so peers never auto-play (and reveal their IP to) an outside URL.
     let volume = 100;
+    let soundName = body.soundName;
+    if (!params.roomId.startsWith('channel-')) {
+      let onCdn = false;
+      try {
+        const url = new URL(body.soundUrl);
+        onCdn = url.protocol === 'https:' && url.host === new URL(config.CDN_URL).host;
+      } catch { /* not a URL */ }
+      if (!onCdn) {
+        set.status = 400;
+        return { error: 'That sound is not available' };
+      }
+    }
     if (params.roomId.startsWith('channel-')) {
       const channelId = params.roomId.slice('channel-'.length);
       const { Channel, Server } = await import('@/lib/models');
@@ -1258,6 +1286,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       }
       // Server soundboard volume × this sound's own volume (CORD-31).
       volume = effectiveSoundPercent((server.settings as IServerSettings | undefined)?.soundboard?.volume, sound);
+      soundName = sound.name || soundName;
       // Bots in the server: VOICE_CHANNEL_EFFECT_SEND (GUILD_VOICE_STATES).
       const soundRef = sound as { id?: string; emoji?: string };
       if (soundRef.id) {
@@ -1274,7 +1303,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       userId: user.id,
       username: user.displayName || user.username,
       soundUrl: body.soundUrl,
-      soundName: body.soundName,
+      soundName,
       volume,
     }, user.id);
 
@@ -1290,6 +1319,8 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
   .patch('/state/:roomId', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const stateLimit = await checkRateLimit('voiceState', user.id);
+    if (!stateLimit.success) { set.status = 429; return { error: 'Rate limited', retryAfter: stateLimit.retryAfter }; }
 
     const room = roomState.get(params.roomId);
     if (!room) { set.status = 404; return { error: 'Room not found' }; }

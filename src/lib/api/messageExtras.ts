@@ -17,8 +17,11 @@
 import { Elysia, t } from 'elysia';
 import { Channel, Message, Role, Server, ServerMember, User, type IChannel } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
-import { checkRateLimit, encryptForStorage, isValidObjectId, rejectInvalidObjectIdParams } from '@/lib/security';
+import { checkRateLimit, encryptForStorage, isValidObjectId, rejectInvalidObjectIdParams, validateMessageContent } from '@/lib/security';
+import { config } from '@/lib/config';
 import { normalizeEmojiFormat } from '@/lib/services/emoji';
+import { actingUserStatus } from '@/lib/services/presence';
+import { threadMembersToAdd } from '@/lib/chat/threads';
 import { isSystemUser } from '@/lib/services/systemUsers';
 import { dmSharedServers } from '@/lib/services/dmPrivacy';
 import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
@@ -35,8 +38,10 @@ import {
   isPollClosed,
   normalizePollInput,
   parseStoredPoll,
+  pollCustomEmojiTokens,
   pollPreviewText,
   validateVote,
+  withResolvedPollEmojis,
   type PollUpdateEvent,
   type StoredPoll,
 } from '@/lib/chat/polls';
@@ -63,7 +68,12 @@ import { withoutServerTag } from '@/lib/servers/serverProfile';
 type Cookie = Record<string, { value?: unknown }>;
 type AuthUser = NonNullable<Awaited<ReturnType<typeof authenticateRequest>>['user']>;
 type Membership = { roles?: string[] | null; nickname?: string | null; communicationDisabledUntil?: Date | null } | null;
-type Fail = { status: number; error: string };
+/** A refusal: `body` (when set) is the full JSON reply, e.g. AutoMod's block details. */
+type Fail = { status: number; error: string; retryAfter?: number; body?: Record<string, unknown> };
+
+/** The JSON reply for a refusal. */
+const failBody = (f: Fail): Record<string, unknown> =>
+  f.body ?? { error: f.error, ...(f.retryAfter !== undefined ? { retryAfter: f.retryAfter } : {}) };
 
 async function getAuth(headers: Record<string, string | undefined>, cookie: Cookie) {
   const authHeader = headers.authorization ?? null;
@@ -77,7 +87,9 @@ const POSTABLE_TYPES = new Set(['text', 'announcement', 'public_thread', 'privat
 const sameId = (a?: string | null, b?: string | null) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 /** A conversation the user may post in, after every send check. */
-type Destination = { channel: IChannel; membership: Membership };
+type Destination = { channel: IChannel; membership: Membership; reopenedThread?: boolean };
+
+const isThreadChannel = (channel: { type?: string | null }) => channel.type === 'public_thread' || channel.type === 'private_thread';
 
 // Polls, forwards and forward notes are stored as server-readable rows: never
 // in an end-to-end encrypted conversation (they would sit there in plaintext).
@@ -132,12 +144,72 @@ async function resolveDmDestination(user: AuthUser, recipientId: string): Promis
   return { dest: { channel: channel as IChannel, membership: null } };
 }
 
-async function messageRateLimit(user: AuthUser, channelId: string): Promise<Fail | null> {
-  const [perChannel, global] = await Promise.all([
-    checkRateLimit('message', `${user.id}:${channelId}`),
-    checkRateLimit('messageGlobal', user.id),
-  ]);
-  if (!perChannel.success || !global.success) return { status: 429, error: 'You are sending messages too quickly' };
+/**
+ * The per-message gates of POST /channels/:channelId/messages, for `messages`
+ * posts by `user` into `dest` (a forward with a note is two):
+ *
+ * - locked threads only take posts from thread moderators (MANAGE_THREADS);
+ * - the per-channel and global message limiters, charged once per post with
+ *   the send route's keys, so the budgets are shared;
+ * - slowmode (one slot per destination, see services/slowmode.ts);
+ * - AutoMod on everything the posts put in the channel (`text`, `title`).
+ *
+ * Runs after resolveDestination. When every gate passes, an archived thread
+ * is reopened (Discord: a new message unarchives it) and `dest` is marked so
+ * its members hear about it.
+ */
+async function sendGates(
+  user: AuthUser,
+  dest: Destination,
+  opts: { messages: number; text?: string | null; title?: string | null },
+): Promise<Fail | null> {
+  const { channel, membership } = dest;
+  const isThread = isThreadChannel(channel);
+
+  if (isThread && channel.locked && channel.serverId) {
+    const { getMemberChannelPermissions } = await import('@/lib/api/channels');
+    const perms = await getMemberChannelPermissions(user.id, { ...channel, serverId: channel.serverId }, membership ?? null).catch(() => 0n);
+    if (!hasBit(perms, PERMISSION_BITS.MANAGE_THREADS)) return { status: 403, error: 'This thread is locked' };
+  }
+
+  const key = `${user.id}:${channel.id}`;
+  for (let i = 0; i < Math.max(1, opts.messages); i++) {
+    const [perChannel, global] = await Promise.all([
+      checkRateLimit('message', key),
+      checkRateLimit('messageGlobal', user.id),
+    ]);
+    if (!perChannel.success) return { status: 429, error: 'Message rate limited', retryAfter: perChannel.retryAfter };
+    if (!global.success) return { status: 429, error: 'Global message rate limited', retryAfter: global.retryAfter };
+  }
+
+  if (channel.serverId && (opts.text?.trim() || opts.title?.trim())) {
+    const { enforceAutoMod } = await import('@/lib/services/automod');
+    const blocked = await enforceAutoMod({
+      serverId: channel.serverId,
+      channel,
+      user,
+      membership,
+      content: opts.text ?? '',
+      title: opts.title ?? null,
+      source: 'send',
+    });
+    if (blocked) return { status: blocked.status, error: String(blocked.body.error ?? 'Blocked by AutoMod'), body: blocked.body };
+  }
+
+  // Last gate: a post refused above doesn't use up the slowmode slot.
+  if (Number(channel.rateLimitPerUser) > 0) {
+    const { claimSlowmode } = await import('@/lib/services/slowmode');
+    const waitTime = await claimSlowmode(channel, user.id, membership);
+    if (waitTime > 0) return { status: 429, error: `Slowmode enabled. Wait ${waitTime} seconds.`, retryAfter: waitTime };
+  }
+
+  if (isThread && channel.archived) {
+    const { setThreadArchived } = await import('@/lib/services/threads');
+    const reopened = await setThreadArchived(channel.id, false);
+    channel.archived = false;
+    dest.reopenedThread = true;
+    if (reopened) void import('@/lib/services/gatewayEvents').then(({ emitThreadUpdate }) => emitThreadUpdate(reopened)).catch(() => {});
+  }
   return null;
 }
 
@@ -168,6 +240,23 @@ async function postConversationMessage(
   });
   void Channel.updateById(channel.id, { lastMessageId: message.id }).catch(() => {});
 
+  // Thread: the author joins before the activity fan-out below (which only
+  // reaches thread members), then the parent's chip gets the new count. Same
+  // as the send route; a reopened thread tells all its members.
+  if (isThreadChannel(channel)) {
+    const { addThreadMembers, notifyThreadMembership, refreshThreadAfterMessage } = await import('@/lib/services/threads');
+    const toAdd = threadMembersToAdd(channel.threadMemberIds as string[] | null, user.id, []);
+    const joinedNow = toAdd.length > 0 ? await addThreadMembers(channel.id, toAdd).catch(() => []) : [];
+    if (joinedNow.length > 0) channel.threadMemberIds = [...((channel.threadMemberIds as string[] | null) || []), ...joinedNow];
+    notifyThreadMembership(
+      channel.serverId,
+      channel.id,
+      dest.reopenedThread ? ((channel.threadMemberIds as string[] | null) || []) : joinedNow,
+    );
+    dest.reopenedThread = false;
+    refreshThreadAfterMessage(channel.id);
+  }
+
   let isOwner = false;
   if (channel.serverId) {
     const { getServerOwnerIdCached } = await import('@/lib/api/channels');
@@ -183,7 +272,8 @@ async function postConversationMessage(
       username: user.username,
       displayName: authorName,
       avatar: user.avatar,
-      status: user.status,
+      // Public presence: "invisible" and stale heartbeats read as offline.
+      status: actingUserStatus(user),
       badges: user.badges || [],
       isOwner,
       isPremium: user.isPremium,
@@ -253,22 +343,50 @@ async function postConversationMessage(
   return { message, payload };
 }
 
-/** A plain text message (the note under a forward). Content is sanitized here. */
-async function postNote(user: AuthUser, dest: Destination, note: string) {
+/**
+ * The note under a forward, checked and sanitized like a message send
+ * (validateMessageContent on the raw text, then sanitize + emoji format).
+ * `content` is what gets stored; null when there is nothing left to post.
+ */
+async function prepareNote(note: string | null): Promise<{ content: string | null } | Fail> {
+  if (!note) return { content: null };
+  const validation = validateMessageContent(note);
+  if (!validation.valid) return { status: 400, error: validation.error || 'Invalid message' };
   const { sanitizeMessageContent } = await import('@/lib/api/channels');
   const content = normalizeEmojiFormat(sanitizeMessageContent(note));
-  if (!content.trim()) return null;
+  return { content: content.trim() ? content : null };
+}
+
+/** Post a prepared note (see prepareNote); its gates ran with the forward's. */
+async function postNote(user: AuthUser, dest: Destination, content: string) {
   return postConversationMessage(user, dest, { content }, {}, content.slice(0, 200));
+}
+
+/**
+ * Custom answer emoji the author may use (same rule as emoji in message
+ * text: this server's and the author's other servers'), with the image URL
+ * from the emoji's row. Everything else loses its emoji.
+ */
+async function resolvePollEmojis(user: AuthUser, channel: IChannel, poll: StoredPoll): Promise<StoredPoll> {
+  const tokens = pollCustomEmojiTokens(poll);
+  if (!tokens) return withResolvedPollEmojis(poll, [], config.CDN_URL);
+  const { authorCustomEmojis } = await import('@/lib/services/emoji');
+  const allowed = await authorCustomEmojis(tokens, user.id, channel.serverId ?? null).catch(() => []);
+  return withResolvedPollEmojis(poll, allowed, config.CDN_URL);
 }
 
 async function createPoll(user: AuthUser, destResult: { dest: Destination } | Fail, body: Record<string, unknown>) {
   if ('error' in destResult) return destResult;
   const { dest } = destResult;
-  const limited = await messageRateLimit(user, dest.channel.id);
-  if (limited) return limited;
   const parsed = normalizePollInput(body);
-  if ('error' in parsed) return { status: 400, error: parsed.error };
-  const { poll } = parsed;
+  if ('error' in parsed) return { status: 400, error: parsed.error } as Fail;
+  const denied = await sendGates(user, dest, {
+    messages: 1,
+    title: parsed.poll.question,
+    text: parsed.poll.answers.map((a) => a.text).join('\n'),
+  });
+  if (denied) return denied;
+  const poll = await resolvePollEmojis(user, dest.channel, parsed.poll);
   const view = buildPollView(poll, {}, 0, []);
   const { payload, message } = await postConversationMessage(user, dest, { poll }, { poll: view }, pollPreviewText(poll.question));
   void scheduleOpenPoll(message.id, poll.expiresAt);
@@ -408,14 +526,14 @@ export const messageExtrasRoutes = new Elysia()
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
     const result = await createPoll(user, await resolveDestination(user, params.channelId, { hasLink: containsLink(JSON.stringify(body)) }), body);
-    if ('error' in result) { set.status = result.status; return { error: result.error }; }
+    if ('error' in result) { set.status = result.status; return failBody(result); }
     return result.body;
   }, { params: t.Object({ channelId: t.String() }), body: POLL_BODY })
   .post('/dms/:recipientId/polls', async ({ headers, cookie, params, body, set }) => {
     const { user, error } = await getAuth(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: error || 'Unauthorized' }; }
     const result = await createPoll(user, await resolveDmDestination(user, params.recipientId), body);
-    if ('error' in result) { set.status = result.status; return { error: result.error }; }
+    if ('error' in result) { set.status = result.status; return failBody(result); }
     return result.body;
   }, { params: t.Object({ recipientId: t.String() }), body: POLL_BODY })
   .post('/group-dms/:channelId/polls', async ({ headers, cookie, params, body, set }) => {
@@ -426,7 +544,7 @@ export const messageExtrasRoutes = new Elysia()
       ? ({ status: 404, error: 'Group DM not found' } as Fail)
       : resolved;
     const result = await createPoll(user, dest, body);
-    if ('error' in result) { set.status = result.status; return { error: result.error }; }
+    if ('error' in result) { set.status = result.status; return failBody(result); }
     return result.body;
   }, { params: t.Object({ channelId: t.String() }), body: POLL_BODY })
   .put('/polls/:messageId/votes', async ({ headers, cookie, params, body, set }) => {
@@ -505,6 +623,10 @@ export const messageExtrasRoutes = new Elysia()
     const targets = normalizeForwardTargets(body.targets);
     if ('error' in targets) { set.status = 400; return { error: targets.error }; }
     const note = normalizeForwardNote(body.note);
+    // The note is a message of its own: same content checks as a send.
+    const preparedNote = await prepareNote(note);
+    if ('error' in preparedNote) { set.status = preparedNote.status; return failBody(preparedNote); }
+    const noteContent = preparedNote.content;
 
     const source = await Message.findById(params.messageId);
     if (!source || source.isDeleted) { set.status = 404; return { error: 'Message not found' }; }
@@ -516,21 +638,26 @@ export const messageExtrasRoutes = new Elysia()
     if ('error' in built) { set.status = 400; return { error: built.error }; }
     const snapshot: StoredForward = built.snapshot;
 
-    const global = await checkRateLimit('messageGlobal', user.id);
-    if (!global.success) { set.status = 429; return { error: 'You are sending messages too quickly', retryAfter: global.retryAfter }; }
-
-    // Resolve every destination first so one bad pick doesn't half-send.
-    const resolved = await Promise.all(targets.targets.map((id) =>
-      resolveDestination(user, id, {
+    // Resolve every destination and run the send gates (locked threads, rate
+    // limits, slowmode, AutoMod on the forwarded text + note) before posting
+    // anything, so one bad pick doesn't half-send.
+    const automodText = [snapshot.content, note].filter(Boolean).join('\n');
+    const resolved = await Promise.all(targets.targets.map(async (id): Promise<{ dest: Destination } | Fail> => {
+      const r = await resolveDestination(user, id, {
         attach: snapshot.attachments.length > 0,
         hasLink: containsLink(snapshot.content) || containsLink(note),
-      })));
+      });
+      if ('error' in r) return r;
+      const denied = await sendGates(user, r.dest, { messages: noteContent ? 2 : 1, text: automodText });
+      return denied ?? r;
+    }));
     const failed = resolved
-      .map((r, i) => ('error' in r ? { channelId: targets.targets[i], error: r.error } : null))
+      .map((r, i) => ('error' in r ? { channelId: targets.targets[i], error: r.error, ...(r.retryAfter !== undefined ? { retryAfter: r.retryAfter } : {}) } : null))
       .filter(Boolean);
     if (failed.length === resolved.length) {
-      set.status = (resolved[0] as Fail).status;
-      return { error: (resolved[0] as Fail).error, failed };
+      const first = resolved[0] as Fail;
+      set.status = first.status;
+      return { ...failBody(first), failed };
     }
 
     // Same view for every destination; the origin is resolved per viewer later.
@@ -546,7 +673,7 @@ export const messageExtrasRoutes = new Elysia()
         view.content ? view.content.slice(0, 200) : '↪',
       );
       forwarded.push({ channelId: r.dest.channel.id, messageId: message.id });
-      if (note) await postNote(user, r.dest, note).catch(() => null);
+      if (noteContent) await postNote(user, r.dest, noteContent).catch(() => null);
     }
     return { forwarded, failed };
   }, {

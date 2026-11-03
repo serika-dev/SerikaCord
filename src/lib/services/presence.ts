@@ -46,3 +46,13 @@ export function resolveEffectiveStatus(input: PresenceInput, nowMs: number = Dat
 
   return "offline";
 }
+
+/**
+ * The public status of someone acting right now (sending a message): they're
+ * here, so only their chosen status counts (invisible / offline read as offline).
+ * Their cached heartbeat may be minutes old, which resolveEffectiveStatus would
+ * call stale.
+ */
+export function actingUserStatus(input: PresenceInput): PublicPresenceStatus {
+  return resolveEffectiveStatus({ ...input, presenceLastHeartbeatAt: Date.now() });
+}

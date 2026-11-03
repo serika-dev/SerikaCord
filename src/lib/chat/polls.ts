@@ -13,6 +13,9 @@
  *
  * Everything here is pure so it can be unit tested and run in both places.
  */
+import { DEFAULT_CDN_URL } from "@/lib/appearance/customization";
+import { isCdnEmojiUrl } from "@/lib/servers/serverProfile";
+import { formatCustomEmojiToken, isUuidEmojiId, normalizeCustomEmojiName } from "@/lib/chat/customEmoji";
 
 export const MAX_POLL_ANSWERS = 10;
 export const MAX_POLL_QUESTION_LENGTH = 300;
@@ -29,6 +32,7 @@ export interface PollEmoji {
   /** Unicode character, or the custom emoji's name. */
   name: string;
   animated?: boolean;
+  /** Custom emoji image, set by the server from the emoji's row (our CDN only). */
   url?: string;
 }
 
@@ -102,7 +106,40 @@ function cleanText(value: unknown, max: number): string {
 
 const CUSTOM_EMOJI_ID_RE = /^[0-9a-fA-F-]{8,64}$/;
 
-function cleanEmoji(raw: unknown): PollEmoji | null {
+/**
+ * One unicode emoji: pictographs, flags (regional indicators, tag sequences),
+ * keycaps, skin tones, ZWJ joiners and variation selectors only. No letters,
+ * markup or URLs.
+ */
+const UNICODE_EMOJI_RE = /^(?:\p{Extended_Pictographic}|\p{Regional_Indicator}|\p{Emoji_Modifier}|[#*0-9]️?⃣|[︎️‍]|[\u{E0020}-\u{E007F}])+$/u;
+const MAX_UNICODE_EMOJI_LENGTH = 16;
+
+/** Whether `name` is a single short unicode emoji (one grapheme). */
+export function isPollUnicodeEmoji(name: string): boolean {
+  if (!name || name.length > MAX_UNICODE_EMOJI_LENGTH || !UNICODE_EMOJI_RE.test(name)) return false;
+  const Segmenter = (Intl as { Segmenter?: typeof Intl.Segmenter }).Segmenter;
+  if (!Segmenter) return true;
+  return [...new Segmenter(undefined, { granularity: "grapheme" }).segment(name)].length === 1;
+}
+
+/**
+ * A custom emoji image URL we serve ourselves: on `cdnUrl` (config.CDN_URL;
+ * clients use the default, like server tags). Anything else is dropped.
+ */
+export function isPollEmojiUrl(url: unknown, cdnUrl: string = DEFAULT_CDN_URL): url is string {
+  return isCdnEmojiUrl(url, cdnUrl) && url.length <= 512 && url.startsWith("https://");
+}
+
+/**
+ * Clean one answer emoji.
+ *
+ * - `trustUrl: false` (a create request): custom emoji keep only id / name /
+ *   animated. The image URL is filled in by the server from the emoji's row
+ *   (withResolvedPollEmojis), never taken from the client.
+ * - `trustUrl: true` (reading a stored poll): a stored URL is kept only when
+ *   it is on our CDN, so a forged URL in an old row never renders.
+ */
+export function cleanPollEmoji(raw: unknown, opts: { trustUrl?: boolean; cdnUrl?: string } = {}): PollEmoji | null {
   if (!raw || typeof raw !== "object") return null;
   const e = raw as Record<string, unknown>;
   const name = typeof e.name === "string" ? e.name.trim().slice(0, 64) : "";
@@ -111,13 +148,54 @@ function cleanEmoji(raw: unknown): PollEmoji | null {
     if (!CUSTOM_EMOJI_ID_RE.test(e.id)) return null;
     const out: PollEmoji = { id: e.id, name: name.replace(/[^\w-]/g, "").slice(0, 32) || "emoji" };
     if (e.animated === true) out.animated = true;
-    if (typeof e.url === "string" && /^https:\/\//.test(e.url) && e.url.length <= 512) out.url = e.url;
+    if (opts.trustUrl && isPollEmojiUrl(e.url, opts.cdnUrl)) out.url = e.url;
     return out;
   }
-  // Unicode: a short grapheme cluster, no markup.
-  if (name.length > 16 || /[<>]/.test(name)) return null;
-  return { name };
+  return isPollUnicodeEmoji(name) ? { name } : null;
 }
+
+/**
+ * The custom emoji of a poll as message tokens (`<:name:id> <a:name:id>`), so
+ * the server can resolve them with the same availability rule as message text.
+ * "" when the poll has no (UUID) custom emoji.
+ */
+export function pollCustomEmojiTokens(poll: Pick<StoredPoll, "answers">): string {
+  const tokens: string[] = [];
+  for (const a of poll.answers) {
+    const e = a.emoji;
+    if (!e?.id || !isUuidEmojiId(e.id)) continue;
+    const name = normalizeCustomEmojiName(e.name) || "emoji";
+    tokens.push(formatCustomEmojiToken({ name, id: e.id, animated: e.animated }));
+  }
+  return tokens.join(" ");
+}
+
+/**
+ * Swap each answer's custom emoji for the server's record of it (`resolved`:
+ * the emoji the author may use, with the URL from its row). Emoji the author
+ * can't use, unknown ids and URLs off our CDN are dropped; unicode emoji stay.
+ */
+export function withResolvedPollEmojis(
+  poll: StoredPoll,
+  resolved: ReadonlyArray<{ id: string; name: string; animated?: boolean | null; url?: string | null }>,
+  cdnUrl: string = DEFAULT_CDN_URL,
+): StoredPoll {
+  const byId = new Map(resolved.map((r) => [r.id.toLowerCase(), r]));
+  return {
+    ...poll,
+    answers: poll.answers.map((a) => {
+      if (!a.emoji?.id) return a;
+      const hit = byId.get(a.emoji.id.toLowerCase());
+      const rest: PollAnswer = { id: a.id, text: a.text };
+      if (!hit || !isPollEmojiUrl(hit.url, cdnUrl)) return rest;
+      const emoji: PollEmoji = { id: hit.id, name: normalizeCustomEmojiName(hit.name) || "emoji", url: hit.url };
+      if (hit.animated) emoji.animated = true;
+      return { ...rest, emoji };
+    }),
+  };
+}
+
+const cleanEmoji = (raw: unknown) => cleanPollEmoji(raw, { trustUrl: true });
 
 /**
  * Validate a create-poll request. Returns the poll to store (with an absolute
@@ -136,7 +214,8 @@ export function normalizePollInput(
   for (const raw of input.answers) {
     const r = (raw && typeof raw === "object" ? raw : { text: raw }) as Record<string, unknown>;
     const text = cleanText(r.text, MAX_POLL_ANSWER_LENGTH);
-    const emoji = cleanEmoji(r.emoji);
+    // Never a client-supplied image URL (see cleanPollEmoji).
+    const emoji = cleanPollEmoji(r.emoji, { trustUrl: false });
     // Blank rows in the composer are simply skipped.
     if (!text) continue;
     answers.push({ id: answers.length + 1, text, ...(emoji ? { emoji } : {}) });

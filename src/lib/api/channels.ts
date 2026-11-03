@@ -5,7 +5,7 @@ import { Elysia, t } from 'elysia';
 import { Channel, Message, Role, Server, ServerMember, ServerSticker, User, type IChannel, type IMessage, type IRole, type IServerMember, type IServerSettings } from '@/lib/models';
 import { authenticateRequest } from '@/lib/services/auth';
 import { stripEscapedMentions } from '@/lib/chat/escapes';
-import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji, customEmojiPayload, referencedCustomEmojis, authorCustomEmojis } from '@/lib/services/emoji';
+import { parseCustomEmojis, batchParseCustomEmojis, normalizeEmojiFormat, getReactionEmoji, checkReactionEmoji, customEmojiPayload, referencedCustomEmojis, authorCustomEmojis } from '@/lib/services/emoji';
 import { checkRateLimit, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, isValidObjectId } from '@/lib/security';
 import { channelsToMarkNsfw, normalizeChannelName } from '@/lib/servers/channelRules';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
@@ -24,6 +24,7 @@ import {
 import { config } from '@/lib/config';
 import { randomUUID } from 'crypto';
 import { BoundedMap } from '@/lib/utils/boundedMap';
+import { actingUserStatus, resolveEffectiveStatus } from '@/lib/services/presence';
 import { channelAccessChanged } from '@/lib/services/channelAccess';
 import { normalizeId } from '@/lib/db/normalizeId';
 import { getRolePermissions, hasServerPermission, invalidateRolePerms } from '@/lib/permissions/serverPermissions';
@@ -35,7 +36,7 @@ import { dmSharedServers } from '@/lib/services/dmPrivacy';
 import { typingIndicatorsEnabled } from '@/lib/settings/privacy';
 import { dmSendDenyReason, type DmPolicyUser } from '@/lib/chat/dmPolicy';
 import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
-import { matchReactionEmoji, addReaction, removeReaction, type StoredReaction } from '@/lib/chat/reactionMutations';
+import { matchReactionEmoji, addReaction, removeReaction, MAX_REACTION_EMOJIS_ERROR, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
 import { isSilentMessage, parseSilentPrefix, sendFlags, withReplyMention } from '@/lib/chat/messageFlags';
 import { canSendVoiceMessages, isVoiceFlagRequested, normalizeVoiceMessage } from '@/lib/chat/voiceMessage';
@@ -2327,22 +2328,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         retryAfter: !postRateLimit.success ? postRateLimit.retryAfter : globalPostRateLimit.retryAfter,
       };
     }
+    // Forum slowmode: fail fast here; the slot is claimed right before the post is created.
     if ((forum.rateLimitPerUser ?? 0) > 0 && forum.serverId) {
-      const forumOwnerId = await getServerOwnerIdCached(forum.serverId);
-      const exempt = (forumOwnerId && compareIds(forumOwnerId, user.id))
-        || await canManageMessagesInServer(forum.serverId, user.id, membership);
-      if (!exempt) {
-        const myThreads = await Channel.find({ parentId: forum.id, ownerId: user.id });
-        const lastCreated = myThreads.reduce(
-          (max: number, t: { createdAt?: Date | string | null }) => Math.max(max, new Date(t.createdAt ?? 0).getTime() || 0),
-          0,
-        );
-        const elapsed = Date.now() - lastCreated;
-        if (lastCreated > 0 && elapsed < forum.rateLimitPerUser * 1000) {
-          const waitTime = Math.ceil((forum.rateLimitPerUser * 1000 - elapsed) / 1000);
-          set.status = 429;
-          return { error: `Slowmode enabled. Wait ${waitTime} seconds.`, retryAfter: waitTime };
-        }
+      const { slowmodeWait } = await import('@/lib/services/slowmode');
+      const waitTime = await slowmodeWait(forum, user.id, membership);
+      if (waitTime > 0) {
+        set.status = 429;
+        return { error: `Slowmode enabled. Wait ${waitTime} seconds.`, retryAfter: waitTime };
       }
     }
 
@@ -2386,6 +2378,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if ((Number(forum.flags) & CHANNEL_FLAGS.REQUIRE_TAG) !== 0 && forumTags.length > 0 && tags.length === 0) {
       set.status = 400;
       return { error: 'A tag is required to create a forum post in this channel' };
+    }
+
+    // Slowmode slot, taken only now that the post passed every check.
+    if ((forum.rateLimitPerUser ?? 0) > 0 && forum.serverId) {
+      const { claimSlowmode } = await import('@/lib/services/slowmode');
+      const waitTime = await claimSlowmode(forum, user.id, membership);
+      if (waitTime > 0) {
+        set.status = 429;
+        return { error: `Slowmode enabled. Wait ${waitTime} seconds.`, retryAfter: waitTime };
+      }
     }
 
     const thread = await Channel.create({
@@ -2980,33 +2982,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Global message rate limited', retryAfter: globalRateLimit.retryAfter };
     }
 
-    // Check slowmode (bypass for server owner and users with Manage Messages)
-    if (channel.rateLimitPerUser > 0 && serverOwnerId !== user.id) {
-      let hasManageMessages = false;
-      if (membership?.roles?.length) {
-        const roles = await Role.find({ id: { in: membership.roles }, serverId: channel.serverId });
-        hasManageMessages = roles.some((r: any) => {
-          const perms = BigInt(r.permissions || '0');
-          return (perms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES || (perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR;
-        });
-      }
-      if (!hasManageMessages) {
-        const allUserMsgs = await Message.find({
-          channelId: params.channelId,
-          authorId: user.id,
-          isDeleted: false,
-          _limit: 1,
-        });
-        const lastMessage = allUserMsgs[0];
-
-        if (lastMessage) {
-          const timeSinceLastMessage = Date.now() - new Date(lastMessage.createdAt ?? 0).getTime();
-          if (timeSinceLastMessage < channel.rateLimitPerUser * 1000) {
-            const waitTime = Math.ceil((channel.rateLimitPerUser * 1000 - timeSinceLastMessage) / 1000);
-            set.status = 429;
-            return { error: `Slowmode enabled. Wait ${waitTime} seconds.`, retryAfter: waitTime };
-          }
-        }
+    // Slowmode (src/lib/services/slowmode.ts): fail fast here; the slot is
+    // claimed right before the insert, so a refused send doesn't cost one.
+    if (channel.rateLimitPerUser > 0) {
+      const { slowmodeWait } = await import('@/lib/services/slowmode');
+      const waitTime = await slowmodeWait(channel, user.id, membership);
+      if (waitTime > 0) {
+        set.status = 429;
+        return { error: `Slowmode enabled. Wait ${waitTime} seconds.`, retryAfter: waitTime };
       }
     }
 
@@ -3025,6 +3008,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       if (!stickerDoc || !stickerDoc.available) {
         set.status = 400;
         return { error: 'Sticker not found' };
+      }
+      // Only stickers of servers the sender is in (the picker's rule).
+      if (stickerDoc.serverId && !compareIds(stickerDoc.serverId, channel.serverId ?? '')) {
+        const stickerMember = await ServerMember.findOne({ serverId: stickerDoc.serverId, userId: user.id });
+        if (!stickerMember) {
+          set.status = 403;
+          return { error: 'You can only use stickers from servers you are in' };
+        }
       }
       const stickerServer = stickerDoc.serverId
         ? await cache.get<string>(`server:name:${stickerDoc.serverId}`).then(async (name) => {
@@ -3230,6 +3221,16 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Not awaited yet: an insert failure must still surface as the route's error.
     refContentPromise.catch(() => {});
 
+    // Slowmode slot, taken only now that the send passed every check.
+    if (channel.rateLimitPerUser > 0) {
+      const { claimSlowmode } = await import('@/lib/services/slowmode');
+      const waitTime = await claimSlowmode(channel, user.id, membership);
+      if (waitTime > 0) {
+        set.status = 429;
+        return { error: `Slowmode enabled. Wait ${waitTime} seconds.`, retryAfter: waitTime };
+      }
+    }
+
     // Create message
     const message = await Message.create({
       channelId: params.channelId,
@@ -3316,7 +3317,8 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         username: author.username,
         displayName: senderNickname || author.displayName || author.username,
         avatar: senderProfile.avatar || author.avatar,
-        status: author.status,
+        // Public status: an invisible sender shows as offline.
+        status: actingUserStatus(author),
         badges: author.badges || [],
         isOwner: serverOwnerId ? compareIds(serverOwnerId, author.id) : false,
         isSystem: author.isSystem || false,
@@ -3556,7 +3558,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
               username: authorData.username,
               displayName: authorData.displayName || authorData.username,
               avatar: authorData.avatar,
-              status: authorData.status,
+              status: resolveEffectiveStatus(authorData),
             }
           : null,
         channelId: msg.channelId,
@@ -3715,6 +3717,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
+    const editLimit = await checkRateLimit('messageEdit', user.id);
+    if (!editLimit.success) {
+      set.status = 429;
+      return { error: 'You are editing too fast', retryAfter: editLimit.retryAfter };
+    }
+
     const { hasAccess, channel, membership: editMembership, error } = await checkChannelAccess(
       user.id,
       params.channelId
@@ -3723,6 +3731,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!hasAccess || !channel) {
       set.status = 403;
       return { error: error || 'Access denied' };
+    }
+    // A timed-out member can't rewrite their messages either.
+    const editDisabledUntil = (editMembership as { communicationDisabledUntil?: Date | string | null } | null | undefined)?.communicationDisabledUntil;
+    if (channel.serverId && editDisabledUntil && new Date(editDisabledUntil).getTime() > Date.now()) {
+      set.status = 403;
+      return { error: 'You are timed out from this server', communicationDisabledUntil: new Date(editDisabledUntil).toISOString() };
     }
 
     const message = await Message.findOne({
@@ -4111,6 +4125,11 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    const reactLimit = await checkRateLimit('reactionAdd', user.id);
+    if (!reactLimit.success) {
+      set.status = 429;
+      return { error: 'You are reacting too fast', retryAfter: reactLimit.retryAfter };
+    }
 
     const { hasAccess, channel, membership, error } = await checkChannelAccess(
       user.id,
@@ -4148,15 +4167,25 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     }
     
     // Parse emoji - handles both custom emojis and unicode
-    const emojiData = await getReactionEmoji(decodedEmoji);
-    if (!emojiData) {
-      set.status = 400;
-      return { error: 'Invalid emoji' };
+    // One real emoji only.
+    const checkedEmoji = await checkReactionEmoji(decodedEmoji);
+    if (!checkedEmoji.ok) {
+      set.status = checkedEmoji.status;
+      return { error: checkedEmoji.error };
     }
+    const emojiData = checkedEmoji.emoji;
     
     // Timed-out members can't react; ADD_REACTIONS gates starting a new reaction
     // (joining an existing one is allowed, as on Discord).
     const startsNewReaction = !((message.reactions || []) as StoredReaction[]).some(matchReactionEmoji(emojiData));
+    // Starting a custom-emoji reaction needs a server the reactor is in.
+    if (startsNewReaction && emojiData.id) {
+      const own = await checkReactionEmoji(decodedEmoji, { userId: user.id });
+      if (!own.ok) {
+        set.status = own.status;
+        return { error: own.error };
+      }
+    }
     const speakDenial = await checkCanSpeak(channel, membership, user.id, startsNewReaction ? ['react'] : [], { verification: ['react'] });
     if (speakDenial) {
       set.status = speakDenial.status;
@@ -4167,6 +4196,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // Row-locked so concurrent reactions can't overwrite each other.
     let reactionCount = 0;
     let alreadyReacted = false;
+    let limitReached = false;
     const stored = await Message.mutateReactions<StoredReaction>(message.id, (current) => {
       alreadyReacted = current.find(matchReactionEmoji(emojiData))?.userIds?.some((id) => compareIds(id, user.id)) ?? false;
       const result = addReaction(
@@ -4177,8 +4207,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         compareIds,
       );
       reactionCount = result.count;
-      return result.reactions;
+      limitReached = result.limitReached;
+      return result.limitReached ? null : result.reactions;
     });
+    // A 21st different emoji on one message.
+    if (limitReached) {
+      set.status = 400;
+      return { error: MAX_REACTION_EMOJIS_ERROR };
+    }
     if (!stored) {
       set.status = 404;
       return { error: 'Message not found' };
@@ -4502,7 +4538,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: authError || 'Unauthorized' };
     }
 
-    const { hasAccess, channel, error } = await checkChannelAccess(
+    const typingLimit = await checkRateLimit('typing', user.id);
+    if (!typingLimit.success) {
+      set.status = 429;
+      return { error: 'Rate limited', retryAfter: typingLimit.retryAfter };
+    }
+
+    const { hasAccess, channel, membership, error } = await checkChannelAccess(
       user.id,
       params.channelId
     );
@@ -4510,6 +4552,12 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     if (!hasAccess || !channel) {
       set.status = 403;
       return { error: error || 'Access denied' };
+    }
+    // Only people who may talk here show as typing (not timed out, SEND_MESSAGES).
+    const speakDenied = await checkCanSpeak(channel, membership, user.id, ['send']);
+    if (speakDenied) {
+      set.status = speakDenied.status;
+      return speakDenied.body;
     }
     // "Show when I'm typing" off: accepted, but nobody is told.
     if (!typingIndicatorsEnabled(user.settings)) return { success: true };

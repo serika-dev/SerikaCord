@@ -33,6 +33,17 @@ void configure(int argc, char **argv);
 
 bool diagnostics();
 int level();
+
+// DevTools and Chromium remote debugging (F12, Ctrl+Shift+I, the page bridge,
+// --remote-debugging-*, QTWEBENGINE_REMOTE_DEBUGGING) only in Debug builds or
+// with SERIKACORD_DEVTOOLS=1: release builds don't hand page internals to
+// client mods.
+bool devToolsAllowed();
+
+// Drops the remote-debugging switches from a Chromium flag string / argv
+// unless devToolsAllowed(). Returns the kept arguments.
+QString withoutDebugSwitches(const QString &flags);
+void stripDebugArguments(int &argc, char **argv);
 QString levelName(int level);
 
 // What this launch overrides (environment variables, Chromium switches,

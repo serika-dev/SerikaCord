@@ -1,5 +1,6 @@
 "use client";
 
+import { safeCssColor, safeCssColorList } from "@/lib/profiles/customizationSafety";
 import { ServerTagPill } from "@/components/user/ServerTagPill";
 import { useState, useEffect, useMemo } from "react";
 import dynamic from "next/dynamic";
@@ -180,6 +181,9 @@ export function FullProfileDialog({
   }, [isSelf, currentUser, fullUser, servers, shownServerId, shownOverrides, editorOpen, editingServer]);
   // Text colours that read on this profile's own card colours (see profileContrast.ts).
   const palette = useMemo(() => computeProfilePalette(view.customization), [view.customization]);
+  // Only real colours reach the banner's CSS (stored values may predate validation).
+  const bannerGradient = safeCssColorList(view.customization?.profileGradient);
+  const bannerColor = safeCssColor(view.customization?.profileColor);
 
   // Load the member's server profile (and again when it changes elsewhere).
   const callerHasProfile = user.serverProfile !== undefined && user.serverProfile !== null;
@@ -529,10 +533,10 @@ export function FullProfileDialog({
             <div className="relative h-[140px]">
               {view.banner ? (
                 <div className="absolute inset-0 bg-cover bg-center" style={{ backgroundImage: `url(${view.banner})` }} />
-              ) : view.customization?.profileGradient && view.customization.profileGradient.length >= 2 ? (
-                <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${view.customization.profileGradient.join(', ')})` }} />
-              ) : view.customization?.profileColor ? (
-                <div className="absolute inset-0" style={{ backgroundColor: view.customization.profileColor }} />
+              ) : bannerGradient.length >= 2 ? (
+                <div className="absolute inset-0" style={{ background: `linear-gradient(135deg, ${bannerGradient.join(', ')})` }} />
+              ) : bannerColor ? (
+                <div className="absolute inset-0" style={{ backgroundColor: bannerColor }} />
               ) : (
                 <div className="absolute inset-0 bg-[var(--app-accent)]" />
               )}

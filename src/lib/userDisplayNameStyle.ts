@@ -1,4 +1,15 @@
 import type { CSSProperties } from 'react';
+import {
+  safeCssColor,
+  safeCssColorList,
+  safeEnum,
+  safeGradientAngle,
+  safeNumber,
+  safeRadialPosition,
+} from '@/lib/profiles/customizationSafety';
+
+const PROFILE_CARD_EFFECTS = ['normal', 'glassmorphism', 'glow', 'holographic', 'neon'] as const;
+const PROFILE_GRADIENT_TYPES = ['linear', 'radial'] as const;
 
 export interface DisplayNameStyle {
   font?: 'default' | 'serif' | 'mono' | 'rounded' | 'cursive' | 'bold';
@@ -38,14 +49,17 @@ export function getDisplayNameStyleClasses(style: DisplayNameStyle | undefined):
 export function getDisplayNameStyleInline(style: DisplayNameStyle | undefined): CSSProperties {
   if (!style) return {};
   const css: CSSProperties = {};
+  // Stored values may predate server validation: only colours reach CSS.
+  const gradient = safeCssColorList(style.gradient, 4);
+  const color = safeCssColor(style.color);
 
-  if (style.effect === 'gradient' && style.gradient && style.gradient.length >= 2) {
-    css.backgroundImage = `linear-gradient(90deg, ${style.gradient.join(', ')})`;
+  if (style.effect === 'gradient' && gradient.length >= 2) {
+    css.backgroundImage = `linear-gradient(90deg, ${gradient.join(', ')})`;
     css.WebkitBackgroundClip = 'text';
     css.backgroundClip = 'text';
     css.color = 'transparent';
-  } else if (style.color) {
-    css.color = style.color;
+  } else if (color) {
+    css.color = color;
   }
 
   switch (style.font) {
@@ -73,7 +87,7 @@ export function getDisplayNameStyleInline(style: DisplayNameStyle | undefined): 
   }
 
   if (style.effect === 'neon') {
-    const glow = style.color || '#8B5CF6';
+    const glow = color || '#8B5CF6';
     css.color = '#fff';
     css.textShadow = `0 0 6px ${glow}, 0 0 14px ${glow}, 0 0 22px ${convertHexToRgba(glow, 0.8)}, 0 0 38px ${convertHexToRgba(glow, 0.5)}, 0 0 55px ${convertHexToRgba(glow, 0.3)}`;
   }
@@ -128,19 +142,19 @@ export function getProfileBackgroundStyle(
   options?: { opaque?: boolean }
 ): CSSProperties {
   if (!customization) return {};
-  const {
-    profileGradient,
-    profileColor,
-    profileGradientType = 'linear',
-    profileGradientAngle = 135,
-    profileGradientRadialPosition = 'center',
-    profileCardEffect = 'normal',
-    profileCardBlur = 8,
-    profileCardOpacity = 0.85,
-    profileCardBorderColor,
-    profileCardBorderGlow = false,
-    profileCardBorderWidth = 1,
-  } = customization;
+  // Every value is re-checked here: rows saved before server validation may
+  // hold anything, and these strings are interpolated into CSS.
+  const profileGradient = safeCssColorList(customization.profileGradient);
+  const profileColor = safeCssColor(customization.profileColor) ?? '';
+  const profileGradientType = safeEnum(customization.profileGradientType, PROFILE_GRADIENT_TYPES, 'linear');
+  const profileGradientAngle = safeGradientAngle(customization.profileGradientAngle);
+  const profileGradientRadialPosition = safeRadialPosition(customization.profileGradientRadialPosition);
+  const profileCardEffect = safeEnum(customization.profileCardEffect, PROFILE_CARD_EFFECTS, 'normal');
+  const profileCardBlur = safeNumber(customization.profileCardBlur, 0, 24, 8);
+  const profileCardOpacity = safeNumber(customization.profileCardOpacity, 0, 1, 0.85);
+  const profileCardBorderColor = safeCssColor(customization.profileCardBorderColor) ?? '';
+  const profileCardBorderGlow = customization.profileCardBorderGlow === true;
+  const profileCardBorderWidth = safeNumber(customization.profileCardBorderWidth, 0, 5, 1);
 
   const style: CSSProperties = {};
 
@@ -233,15 +247,13 @@ export function getProfileBannerStyle(customization?: {
   profileGradientRadialPosition?: string;
 } | null): CSSProperties {
   if (!customization) return {};
-  const {
-    profileGradient,
-    profileColor,
-    profileGradientType = 'linear',
-    profileGradientAngle = 135,
-    profileGradientRadialPosition = 'center',
-  } = customization;
+  const profileGradient = safeCssColorList(customization.profileGradient);
+  const profileColor = safeCssColor(customization.profileColor);
+  const profileGradientType = safeEnum(customization.profileGradientType, PROFILE_GRADIENT_TYPES, 'linear');
+  const profileGradientAngle = safeGradientAngle(customization.profileGradientAngle);
+  const profileGradientRadialPosition = safeRadialPosition(customization.profileGradientRadialPosition);
 
-  if (profileGradient && profileGradient.length >= 2) {
+  if (profileGradient.length >= 2) {
     if (profileGradientType === 'radial') {
       return { background: `radial-gradient(circle at ${profileGradientRadialPosition}, ${profileGradient.join(', ')})` };
     }

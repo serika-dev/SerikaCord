@@ -35,6 +35,29 @@ function resolveBuildSha(): string {
 const BUILD_SHA = (process.env.NEXT_PUBLIC_BUILD_SHA = resolveBuildSha());
 const BUILD_TIME = (process.env.NEXT_PUBLIC_BUILD_TIME ||= new Date().toISOString());
 
+/**
+ * The app's Content-Security-Policy (see headers()). Inline scripts stay
+ * allowed until Next's inline bootstrap scripts carry a nonce.
+ */
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "script-src 'self' 'unsafe-inline'",
+  "style-src 'self' 'unsafe-inline'",
+  "img-src 'self' data: blob: https:",
+  "media-src 'self' data: blob: https:",
+  "font-src 'self' data:",
+  "connect-src 'self' https://cdn.serika.chat https://*.serika.chat https://*.serika.dev",
+  "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://embed.nicovideo.jp https://player.bilibili.com https://serika.video https://*.serika.video https://player.vimeo.com https://www.dailymotion.com https://clips.twitch.tv https://player.twitch.tv https://streamable.com https://open.spotify.com https://w.soundcloud.com https://*.bandcamp.com https://giphy.com https://tenor.com https://music.serika.dev",
+  "worker-src 'self' blob:",
+  "manifest-src 'self'",
+  "object-src 'none'",
+  "base-uri 'self'",
+  "form-action 'self' https://accounts.serika.dev",
+  "frame-ancestors 'self'",
+  "report-uri /api/csp-report",
+  "report-to csp",
+].join('; ');
+
 const nextConfig: NextConfig = {
   // Dev only: extra hosts (e.g. a Tailscale name / IP) allowed to load dev
   // assets, as a comma-separated DEV_ALLOWED_ORIGINS. Unset = Next's default.
@@ -152,6 +175,20 @@ const nextConfig: NextConfig = {
   // Security headers (server-only, ignored during static export)
   async headers() {
     return [
+      // Content-Security-Policy, report-only while it's tuned (reports land in
+      // /api/csp-report, staff read them at /api/admin/csp-reports). Scripts
+      // only from this origin, so a client mod or userscript can't pull in
+      // code from elsewhere, and connections only to Serika hosts, so injected
+      // code can't send data out. Production only (dev needs eval + HMR).
+      ...(process.env.NODE_ENV === 'production'
+        ? [{
+            source: '/((?!widget/|api/).*)',
+            headers: [
+              { key: 'Reporting-Endpoints', value: 'csp="/api/csp-report"' },
+              { key: 'Content-Security-Policy-Report-Only', value: CONTENT_SECURITY_POLICY },
+            ],
+          }]
+        : []),
       {
         source: '/:path*',
         headers: [

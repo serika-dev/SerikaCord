@@ -175,6 +175,12 @@ MainWindow::MainWindow(AppSettings *settings, QWidget *parent)
 
     m_channel->registerObject(QStringLiteral("webBridge"), m_webBridge);
     m_page->setWebChannel(m_channel);
+    // The bridge (settings, global shortcuts, notifications) is for SerikaCord's
+    // own pages only, not the sign-in or outside pages that may load in this window.
+    connect(m_page, &QWebEnginePage::urlChanged, this, [this](const QUrl &url) {
+        QWebChannel *wanted = SerikaConfig::isAppUrl(url) ? m_channel : nullptr;
+        if (m_page->webChannel() != wanted) m_page->setWebChannel(wanted);
+    });
 
     m_currentZoom = m_settings->zoomFactor();
     m_view->setZoomFactor(m_currentZoom);
@@ -663,6 +669,9 @@ void MainWindow::toggleFullscreen() {
 }
 
 void MainWindow::toggleDevTools() {
+    // Release builds: no DevTools from F12 / Ctrl+Shift+I or the page bridge
+    // (page JS can call it), so client mods get no inspector.
+    if (!RenderSafeMode::devToolsAllowed()) return;
     if (m_devTools) {
         if (m_devTools->isVisible()) m_devTools->close();
         else { m_devTools->show(); m_devTools->raise(); }

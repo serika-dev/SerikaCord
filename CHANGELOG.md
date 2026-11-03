@@ -20,6 +20,12 @@
 - Private threads and tickets no longer send their latest message, title or id to everyone watching the parent channel, and switching a ticket forum back to posts keeps old tickets private
 - Losing access to a channel takes effect at once: it leaves your channel list live, open chats close, and you're removed from a voice call you can no longer see
 - Deleted messages, removed @everyone pings and event start alerts from hidden channels no longer reach members who can't see them, and logging out clears the saved channel lists
+- Your login can no longer be copied out of the app by a script or client mod: sign-in and refresh keep the session in protected cookies only, and QR login only signs in the device that showed the code
+- Requests that change your account or messages are refused when they come from another website
+- Modified clients can't get around the rules anymore: slowmode (deleting your last message no longer resets it), AutoMod and locked threads apply to polls and forwards too, reactions must be real emoji (at most 20 per message), stickers and new custom-emoji reactions only from servers you're in, blocked users can't edit or react in your DMs, and typing, edits, reactions, sounds and voice updates are rate limited
+- Profiles, game activity and poll emoji can no longer load images or styles from outside sites, which could reveal your IP address to whoever posted them
+- Invisible status no longer shows through in messages, and someone you blocked (or anyone signed out) can't see your activity
+- Desktop app: developer tools and remote debugging are off in release builds, and global shortcuts only work for push-to-talk, mute and deafen
 
 ### Removed
 

@@ -41,7 +41,8 @@
     "allowsLinkPreview": false,
     "scrollEnabled": true,
     "backgroundColor": "#05060a",
-    "preferredContentMode": "mobile"
+    "preferredContentMode": "mobile",
+    "webContentsDebuggingEnabled": false
   },
   "android": {
     "allowMixedContent": false,

@@ -20,10 +20,22 @@ export function matchReactionEmoji(emoji: { name: string; id?: string | null }):
   return (r) => (emoji.id ? r.emoji?.id === emoji.id : r.emoji?.name === emoji.name);
 }
 
+/** Most distinct emoji one message can carry (Discord: 20, error 30010). */
+export const MAX_REACTION_EMOJIS = 20;
+
+/** The error the user routes answer (400) when `limitReached` is set. */
+export const MAX_REACTION_EMOJIS_ERROR = `Maximum number of reactions reached (${MAX_REACTION_EMOJIS})`;
+
 /**
  * Add `userId`'s reaction. Creates the reaction entry when missing; a repeat
  * reaction by the same user is a no-op. Returns the new array and the count
  * for this emoji after the change.
+ *
+ * Starting a NEW distinct emoji on a message that already has `maxDistinct`
+ * (default MAX_REACTION_EMOJIS) is refused: `limitReached` is true, the
+ * array comes back unchanged and `count` is 0. Joining an existing emoji is
+ * always allowed. Callers inside `Message.mutateReactions` should return null
+ * (no write) and answer 400 with MAX_REACTION_EMOJIS_ERROR.
  */
 export function addReaction(
   reactions: StoredReaction[],
@@ -31,12 +43,17 @@ export function addReaction(
   emoji: StoredReaction['emoji'],
   userId: string,
   idEquals: IdEquals = strictEquals,
-): { reactions: StoredReaction[]; count: number } {
+  maxDistinct: number = MAX_REACTION_EMOJIS,
+): { reactions: StoredReaction[]; count: number; limitReached: boolean } {
+  const existingIndex = reactions.findIndex(match);
+  if (existingIndex === -1 && reactions.length >= maxDistinct) {
+    return { reactions, count: 0, limitReached: true };
+  }
   const next = reactions.map((r) => ({ ...r, emoji: { ...r.emoji }, userIds: [...(r.userIds || [])] }));
-  const existing = next.find(match);
+  const existing = existingIndex === -1 ? undefined : next[existingIndex];
   if (!existing) {
     next.push({ emoji: { ...emoji }, count: 1, userIds: [userId] });
-    return { reactions: next, count: 1 };
+    return { reactions: next, count: 1, limitReached: false };
   }
   if (!existing.userIds.some((id) => idEquals(id, userId))) {
     existing.userIds.push(userId);
@@ -44,7 +61,7 @@ export function addReaction(
   }
   // Keep the custom emoji URL populated on older entries.
   if (emoji.url) existing.emoji.url = emoji.url;
-  return { reactions: next, count: existing.count };
+  return { reactions: next, count: existing.count, limitReached: false };
 }
 
 /**

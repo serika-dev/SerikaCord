@@ -977,10 +977,17 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    const audioLimit = await checkRateLimit('audioUpload', user.id);
+    if (!audioLimit.success) {
+      set.status = 429;
+      return { error: 'Too many uploads, try again in a moment', retryAfter: audioLimit.retryAfter };
+    }
 
     const file = body.file as File;
 
-    if (!file.type.startsWith('audio/')) {
+    // The claimed type is the client's word: the bytes must be audio too.
+    const { looksLikeAudio } = await import('@/lib/media/audioSniff');
+    if (!file.type.startsWith('audio/') || !looksLikeAudio(new Uint8Array(await file.slice(0, 16).arrayBuffer()))) {
       set.status = 400;
       return { error: 'File must be an audio file' };
     }

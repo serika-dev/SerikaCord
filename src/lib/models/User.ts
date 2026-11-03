@@ -1,4 +1,5 @@
 import { eq, isNull, sql, and, type SQL } from 'drizzle-orm';
+import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { normalizeId, buildCondition } from '../db/normalizeId';
 import { db, schema } from '../db/postgres';
 import type { BuiltinBadgeId } from '../constants/badges';
@@ -266,10 +267,21 @@ export const User = {
     return query;
   },
 
-  /** Message authors by id, public columns only (see AUTHOR_COLUMNS). */
+  /**
+   * Message authors by id, public columns only (see AUTHOR_COLUMNS). `status` is
+   * the public one: invisible and stale sessions read as offline, so a message
+   * never tells others someone is invisible.
+   */
   async findAuthors(ids: string[]) {
     if (ids.length === 0) return [];
-    return db.select(AUTHOR_COLUMNS).from(schema.users).where(buildCondition(schema.users.id, { in: ids }, true));
+    const rows = await db
+      .select({ ...AUTHOR_COLUMNS, presenceLastHeartbeatAt: schema.users.presenceLastHeartbeatAt })
+      .from(schema.users)
+      .where(buildCondition(schema.users.id, { in: ids }, true));
+    return rows.map(({ presenceLastHeartbeatAt, ...row }) => ({
+      ...row,
+      status: resolveEffectiveStatus({ status: row.status, presenceLastHeartbeatAt, isSystem: row.isSystem }),
+    }));
   },
 
   async create(data: typeof schema.users.$inferInsert) {
