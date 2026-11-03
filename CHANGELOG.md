@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.2.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.3.
 
 ---
 
@@ -9,11 +9,23 @@
 ### Features
 
 ### Changes
-- Manage Channels alone no longer shows channels that are hidden from you (as on Discord); owners and Administrators still see everything
 
 ### Bug Fixes
 
 ### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.5.3 — 2026-11-03
+
+**Tag:** `v2.5.3` · **Commit:** `19582611`
+
+### Changes
+- Manage Channels alone no longer shows channels that are hidden from you (as on Discord); owners and Administrators still see everything
 
 ### Security
 - Hidden channels stay hidden everywhere: the server info, bot channel lists, bots' startup data, the public widget, webhook lists, the Discord bridge panel and #channel names in DMs and the Inbox now only show channels you can open
@@ -26,8 +38,6 @@
 - Profiles, game activity and poll emoji can no longer load images or styles from outside sites, which could reveal your IP address to whoever posted them
 - Invisible status no longer shows through in messages, and someone you blocked (or anyone signed out) can't see your activity
 - Desktop app: developer tools and remote debugging are off in release builds, and global shortcuts only work for push-to-talk, mute and deafen
-
-### Removed
 
 ---
 
