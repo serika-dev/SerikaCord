@@ -61,7 +61,8 @@ describe("detectClientIntegrity", () => {
 
   test("injected scripts", () => {
     expect(detectClientIntegrity(page({}, ["https://evil.example/mod.js"]))).toContain("remote_script");
-    expect(detectClientIntegrity(page({}, ["chrome-extension://abc/inject.js"]))).toContain("extension_script");
+    // Extension scripts aren't reported (password managers, dev tools inject them too).
+    expect(detectClientIntegrity(page({}, ["chrome-extension://abc/inject.js"]))).toEqual([]);
   });
 });
 

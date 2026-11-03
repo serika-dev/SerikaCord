@@ -26,7 +26,11 @@ export interface ClientIntegrityRecord {
 const keyFor = (userId: string) => `clientint:${userId.toLowerCase()}`;
 
 export async function getClientIntegrity(userId: string): Promise<ClientIntegrityRecord | null> {
-  return (await cache.get<ClientIntegrityRecord>(keyFor(userId)).catch(() => null)) ?? null;
+  const record = (await cache.get<ClientIntegrityRecord>(keyFor(userId)).catch(() => null)) ?? null;
+  if (!record) return null;
+  // Only signals still in the list (retired ones drop out of old records).
+  const signals = parseSignals(record.signals);
+  return signals.length ? { ...record, signals, lastSignals: parseSignals(record.lastSignals) } : null;
 }
 
 export const clientIntegrityRoutes = new Elysia({ prefix: '/users' })

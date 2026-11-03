@@ -75,8 +75,8 @@ function scriptSignals(w: Win, allowedHosts: readonly string[]): ClientIntegrity
     } catch {
       continue;
     }
-    if (/^(chrome|moz|safari-web|ms-browser)-extension:$/.test(url.protocol)) out.add('extension_script');
-    else if (url.origin !== origin && !allowedHosts.includes(url.hostname)) out.add('remote_script');
+    if (/^(chrome|moz|safari-web|ms-browser)-extension:$/.test(url.protocol)) continue; // extensions: see signals.ts
+    if (url.origin !== origin && !allowedHosts.includes(url.hostname)) out.add('remote_script');
   }
   return [...out];
 }
