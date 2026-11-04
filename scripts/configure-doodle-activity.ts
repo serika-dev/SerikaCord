@@ -15,7 +15,8 @@
  *  4. Copy the app's client secret and bot token into the Doodle server's
  *     Coolify env (never printed), then deploy it.
  *
- * Options: --app <uuid>, --coolify-app <uuid>, --dir <DoodleParty checkout>, --target <host>.
+ * Options: --app <uuid>, --coolify-app <uuid>, --dir <DoodleParty checkout>, --target <host>,
+ * --images-only (just re-upload the icon and banner).
  */
 import { readFile } from 'fs/promises';
 import { resolve } from 'path';
@@ -26,6 +27,7 @@ const opt = (name: string, fallback: string) => {
   return i !== -1 && args[i + 1] ? args[i + 1] : fallback;
 };
 const APPLY = args.includes('--apply');
+const IMAGES_ONLY = args.includes('--images-only');
 const APP_ID = opt('app', '71098c75-b0ec-4817-b611-c40651146f54');
 const COOLIFY_APP = opt('coolify-app', 'exyg1wnwahqcb3wcoxipi1lm');
 const DIR = resolve(opt('dir', '../DoodleParty'));
@@ -56,6 +58,13 @@ const up = (category: 'app-icons' | 'app-covers', data: Buffer, filename: string
 });
 const iconUrl = (await up('app-icons', icon, 'icon.png')).url;
 const bannerUrl = (await up('app-covers', banner, 'cover.png')).url;
+if (IMAGES_ONLY) {
+  await Application.updateById(app.id, { icon: iconUrl, coverImage: bannerUrl, updatedAt: new Date() });
+  const { updateActivitySettings } = await import('@/lib/services/activitySettings');
+  await updateActivitySettings(app, { imageUrl: bannerUrl });
+  console.log('✓ icon + banner re-uploaded');
+  process.exit(0);
+}
 await Application.updateById(app.id, {
   icon: iconUrl,
   coverImage: bannerUrl,
