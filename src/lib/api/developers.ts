@@ -12,7 +12,7 @@ import { resolveRedirectUri, appendQuery, parsePermissionsParam, clampBotPermiss
 import { allowedPrivilegedIntents, INTENT, toStoredIntents } from '@/lib/gateway/intents';
 import {
   directoryState, isAppCategory, isOwnerListed, listingProblems, showsVerified, validateGeneralAppPatch, validateListingPatch,
-  verificationRequirements, verificationCooldownEndsAt, VERIFICATION_SERVER_THRESHOLD,
+  verificationRequirements, verificationCooldownEndsAt, VERIFICATION_PLAYER_THRESHOLD, VERIFICATION_SERVER_THRESHOLD,
 } from '@/lib/appDirectory/listing';
 import { APP_ASSET_CATEGORY, isOwnedAppAssetUrl, isOwnedBotImageUrl, parseTeamIconPatch, type AppAssetKind } from '@/lib/appDirectory/assets';
 
@@ -204,7 +204,16 @@ function activeCooldown(ends: Date | null): Date | null {
 }
 
 /** The developer portal's Directory page: listing fields, status and verification progress. */
-function directoryView(app: IApplication | null, serverCount: number) {
+/** Different people who played the app's Activity, or null when it has none (verification by servers). */
+async function activityPlayersFor(app: IApplication | null): Promise<number | null> {
+  if (!app) return null;
+  const { activitiesEnabled } = await import('@/lib/services/activitySettings');
+  if (!(await activitiesEnabled(app.id))) return null;
+  const { countActivityPlayers } = await import('@/lib/services/activityInstances');
+  return countActivityPlayers(app.id);
+}
+
+function directoryView(app: IApplication | null, serverCount: number, activityPlayers: number | null = null) {
   if (!app) return null;
   const categories = (app.directoryCategories ?? []).filter(isAppCategory);
   return {
@@ -237,7 +246,7 @@ function directoryView(app: IApplication | null, serverCount: number) {
       verified: !!app.verified,
       serverCount,
       threshold: VERIFICATION_SERVER_THRESHOLD,
-      requirements: verificationRequirements(app, serverCount),
+      requirements: verificationRequirements(app, serverCount, activityPlayers),
       note: app.verificationNote ?? null,
       requestedAt: app.verificationRequestedAt ?? null,
       reviewedAt: app.verificationReviewedAt ?? null,
@@ -753,7 +762,15 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   }
   const { countBotServers } = await import('@/lib/services/appDirectory');
   const serverCount = await countBotServers(app.botId);
-  if (serverCount < VERIFICATION_SERVER_THRESHOLD) {
+  // Apps with an Activity qualify by different players instead of servers (CORD-92).
+  const { activitiesEnabled } = await import('@/lib/services/activitySettings');
+  if (await activitiesEnabled(app.id)) {
+    const { countActivityPlayers } = await import('@/lib/services/activityInstances');
+    const players = await countActivityPlayers(app.id);
+    if (players < VERIFICATION_PLAYER_THRESHOLD) {
+      set.status = 400; return { error: `At least ${VERIFICATION_PLAYER_THRESHOLD} different people must play your Activity before you can apply` };
+    }
+  } else if (serverCount < VERIFICATION_SERVER_THRESHOLD) {
     set.status = 400; return { error: `Your bot must be in at least ${VERIFICATION_SERVER_THRESHOLD} servers to apply` };
   }
   // Staff review it in Settings → Admin → Apps & Bots (/api/admin/apps).
@@ -1262,7 +1279,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const { app, user } = access;
   const { countBotServers } = await import('@/lib/services/appDirectory');
   const serverCount = await countBotServers(app.botId);
-  return { ...directoryView(app, serverCount), canEdit: await canManageApp(app, user.id) };
+  return { ...directoryView(app, serverCount, await activityPlayersFor(app)), canEdit: await canManageApp(app, user.id) };
 })
 
 .patch('/applications/:id/directory', async ({ headers, cookie, params, body, set }) => {
@@ -1317,7 +1334,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const { countBotServers, invalidateAppDirectory } = await import('@/lib/services/appDirectory');
   invalidateAppDirectory();
   const updated = await Application.findById(app.id);
-  return { ...directoryView(updated, await countBotServers(updated?.botId)), canEdit: true };
+  return { ...directoryView(updated, await countBotServers(updated?.botId), await activityPlayersFor(updated)), canEdit: true };
 })
 
 // Upload the App Directory cover image (shown on /bots/:id).

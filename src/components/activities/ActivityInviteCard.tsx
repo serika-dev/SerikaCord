@@ -38,8 +38,8 @@ export default function ActivityInviteCard({
 
   const onPlay = async () => {
     setBusy(true);
-    if (ended) await launchActivity(applicationId, channelId, false);
-    else await joinActivity(instanceId);
+    if (ended) await launchActivity(applicationId, channelId, false, false, name);
+    else await joinActivity(instanceId, false, name);
     setBusy(false);
   };
 

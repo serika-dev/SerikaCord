@@ -380,19 +380,36 @@ export function settingsFromRow(row: Record<string, unknown> | null | undefined)
   };
 }
 
-/** The Activities domain host label for an app (its client id), or null when unusable. */
-export function activityHostLabel(clientId: string | null | undefined): string | null {
+/**
+ * The Activities domain host label for an app: its client id, or
+ * `<client_id>-<token>` for a developer's URL-override instance. Null when unusable.
+ */
+export function activityHostLabel(clientId: string | null | undefined, overrideToken?: string | null): string | null {
   const id = String(clientId ?? '').toLowerCase();
-  return /^[0-9]{1,32}$/.test(id) ? id : null;
+  if (!/^[0-9]{1,32}$/.test(id)) return null;
+  if (!overrideToken) return id;
+  return /^[a-z0-9]{8,32}$/.test(overrideToken) ? `${id}-${overrideToken}` : null;
 }
 
-/** Parse `<client_id>.<domain>` (case-insensitive, port ignored); null when the host isn't an Activity host. */
-export function clientIdFromActivityHost(hostHeader: string | null | undefined, domain: string): string | null {
+/** Parse `<client_id>[-<token>].<domain>` (case-insensitive, port ignored); null when it isn't an Activity host. */
+export function parseActivityHost(hostHeader: string | null | undefined, domain: string): { clientId: string; overrideToken: string | null } | null {
   if (!hostHeader || !domain) return null;
   const host = hostHeader.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
   const suffix = `.${domain.toLowerCase().replace(/^\.+|\.$/g, '')}`;
   if (!host.endsWith(suffix)) return null;
-  return activityHostLabel(host.slice(0, -suffix.length));
+  const m = /^([0-9]{1,32})(?:-([a-z0-9]{8,32}))?$/.exec(host.slice(0, -suffix.length));
+  return m ? { clientId: m[1], overrideToken: m[2] ?? null } : null;
+}
+
+/** Parse `<client_id>.<domain>` (plain hosts only); null when the host isn't an Activity host. */
+export function clientIdFromActivityHost(hostHeader: string | null | undefined, domain: string): string | null {
+  const parsed = parseActivityHost(hostHeader, domain);
+  return parsed && !parsed.overrideToken ? parsed.clientId : null;
+}
+
+/** Mappings for a URL-override instance: the developer's target replaces the root mapping. */
+export function withRootOverride(mappings: UrlMapping[], target: string): UrlMapping[] {
+  return [...mappings.filter((m) => m.prefix !== '/'), { prefix: '/', target }];
 }
 
 /** True when the Host header is the Activities domain or any subdomain of it (port ignored). */

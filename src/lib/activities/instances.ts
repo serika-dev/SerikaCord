@@ -30,6 +30,8 @@ export interface ActivityInstanceRecord {
   /** The Game Invitation message (text-chat launches). */
   messageId: string | null;
   endedAt: number | null;
+  /** A developer's URL-override instance: served at <client_id>-<token>.<domain>. */
+  overrideToken?: string | null;
 }
 
 /** How long an instance may run before it is ended regardless (safety net). */
@@ -69,7 +71,7 @@ const TEXT_TYPES = new Set(['text', 'announcement', 'public_thread', 'private_th
 
 export type LaunchDenied =
   | 'not_configured' | 'not_enabled' | 'no_access' | 'missing_permissions' | 'not_in_call'
-  | 'age_restricted' | 'platform' | 'channel_type' | 'full';
+  | 'age_confirm' | 'platform' | 'channel_type' | 'full';
 
 export interface LaunchCheckInput {
   channel: ChannelLike;
@@ -79,8 +81,8 @@ export interface LaunchCheckInput {
   inVoiceRoom: boolean;
   /** Launch from a call (voice room) rather than the text chat. */
   voice: boolean;
-  /** Server is age-gated (18+). */
-  serverAgeGated: boolean;
+  /** The user confirmed the 18+ warning for this launch / join. */
+  ageConfirmed: boolean;
   app: { enabled: boolean; ageGated: boolean; supportedPlatforms: string[] };
   /** The client's platform family (web, desktop, ios, android). */
   platform: string;
@@ -91,8 +93,7 @@ export interface LaunchCheckInput {
  * Whether a user may launch (or join) an Activity here. Server channels need
  * USE_EMBEDDED_ACTIVITIES (plus CONNECT for calls, SEND_MESSAGES for text
  * chats, where a Game Invitation is posted); DMs need only membership.
- * Age-gated Activities run only in NSFW channels or age-gated servers (we have
- * no per-user age), never in DMs.
+ * Age-gated (18+) Activities need the user to confirm a warning first.
  */
 export function checkLaunch(input: LaunchCheckInput, mode: 'launch' | 'join'): { ok: true } | { ok: false; reason: LaunchDenied } {
   if (!input.domainConfigured) return { ok: false, reason: 'not_configured' };
@@ -114,7 +115,7 @@ export function checkLaunch(input: LaunchCheckInput, mode: 'launch' | 'join'): {
     if (input.voice && !has(PERMISSION_BITS.CONNECT)) return { ok: false, reason: 'missing_permissions' };
     if (mode === 'launch' && !input.voice && !has(PERMISSION_BITS.SEND_MESSAGES)) return { ok: false, reason: 'missing_permissions' };
   }
-  if (input.app.ageGated && (isDm || !(ch.nsfw || input.serverAgeGated))) return { ok: false, reason: 'age_restricted' };
+  if (input.app.ageGated && !input.ageConfirmed) return { ok: false, reason: 'age_confirm' };
   if (!input.app.supportedPlatforms.includes(input.platform)) return { ok: false, reason: 'platform' };
   return { ok: true };
 }
@@ -126,7 +127,7 @@ export const LAUNCH_DENIED_MESSAGES: Record<LaunchDenied, string> = {
   no_access: 'You do not have access to this channel.',
   missing_permissions: 'You do not have permission to start Activities here.',
   not_in_call: 'Join the call to play this Activity.',
-  age_restricted: 'This Activity is age-restricted and can only be played in age-restricted channels.',
+  age_confirm: 'This Activity is for adults (18+). Confirm to continue.',
   platform: 'This Activity is not available on this device.',
   channel_type: 'Activities can not be started here.',
   full: 'This Activity is full.',

@@ -519,7 +519,13 @@ SerikaCord runs Activities built for Discord's Embedded App SDK, in calls (serve
 ## Different
 - Origin is \`<client_id>.waifu.ws\`, not discordsays.com. Cookies never cross the proxy.
 - Monetization (SKUs, entitlements, purchases) is not available: empty lists.
-- 18+ Activities only launch in age-restricted channels or servers.`,
+- 18+ Activities show a warning people must confirm before launching or joining.
+
+## Status messages and Play buttons
+Post normal bot messages (results, streaks) with a button. Answer the button's component interaction with callback type 12 (LAUNCH_ACTIVITY) to open the Activity for whoever clicked it.
+
+## Command name
+Rename the entry point command (e.g. \`/wordle\`) with the application commands API.`,
   },
   "social-sdk/overview": {
     slug: "social-sdk/overview",

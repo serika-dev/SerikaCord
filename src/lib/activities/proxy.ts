@@ -21,7 +21,7 @@ import { Application } from '@/lib/models';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { checkRateLimit } from '@/lib/security';
 import { assertPublicUrl, UnsafeUrlError } from '@/lib/security/ssrf';
-import { activityOrigin, clientIdFromActivityHost, resolveUrlMapping, type ActivitySettings } from './settings';
+import { activityHostLabel, activityOrigin, parseActivityHost, resolveUrlMapping, withRootOverride, type ActivitySettings, type UrlMapping } from './settings';
 import {
   FRAME_ALLOW_BASE, appCsp, downstreamResponseHeaders, hostOrigins, relayCsp, relayHtml, rewriteLocation, sdkQuery,
   upstreamRequestHeaders,
@@ -108,17 +108,27 @@ type UpgradeServer = { upgrade: (req: Request, options?: { data?: SocketData; he
 export async function handleActivityRequest(req: Request, server: UpgradeServer, clientIp: string): Promise<Response | undefined> {
   const domain = config.ACTIVITIES_DOMAIN;
   const hostHeader = req.headers.get('host') || '';
-  const clientId = clientIdFromActivityHost(hostHeader, domain);
-  if (!clientId) return plain(404, 'Not found');
+  const parsed = parseActivityHost(hostHeader, domain);
+  if (!parsed) return plain(404, 'Not found');
+  const { clientId } = parsed;
   const app = await activityAppByClientId(clientId);
   if (!app) return plain(404, 'This Activity is not available.');
+  // <client_id>-<token>: a developer's URL-override instance (developer shelf).
+  let mappings: UrlMapping[] = app.settings.urlMappings;
+  if (parsed.overrideToken) {
+    const { getUrlOverride } = await import('@/lib/services/activityInstances');
+    const ovr = await getUrlOverride(parsed.overrideToken);
+    if (!ovr || ovr.clientId !== clientId) return plain(404, 'This Activity is not available.');
+    mappings = withRootOverride(mappings, ovr.target);
+  }
+  const label = activityHostLabel(clientId, parsed.overrideToken) ?? clientId;
 
   const rl = await checkRateLimit('activityProxy', `${clientIp}:${clientId}`);
   if (!rl.success) return plain(429, 'Too many requests', { 'Retry-After': String(Math.ceil((rl.retryAfter ?? 1000) / 1000)) });
 
   const url = new URL(req.url);
-  const publicHost = `${clientId}.${domain}`;
-  const publicOrigin = activityOrigin(clientId, domain, config.FRONTEND_URL);
+  const publicHost = `${label}.${domain}`;
+  const publicOrigin = activityOrigin(label, domain, config.FRONTEND_URL);
 
   if (url.pathname === '/.serika/frame') {
     if (req.method !== 'GET' && req.method !== 'HEAD') return plain(405, 'Method not allowed');
@@ -141,7 +151,7 @@ export async function handleActivityRequest(req: Request, server: UpgradeServer,
   }
   if (url.pathname.startsWith('/.serika/') || url.pathname === '/.serika') return plain(404, 'Not found');
 
-  const resolved = resolveUrlMapping(app.settings.urlMappings, url.pathname);
+  const resolved = resolveUrlMapping(mappings, url.pathname);
   if (!resolved) return plain(404, 'Not found');
   const upstream = new URL(`https://${resolved.host}${resolved.path}${url.search}`);
   try {
@@ -195,7 +205,7 @@ export async function handleActivityRequest(req: Request, server: UpgradeServer,
     const loc = res.headers.get('location');
     out.delete('location');
     if (loc) {
-      const rewritten = rewriteLocation(loc, upstream, publicOrigin, app.settings.urlMappings);
+      const rewritten = rewriteLocation(loc, upstream, publicOrigin, mappings);
       if (!rewritten) {
         try { await res.body?.cancel(); } catch { /* ignore */ }
         return plain(502, 'The Activity tried to redirect off its mapped hosts.');

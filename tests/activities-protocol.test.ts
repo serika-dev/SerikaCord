@@ -16,7 +16,7 @@ const base = (over: Partial<LaunchCheckInput> = {}): LaunchCheckInput => ({
   permissions: P.VIEW_CHANNEL | P.SEND_MESSAGES | P.USE_EMBEDDED_ACTIVITIES | P.CONNECT,
   inVoiceRoom: false,
   voice: false,
-  serverAgeGated: false,
+  ageConfirmed: false,
   app: { enabled: true, ageGated: false, supportedPlatforms: ["web", "desktop"] },
   platform: "web",
   domainConfigured: true,
@@ -46,12 +46,12 @@ describe("checkLaunch", () => {
     expect(checkLaunch(base({ ...dm, voice: true }), "launch")).toEqual({ ok: false, reason: "not_in_call" });
     expect(checkLaunch(base({ ...dm, channel: { id: "g", type: "group_dm" }, voice: true, inVoiceRoom: true }), "launch")).toEqual({ ok: true });
   });
-  test("age gate, platform, configuration", () => {
+  test("age gate (a confirmed warning, anywhere), platform, configuration", () => {
     const gated = { app: { enabled: true, ageGated: true, supportedPlatforms: ["web"] } };
-    expect(checkLaunch(base(gated), "launch")).toEqual({ ok: false, reason: "age_restricted" });
-    expect(checkLaunch(base({ ...gated, channel: { id: "c", type: "text", serverId: "s", nsfw: true } }), "launch")).toEqual({ ok: true });
-    expect(checkLaunch(base({ ...gated, serverAgeGated: true }), "launch")).toEqual({ ok: true });
-    expect(checkLaunch(base({ ...gated, channel: { id: "d", type: "dm" }, permissions: 0n }), "launch")).toEqual({ ok: false, reason: "age_restricted" });
+    expect(checkLaunch(base(gated), "launch")).toEqual({ ok: false, reason: "age_confirm" });
+    expect(checkLaunch(base(gated), "join")).toEqual({ ok: false, reason: "age_confirm" });
+    expect(checkLaunch(base({ ...gated, ageConfirmed: true }), "launch")).toEqual({ ok: true });
+    expect(checkLaunch(base({ ...gated, ageConfirmed: true, channel: { id: "d", type: "dm" }, permissions: 0n }), "launch")).toEqual({ ok: true });
     expect(checkLaunch(base({ platform: "ios" }), "launch")).toEqual({ ok: false, reason: "platform" });
     expect(checkLaunch(base({ domainConfigured: false }), "launch")).toEqual({ ok: false, reason: "not_configured" });
     expect(checkLaunch(base({ app: { enabled: false, ageGated: false, supportedPlatforms: ["web"] } }), "launch")).toEqual({ ok: false, reason: "not_enabled" });

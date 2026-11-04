@@ -65,6 +65,7 @@ import { playTts } from "@/lib/chat/tts";
 import type { ChatMessage } from "@/lib/chat/types";
 import { useMessageSearch, type SearchHit } from "@/hooks/useMessageSearch";
 import { MessageSearchBar, type MessageSearchBarHandle } from "@/components/chat/search/MessageSearchBar";
+import { ActivitySlot } from "@/components/activities/ActivitySlot";
 
 const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
@@ -675,6 +676,8 @@ export default function GroupDMPage() {
           </>
         ) : (
         <>
+        {/* An Activity launched in this group docks above the messages (CORD-92) */}
+        <ActivitySlot channelId={channelId} voice={false} />
         <MessageList
           ref={messageListRef}
           onJumpToMessage={jumpToMessage}

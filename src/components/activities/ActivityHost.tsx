@@ -1,31 +1,38 @@
 "use client";
 /**
- * Activities host (CORD-92), mounted once in the app shell. Shows:
- *  - the open Activity: a panel docked on the right (desktop), full screen
- *    (phones, or "expand"), or a small floating window ("minimize"); the frame
- *    keeps running in every layout;
- *  - the Activity shelf (launcher) for a chat or a call;
- *  - errors from launching / joining as toasts.
- * Heavy parts (frame, shelf) are their own chunks, loaded on first use.
+ * Activities host (CORD-92), mounted once in the app shell.
+ *
+ * Renders the open Activity's frame exactly once and moves it (by style, so
+ * the iframe never reloads) to where it belongs:
+ *  - docked: over the slot of its chat or call (ActivitySlot), like Discord;
+ *  - mini: a small floating player when you're elsewhere (or minimized);
+ *  - full screen on phones;
+ *  - nowhere while it's popped out into its own window.
+ * Also hosts the shelf (launcher), the 18+ confirmation and error toasts.
  */
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import dynamic from "next/dynamic";
+import { useRouter } from "next/navigation";
 import { useGT } from "gt-next";
-import { Maximize2, Minimize2, PictureInPicture2, X } from "lucide-react";
+import { Maximize2, Minimize2, X } from "lucide-react";
 import { toast } from "sonner";
 import { cdnImage } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import { useBackHandler } from "@/hooks/useBackHandler";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  clearActivityError, closeActivity, useActivityError, useActivityShelf, useInstanceView, useOpenActivity,
+  clearActivityError, closeActivity, setActivityLayout, useActivityError, useActivityShelf, useAgePrompt, useInstanceView,
+  useOpenActivity, useOpenActivitySlot,
 } from "@/lib/activities/clientStore";
 import type { LayoutMode } from "./ActivityFrame";
 
 const ActivityFrame = dynamic(() => import("./ActivityFrame"), { ssr: false });
 const ActivityShelf = dynamic(() => import("./ActivityShelf"), { ssr: false });
 
-type Layout = "docked" | "full" | "mini";
+const MINI_W = 384;
+const MINI_H = 216;
+const MINI_HEADER = 36;
 
 function useErrorToasts() {
   const gt = useGT();
@@ -38,7 +45,6 @@ function useErrorToasts() {
       no_access: gt("You do not have access to this channel."),
       missing_permissions: gt("You do not have permission to start Activities here."),
       not_in_call: gt("Join the call to play this Activity."),
-      age_restricted: gt("This Activity is age-restricted and can only be played in age-restricted channels."),
       platform: gt("This Activity is not available on this device."),
       channel_type: gt("Activities can not be started here."),
       full: gt("This Activity is full."),
@@ -50,6 +56,30 @@ function useErrorToasts() {
   }, [error, gt]);
 }
 
+function AgeDialog() {
+  const gt = useGT();
+  const prompt = useAgePrompt();
+  if (!prompt) return null;
+  return (
+    <Dialog open onOpenChange={(o) => { if (!o) prompt.cancel(); }}>
+      <DialogContent className="sm:max-w-md">
+        <DialogHeader>
+          <DialogTitle>{gt("Age-restricted Activity")}</DialogTitle>
+          <DialogDescription>
+            {prompt.appName
+              ? gt("{name} is for adults (18+) and may contain content that isn't suitable for everyone. Continue only if you're 18 or older.", { name: prompt.appName })
+              : gt("This Activity is for adults (18+) and may contain content that isn't suitable for everyone. Continue only if you're 18 or older.")}
+          </DialogDescription>
+        </DialogHeader>
+        <DialogFooter>
+          <button type="button" onClick={prompt.cancel} className="px-4 py-2 text-sm rounded-lg" style={{ color: "var(--app-text)" }}>{gt("Cancel")}</button>
+          <button type="button" onClick={prompt.confirm} className="px-4 py-2 text-sm rounded-lg font-medium text-white" style={{ background: "var(--app-accent)" }}>{gt("I'm 18 or older")}</button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 export default function ActivityHost() {
   useErrorToasts();
   const open = useOpenActivity();
@@ -59,92 +89,109 @@ export default function ActivityHost() {
       <MountWhenOpened open={!!shelf}>
         {shelf && <ActivityShelf request={shelf} />}
       </MountWhenOpened>
-      {open && <ActivityPanel key={open.instanceId} />}
+      <AgeDialog />
+      {open && open.layout !== "popout" && <ActivityStage key={open.instanceId} />}
     </>
   );
 }
 
-function ActivityPanel() {
+type Mode = "docked" | "collapsed" | "mini" | "full";
+
+function ActivityStage() {
   const gt = useGT();
+  const router = useRouter();
   const open = useOpenActivity();
-  const view = useInstanceView(open?.instanceId);
+  const slot = useOpenActivitySlot();
   const isMobile = useIsMobile();
-  const [layout, setLayout] = useState<Layout>("docked");
-  const effective: Layout = isMobile && layout === "docked" ? "full" : layout;
+  const view = useInstanceView(open?.instanceId);
+  const boxRef = useRef<HTMLDivElement | null>(null);
+
+  const mode: Mode = !open ? "mini"
+    : isMobile ? (open.layout === "mini" ? "mini" : "full")
+      : open.layout === "inline" && slot ? (open.collapsed && !open.frame.location.voice ? "collapsed" : "docked")
+        : "mini";
+
+  // Geometry is set here only (never by React), so switching modes leaves nothing stale.
+  // Docked: follow the slot every frame (position + size) without re-rendering.
+  useEffect(() => {
+    const box = boxRef.current;
+    if (!box) return;
+    const s = box.style;
+    for (const k of ["left", "top", "right", "bottom", "width", "height"] as const) s[k] = "";
+    if (mode === "collapsed") { s.left = "-10000px"; s.top = "0px"; s.width = "640px"; s.height = "360px"; return; }
+    if (mode === "full") { s.left = "0px"; s.right = "0px"; s.top = "calc(env(safe-area-inset-top) + 44px)"; s.bottom = "0px"; return; }
+    if (mode === "mini") { s.right = "16px"; s.bottom = "16px"; s.width = `${MINI_W}px`; s.height = `${MINI_H}px`; return; }
+    if (!slot) return;
+    let raf = 0;
+    let last = "";
+    const follow = () => {
+      const r = slot.getBoundingClientRect();
+      const key = `${r.left}|${r.top}|${r.width}|${r.height}`;
+      if (key !== last) {
+        last = key;
+        s.left = `${r.left}px`;
+        s.top = `${r.top}px`;
+        s.width = `${r.width}px`;
+        s.height = `${r.height}px`;
+      }
+      raf = requestAnimationFrame(follow);
+    };
+    raf = requestAnimationFrame(follow);
+    return () => cancelAnimationFrame(raf);
+  }, [mode, slot]);
+
   const close = useCallback((reason?: string) => {
     if (reason === "ended") toast(gt("The Activity has ended."));
     closeActivity();
   }, [gt]);
-  useBackHandler(isMobile && effective === "full", () => setLayout("mini"));
-
-  // Opening the same Activity again (card / shelf) brings it back from the mini window.
-  const nonce = open?.nonce ?? 0;
-  const [seenNonce, setSeenNonce] = useState(nonce);
-  if (nonce !== seenNonce) {
-    setSeenNonce(nonce);
-    if (layout === "mini") setLayout("docked");
-  }
+  useBackHandler(isMobile && mode === "full", () => setActivityLayout("mini"));
 
   if (!open) return null;
-  const name = view?.app?.name ?? gt("Activity");
-  const icon = view?.app?.icon ? cdnImage(view.app.icon) : null;
-  const participants = view?.participants ?? [];
-  const layoutMode: LayoutMode = effective === "mini" ? 1 : 0;
-  const loc = view?.location;
-  const inviteLink = loc && loc.kind === "gc" && loc.guildId && typeof window !== "undefined"
-    ? `${window.location.origin}/channels/${loc.guildId}/${loc.channelId}`
-    : null;
+  const name = view?.app?.name ?? open.frame.app.name;
+  const iconUrl = view?.app?.icon ?? open.frame.app.icon;
+  const icon = iconUrl ? cdnImage(iconUrl) : null;
+  const loc = view?.location ?? { kind: open.frame.location.guildId ? "gc" : "pc", channelId: open.frame.location.channelId, guildId: open.frame.location.guildId };
+  const inviteLink = loc.kind === "gc" && loc.guildId && typeof window !== "undefined" ? `${window.location.origin}/channels/${loc.guildId}/${loc.channelId}` : null;
+  const layoutMode: LayoutMode = mode === "mini" ? 1 : 0;
 
-  const frameBox =
-    effective === "full" ? "fixed inset-0 z-[70]"
-      : effective === "mini" ? "fixed z-[70] right-4 bottom-4 w-[320px] h-[220px] rounded-xl overflow-hidden shadow-2xl border"
-        : "fixed z-[60] right-0 top-0 bottom-0 w-[min(560px,45vw)] border-l shadow-2xl";
+  // Static look per mode; geometry comes from the effect above.
+  const boxStyle: React.CSSProperties =
+    mode === "docked" ? { position: "fixed", zIndex: 30, background: "#000" }
+      : mode === "collapsed" ? { position: "fixed", visibility: "hidden", zIndex: 0 }
+        : mode === "full" ? { position: "fixed", zIndex: 70, background: "#000" }
+          : { position: "fixed", zIndex: 60, background: "#000", borderRadius: "0 0 12px 12px", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,.5)" };
+
+  const goToSlot = () => {
+    router.push(open.returnPath);
+    setActivityLayout("inline");
+  };
 
   return (
-    <aside
-      aria-label={name}
-      className={`${frameBox} flex flex-col`}
-      style={{ background: "var(--app-bg)", borderColor: "var(--app-border)", paddingTop: effective === "full" ? "env(safe-area-inset-top)" : undefined }}
-    >
-      <header className="flex items-center gap-2 px-3 h-11 shrink-0 border-b" style={{ borderColor: "var(--app-border)", color: "var(--app-text)" }}>
-        {icon ? <img src={icon} alt="" className="size-6 rounded-md object-cover" /> : null}
-        <span className="font-semibold text-sm truncate flex-1">{name}</span>
-        {effective !== "mini" && participants.length > 0 && (
-          <div className="flex -space-x-2 mr-1" aria-label={gt("{count} playing", { count: participants.length })}>
-            {participants.slice(0, 4).map((p) => (
-              p.avatar
-                ? <img key={p.id} src={cdnImage(p.avatar)} alt={p.displayName ?? p.username} title={p.displayName ?? p.username} className="size-6 rounded-full border-2 object-cover" style={{ borderColor: "var(--app-bg)" }} />
-                : <span key={p.id} title={p.displayName ?? p.username} className="size-6 rounded-full border-2 text-[10px] flex items-center justify-center font-semibold" style={{ borderColor: "var(--app-bg)", background: "var(--app-accent)", color: "#fff" }}>{(p.displayName ?? p.username).slice(0, 1).toUpperCase()}</span>
-            ))}
-          </div>
-        )}
-        {effective !== "mini" && (
-          <button type="button" onClick={() => setLayout("mini")} title={gt("Minimize")} aria-label={gt("Minimize")} className="p-1.5 rounded-md hover:opacity-80" style={{ color: "var(--app-muted)" }}>
-            <PictureInPicture2 className="size-4" />
+    <>
+      {(mode === "mini" || mode === "full") && (
+        <div
+          className="fixed flex items-center gap-2 px-2 z-[70]"
+          style={mode === "full"
+            ? { left: 0, right: 0, top: 0, height: "calc(env(safe-area-inset-top) + 44px)", paddingTop: "env(safe-area-inset-top)", background: "var(--app-bg)", color: "var(--app-text)" }
+            : { right: 16, bottom: 16 + MINI_H, width: MINI_W, height: MINI_HEADER, background: "var(--app-surface)", color: "var(--app-text)", borderRadius: "12px 12px 0 0", zIndex: 60 }}
+        >
+          {icon ? <img src={icon} alt="" className="size-6 rounded-md object-cover" /> : null}
+          <span className="text-sm font-semibold truncate flex-1">{name}</span>
+          {mode === "full" ? (
+            <button type="button" onClick={() => setActivityLayout("mini")} className="p-1.5 rounded-md hover:opacity-80" style={{ color: "var(--app-muted)" }} title={gt("Minimize")} aria-label={gt("Minimize")}>
+              <Minimize2 className="size-4" />
+            </button>
+          ) : (
+            <button type="button" onClick={isMobile ? () => setActivityLayout("inline") : goToSlot} className="p-1.5 rounded-md hover:opacity-80" style={{ color: "var(--app-muted)" }} title={gt("Go to Activity")} aria-label={gt("Go to Activity")}>
+              <Maximize2 className="size-4" />
+            </button>
+          )}
+          <button type="button" onClick={() => close()} className="p-1.5 rounded-md hover:opacity-80" style={{ color: "var(--app-muted)" }} title={gt("Leave Activity")} aria-label={gt("Leave Activity")}>
+            <X className="size-4" />
           </button>
-        )}
-        {!isMobile && (
-          <button
-            type="button"
-            onClick={() => setLayout(effective === "full" ? "docked" : "full")}
-            title={effective === "full" ? gt("Dock to the side") : gt("Expand")}
-            aria-label={effective === "full" ? gt("Dock to the side") : gt("Expand")}
-            className="p-1.5 rounded-md hover:opacity-80"
-            style={{ color: "var(--app-muted)" }}
-          >
-            {effective === "full" ? <Minimize2 className="size-4" /> : <Maximize2 className="size-4" />}
-          </button>
-        )}
-        {effective === "mini" && (
-          <button type="button" onClick={() => setLayout(isMobile ? "full" : "docked")} title={gt("Expand")} aria-label={gt("Expand")} className="p-1.5 rounded-md hover:opacity-80" style={{ color: "var(--app-muted)" }}>
-            <Maximize2 className="size-4" />
-          </button>
-        )}
-        <button type="button" onClick={() => close()} title={gt("Leave Activity")} aria-label={gt("Leave Activity")} className="p-1.5 rounded-md hover:opacity-80" style={{ color: "var(--app-muted)" }}>
-          <X className="size-4" />
-        </button>
-      </header>
-      <div className="flex-1 min-h-0">
+        </div>
+      )}
+      <div ref={boxRef} style={boxStyle} aria-label={name}>
         <ActivityFrame
           instanceId={open.instanceId}
           frame={open.frame}
@@ -155,6 +202,6 @@ function ActivityPanel() {
           onClose={close}
         />
       </div>
-    </aside>
+    </>
   );
 }

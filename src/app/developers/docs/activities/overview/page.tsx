@@ -73,9 +73,42 @@ const { access_token } = await res.json();
         <li><Strong>{gt("Origin:")}</Strong> {gt("https://<client_id>.waifu.ws instead of discordsays.com. Hard-coded discordsays.com URLs in your code need changing.")}</li>
         <li><Strong>{gt("Direct API calls:")}</Strong> {gt("your frame may call SerikaCord's API (/api/v10, /api/oauth2) with its own OAuth2 token. Cookies are never sent, so the frame can't act as the signed-in user. Everything else goes through your URL mappings.")}</li>
         <li><Strong>{gt("Monetization:")}</Strong> {gt("getSkus and getEntitlements return empty lists and startPurchase is not available.")}</li>
-        <li><Strong>{gt("Age gate:")}</Strong> {gt("SerikaCord has no per-user age, so an 18+ Activity can only be launched in age-restricted channels or servers, never in DMs.")}</li>
+        <li><Strong>{gt("Age gate:")}</Strong> {gt("people see an 18+ warning and must confirm it before they launch or join an age-restricted Activity.")}</li>
         <li><Strong>{gt("Cookies:")}</Strong> {gt("the proxy strips Cookie and Set-Cookie. Keep session state in your access token or in local storage.")}</li>
         <li><Strong>{gt("Not available yet:")}</Strong> {gt("quests, initiateImageUpload, shareLink, inviteUserEmbedded, requestProxyTicketRefresh and getRelationships (returns an empty list).")}</li>
+      </UL>
+
+      <H2 id="commands">{gt("Your own command name (e.g. /wordle)")}</H2>
+      <P>
+        {gt("Enabling Activities creates an entry point command called launch. Rename it with the application commands API (PATCH /applications/{id}/commands/{command_id} with a new name), and people can type /wordle or pick it from the command list. With handler 2 SerikaCord launches the Activity and posts a Game Invitation; with handler 1 your app gets the interaction and answers with LAUNCH_ACTIVITY (type 12).")}
+      </P>
+
+      <H2 id="status-messages">{gt("Status messages and Play buttons")}</H2>
+      <P>
+        {gt("Like Wordle's daily results, your bot can post (and edit) normal messages in the chat: text, an image of the results, and a button. When someone clicks the button your app receives a component interaction; answer it with callback type 12 (LAUNCH_ACTIVITY) and SerikaCord opens the Activity for them. No Game Invitation is added in that case: your message is the invitation.")}
+      </P>
+      <CodeBlock lang="ts">{`// Post a results message with a "Play now!" button (bot token)
+await fetch(\`https://serika.chat/api/v10/channels/\${channelId}/messages\`, {
+  method: "POST",
+  headers: { Authorization: \`Bot \${BOT_TOKEN}\`, "Content-Type": "application/json" },
+  body: JSON.stringify({
+    content: "**Your group is on a 2 day streak!** 🔥 Here are yesterday's results: 👑 4/6",
+    components: [{ type: 1, components: [{ type: 2, style: 1, label: "Play now!", custom_id: "play" }] }],
+  }),
+});
+
+// When the button is clicked (INTERACTION_CREATE, type 3): launch the Activity
+await fetch(\`https://serika.chat/api/v10/interactions/\${interaction.id}/\${interaction.token}/callback\`, {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ type: 12 }),
+});`}</CodeBlock>
+
+      <H2 id="layout">{gt("Where your Activity appears")}</H2>
+      <UL>
+        <li>{gt("Launched in a text chat: docked above the messages, with a bar to collapse, minimize, leave or pop it out.")}</li>
+        <li>{gt("Launched in a call: it fills the call stage, with everyone's tiles below.")}</li>
+        <li>{gt("Elsewhere in the app it keeps running in a mini player, and in browsers it can pop out into its own window. ACTIVITY_LAYOUT_MODE_UPDATE tells you when it's in the mini player (layout_mode 1).")}</li>
       </UL>
 
       <H2 id="proxy">{gt("The proxy")}</H2>

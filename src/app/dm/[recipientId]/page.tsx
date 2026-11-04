@@ -60,6 +60,7 @@ import { E2eeConversationLock } from "@/components/e2ee/E2eeConversationLock";
 import { useE2ee } from "@/hooks/useE2ee";
 import { e2eeGateFor } from "@/lib/e2ee/client/state";
 import { StatusBadge } from "@/components/user/StatusBadge";
+import { ActivitySlot } from "@/components/activities/ActivitySlot";
 
 // Shown instead of the conversation until this account has a PIN / this device has keys.
 const E2eePinGate = dynamic(() => import("@/components/e2ee/E2eePinGate").then((m) => m.E2eePinGate), { ssr: false });
@@ -773,6 +774,8 @@ export default function DMConversationPage() {
           </>
         ) : (
         <>
+        {/* An Activity launched in this DM docks above the messages (CORD-92) */}
+        <ActivitySlot channelId={dmChannelId} voice={false} />
         {/* Messages */}
         <MessageList
           ref={messageListRef}

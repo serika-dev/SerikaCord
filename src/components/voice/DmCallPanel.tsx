@@ -13,6 +13,7 @@ import { VoiceParticipantAvatar } from "@/components/voice/VoiceParticipantAvata
 import dynamic from "next/dynamic";
 import { useVoiceUserMenu } from "@/components/voice/VoiceUserMenu";
 import { StreamQualityPicker } from "@/components/voice/StreamQualityPicker";
+import { ActivitySlot } from "@/components/activities/ActivitySlot";
 
 // Video stage (spotlight, fullscreen, pop-out): loaded with the first call.
 const CallStage = dynamic(() => import("@/components/voice/CallStage").then((m) => m.CallStage), { ssr: false });
@@ -243,6 +244,9 @@ export function DmCallPanel({
         </p>
       )}
 
+      {activityChannelId && (
+        <ActivitySlot channelId={activityChannelId} voice className="mt-3 h-[clamp(16rem,55vh,40rem)] flex-none rounded-xl overflow-hidden" />
+      )}
       <CallStage variant="dm" className="mt-3 h-[clamp(14rem,50vh,36rem)]" />
 
       <div className="mt-4 flex items-center justify-center gap-3">

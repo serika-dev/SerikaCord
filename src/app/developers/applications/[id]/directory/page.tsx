@@ -49,7 +49,7 @@ interface DirectoryData {
     verified: boolean;
     serverCount: number;
     threshold: number;
-    requirements: { id: "bot" | "servers"; met: boolean; current?: number; required?: number }[];
+    requirements: { id: "bot" | "servers" | "players"; met: boolean; current?: number; required?: number }[];
     note: string | null;
     requestedAt: string | null;
     reviewedAt: string | null;
@@ -341,6 +341,16 @@ export default function DirectoryPage() {
               <div className="min-w-0 flex-1">
                 {r.id === "bot" ? (
                   <p className="text-sm">{gt("The app has a bot user")}</p>
+                ) : r.id === "players" ? (
+                  <>
+                    <p className="text-sm">{gt("At least {count} different people played your Activity", { count: r.required ?? 100 })}</p>
+                    <div className="mt-2 flex items-center gap-3">
+                      <div className="h-2 flex-1 overflow-hidden rounded-full bg-white/[0.06]">
+                        <div className="h-full rounded-full bg-gradient-to-r from-[#8B5CF6] to-[#6366f1] transition-all" style={{ width: `${Math.min((r.current ?? 0) / (r.required ?? 100), 1) * 100}%` }} />
+                      </div>
+                      <span className="text-xs tabular-nums text-[#888]">{formatCount(r.current ?? 0, locale)}/{r.required ?? 100}</span>
+                    </div>
+                  </>
                 ) : (
                   <>
                     <p className="text-sm">{gt("The bot is in at least {count} servers", { count: verification.threshold })}</p>

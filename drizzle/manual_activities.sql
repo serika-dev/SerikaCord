@@ -37,3 +37,11 @@ CREATE TABLE IF NOT EXISTS activity_launches (
 );
 CREATE INDEX IF NOT EXISTS activity_launches_application_id_idx ON activity_launches (application_id, started_at);
 CREATE INDEX IF NOT EXISTS activity_launches_channel_id_idx ON activity_launches (channel_id, started_at);
+
+-- Different people who played an app's Activity (verification needs 100).
+CREATE TABLE IF NOT EXISTS activity_players (
+  application_id uuid NOT NULL,
+  user_id uuid NOT NULL,
+  first_played_at timestamp NOT NULL DEFAULT now(),
+  PRIMARY KEY (application_id, user_id)
+);

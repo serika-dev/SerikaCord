@@ -87,6 +87,7 @@ import { ThreadHeaderActions, ThreadHeaderTitle } from "@/components/chat/Thread
 import { MessageContent } from "@/components/chat/MessageContent";
 import { isSilentMessage } from "@/lib/chat/messageFlags";
 import type { RoleIconData } from "@/components/chat/RoleIcon";
+import { ActivitySlot } from "@/components/activities/ActivitySlot";
 
 const ImageLightbox = dynamic(() => import("@/components/ui/image-lightbox").then((m) => m.ImageLightbox), { ssr: false });
 
@@ -1597,6 +1598,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
 
       <div className="flex-1 flex min-h-0 min-w-0">
       <div className="flex-1 flex flex-col min-w-0 min-h-0">
+      {/* An Activity launched in this chat docks above the messages (CORD-92) */}
+      <ActivitySlot channelId={currentChannel?.id} voice={false} />
       {/* Messages */}
       <MessageList
         onJumpToMessage={jumpToMessage}

@@ -21,7 +21,7 @@ import { db, schema } from '@/lib/db/postgres';
 import { getRedis } from '@/lib/db/redis';
 import { ensureSchema, withLockTimeout } from '@/lib/db/schemaGuard';
 import { config } from '@/lib/config';
-import { Application, Channel, Server, User, type IChannel } from '@/lib/models';
+import { Application, Channel, User, type IChannel } from '@/lib/models';
 import { processShared } from '@/lib/realtime/processShared';
 import {
   DEFAULT_MAX_PARTICIPANTS, INSTANCE_MAX_AGE_MS, LAUNCH_DENIED_MESSAGES, PARTICIPANT_TIMEOUT_MS, checkLaunch, isInstanceId,
@@ -52,7 +52,12 @@ export function ensureActivityLaunchSchema(): Promise<void> {
   if (g.__activityLaunchSchema) return g.__activityLaunchSchema;
   g.__activityLaunchSchema = ensureSchema(
     'activity-launches',
-    { tables: { activity_launches: ['instance_id', 'application_id', 'launch_id', 'location_kind', 'channel_id', 'guild_id', 'voice', 'launcher_id', 'message_id', 'started_at', 'ended_at', 'peak_participants'] } },
+    {
+      tables: {
+        activity_launches: ['instance_id', 'application_id', 'launch_id', 'location_kind', 'channel_id', 'guild_id', 'voice', 'launcher_id', 'message_id', 'started_at', 'ended_at', 'peak_participants'],
+        activity_players: ['application_id', 'user_id', 'first_played_at'],
+      },
+    },
     () => withLockTimeout([
       sql`CREATE TABLE IF NOT EXISTS activity_launches (
         instance_id text PRIMARY KEY,
@@ -70,6 +75,12 @@ export function ensureActivityLaunchSchema(): Promise<void> {
       )`,
       sql`CREATE INDEX IF NOT EXISTS activity_launches_application_id_idx ON activity_launches (application_id, started_at)`,
       sql`CREATE INDEX IF NOT EXISTS activity_launches_channel_id_idx ON activity_launches (channel_id, started_at)`,
+      sql`CREATE TABLE IF NOT EXISTS activity_players (
+        application_id uuid NOT NULL,
+        user_id uuid NOT NULL,
+        first_played_at timestamp NOT NULL DEFAULT now(),
+        PRIMARY KEY (application_id, user_id)
+      )`,
     ]),
     { attempts: 3 },
   ).catch((err) => {
@@ -108,6 +119,54 @@ async function logUpdate(id: string, patch: { messageId?: string; endedAt?: Date
     if (patch.peak !== undefined) set.peakParticipants = sql`GREATEST(${schema.activityLaunches.peakParticipants}, ${patch.peak})`;
     if (Object.keys(set).length) await db.update(schema.activityLaunches).set(set).where(eq(schema.activityLaunches.instanceId, id));
   } catch { /* best-effort */ }
+}
+
+/** Remember that a user played an app (verification counts different players; the shelf shows recents). */
+async function recordPlayer(applicationId: string, userId: string): Promise<void> {
+  try {
+    await ensureActivityLaunchSchema();
+    await db.insert(schema.activityPlayers).values({ applicationId, userId }).onConflictDoNothing();
+  } catch { /* best-effort */ }
+  try {
+    const r = getRedis();
+    if (r) {
+      const key = `act:recent:${userId.toLowerCase()}`;
+      await r.multi().lrem(key, 0, applicationId).lpush(key, applicationId).ltrim(key, 0, 11).expire(key, 90 * 24 * 3600).exec();
+    }
+  } catch { /* best-effort */ }
+}
+
+/** Different people who played an app's Activity. */
+export async function countActivityPlayers(applicationId: string): Promise<number> {
+  try {
+    await ensureActivityLaunchSchema();
+    const [row] = await db.select({ n: sql<number>`count(*)::int` }).from(schema.activityPlayers).where(eq(schema.activityPlayers.applicationId, applicationId));
+    return Number(row?.n ?? 0);
+  } catch {
+    return 0;
+  }
+}
+
+/** Apps this user recently launched or joined (newest first). */
+export async function recentActivityApps(userId: string): Promise<string[]> {
+  try {
+    return (await getRedis()?.lrange(`act:recent:${userId.toLowerCase()}`, 0, 11)) ?? [];
+  } catch {
+    return [];
+  }
+}
+
+// ─── URL override (developer shelf) ─────────────────────────
+
+const kOverride = (token: string) => `act:ovr:${token}`;
+
+export interface UrlOverride { clientId: string; applicationId: string; target: string; userId: string }
+
+export async function getUrlOverride(token: string): Promise<UrlOverride | null> {
+  if (!/^[a-z0-9]{8,32}$/.test(token)) return null;
+  const raw = await getRedis()?.get(kOverride(token)).catch(() => null);
+  if (!raw) return null;
+  try { return JSON.parse(raw) as UrlOverride; } catch { return null; }
 }
 
 // ─── Records ────────────────────────────────────────────────
@@ -187,19 +246,16 @@ async function inVoiceRoom(roomId: string | null, userId: string): Promise<boole
   return voiceRoomMemberIds(roomId).some((u) => same(u, userId));
 }
 
-type Access = { ok: true; channel: IChannel; permissions: bigint; serverAgeGated: boolean } | { ok: false; reason: LaunchDenied };
+type Access = { ok: true; channel: IChannel; permissions: bigint } | { ok: false; reason: LaunchDenied };
 
 async function channelAccess(userId: string, channelId: string): Promise<Access> {
   const { checkChannelAccess, getMemberChannelPermissions } = await import('@/lib/api/channels');
   const access = await checkChannelAccess(userId, channelId);
   if (!access.hasAccess || !access.channel) return { ok: false, reason: 'no_access' };
   const channel = access.channel as IChannel;
-  if (!channel.serverId) return { ok: true, channel, permissions: 0n, serverAgeGated: false };
-  const [permissions, server] = await Promise.all([
-    getMemberChannelPermissions(userId, channel as IChannel & { serverId: string }, access.membership ?? null),
-    Server.findById(channel.serverId),
-  ]);
-  return { ok: true, channel, permissions, serverAgeGated: Boolean((server as { isAgeGated?: boolean } | null)?.isAgeGated) };
+  if (!channel.serverId) return { ok: true, channel, permissions: 0n };
+  const permissions = await getMemberChannelPermissions(userId, channel as IChannel & { serverId: string }, access.membership ?? null);
+  return { ok: true, channel, permissions };
 }
 
 export type ActivityResult<T> = { ok: true } & T | { ok: false; status: number; reason: LaunchDenied | 'not_found' | 'unavailable' | 'rate_limited'; error: string };
@@ -221,6 +277,19 @@ export interface LaunchOptions {
   commandName?: string;
   /** Tell the launcher's clients to open the Activity (launches from a command / interaction). */
   openFor?: boolean;
+  /** Post a Game Invitation for a text-chat launch (default true). */
+  invitation?: boolean;
+  /**
+   * Developer shelf: serve this launch from another URL instead of the root
+   * mapping (a protocol-less target, already validated; owner only). Always
+   * starts a new instance.
+   */
+  urlOverride?: string | null;
+  /**
+   * The user confirmed the 18+ warning. Command / interaction launches skip it
+   * (the frame still asks: opening it is a join, which requires it).
+   */
+  ageConfirmed?: boolean;
 }
 
 /**
@@ -239,7 +308,7 @@ export async function launchActivity(opts: LaunchOptions): Promise<ActivityResul
     permissions: access.permissions,
     inVoiceRoom: await inVoiceRoom(roomId, opts.user.id),
     voice: opts.voice,
-    serverAgeGated: access.serverAgeGated,
+    ageConfirmed: Boolean(opts.ageConfirmed) || Boolean(opts.openFor),
     app: { enabled: app.settings.enabled, ageGated: app.settings.ageGated, supportedPlatforms: app.settings.supportedPlatforms },
     // 'any': an interaction launch (the server doesn't know the device); joining re-checks it.
     platform: opts.platform === 'any' ? app.settings.supportedPlatforms[0] ?? 'web' : opts.platform,
@@ -250,10 +319,13 @@ export async function launchActivity(opts: LaunchOptions): Promise<ActivityResul
   const r = redisOrThrow();
   const locKey = kLoc(channel.id, app.id);
   const existingId = await r.get(locKey);
-  if (existingId) {
+  if (existingId && opts.urlOverride) {
+    // A developer override replaces whatever runs here.
+    await endInstance(existingId);
+  } else if (existingId) {
     const existing = await getInstance(existingId);
     if (existing && !existing.endedAt) {
-      const joined = await joinActivity(opts.user, existing.id, opts.platform === 'any' ? app.settings.supportedPlatforms[0] ?? 'web' : opts.platform);
+      const joined = await joinActivity(opts.user, existing.id, opts.platform === 'any' ? app.settings.supportedPlatforms[0] ?? 'web' : opts.platform, Boolean(opts.ageConfirmed) || Boolean(opts.openFor));
       if (!joined.ok) return joined;
       if (opts.openFor) void openFor(opts.user.id, existing.id);
       return { ok: true, instance: existing, created: false };
@@ -275,14 +347,21 @@ export async function launchActivity(opts: LaunchOptions): Promise<ActivityResul
     startedAt: Date.now(),
     messageId: null,
     endedAt: null,
+    overrideToken: null,
   };
+  if (opts.urlOverride) {
+    const token = randomBytes(10).toString('hex');
+    const ovr: UrlOverride = { clientId: app.clientId, applicationId: app.id, target: opts.urlOverride, userId: opts.user.id };
+    await r.set(kOverride(token), JSON.stringify(ovr), 'EX', TTL_S);
+    rec.overrideToken = token;
+  }
   const won = await r.set(locKey, rec.id, 'EX', TTL_S, 'NX');
   if (!won) {
     // Someone launched at the same moment: join theirs.
     const otherId = await r.get(locKey);
     const other = otherId ? await getInstance(otherId) : null;
     if (other && !other.endedAt) {
-      const joined = await joinActivity(opts.user, other.id, opts.platform === 'any' ? app.settings.supportedPlatforms[0] ?? 'web' : opts.platform);
+      const joined = await joinActivity(opts.user, other.id, opts.platform === 'any' ? app.settings.supportedPlatforms[0] ?? 'web' : opts.platform, Boolean(opts.ageConfirmed) || Boolean(opts.openFor));
       if (!joined.ok) return joined;
       if (opts.openFor) void openFor(opts.user.id, other.id);
       return { ok: true, instance: other, created: false };
@@ -300,7 +379,7 @@ export async function launchActivity(opts: LaunchOptions): Promise<ActivityResul
   await multi.exec();
   ensureSweeper();
 
-  if (!opts.voice) {
+  if (!opts.voice && opts.invitation !== false) {
     const messageId = await postInvitation(app, channel, rec, opts.user, opts.commandName ?? null);
     if (messageId) {
       rec.messageId = messageId;
@@ -308,6 +387,7 @@ export async function launchActivity(opts: LaunchOptions): Promise<ActivityResul
     }
   }
   void logLaunch(rec);
+  void recordPlayer(app.id, opts.user.id);
   void setPlayingPresence(opts.user.id, app, rec);
   await broadcast(rec, app);
   if (opts.openFor) void openFor(opts.user.id, rec.id);
@@ -323,7 +403,7 @@ async function openFor(userId: string, instanceId: string): Promise<void> {
 }
 
 /** Join a running instance (re-checked against the location every time). */
-export async function joinActivity(user: { id: string }, instanceId: string, platform: string): Promise<ActivityResult<{ instance: ActivityInstanceRecord }>> {
+export async function joinActivity(user: { id: string }, instanceId: string, platform: string, ageConfirmed = false): Promise<ActivityResult<{ instance: ActivityInstanceRecord }>> {
   const rec = await getInstance(instanceId);
   if (!rec || rec.endedAt) return { ok: false, status: 404, reason: 'not_found', error: 'This Activity has ended.' };
   const app = await loadActivityApp(rec.applicationId);
@@ -335,7 +415,7 @@ export async function joinActivity(user: { id: string }, instanceId: string, pla
     permissions: access.permissions,
     inVoiceRoom: await inVoiceRoom(rec.location.voiceRoomId, user.id),
     voice: Boolean(rec.location.voiceRoomId),
-    serverAgeGated: access.serverAgeGated,
+    ageConfirmed,
     app: { enabled: app.settings.enabled, ageGated: app.settings.ageGated, supportedPlatforms: app.settings.supportedPlatforms },
     platform,
     domainConfigured: Boolean(config.ACTIVITIES_DOMAIN),
@@ -349,6 +429,7 @@ export async function joinActivity(user: { id: string }, instanceId: string, pla
   }
   await r.zadd(kUsers(rec.id), Date.now(), user.id.toLowerCase());
   if (already === null) {
+    void recordPlayer(app.id, user.id);
     void setPlayingPresence(user.id, app, rec);
     await broadcast(rec, app);
   }

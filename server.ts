@@ -27,6 +27,7 @@ import { handleCdnCompat } from '@/lib/botapi/cdnCompat';
 import { config } from '@/lib/config';
 import { activityFrameSource, isActivitiesHost } from '@/lib/activities/settings';
 import { handleActivityRequest, withActivitySockets } from '@/lib/activities/proxy';
+import { DOODLE_WS_PATH, upgradeDoodle, withDoodleSockets } from '@/lib/activityApps/doodle/server';
 import { getClientIP } from '@/lib/security';
 
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -121,6 +122,10 @@ async function main() {
   import('@/lib/services/activityInstances')
     .then((m) => m.startActivitySweeper())
     .catch((err) => console.error('Activity sweeper init failed:', err));
+  // Doodle Party (built-in Activity): seed its settings when DOODLE_ACTIVITY_APP_ID is set.
+  import('@/lib/activityApps/doodle/seed')
+    .then((m) => m.ensureDoodleActivity())
+    .catch((err) => console.error('Doodle seed failed:', err));
 
   // Unsaved per-server profile images (drafts older than a day): swept in
   // small batches by one instance at a time (Redis leader lock).
@@ -152,6 +157,12 @@ async function main() {
         return handleActivityRequest(req, server, getClientIP(req));
       }
 
+      // ─── Built-in Activity backends (Doodle Party) ────────────
+      // Reached through the Activities proxy, like any Activity backend.
+      if (pathname === DOODLE_WS_PATH && req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+        return upgradeDoodle(req, server);
+      }
+
       // ─── Activities calling SerikaCord's API (CORD-92) ───────
       // Like Discord's discord.com/api exception: an Activity may call the
       // Discord-compatible API with its own OAuth2 / bot token. Cookies are
@@ -159,7 +170,7 @@ async function main() {
       // the signed-in user.
       const activityOrigin = activityCorsOrigin(req.headers.get('origin'));
       if (activityOrigin) {
-        if (!/^\/api\/(v\d+|oauth2)(\/|$)/.test(pathname)) {
+        if (!/^\/api\/(v\d+|oauth2|activity-apps)(\/|$)/.test(pathname)) {
           return new Response(JSON.stringify({ message: '403: Forbidden', code: 0 }), { status: 403, headers: { 'Content-Type': 'application/json' } });
         }
         if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: activityCorsHeaders(activityOrigin) });
@@ -236,7 +247,7 @@ async function main() {
       });
       return fetch(proxyReq, { redirect: 'manual' }).then(withActivitiesFrameSrc);
     },
-    websocket: withActivitySockets(gateway.websocket),
+    websocket: withDoodleSockets(withActivitySockets(gateway.websocket)),
   });
 
   console.log(`🚀 SerikaCord ready on http://0.0.0.0:${port}`);

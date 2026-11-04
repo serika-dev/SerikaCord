@@ -1028,6 +1028,16 @@ export const applicationActivitySettings = pgTable('application_activity_setting
   enabledIdx: index('application_activity_settings_enabled_idx').on(t.enabled),
 }));
 
+// Different people who played an app's Activity (verification needs 100, like
+// Discord). Created on first use by ensureActivityLaunchSchema().
+export const activityPlayers = pgTable('activity_players', {
+  applicationId: uuid('application_id').notNull(),
+  userId: uuid('user_id').notNull(),
+  firstPlayedAt: timestamp('first_played_at').notNull().defaultNow(),
+}, (t) => ({
+  pk: primaryKey({ columns: [t.applicationId, t.userId] }),
+}));
+
 // One row per Activity launch (audit / analytics). Running instances live in
 // Redis (src/lib/services/activityInstances.ts). Created on first use by
 // ensureActivityLaunchSchema() (drizzle/manual_activities.sql).

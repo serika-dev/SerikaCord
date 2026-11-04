@@ -62,6 +62,8 @@ export const LISTING_LIMITS = {
 
 /** Bots must be in this many servers before they can apply for verification. */
 export const VERIFICATION_SERVER_THRESHOLD = 100;
+/** Apps with an Activity verify once this many different people have played it (like Discord). */
+export const VERIFICATION_PLAYER_THRESHOLD = 100;
 
 /** After a rejection, owners wait this long before applying again. */
 export const VERIFICATION_REAPPLY_COOLDOWN_MS = 7 * 24 * 60 * 60 * 1000;
@@ -142,16 +144,23 @@ export function listingProblems(app: ListingFlags & { shortDescription?: string 
 // ─── Verification ────────────────────────────────────────────────────────────
 
 export interface VerificationRequirement {
-  id: 'bot' | 'servers';
+  id: 'bot' | 'servers' | 'players';
   met: boolean;
   current?: number;
   required?: number;
 }
 
-export function verificationRequirements(app: { botId?: string | null }, serverCount: number): VerificationRequirement[] {
+/**
+ * What an app needs before it may apply for verification. Apps with an
+ * Activity (`activityPlayers` set) count different people who played it
+ * instead of servers.
+ */
+export function verificationRequirements(app: { botId?: string | null }, serverCount: number, activityPlayers: number | null = null): VerificationRequirement[] {
   return [
     { id: 'bot', met: !!app.botId },
-    { id: 'servers', met: serverCount >= VERIFICATION_SERVER_THRESHOLD, current: serverCount, required: VERIFICATION_SERVER_THRESHOLD },
+    activityPlayers !== null
+      ? { id: 'players', met: activityPlayers >= VERIFICATION_PLAYER_THRESHOLD, current: activityPlayers, required: VERIFICATION_PLAYER_THRESHOLD }
+      : { id: 'servers', met: serverCount >= VERIFICATION_SERVER_THRESHOLD, current: serverCount, required: VERIFICATION_SERVER_THRESHOLD },
   ];
 }
 

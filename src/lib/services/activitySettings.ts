@@ -107,7 +107,15 @@ export async function updateActivitySettings(
     const flags = Number(app.flags) || 0;
     const next = fields.enabled ? flags | APPLICATION_FLAG_EMBEDDED : flags & ~APPLICATION_FLAG_EMBEDDED;
     if (next !== flags) await Application.updateById(app.id, { flags: next, updatedAt: new Date() });
-    if (fields.enabled) await ensureDefaultEntryPointCommand(app);
+    if (fields.enabled) {
+      // Game Invitations and results messages come from the app's bot.
+      const full = await Application.findById(app.id);
+      if (full && !full.botId) {
+        const { ensureBotProvisioned } = await import('@/lib/services/appIdentity');
+        await ensureBotProvisioned(full).catch((err: unknown) => console.error('[activities] bot provisioning failed:', (err as Error)?.message ?? err));
+      }
+      await ensureDefaultEntryPointCommand(app);
+    }
   }
   return getActivitySettings(app.id);
 }

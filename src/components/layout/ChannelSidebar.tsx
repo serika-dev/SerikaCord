@@ -92,6 +92,7 @@ import { ServerPageEntries } from "@/components/server/community/ServerPageEntri
 import { StatusBadge } from "@/components/user/StatusBadge";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { useMenuPlacement } from "@/hooks/useMenuPlacement";
+import { ActivityNowPlaying } from "@/components/activities/ActivityNowPlaying";
 
 const ChannelSettingsDialog = dynamic(() => import("@/components/dialogs/ChannelSettingsDialog").then((m) => m.ChannelSettingsDialog), { ssr: false });
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
@@ -2042,6 +2043,9 @@ export function UserPanel({ user }: UserPanelProps) {
   const nameplateBg = getNameplateBackground(user?.customization);
 
   return (
+    <>
+    {/* The open Activity (CORD-92), above the user panel like Discord */}
+    <ActivityNowPlaying />
     <div className="relative overflow-hidden h-[52px] px-2 flex items-center bg-[var(--bg-sidebar)] border-t border-[var(--border-subtle)]">
       {/* Nameplate — floats behind the whole panel, not boxed in its own pill */}
       {nameplateBg && (
@@ -2106,6 +2110,7 @@ export function UserPanel({ user }: UserPanelProps) {
         </button>
       </div>
     </div>
+    </>
   );
 }
 

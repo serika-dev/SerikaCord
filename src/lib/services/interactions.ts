@@ -368,6 +368,8 @@ async function applyCallback(
           platform: 'any',
           commandName: state.commandName ?? undefined,
           openFor: true,
+          // From a button or modal the app's own message is the invitation: no card.
+          invitation: state.type === InteractionType.APPLICATION_COMMAND,
         });
         if (!launched.ok) {
           await store.releaseAck(state.id);
@@ -1232,6 +1234,15 @@ export async function maybeDispatchSlashInteraction(
   }
   const ctx: InvokeContext = { user, channel, membership };
   await Promise.all(usable.map(async ({ command, app }) => {
+    if (command.type === CommandType.PRIMARY_ENTRY_POINT && command.handler !== EntryPointHandler.APP_HANDLER) {
+      const { launchActivity } = await import('@/lib/services/activityInstances');
+      const launched = await launchActivity({
+        user: { id: user.id, username: user.username }, applicationId: app.id, channelId: channel.id, voice: false,
+        platform: 'any', commandName: command.name, openFor: true,
+      });
+      if (!launched.ok) void notifyInvoker(user.id, { event: 'failed', channelId: channel.id, reason: launched.reason, command: command.name });
+      return;
+    }
     const declared = (Array.isArray(command.options) ? command.options : []) as CommandOption[];
     const result = await dispatchCommand({ ctx, command, app, options: optionsFromText(declared, tokens) });
     if (!result.ok) {

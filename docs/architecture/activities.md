@@ -393,8 +393,10 @@ Decisions made while building:
   exception.
 - **Ids:** frame query params and every SDK payload use the app's id format
   (snowflakes for snowflake apps), so they match `/users/@me` and the bot API.
-- **Age gate:** there is no per-user age, so an 18+ Activity only launches in
-  NSFW channels or age-gated servers, never in DMs.
+- **Age gate:** an 18+ Activity shows a warning that people confirm before
+  launching or joining. The server refuses `launch` / `join` without
+  `ageConfirmed`. Command and interaction launches skip it at launch, but
+  opening the frame is a join, which asks.
 - **Presence:** "Playing <Activity>" is a `rich_presence` row of type
   `activity`. Heartbeats refresh it, and leaving or ending deletes it. The
   desktop rich-presence heartbeat no longer deletes rows of that type.
@@ -405,10 +407,39 @@ Decisions made while building:
   `src/lib/api/voice.ts`) leaves the Activity.
 - **Command launches** (`/launch`, `LAUNCH_ACTIVITY`) send `activity_open` to
   the launcher. Only their visible, focused window opens the frame.
-- **Layout:** one panel for calls and chats: docked right (desktop), full
-  screen (phones or "expand"), or a mini window (PIP, `layout_mode` 1). Not
-  built: a separate pop-out OS window. The SDK's `parent.opener` path would
-  need a SerikaCord-origin popup page hosting the relay.
+- **Layout (like Discord):** a text-chat Activity docks above that chat's
+  messages; a call Activity fills the call stage with the tiles below. Both
+  have a bar: players, collapse (chat only), minimize, leave, pop-out. The
+  frame is rendered once by `ActivityHost` and positioned over the slot the
+  chat or call registers (`ActivitySlot`), so it never reloads. Elsewhere it
+  becomes a mini player (`layout_mode` 1); phones show it full screen. A
+  "Now playing" card sits above the user panel.
+- **Pop-out (browsers):** `/activity-popout` is a SerikaCord-origin window
+  that hosts the relay frame itself, so the SDK's `parent.opener` path never
+  comes into play. Live updates reach it over a BroadcastChannel, and
+  closing it returns the Activity to the main window. Not offered in the Qt
+  desktop app (its popup handling sends app URLs to the main window) or on
+  phones. Speaking events don't reach a popped-out frame, because voice runs
+  in the main window.
+- **Shelf (like Discord's):** it lists verified and official apps, the user's
+  own apps, apps the user authorized (invite link / OAuth2), and the built-in
+  Doodle Party, plus Recents (`act:recent:<user>`) and search. In Developer
+  Mode, "Use Activity URL Override" launches an own app with its root mapping
+  replaced by a public target (validated like a mapping). The instance is
+  then served at `<client_id>-<token>.<domain>` (`act:ovr:<token>`), so
+  everyone who joins gets the developer's build.
+- **Verification:** apps with an Activity can apply once 100 different people
+  have played it (`activity_players`), instead of the 100-server rule.
+- **Status messages (Wordle-style):** apps post normal bot messages with a
+  button and answer the button's interaction with `LAUNCH_ACTIVITY`.
+  Launches from components or modals don't add a Game Invitation; the app's
+  message is the invitation.
+- **Doodle Party** (built-in, `DOODLE_ACTIVITY_APP_ID`): game rules are in
+  `src/lib/activityApps/doodle/game.ts` (pure, tested). The backend is at
+  `/api/activity-apps/doodle` (page, Bun-built client bundle, `/token`, `/ws`)
+  and is reached through the proxy like any Activity. Rooms are per instance,
+  in memory. Settings are seeded at boot when missing, and the entry point is
+  `/doodle`.
 - **Not built (out of scope or no API):** monetization (SKUs, entitlements,
   purchases return empty / unavailable), quests, `initiateImageUpload`,
   `shareLink`, `inviteUserEmbedded`, `requestProxyTicketRefresh`;

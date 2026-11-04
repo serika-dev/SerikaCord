@@ -7,7 +7,9 @@
 ## Unreleased
 
 ### Features
-- **Activities** — play games and other web apps together. Start one from the rocket button in a voice channel, DM call or group call, or from "Start an Activity" in any chat's + menu (or the app's /launch command). In a chat it posts a Game Invitation card that anyone there can press Play on; when the game ends the card says so and Play starts a new one. People in an Activity show as "Playing an Activity". Activities built for Discord work with only their client ID and API address changed; developers set them up under Activities in the developer portal. (CORD-92)
+- **Activities** — play games and other web apps together. Start one from the rocket button in a voice channel, DM call or group call, from "Start an Activity" in any chat's + menu, or with the app's command (for example /doodle). In a chat it docks above the messages and posts a Game Invitation card that anyone there can press Play on; in a call it fills the call screen with everyone's tiles below. It keeps playing in a mini player while you look around, can pop out into its own window in the browser, and the sidebar shows what you're playing. 18+ Activities ask you to confirm your age first. People in an Activity show as "Playing an Activity". (CORD-92)
+- **Doodle Party** — a built-in drawing and guessing game: take turns drawing a word while everyone else races to guess it, with hints, scores and a results message in the chat at the end. (CORD-92)
+- **Activities for developers** — Activities built for Discord work with only their client ID and API address changed. Set them up under Activities in the developer portal; with Developer Mode on, the shelf lets you launch your own app from a URL override. Apps with an Activity can apply for verification once 100 different people have played it. (CORD-92)
 
 ### Changes
 

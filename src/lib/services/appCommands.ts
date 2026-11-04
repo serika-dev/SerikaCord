@@ -623,7 +623,8 @@ export async function findUsableCommandsByName(
   const rows = await db.select().from(schema.appCommands)
     .where(and(
       eq(schema.appCommands.name, name),
-      eq(schema.appCommands.type, CommandType.CHAT_INPUT),
+      // Typed `/doodle` also reaches an Activity's entry point command (CORD-92).
+      inArray(schema.appCommands.type, [CommandType.CHAT_INPUT, CommandType.PRIMARY_ENTRY_POINT]),
       inArray(schema.appCommands.applicationId, appIds),
       guildId ? or(isNull(schema.appCommands.guildId), eq(schema.appCommands.guildId, guildId)) : isNull(schema.appCommands.guildId),
     ))
@@ -640,6 +641,7 @@ export async function findUsableCommandsByName(
   for (const command of perApp.values()) {
     const app = await Application.findById(command.applicationId);
     if (!app?.botId || !usableBy(command, app.id, viewer.channel.id, ctx)) continue;
+    if (command.type === CommandType.PRIMARY_ENTRY_POINT && !(await entryPointsLive(app.id))) continue;
     out.push({ command, app });
   }
   return out;

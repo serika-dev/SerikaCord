@@ -37,6 +37,7 @@ const ForumChannelView = dynamic(() => import("@/components/chat/ForumChannelVie
 const ThreadPanel = dynamic(() => import("@/components/chat/ThreadPanel").then((m) => m.ThreadPanel), { ssr: false });
 import { useVoiceUserMenu } from "@/components/voice/VoiceUserMenu";
 import { StreamQualityPicker } from "@/components/voice/StreamQualityPicker";
+import { ActivitySlot } from "@/components/activities/ActivitySlot";
 
 // The call stage (video grid, spotlight, pop-out) only loads once you join.
 const CallStage = dynamic(() => import("@/components/voice/CallStage").then((m) => m.CallStage), { ssr: false });
@@ -318,6 +319,8 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
         ) : (
           /* Joined — show video grid + controls */
           <>
+            {/* An Activity launched in this call fills the stage (CORD-92) */}
+            <ActivitySlot channelId={channelId} voice className="min-h-[50%] mx-3 sm:mx-4 mt-3 rounded-xl overflow-hidden" />
             {/* Everyone in the call: cameras, screen shares and avatar cards.
                 Click to spotlight, right-click for volume / moderation. */}
             <CallStage

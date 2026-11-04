@@ -222,3 +222,27 @@ describe("isActivitiesHost", () => {
     expect(isActivitiesHost(null, "waifu.ws")).toBe(false);
   });
 });
+
+describe("URL-override hosts", () => {
+  test("parse <client_id>[-<token>] hosts", async () => {
+    const { parseActivityHost, activityHostLabel, withRootOverride } = await import("@/lib/activities/settings");
+    expect(parseActivityHost("123.waifu.ws", "waifu.ws")).toEqual({ clientId: "123", overrideToken: null });
+    expect(parseActivityHost("123-abcdef12.waifu.ws", "waifu.ws")).toEqual({ clientId: "123", overrideToken: "abcdef12" });
+    expect(parseActivityHost("123-ab.waifu.ws", "waifu.ws")).toBeNull();
+    expect(parseActivityHost("x-abcdef12.waifu.ws", "waifu.ws")).toBeNull();
+    expect(clientIdFromActivityHost("123-abcdef12.waifu.ws", "waifu.ws")).toBeNull();
+    expect(activityHostLabel("123", "abcdef12")).toBe("123-abcdef12");
+    expect(activityHostLabel("123", "BAD!")).toBeNull();
+    expect(withRootOverride([{ prefix: "/api", target: "api.x.com" }, { prefix: "/", target: "x.com" }], "dev.tunnel.com"))
+      .toEqual([{ prefix: "/api", target: "api.x.com" }, { prefix: "/", target: "dev.tunnel.com" }]);
+  });
+});
+
+describe("verification by players", () => {
+  test("Activity apps need 100 different players instead of 100 servers", async () => {
+    const { verificationRequirements, VERIFICATION_PLAYER_THRESHOLD } = await import("@/lib/appDirectory/listing");
+    expect(verificationRequirements({ botId: "b" }, 0, 99).map((r) => [r.id, r.met])).toEqual([["bot", true], ["players", false]]);
+    expect(verificationRequirements({ botId: "b" }, 0, VERIFICATION_PLAYER_THRESHOLD).every((r) => r.met)).toBe(true);
+    expect(verificationRequirements({ botId: "b" }, 150).map((r) => r.id)).toEqual(["bot", "servers"]);
+  });
+});
