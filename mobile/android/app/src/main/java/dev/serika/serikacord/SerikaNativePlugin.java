@@ -9,6 +9,7 @@ import android.net.Uri;
 import android.os.Build;
 import android.service.notification.StatusBarNotification;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
 import android.webkit.WebView;
 import androidx.annotation.NonNull;
@@ -35,6 +36,7 @@ import java.util.concurrent.Executors;
  *  - setSystemBars: status + navigation bar colours and icon contrast from the app theme
  *  - insets: safe-area + keyboard obstruction of the WebView, in CSS px
  *    (works whether the WebView is resized for the keyboard or drawn edge to edge)
+ *  - un-sticks @capacitor/keyboard's resizeOnFullScreen squeeze once the keyboard is gone
  *  - launch routes: where a tapped notification wants the app to go
  *  - clearNotifications / setBadge: drop delivered notifications once read
  *  - minimize: back button at the root sends the app to the background
@@ -82,7 +84,10 @@ public class SerikaNativePlugin extends Plugin {
     private void attachInsetWatchers() {
         WebView webView = getBridge() != null ? getBridge().getWebView() : null;
         if (webView == null) return;
-        webView.getViewTreeObserver().addOnGlobalLayoutListener(() -> publishInsets(null));
+        webView.getViewTreeObserver().addOnGlobalLayoutListener(() -> {
+            releaseStuckKeyboardResize();
+            publishInsets(null);
+        });
         ViewCompat.setWindowInsetsAnimationCallback(
             webView,
             new WindowInsetsAnimationCompat.Callback(WindowInsetsAnimationCompat.Callback.DISPATCH_MODE_CONTINUE_ON_SUBTREE) {
@@ -98,11 +103,44 @@ public class SerikaNativePlugin extends Plugin {
 
                 @Override
                 public void onEnd(@NonNull WindowInsetsAnimationCompat animation) {
+                    releaseStuckKeyboardResize();
                     publishInsets(null);
                 }
             }
         );
         publishInsets(null);
+    }
+
+    @Override
+    protected void handleOnResume() {
+        super.handleOnResume();
+        Activity activity = getActivity();
+        if (activity != null) activity.getWindow().getDecorView().post(this::releaseStuckKeyboardResize);
+    }
+
+    /**
+     * @capacitor/keyboard with resizeOnFullScreen shrinks the content view to the
+     * space above the keyboard while it is up, and restores it only from the
+     * keyboard's hide *animation*. When the keyboard goes away without one (the
+     * app sent to the background or the screen locked with the keyboard up, some
+     * keyboards), the app stayed squeezed into the top part of the screen with
+     * the window background below it. Once no keyboard is showing, give the
+     * content view its full height back. (The plugin then skips resizing on the
+     * next open, where the web side pads for the keyboard from these insets,
+     * and is back in step after that keyboard's hide animation.)
+     */
+    private void releaseStuckKeyboardResize() {
+        Activity activity = getActivity();
+        if (activity == null) return;
+        View content = activity.findViewById(android.R.id.content);
+        if (!(content instanceof ViewGroup) || ((ViewGroup) content).getChildCount() == 0) return;
+        View child = ((ViewGroup) content).getChildAt(0);
+        ViewGroup.LayoutParams lp = child.getLayoutParams();
+        if (lp == null || lp.height == ViewGroup.LayoutParams.MATCH_PARENT) return;
+        WindowInsetsCompat insets = ViewCompat.getRootWindowInsets(content);
+        if (insets == null || insets.isVisible(WindowInsetsCompat.Type.ime())) return;
+        lp.height = ViewGroup.LayoutParams.MATCH_PARENT;
+        child.setLayoutParams(lp);
     }
 
     /** How much of the WebView each system bar / the keyboard covers, in CSS px. */

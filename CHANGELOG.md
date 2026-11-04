@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- In the Android app, the screen no longer gets stuck squeezed into the top half (with a grey area below) after the keyboard closes while you switch apps or lock the phone (needs the app update)
 - On phones, a member card in the member list no longer shrinks to half width after you've opened that person's profile
 
 ### Performance
