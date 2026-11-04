@@ -416,10 +416,11 @@ interface NameStyleInput {
  * Extra style for a display name on this card. Names keep the user's chosen
  * colour or gradient; when it can't reach 3:1 (large text) on the card, a
  * thin halo in the opposite tone is added (drop-shadow works with
- * background-clip:text gradients, text-shadow doesn't).
+ * background-clip:text gradients, text-shadow doesn't). Toon and Pop draw
+ * their own outline / 3D shadow, which a halo on top only muddies.
  */
 export function profileNameContrastStyle(style: NameStyleInput | null | undefined, palette: ProfilePalette): CSSProperties {
-  if (!style || style.effect === "toon") return {};
+  if (!style || style.effect === "toon" || style.effect === "pop") return {};
   let colors: RGBA[] = [];
   if (style.effect === "neon") colors = [parseColor("#ffffff") as RGBA];
   else if (style.effect === "gradient" && Array.isArray(style.gradient) && style.gradient.length >= 2) {
