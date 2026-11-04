@@ -57,8 +57,8 @@ export interface OpenActivity {
   /** Bumped when the same instance is opened again (bring it back from the mini window). */
   nonce: number;
   layout: ActivityLayout;
-  /** Text-chat Activities can be collapsed to just their control bar. */
-  collapsed: boolean;
+  /** Text-chat Activity: hide the chat so the Activity fills the conversation (Discord's chevron). */
+  chatHidden: boolean;
   /** Where to go to see it docked (the chat or call it was opened from). */
   returnPath: string;
 }
@@ -232,7 +232,7 @@ function show(instanceId: string, frame: FrameInfo | null | undefined): boolean 
   if (state.open && state.open.instanceId !== instanceId) void leave(state.open.instanceId);
   closePopout();
   set({
-    open: { instanceId, frame, nonce: (state.open?.nonce ?? 0) + 1, layout: "inline", collapsed: false, returnPath: currentPath() },
+    open: { instanceId, frame, nonce: (state.open?.nonce ?? 0) + 1, layout: "inline", chatHidden: false, returnPath: currentPath() },
     shelf: null,
     error: null,
   });
@@ -267,7 +267,7 @@ export async function launchActivity(applicationId: string, channelId: string, v
 export async function joinActivity(instanceId: string, ageConfirmed = false, appName = ""): Promise<boolean> {
   if (state.open?.instanceId === instanceId) {
     if (state.open.layout === "popout") focusPopout();
-    else set({ open: { ...state.open, nonce: state.open.nonce + 1, layout: "inline", collapsed: false } });
+    else set({ open: { ...state.open, nonce: state.open.nonce + 1, layout: "inline" } });
     return true;
   }
   const r = await post(`/api/activities/instances/${encodeURIComponent(instanceId)}/join`, { platform: platformHint(), ageConfirmed });
@@ -294,11 +294,12 @@ export function closeActivity(): void {
 export function setActivityLayout(layout: Exclude<ActivityLayout, "popout">): void {
   if (!state.open) return;
   if (state.open.layout === "popout") closePopout();
-  set({ open: { ...state.open, layout, collapsed: layout === "inline" ? state.open.collapsed : false } });
+  set({ open: { ...state.open, layout } });
 }
 
-export function toggleActivityCollapsed(): void {
-  if (state.open) set({ open: { ...state.open, collapsed: !state.open.collapsed } });
+/** Hide / show the chat under a text-chat Activity. */
+export function toggleChatHidden(): void {
+  if (state.open) set({ open: { ...state.open, chatHidden: !state.open.chatHidden } });
 }
 
 /** Heartbeat for the open frame. False = the server says we're no longer in it. */
@@ -330,7 +331,7 @@ export function popOutActivity(): boolean {
   const w = window.open(`${POPOUT_PATH}#${encodeURIComponent(JSON.stringify(payload))}`, `serika-activity-${o.instanceId}`, "popup=yes,width=1100,height=760");
   if (!w) return false;
   popout = w;
-  set({ open: { ...o, layout: "popout", collapsed: false } });
+  set({ open: { ...o, layout: "popout" } });
   if (popoutTimer !== null) window.clearInterval(popoutTimer);
   // The window was closed (by the user or "return"): bring the Activity back here.
   popoutTimer = window.setInterval(() => {

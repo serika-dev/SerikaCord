@@ -422,8 +422,8 @@ Decisions made while building:
   phones. Speaking events don't reach a popped-out frame, because voice runs
   in the main window.
 - **Shelf (like Discord's):** it lists verified and official apps, the user's
-  own apps, apps the user authorized (invite link / OAuth2), and the built-in
-  Doodle Party, plus Recents (`act:recent:<user>`) and search. In Developer
+  own apps and apps the user authorized (invite link / OAuth2), plus Recents
+  (`act:recent:<user>`) and search. In Developer
   Mode, "Use Activity URL Override" launches an own app with its root mapping
   replaced by a public target (validated like a mapping). The instance is
   then served at `<client_id>-<token>.<domain>` (`act:ovr:<token>`), so
@@ -434,12 +434,17 @@ Decisions made while building:
   button and answer the button's interaction with `LAUNCH_ACTIVITY`.
   Launches from components or modals don't add a Game Invitation; the app's
   message is the invitation.
-- **Doodle Party** (built-in, `DOODLE_ACTIVITY_APP_ID`): game rules are in
-  `src/lib/activityApps/doodle/game.ts` (pure, tested). The backend is at
-  `/api/activity-apps/doodle` (page, Bun-built client bundle, `/token`, `/ws`)
-  and is reached through the proxy like any Activity. Rooms are per instance,
-  in memory. Settings are seeded at boot when missing, and the entry point is
-  `/doodle`.
+- **Doodle Party** runs separately (serika-dev/DoodleParty at
+  `https://doodle.waifu.ws`, Coolify app `exyg1wnwahqcb3wcoxipi1lm`), like any
+  third-party Activity. Its root mapping points there, and it uses only the
+  public API: the OAuth2 token exchange, `/users/@me`,
+  `activity-instances` and channel messages. Set up (art, verified, mapping,
+  `/doodle`, the server's secrets) with
+  `scripts/configure-doodle-activity.ts`. URL mappings may target names under
+  the Activities domain except `<client_id>` hosts (which would loop).
+- **Hide chat:** the chevron on a text-chat Activity hides the chat. The slot
+  then covers the conversation below the chat header, with the app's name on
+  top, until it is shown again (the chat columns are `relative` for this).
 - **Not built (out of scope or no API):** monetization (SKUs, entitlements,
   purchases return empty / unavailable), quests, `initiateImageUpload`,
   `shareLink`, `inviteUserEmbedded`, `requestProxyTicketRefresh`;

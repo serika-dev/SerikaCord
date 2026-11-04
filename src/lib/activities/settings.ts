@@ -153,9 +153,15 @@ export function normalizeTarget(
   if (HAS_TOKEN_RE.test(tld)) return { ok: false, message: 'The last part of the target domain cannot be a {name} parameter.' };
   if (labels.slice(-2).every((l) => l.startsWith('{'))) return { ok: false, message: 'Target must name a fixed domain, not only {name} parameters.' };
   if (BLOCKED_HOST_SUFFIXES.includes(tld)) return { ok: false, message: 'Target must be a public domain name.' };
+  // The Activities domain itself and its <client_id> hosts would loop back into
+  // the proxy. Other names under it (e.g. doodle.waifu.ws) are ordinary hosts.
   for (const blocked of opts.blockedHosts ?? []) {
     const b = blocked.toLowerCase().replace(/\.$/, '');
-    if (b && (host === b || host.endsWith(`.${b}`))) return { ok: false, message: 'Target cannot point at the Activities domain.' };
+    if (!b) continue;
+    const label = host.endsWith(`.${b}`) ? host.slice(0, -(b.length + 1)) : null;
+    if (host === b || (label !== null && /^[0-9{]/.test(label) && /^(\{[a-z]+\}|[0-9]{1,32}(-[a-z0-9{}]+)?)(\.|$)/.test(label))) {
+      return { ok: false, message: 'Target cannot point at an Activity host.' };
+    }
   }
   const used = [...host.matchAll(TOKEN_RE)].map((m) => m[1]);
   for (const name of used) {

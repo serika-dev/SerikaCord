@@ -12385,5 +12385,7 @@
   "7fe887453c4e856e": "Show Activity",
   "0ebfee3f8f196a2a": "Hide Activity",
   "b6ef0ec328527a64": "Allow pop-ups for SerikaCord to open the Activity in its own window.",
-  "8df226bf3314e35d": "Pop out"
+  "8df226bf3314e35d": "Pop out",
+  "37b84080ae64546b": "Show chat",
+  "0954e04a52635abd": "Hide chat"
 }

@@ -47,6 +47,11 @@ describe("normalizeTarget", () => {
     expect(normalizeTarget("user@example.com", []).ok).toBe(false);
     expect(normalizeTarget("example.com?x=1", []).ok).toBe(false);
     expect(normalizeTarget("1.serika.games", [], { blockedHosts: ["serika.games"] }).ok).toBe(false);
+    expect(normalizeTarget("123-abcdef12.serika.games", [], { blockedHosts: ["serika.games"] }).ok).toBe(false);
+    expect(normalizeTarget("serika.games", [], { blockedHosts: ["serika.games"] }).ok).toBe(false);
+    expect(normalizeTarget("{id}.serika.games", ["id"], { blockedHosts: ["serika.games"] }).ok).toBe(false);
+    // Other names under the Activities domain are ordinary upstreams (doodle.waifu.ws).
+    expect(normalizeTarget("doodle.serika.games", [], { blockedHosts: ["serika.games"] })).toEqual({ ok: true, target: "doodle.serika.games" });
     expect(normalizeTarget("example.com:0", []).ok).toBe(false);
   });
   test("parameters must come from the prefix and stay in the host", () => {

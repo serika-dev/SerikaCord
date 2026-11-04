@@ -81,7 +81,7 @@ export const activityRoutes = new Elysia({ prefix: '/activities' })
     const running = await channelInstances(user.id, channelId);
     // Like Discord's shelf: verified (and official) apps, the user's own apps,
     // and apps the user authorized (e.g. through the app's invite link).
-    // Doodle Party is built in. Other unverified apps don't show.
+    // Other unverified apps don't show.
     const rows = await db.select({
       id: schema.applications.id,
       name: schema.applications.name,
@@ -107,11 +107,9 @@ export const activityRoutes = new Elysia({ prefix: '/activities' })
       ((await AuthorizedApp.find({ userId: user.id }).catch(() => [])) as Array<{ applicationId?: string | null }>)
         .map((a) => (a.applicationId ?? '').toLowerCase()).filter(Boolean),
     );
-    const { doodleAppId } = await import('@/lib/activityApps/doodle/server');
-    const builtIn = doodleAppId();
     const mine = (r: { ownerId: string }) => r.ownerId.toLowerCase() === user.id.toLowerCase();
     const apps = rows
-      .filter((r) => mine(r) || r.official || (r.verified && !r.directoryDelisted) || r.id.toLowerCase() === builtIn || authorized.has(r.id.toLowerCase()))
+      .filter((r) => mine(r) || r.official || (r.verified && !r.directoryDelisted) || authorized.has(r.id.toLowerCase()))
       .map((r) => ({
         id: r.id,
         name: r.displayName || r.name,

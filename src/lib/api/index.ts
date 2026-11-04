@@ -31,7 +31,6 @@ import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
 import { interactionRoutes } from './interactionRoutes';
 import { activityRoutes } from './activities';
-import { activityAppRoutes } from './activityApps';
 import { automodRoutes } from './automod';
 import { communityRoutes } from './community';
 import { faviconRoutes } from './favicons';
@@ -4585,7 +4584,6 @@ export const api = new Elysia({ prefix: '/api' })
   .use(messageExtrasRoutes)
   .use(interactionRoutes)
   .use(activityRoutes)
-  .use(activityAppRoutes)
   .use(automodRoutes)
   .use(communityRoutes)
   .use(faviconRoutes)

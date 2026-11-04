@@ -591,7 +591,7 @@ export default function DMConversationPage() {
       className={cn("chat-shell flex-1 flex bg-[var(--bg-app)] overflow-hidden", !shell && "animate-fade-in")}
     >
       {/* Main chat area */}
-      <div className="flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
+      <div className="relative flex-1 flex flex-col min-w-0 min-h-0 overflow-hidden">
         {/* Header */}
         <div data-touch-scope="" className="chat-header min-w-0 overflow-hidden min-h-[calc(3.5rem+var(--safe-area-top))] pt-[var(--safe-area-top)] sm:min-h-0 sm:h-16 sm:pt-4 px-2 sm:px-4 flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-app)]">
           <div className="chat-header-main flex flex-1 items-center gap-2 sm:gap-3 min-w-0 overflow-hidden">

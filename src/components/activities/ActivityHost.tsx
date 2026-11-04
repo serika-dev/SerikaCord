@@ -95,7 +95,7 @@ export default function ActivityHost() {
   );
 }
 
-type Mode = "docked" | "collapsed" | "mini" | "full";
+type Mode = "docked" | "mini" | "full";
 
 function ActivityStage() {
   const gt = useGT();
@@ -108,7 +108,7 @@ function ActivityStage() {
 
   const mode: Mode = !open ? "mini"
     : isMobile ? (open.layout === "mini" ? "mini" : "full")
-      : open.layout === "inline" && slot ? (open.collapsed && !open.frame.location.voice ? "collapsed" : "docked")
+      : open.layout === "inline" && slot ? "docked"
         : "mini";
 
   // Geometry is set here only (never by React), so switching modes leaves nothing stale.
@@ -118,7 +118,6 @@ function ActivityStage() {
     if (!box) return;
     const s = box.style;
     for (const k of ["left", "top", "right", "bottom", "width", "height"] as const) s[k] = "";
-    if (mode === "collapsed") { s.left = "-10000px"; s.top = "0px"; s.width = "640px"; s.height = "360px"; return; }
     if (mode === "full") { s.left = "0px"; s.right = "0px"; s.top = "calc(env(safe-area-inset-top) + 44px)"; s.bottom = "0px"; return; }
     if (mode === "mini") { s.right = "16px"; s.bottom = "16px"; s.width = `${MINI_W}px`; s.height = `${MINI_H}px`; return; }
     if (!slot) return;
@@ -157,9 +156,8 @@ function ActivityStage() {
   // Static look per mode; geometry comes from the effect above.
   const boxStyle: React.CSSProperties =
     mode === "docked" ? { position: "fixed", zIndex: 30, background: "#000" }
-      : mode === "collapsed" ? { position: "fixed", visibility: "hidden", zIndex: 0 }
-        : mode === "full" ? { position: "fixed", zIndex: 70, background: "#000" }
-          : { position: "fixed", zIndex: 60, background: "#000", borderRadius: "0 0 12px 12px", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,.5)" };
+      : mode === "full" ? { position: "fixed", zIndex: 70, background: "#000" }
+        : { position: "fixed", zIndex: 60, background: "#000", borderRadius: "0 0 12px 12px", overflow: "hidden", boxShadow: "0 12px 32px rgba(0,0,0,.5)" };
 
   const goToSlot = () => {
     router.push(open.returnPath);
