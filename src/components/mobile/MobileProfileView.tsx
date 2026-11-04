@@ -45,7 +45,7 @@ import { useHidesPurchases } from "@/lib/native/storePolicy";
 import { statusLabelInvisible } from "@/lib/statusLabels";
 import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 import { useTheme } from "@/contexts/ThemeContext";
-import { computeProfilePalette, profileNameContrastStyle } from "@/lib/profiles/profileContrast";
+import { computeProfilePalette } from "@/lib/profiles/profileContrast";
 
 const MobileStatusSheet = dynamic(() => import("./MobileStatusSheet").then((m) => m.MobileStatusSheet), { ssr: false });
 const CustomStatusDialog = dynamic(() => import("@/components/user/CustomStatusDialog").then((m) => m.CustomStatusDialog), { ssr: false });
@@ -187,7 +187,7 @@ export function MobileProfileView() {
               <div className="mt-3 flex min-w-0 items-start gap-2">
                 <h1
                   className={cn("min-w-0 [overflow-wrap:anywhere] text-3xl font-extrabold text-[var(--text-primary)] leading-tight", getDisplayNameStyleClasses(customization?.displayNameStyle))}
-                  style={{ ...getDisplayNameStyleInline(customization?.displayNameStyle), ...(identityVars ? profileNameContrastStyle(customization?.displayNameStyle, identityPalette) : {}) }}
+                  style={getDisplayNameStyleInline(customization?.displayNameStyle)}
                 >
                   {displayName}
                 </h1>

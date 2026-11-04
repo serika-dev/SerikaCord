@@ -7,7 +7,6 @@ import {
   contrastRatio,
   getProfileCardColors,
   parseColor,
-  profileNameContrastStyle,
   readableRoleColor,
   relativeLuminance,
   sampleGradient,
@@ -133,14 +132,4 @@ describe("roles and names", () => {
     expect(readableRoleColor("#e0e0ff", dark)).toBe("#e0e0ff");
   });
 
-  test("names keep their colour but get a halo when they can't reach 3:1", () => {
-    const light = computeProfilePalette({ profileGradient: ["#c9b8ea", "#2a5aa8"] });
-    expect(profileNameContrastStyle({ effect: "gradient", gradient: ["#ffffff", "#e9d5ff"] }, light).filter).toContain("drop-shadow");
-    expect(profileNameContrastStyle({ effect: "neon", color: "#8b5cf6" }, computeProfilePalette({ profileColor: "#f3eefe" })).filter).toContain("rgba(0, 0, 0");
-    expect(profileNameContrastStyle({ effect: "toon" }, light)).toEqual({});
-    // Pop draws its own 3D shadow: no halo on top, even in a colour that can't reach 3:1.
-    expect(profileNameContrastStyle({ effect: "pop", color: "#d946ef" }, computeProfilePalette({ profileColor: "#3b0764" }))).toEqual({});
-    expect(profileNameContrastStyle(undefined, light)).toEqual({});
-    expect(profileNameContrastStyle({ effect: "solid", color: "#ffffff" }, computeProfilePalette(null))).toEqual({});
-  });
 });

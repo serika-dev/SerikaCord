@@ -46,7 +46,7 @@ import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 import { isVerifiedBotUser } from "@/lib/appDirectory/official";
 import { BotAppProfileSection } from "@/components/apps/BotAppProfileSection";
 import type { MemberProfileOverrides } from "@/lib/profiles/memberProfile";
-import { computeProfilePalette, profileNameContrastStyle, readableRoleColor } from "@/lib/profiles/profileContrast";
+import { computeProfilePalette, readableRoleColor } from "@/lib/profiles/profileContrast";
 
 export interface ProfileCardUser {
   id: string;
@@ -463,7 +463,7 @@ export function ProfileCard({
           <div className="flex items-center gap-2 flex-wrap">
             <h3
               className={cn("text-xl font-bold text-[var(--profile-fg)] leading-tight truncate", getDisplayNameStyleClasses(user.customization?.displayNameStyle))}
-              style={{ ...getDisplayNameStyleInline(user.customization?.displayNameStyle), ...profileNameContrastStyle(user.customization?.displayNameStyle, palette) }}
+              style={getDisplayNameStyleInline(user.customization?.displayNameStyle)}
             >
               {displayName}
             </h3>

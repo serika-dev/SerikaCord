@@ -11,7 +11,7 @@
 ### Changes
 
 ### Bug Fixes
-- The Pop display name style looks like itself again on profile cards (no extra glow around it)
+- Display name styles look like themselves again on profile cards: no extra white or black glow around the name
 
 ### Performance
 

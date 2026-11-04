@@ -39,7 +39,7 @@ import { overlaySelfProfile, readEditorOpen, resolveSelfTag, writeEditorOpen } f
 import { StatusBadge, StatusIcon } from "@/components/user/StatusBadge";
 import { useServerProfileDraft, useServerProfileIndex } from "@/components/user/profileEditor/useServerProfileDraft";
 import { overriddenFields, withServerProfile, type MemberProfileOverrides } from "@/lib/profiles/memberProfile";
-import { computeProfilePalette, profileNameContrastStyle, readableRoleColor } from "@/lib/profiles/profileContrast";
+import { computeProfilePalette, readableRoleColor } from "@/lib/profiles/profileContrast";
 import { emitMemberProfileChanged, onMemberProfileChanged } from "@/lib/profiles/memberProfileEvents";
 
 // Own-profile editing: the side panel and the full status dialog are their
@@ -706,7 +706,7 @@ export function FullProfileDialog({
                     >
                       <h3
                         className={cn("text-xl font-bold text-[var(--profile-fg)] leading-tight truncate pr-7", getDisplayNameStyleClasses(view.customization?.displayNameStyle))}
-                        style={{ ...getDisplayNameStyleInline(view.customization?.displayNameStyle), ...profileNameContrastStyle(view.customization?.displayNameStyle, palette) }}
+                        style={getDisplayNameStyleInline(view.customization?.displayNameStyle)}
                       >
                         {displayName}
                       </h3>
@@ -714,7 +714,7 @@ export function FullProfileDialog({
                   ) : (
                     <h3
                       className={cn("text-xl font-bold text-[var(--profile-fg)] leading-tight truncate", getDisplayNameStyleClasses(view.customization?.displayNameStyle))}
-                      style={{ ...getDisplayNameStyleInline(view.customization?.displayNameStyle), ...profileNameContrastStyle(view.customization?.displayNameStyle, palette) }}
+                      style={getDisplayNameStyleInline(view.customization?.displayNameStyle)}
                     >
                       {displayName}
                     </h3>

@@ -405,36 +405,3 @@ export function readableRoleColor(color: string | null | undefined, palette: Pro
   if (!c || c.a < 1) return "var(--profile-text)";
   return worstContrast(c, palette.surfaces) >= AA_TEXT ? (color as string) : "var(--profile-text)";
 }
-
-interface NameStyleInput {
-  effect?: string;
-  color?: string;
-  gradient?: string[];
-}
-
-/**
- * Extra style for a display name on this card. Names keep the user's chosen
- * colour or gradient; when it can't reach 3:1 (large text) on the card, a
- * thin halo in the opposite tone is added (drop-shadow works with
- * background-clip:text gradients, text-shadow doesn't). Toon and Pop draw
- * their own outline / 3D shadow, which a halo on top only muddies.
- */
-export function profileNameContrastStyle(style: NameStyleInput | null | undefined, palette: ProfilePalette): CSSProperties {
-  if (!style || style.effect === "toon" || style.effect === "pop") return {};
-  let colors: RGBA[] = [];
-  if (style.effect === "neon") colors = [parseColor("#ffffff") as RGBA];
-  else if (style.effect === "gradient" && Array.isArray(style.gradient) && style.gradient.length >= 2) {
-    colors = sampleGradient(style.gradient.map(parseColor).filter((x): x is RGBA => !!x), 4);
-  } else {
-    const c = parseColor(style.color);
-    if (c) colors = [c];
-  }
-  if (!colors.length) return {};
-  let worst = Infinity;
-  for (const c of colors) worst = Math.min(worst, worstContrast(c.a < 1 ? composite(c, palette.bodySurfaces[0]) : c, palette.bodySurfaces));
-  if (worst >= AA_LARGE) return {};
-  // Halo opposite to the name: dark names get a light halo and vice versa.
-  const avgLum = colors.reduce((s, c) => s + relativeLuminance(c), 0) / colors.length;
-  const halo = avgLum > 0.18 ? "rgba(0, 0, 0, 0.85)" : "rgba(255, 255, 255, 0.9)";
-  return { filter: `drop-shadow(0 0 1px ${halo}) drop-shadow(0 0 1px ${halo}) drop-shadow(0 1px 2px ${halo})` };
-}
