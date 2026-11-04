@@ -149,9 +149,11 @@ export function upstreamRequestHeaders(incoming: Headers, ctx: { clientIp: strin
   incoming.forEach((value, key) => {
     const k = key.toLowerCase();
     if (HOP_BY_HOP.has(k) || k === 'cookie' || k.startsWith('x-forwarded-') || k === 'forwarded' || k === 'x-real-ip'
-      || k.startsWith('cf-') || k === 'true-client-ip' || k.startsWith('sec-websocket-')) return;
+      || k.startsWith('cf-') || k === 'true-client-ip' || k.startsWith('sec-websocket-') || k === 'accept-encoding') return;
     out.set(key, value);
   });
+  // Only encodings the proxy's fetch decodes itself (zstd would arrive undecoded).
+  if (!ctx.websocket) out.set('Accept-Encoding', 'gzip, deflate, br');
   out.set('X-Forwarded-For', ctx.clientIp);
   out.set('X-Forwarded-Host', ctx.publicHost);
   out.set('X-Forwarded-Proto', 'https');
@@ -159,12 +161,17 @@ export function upstreamRequestHeaders(incoming: Headers, ctx: { clientIp: strin
   return out;
 }
 
-/** Response headers passed back: no cookies, HSTS, hop-by-hop or upstream framing/CSP rules (we set our own). */
+/**
+ * Response headers passed back: no cookies, HSTS, hop-by-hop or upstream
+ * framing/CSP rules (we set our own). The body arrives decoded (fetch
+ * decompresses), so Content-Encoding / Content-Length must not be forwarded
+ * or browsers decode it twice (an empty or garbled body).
+ */
 export function downstreamResponseHeaders(upstream: Headers): Headers {
   const out = new Headers();
   upstream.forEach((value, key) => {
     const k = key.toLowerCase();
-    if (HOP_BY_HOP.has(k) || k === 'set-cookie' || k === 'strict-transport-security' || k === 'content-security-policy'
+    if (HOP_BY_HOP.has(k) || k === 'content-encoding' || k === 'set-cookie' || k === 'strict-transport-security' || k === 'content-security-policy'
       || k === 'content-security-policy-report-only' || k === 'x-frame-options' || k === 'alt-svc' || k === 'clear-site-data') return;
     out.append(key, value);
   });

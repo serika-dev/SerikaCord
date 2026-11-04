@@ -157,11 +157,16 @@ describe("relay page and proxy headers", () => {
     expect(up.get("connection")).toBeNull();
     expect(up.get("x-forwarded-for")).toBe("9.9.9.9");
     expect(up.get("accept")).toBe("text/html");
+    expect(upstreamRequestHeaders(new Headers({ "accept-encoding": "gzip, br, zstd" }), { clientIp: "1", publicHost: "h", clientId: "1" }).get("accept-encoding")).toBe("gzip, deflate, br");
     const down = downstreamResponseHeaders(new Headers({ "set-cookie": "s=1", "content-type": "text/html", "x-frame-options": "DENY", "strict-transport-security": "max-age=1" }));
     expect(down.get("set-cookie")).toBeNull();
     expect(down.get("x-frame-options")).toBeNull();
     expect(down.get("strict-transport-security")).toBeNull();
     expect(down.get("content-type")).toBe("text/html");
+    const decoded = downstreamResponseHeaders(new Headers({ "content-encoding": "gzip", "content-length": "51831", etag: "x" }));
+    expect(decoded.get("content-encoding")).toBeNull();
+    expect(decoded.get("content-length")).toBeNull();
+    expect(decoded.get("etag")).toBe("x");
   });
   test("redirects are rewritten onto mapped hosts only", () => {
     const maps = [{ prefix: "/api", target: "api.example.com" }, { prefix: "/", target: "app.example.com" }];
