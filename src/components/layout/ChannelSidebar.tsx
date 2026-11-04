@@ -65,6 +65,7 @@ import { VoiceBar } from "@/components/voice/VoiceBar";
 import { VoiceChannelMembers, isVoiceMemberDrag, readVoiceMemberDrag } from "@/components/voice/VoiceChannelMembers";
 import { VOICE_STATES_REFRESH_EVENT, moderateVoiceMember } from "@/components/voice/VoiceUserMenu";
 import { ServerBadge } from "@/components/ui/badges";
+import { isVerifiedBotUser } from "@/lib/appDirectory/official";
 import { isMuteActive, muteUntilFor } from "@/lib/notifications/levels";
 import { updateNotificationOverride, useNotificationPrefs } from "@/lib/notifications/prefsStore";
 import { openNotificationSettings } from "@/lib/notifications/events";
@@ -1390,8 +1391,14 @@ export function ChannelSidebar({
                           </span>
                         )}
                         {recipient.isBot && !recipient.isSystem && (
-                          <span className="shrink-0 px-1 py-[2px] rounded bg-[#5865F2] text-[8px] font-bold text-white uppercase leading-none select-none">
-                            BOT
+                          <span className={cn(
+                            "shrink-0 inline-flex items-center gap-0.5 px-1 py-[2px] rounded text-[8px] font-bold uppercase leading-none select-none",
+                            isVerifiedBotUser(recipient)
+                              ? "bg-[#5865F2] text-white"
+                              : "bg-[#4f545c]/30 text-[#b9bbbe] border border-white/[0.04]",
+                          )}>
+                            {isVerifiedBotUser(recipient) && <Check className="w-2 h-2 shrink-0 stroke-[3px]" />}
+                            {gt("Bot")}
                           </span>
                         )}
                       </div>

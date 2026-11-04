@@ -14,6 +14,7 @@
 ### Changes
 
 ### Bug Fixes
+- Verified bots show the verified BOT tag in the DM list and on their messages that arrive live (they showed the plain tag until you reloaded)
 - Display name styles look like themselves again on profile cards: no extra white or black glow around the name
 
 ### Performance

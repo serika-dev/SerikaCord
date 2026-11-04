@@ -82,6 +82,9 @@ export type ClientAuthor = {
   displayName: string;
   avatar: string | null;
   isBot: boolean;
+  /** BOT tag check (isVerifiedBotUser): a verified or official app's bot. */
+  isVerified?: boolean;
+  badges?: string[];
   isSystem?: boolean;
   isWebhook?: boolean;
   status?: string;
@@ -99,6 +102,8 @@ async function botAuthor(botId: string): Promise<ClientAuthor> {
     displayName: u?.displayName || u?.username || 'bot',
     avatar: u?.avatar ?? null,
     isBot: true,
+    isVerified: Boolean(u?.isVerified),
+    badges: u?.badges ?? [],
   };
   if (authorCache.size > 500) authorCache.clear();
   authorCache.set(botId, { at: Date.now(), author });

@@ -30,7 +30,7 @@ import {
 
 type Result = { status: number; body: unknown };
 type Headers = Record<string, string | undefined>;
-export interface BotActor { id: string; username: string; displayName?: string | null; avatar?: string | null; isBot?: boolean | null }
+export interface BotActor { id: string; username: string; displayName?: string | null; avatar?: string | null; isBot?: boolean | null; isVerified?: boolean | null; badges?: string[] | null }
 
 const MISSING_PERMISSIONS = { code: 50013, message: 'Missing Permissions' };
 const MISSING_ACCESS = { code: 50001, message: 'Missing Access' };
@@ -250,7 +250,7 @@ export async function createBotThread(opts: CreateThreadOptions): Promise<Result
       type: 'message',
       message: {
         id: notice.id, content: name, authorId: bot.id,
-        author: { id: bot.id, username: bot.username, displayName: bot.displayName || bot.username, avatar: bot.avatar ?? null, badges: [], isBot: true, isSystem: false, isVerified: false },
+        author: { id: bot.id, username: bot.username, displayName: bot.displayName || bot.username, avatar: bot.avatar ?? null, badges: bot.badges ?? [], isBot: true, isSystem: false, isVerified: Boolean(bot.isVerified) },
         channelId: parent.id, serverId: parent.serverId, createdAt: notice.createdAt, updatedAt: notice.updatedAt,
         type: 'thread_created', threadId: created.id, thread: summary,
         attachments: [], embeds: [], reactions: [], mentionedUserIds: [], mentionedRoleIds: [], mentionedChannelIds: [],
