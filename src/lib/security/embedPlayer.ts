@@ -6,7 +6,8 @@
  * where anyone can publish a page with an arbitrary player URL. Only known
  * embed-player hosts may end up inside an iframe in chat.
  */
-const PLAYER_HOST_SUFFIXES = [
+// next.config.ts builds the CSP frame-src from this list: keep it import-free.
+export const PLAYER_HOST_SUFFIXES = [
   'open.spotify.com',
   'w.soundcloud.com',
   'bandcamp.com',

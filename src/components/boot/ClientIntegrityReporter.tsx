@@ -4,8 +4,8 @@ import { useEffect } from "react";
 import { detectClientIntegrity } from "@/lib/clientIntegrity/detect";
 import { parseSignals } from "@/lib/clientIntegrity/signals";
 
-/** Script hosts the app itself loads from (anything else on the page was injected). */
-const ALLOWED_SCRIPT_HOSTS = ["serika.chat", "canary.serika.chat", "cdn.serika.chat", "accounts.serika.dev", "challenges.cloudflare.com"];
+/** Script hosts the app itself loads from, matching script-src in next.config.ts (anything else was injected). */
+const ALLOWED_SCRIPT_HOSTS = ["serika.chat", "canary.serika.chat", "cdn.serika.chat", "static.cloudflareinsights.com"];
 const SESSION_KEY = "sc:ci";
 /** Mods load late (after the first chunks): check after startup, then once more. */
 const CHECK_DELAYS_MS = [15_000, 120_000];

@@ -14,7 +14,8 @@ import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { checkRateLimit, getClientIP, sanitizeInput, validateMessageContent, encryptForStorage, decryptFromStorage, rejectInvalidObjectIdParams, isValidObjectId } from '@/lib/security';
 import { isSystemUser } from '@/lib/services/systemUsers';
 import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
-import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
+import { maxAttachmentsFor, validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
+import { resolveAttachmentMetadata } from '@/lib/uploads/attachmentRecords';
 import { matchReactionEmoji, addReaction, removeReaction, MAX_REACTION_EMOJIS_ERROR, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
 import { decodeHtmlEntities } from '@/lib/chat/messages';
@@ -639,13 +640,16 @@ export type PreparedDmSend = {
 
 /** Validate and sanitize a DM send body (content, attachments, sticker, reply id). */
 export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{ error: DmReply } | { prepared: PreparedDmSend }> {
-  const { sticker, attachments, replyTo } = body;
+  const { sticker, replyTo } = body;
+  let attachments = body.attachments;
   // End-to-end encrypted: only the opaque envelope + encrypted blobs; the
   // conversation / device checks run once the channel is known
   // (checkE2eeChannelSend).
   if (body.e2ee !== undefined) {
     const parsed = parseEncryptedBody(user.id, body);
     if (!parsed.ok) return { error: fail(parsed.status, parsed.error) };
+    if (parsed.attachments.length > maxAttachmentsFor(user)) return { error: fail(400, 'Too many attachments') };
+    const e2eeAttachments = await resolveAttachmentMetadata(parsed.attachments, { uploaderId: user.id });
     if (replyTo && !isValidObjectId(replyTo)) return { error: fail(400, 'Referenced message not found') };
     // Voice messages are sent as ordinary encrypted files (voice metadata
     // lives in the envelope); only @silent is honoured.
@@ -653,7 +657,7 @@ export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{
     return {
       prepared: {
         sanitizedContent: '',
-        attachments: parsed.attachments,
+        attachments: e2eeAttachments,
         replyTo,
         mentionRepliedUser: body.mentionRepliedUser,
         flags,
@@ -668,9 +672,11 @@ export async function prepareDmSend(user: AuthUser, body: DmSendBody): Promise<{
   const flags = sendFlags(body.flags, silentPrefix.silent);
   let sanitizedContent = content ? sanitizeMessageContent(content) : '';
 
-  // Attachments must be our own uploads by this user (see attachmentPolicy).
-  const attachmentError = validateMessageAttachments(attachments, { cdnUrl: config.CDN_URL, userId: user.id });
+  // Attachments must be our own uploads by this user (see attachmentPolicy),
+  // within the sender's cap; name / type / size come from what was stored.
+  const attachmentError = validateMessageAttachments(attachments, { cdnUrl: config.CDN_URL, userId: user.id, maxAttachments: maxAttachmentsFor(user) });
   if (attachmentError) return { error: fail(400, attachmentError) };
+  attachments = await resolveAttachmentMetadata(attachments, { uploaderId: user.id });
   // A malformed reply id would otherwise make the uuid lookup throw (500).
   if (replyTo && !isValidObjectId(replyTo)) return { error: fail(400, 'Referenced message not found') };
 

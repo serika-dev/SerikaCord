@@ -46,9 +46,15 @@ export interface VoiceParticipant {
   screenStream?: MediaStream;
   /** Which device/tab this participant joined from (a new one replaces the old). */
   sessionId?: string;
-  /** Server Mute / Server Deafen set by a moderator. */
+  /**
+   * Server Mute: set by a moderator, or because they lack SPEAK in this
+   * channel (`suppress`). Played at volume 0 either way.
+   */
   serverMute?: boolean;
+  /** Server Deafen: we stop sending them our audio. */
   serverDeaf?: boolean;
+  /** No SPEAK permission in this channel (implies serverMute). */
+  suppress?: boolean;
 }
 
 /** One reading of your microphone for level meters and the sensitivity slider. */
@@ -81,7 +87,11 @@ export type VoiceErrorCode =
   | "kicked"
   | "screen-unsupported"
   | "screen-failed"
-  | "soundboard";
+  | "soundboard"
+  /** Server voice channel permissions: no CONNECT / SPEAK / STREAM there. */
+  | "no-connect-permission"
+  | "no-speak-permission"
+  | "no-stream-permission";
 
 /** What the voice bar shows for the current room and where it links back to. */
 export interface VoiceRoomMeta {
@@ -154,7 +164,13 @@ const ERROR_FALLBACK: Record<VoiceErrorCode, string> = {
   "screen-unsupported": "Screen sharing isn't supported on this device or browser.",
   "screen-failed": "Could not start screen share.",
   soundboard: "Failed to play sound.",
+  "no-connect-permission": "You don't have permission to join this voice channel.",
+  "no-speak-permission": "You don't have permission to speak in this voice channel.",
+  "no-stream-permission": "You don't have permission to share video in this voice channel.",
 };
+
+/** Fields of a PATCH /api/voice/state the server refused (missing SPEAK / STREAM). */
+type RefusedVoiceField = "audio" | "video" | "screenShare";
 
 type PeerMeta = {
   initiator: boolean;
@@ -514,11 +530,88 @@ class VoiceService {
 
   private applyServerVoiceFlags(mute: boolean, deaf: boolean) {
     if (mute === this.serverMuted && deaf === this.serverDeafened) return;
+    const unmuted = this.serverMuted && !mute;
     this.serverMuted = mute;
     this.serverDeafened = deaf;
     this.applyMicState();
     this.applyRemoteAudioEnabled();
     this.emit({ type: "server_voice_state", mute, deaf });
+    // Server mute lifted (a moderator, or SPEAK granted): the server may hold
+    // audio off from while we were suppressed; tell it we're unmuted.
+    if (unmuted && !this.isMuted && this.roomId) void this.patchState(this.roomId, { audio: true });
+  }
+
+  /**
+   * PATCH our voice state. Returns the fields the server refused (no SPEAK /
+   * STREAM in this voice channel); network errors refuse nothing.
+   */
+  private async patchState(roomId: string, body: Record<string, boolean>): Promise<RefusedVoiceField[]> {
+    try {
+      const res = await fetch(`/api/voice/state/${roomId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (res.ok || res.status === 403) {
+        const data = await res.json().catch(() => null) as { refused?: unknown } | null;
+        if (Array.isArray(data?.refused)) {
+          return data.refused.filter((f): f is RefusedVoiceField => f === "audio" || f === "video" || f === "screenShare");
+        }
+      }
+    } catch {
+      // offline: the next join/resume re-sends our state
+    }
+    return [];
+  }
+
+  /** The server refused to unmute us (no SPEAK here): back to muted. */
+  private onAudioRefused(roomId: string, notify: boolean) {
+    if (this.roomId !== roomId || this.isMuted) return;
+    this.isMuted = true;
+    this.applyMicState();
+    this.emit({ type: "mute_toggled", muted: true });
+    if (notify) this.emitError("no-speak-permission");
+  }
+
+  // -- Server Deafen: stop sending our mic to a deafened member ----------------
+  // Media is peer to peer, so without this a server-deafened member still got
+  // everyone's audio and only their own (possibly modified) client muted it.
+  // Their audio senders carry no track while they're deafened; the track goes
+  // back on undeafen. simple-peer's replaceTrack (mic switch, input gain, noise
+  // suppression) would put a track back, so every such swap re-applies this
+  // (applyMicState runs after each).
+  private deafBlankedSenders: Map<string, Set<RTCRtpSender>> = new Map();
+
+  private applyDeafGate(userId: string) {
+    const peer = this.peers.get(userId);
+    const pc = peer ? (peer as unknown as { _pc?: RTCPeerConnection })._pc : undefined;
+    if (!pc || typeof pc.getSenders !== "function") {
+      if (!peer) this.deafBlankedSenders.delete(userId);
+      return;
+    }
+    const blanked = this.deafBlankedSenders.get(userId);
+    if (this.participants.get(userId)?.serverDeaf === true) {
+      const set = blanked ?? new Set<RTCRtpSender>();
+      for (const sender of pc.getSenders()) {
+        if (sender.track?.kind !== "audio") continue;
+        set.add(sender);
+        void sender.replaceTrack(null).catch(() => { /* connection closing */ });
+      }
+      this.deafBlankedSenders.set(userId, set);
+      return;
+    }
+    if (!blanked) return;
+    this.deafBlankedSenders.delete(userId);
+    const mic = this.localStream?.getAudioTracks()[0] ?? null;
+    if (!mic) return;
+    for (const sender of blanked) {
+      if (sender.track === null) void sender.replaceTrack(mic).catch(() => { /* connection closing */ });
+    }
+  }
+
+  private applyDeafGates() {
+    if (this.peers.size === 0) return;
+    for (const userId of this.peers.keys()) this.applyDeafGate(userId);
   }
 
   /** Remote voices are silenced while you're deafened, by yourself or a moderator. */
@@ -631,6 +724,8 @@ class VoiceService {
     this.localStream.getAudioTracks().forEach((t) => {
       t.enabled = on;
     });
+    // A mic swap just put a track back on every sender: keep deafened members cut off.
+    this.applyDeafGates();
   }
 
   // -- Input volume (mic gain) -----------------------------------------------
@@ -872,16 +967,27 @@ class VoiceService {
     this.listeners.forEach((fn) => fn(event));
   }
 
+  /** A participant with their received streams, as the UI sees them. */
+  private withStreams(p: VoiceParticipant): VoiceParticipant {
+    const screenStream = this.remoteScreenStreams.get(p.userId);
+    // Server voice channels: a screen share shows only once the server has
+    // accepted it (STREAM permission), so video a modified client sends
+    // anyway is ignored. (Camera tiles likewise need the published `video`.)
+    // Calls: reflect an actually-received screen stream so the tile renders
+    // even if the state_update flag hasn't arrived yet.
+    const screenShare = this.roomId?.startsWith("channel-")
+      ? p.screenShare === true
+      : !!p.screenShare || !!screenStream;
+    return {
+      ...p,
+      stream: this.remoteStreams.get(p.userId),
+      screenStream: screenShare ? screenStream : undefined,
+      screenShare,
+    };
+  }
+
   private emitParticipants() {
-    const list = Array.from(this.participants.values())
-      .map((p) => ({
-        ...p,
-        stream: this.remoteStreams.get(p.userId),
-        screenStream: this.remoteScreenStreams.get(p.userId),
-        // Reflect an actually-received screen stream so the UI renders the tile
-        // even if the state_update flag hasn't arrived yet.
-        screenShare: p.screenShare || this.remoteScreenStreams.has(p.userId),
-      }));
+    const list = Array.from(this.participants.values()).map((p) => this.withStreams(p));
     this.emit({ type: "participants_changed", participants: list });
   }
 
@@ -1004,6 +1110,7 @@ class VoiceService {
 
     // Register with server
     const sessionId = this.sessionId;
+    let joinData: { permissions?: { stream?: boolean } } | null = null;
     try {
       const joinRes = await fetch(`/api/voice/join`, {
         method: "POST",
@@ -1011,14 +1118,17 @@ class VoiceService {
         body: JSON.stringify({ roomId: channelId, audio: !this.micMissing, video: withVideo, sessionId }),
       });
       if (!joinRes.ok) {
-        const data = await joinRes.json().catch(() => null) as { error?: string } | null;
+        const data = await joinRes.json().catch(() => null) as { error?: string; code?: string } | null;
         const code: VoiceErrorCode = data?.error === "This voice channel is full"
           ? "room-full"
           : data?.error === "You cannot call this user"
             ? "call-blocked"
-            : "join-failed";
+            : data?.code === "missing_connect"
+              ? "no-connect-permission"
+              : "join-failed";
         throw Object.assign(new Error(data?.error || `join failed: ${joinRes.status}`), { code });
       }
+      joinData = await joinRes.json().catch(() => null) as typeof joinData;
     } catch (err) {
       if (cancelled()) return;
       this.resetLocalJoin();
@@ -1034,6 +1144,7 @@ class VoiceService {
       }).catch(() => {});
       return;
     }
+    this.applyJoinPermissions(channelId, joinData);
 
     // Fetch ICE servers (STUN + any configured TURN relay) before we start
     // creating peers, so the WebRTC connections can actually traverse NAT.
@@ -1060,6 +1171,18 @@ class VoiceService {
     this.startSpeakingDetection();
     this.joined = true;
     this.emit({ type: "connected" });
+  }
+
+  /**
+   * Joined a server voice channel without STREAM: the server published our
+   * camera as off, so turn it off here too.
+   */
+  private applyJoinPermissions(roomId: string, data: { permissions?: { stream?: boolean } } | null) {
+    if (this.roomId !== roomId || data?.permissions?.stream !== false) return;
+    if (this.isVideoOn) {
+      this.stopCameraLocally();
+      this.emitError("no-stream-permission");
+    }
   }
 
   /** Undo a join that failed before it reached the server. */
@@ -1135,16 +1258,18 @@ class VoiceService {
         return;
       }
       if (res.ok) {
-        const data = await res.json().catch(() => null) as { resumed?: boolean } | null;
+        const data = await res.json().catch(() => null) as { resumed?: boolean; permissions?: { stream?: boolean } } | null;
         // The server had already let us go: everyone else dropped their
         // connection to us, so start over and offer to them again.
         if (!data?.resumed) this.resetAllPeers();
+        this.applyJoinPermissions(roomId, data);
         if (this.isDeafened || this.isScreenSharing) {
-          fetch(`/api/voice/state/${roomId}`, {
-            method: "PATCH",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ deafened: this.isDeafened, screenShare: this.isScreenSharing }),
-          }).catch(() => {});
+          void this.patchState(roomId, { deafened: this.isDeafened, screenShare: this.isScreenSharing }).then((refused) => {
+            if (refused.includes("screenShare") && this.roomId === roomId && this.isScreenSharing) {
+              this.stopScreenShare(null);
+              this.emitError("no-stream-permission");
+            }
+          });
         }
       }
     } catch {
@@ -1207,6 +1332,8 @@ class VoiceService {
             this.createPeer(p.userId, true);
           }
         });
+        // Kept connections: someone may have been server deafened meanwhile.
+        this.applyDeafGates();
         this.emitParticipants();
         break;
       }
@@ -1223,6 +1350,7 @@ class VoiceService {
         // go: the old connection is dead. They offer to us; wait for it.
         if (prev && prev.sessionId !== p.sessionId) this.destroyPeer(p.userId);
         this.participants.set(p.userId, p);
+        this.applyDeafGate(p.userId);
         // Do NOT initiate here — the newcomer initiates to us, and their offer
         // will arrive via voice:offer which creates the non-initiator peer.
         // This avoids WebRTC glare (both sides initiating).
@@ -1293,18 +1421,38 @@ class VoiceService {
       }
       case "voice:state_update": {
         const userId = msg.userId as string;
-        if (userId === this.getMyUserId() && (typeof msg.serverMute === "boolean" || typeof msg.serverDeaf === "boolean")) {
+        const isMe = userId === this.getMyUserId();
+        if (isMe && (typeof msg.serverMute === "boolean" || typeof msg.serverDeaf === "boolean")) {
           this.applyServerVoiceFlags(
             typeof msg.serverMute === "boolean" ? msg.serverMute : this.serverMuted,
             typeof msg.serverDeaf === "boolean" ? msg.serverDeaf : this.serverDeafened,
           );
+        }
+        // Our STREAM permission was taken away mid-call: stop the camera / share
+        // here too (the server already published them as off).
+        if (isMe && msg.reason === "permissions") {
+          let stopped = false;
+          if (msg.video === false && this.isVideoOn) {
+            this.stopCameraLocally();
+            stopped = true;
+          }
+          if (msg.screenShare === false && this.isScreenSharing) {
+            this.stopScreenShare(null);
+            stopped = true;
+          }
+          if (stopped) this.emitError("no-stream-permission");
         }
         const participant = this.participants.get(userId);
         if (participant) {
           if (msg.audio !== undefined) participant.audio = msg.audio as boolean;
           if (msg.deafened !== undefined) participant.deafened = msg.deafened as boolean;
           if (typeof msg.serverMute === "boolean") participant.serverMute = msg.serverMute;
-          if (typeof msg.serverDeaf === "boolean") participant.serverDeaf = msg.serverDeaf;
+          if (typeof msg.suppress === "boolean") participant.suppress = msg.suppress;
+          if (typeof msg.serverDeaf === "boolean") {
+            const changed = participant.serverDeaf !== msg.serverDeaf;
+            participant.serverDeaf = msg.serverDeaf;
+            if (changed && !isMe) this.applyDeafGate(userId);
+          }
           if (msg.video !== undefined) participant.video = msg.video as boolean;
           if (msg.screenShare !== undefined) {
             participant.screenShare = msg.screenShare as boolean;
@@ -1466,6 +1614,7 @@ class VoiceService {
     peer.on("connect", () => {
       if (!current()) return;
       this.peerRetryAttempts.delete(targetUserId);
+      this.applyDeafGate(targetUserId);
       // Someone who joined (or reconnected) while we're sharing gets the
       // screen too, not just the people who were there when it started.
       if (this.isScreenSharing) this.sendScreenTo(peer);
@@ -1563,6 +1712,8 @@ class VoiceService {
 
     this.peers.set(targetUserId, peer);
     this.peerMeta.set(targetUserId, { initiator, pcId, remotePcId: null });
+    // Already server deafened: never send them our mic.
+    this.applyDeafGate(targetUserId);
   }
 
   /**
@@ -1591,6 +1742,7 @@ class VoiceService {
     this.peers.delete(userId);
     this.peerMeta.delete(userId);
     this.pendingSignals.delete(userId);
+    this.deafBlankedSenders.delete(userId);
     // A new connection brings new streams; keeping the old ones would play a
     // dead stream and misfile the new mic stream as a screen share.
     this.remoteStreams.delete(userId);
@@ -1652,6 +1804,7 @@ class VoiceService {
     this.remoteStreams.clear();
     this.remoteScreenStreams.clear();
     this.participants.clear();
+    this.deafBlankedSenders.clear();
 
     // Close SSE
     if (this.signalingEs) {
@@ -1746,11 +1899,10 @@ class VoiceService {
     this.isMuted = !this.isMuted;
     this.applyMicState();
     if (this.roomId) {
-      fetch(`/api/voice/state/${this.roomId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio: !this.isMuted }),
-      }).catch(() => {});
+      const roomId = this.roomId;
+      void this.patchState(roomId, { audio: !this.isMuted }).then((refused) => {
+        if (refused.includes("audio")) this.onAudioRefused(roomId, true);
+      });
     }
     this.emit({ type: "mute_toggled", muted: this.isMuted });
     return this.isMuted;
@@ -1792,11 +1944,9 @@ class VoiceService {
       this.micMissing = false;
       this.isMuted = false;
       this.applyMicState();
-      fetch(`/api/voice/state/${roomId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ audio: true }),
-      }).catch(() => {});
+      void this.patchState(roomId, { audio: true }).then((refused) => {
+        if (refused.includes("audio")) this.onAudioRefused(roomId, false);
+      });
       this.emit({ type: "listen_only", enabled: false });
       this.emit({ type: "mute_toggled", muted: false });
       return true;
@@ -1818,11 +1968,10 @@ class VoiceService {
       this.emit({ type: "mute_toggled", muted: true });
     }
     if (this.roomId) {
-      fetch(`/api/voice/state/${this.roomId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deafened: this.isDeafened, audio: !this.isMuted }),
-      }).catch(() => {});
+      const roomId = this.roomId;
+      void this.patchState(roomId, { deafened: this.isDeafened, audio: !this.isMuted }).then((refused) => {
+        if (refused.includes("audio")) this.onAudioRefused(roomId, false);
+      });
     }
     this.emit({ type: "deafen_toggled", deafened: this.isDeafened });
     return this.isDeafened;
@@ -1997,12 +2146,32 @@ class VoiceService {
     }
   }
 
+  /**
+   * Turn the camera off here without telling the server: stop sending it to
+   * every peer first (simple-peer has no replaceStream, so the old code left
+   * the last frame frozen remotely).
+   */
+  private stopCameraLocally() {
+    const stream = this.localStream;
+    if (stream) {
+      stream.getVideoTracks().forEach((t) => {
+        this.peers.forEach((peer) => {
+          try { peer.removeTrack(t, stream); } catch { /* not sent to this peer */ }
+        });
+        t.stop();
+        stream.removeTrack(t);
+      });
+    }
+    const wasOn = this.isVideoOn;
+    this.isVideoOn = false;
+    if (wasOn) this.emit({ type: "video_toggled", enabled: false });
+  }
+
   async toggleVideo(): Promise<boolean> {
     if (!this.localStream || !this.roomId) return false;
+    const roomId = this.roomId;
 
     if (this.isVideoOn) {
-      // Turn off video: stop sending it to every peer first (simple-peer has
-      // no replaceStream, so the old code left the last frame frozen remotely).
       const stream = this.localStream;
       stream.getVideoTracks().forEach((t) => {
         this.peers.forEach((peer) => {
@@ -2035,12 +2204,14 @@ class VoiceService {
       }
     }
 
-    // Update server state
-    await fetch(`/api/voice/state/${this.roomId}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ video: this.isVideoOn }),
-    }).catch(() => {});
+    // Update server state. No STREAM permission in this voice channel: the
+    // server refuses, so the camera goes off again here.
+    const refused = await this.patchState(roomId, { video: this.isVideoOn });
+    if (refused.includes("video") && this.roomId === roomId && this.isVideoOn) {
+      this.stopCameraLocally();
+      this.emitError("no-stream-permission");
+      return false;
+    }
 
     this.emit({ type: "video_toggled", enabled: this.isVideoOn });
     return this.isVideoOn;
@@ -2132,12 +2303,15 @@ class VoiceService {
         this.peers.forEach((peer) => this.sendScreenTo(peer));
       }
 
-      // Notify server
-      await fetch(`/api/voice/state/${this.roomId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ screenShare: true }),
-      }).catch(() => {});
+      // Notify server. No STREAM permission in this voice channel: it
+      // refuses, and the share stops here (without telling it again).
+      const roomId = this.roomId;
+      const refused = await this.patchState(roomId, { screenShare: true });
+      if (refused.includes("screenShare")) {
+        if (this.roomId === roomId) this.stopScreenShare(null);
+        this.emitError("no-stream-permission");
+        return false;
+      }
 
       this.emit({ type: "screen_share_toggled", enabled: true });
       return true;
@@ -2252,12 +2426,7 @@ class VoiceService {
     this.emit({ type: "meta_changed" });
   }
   get currentParticipants(): VoiceParticipant[] {
-    return Array.from(this.participants.values()).map((p) => ({
-      ...p,
-      stream: this.remoteStreams.get(p.userId),
-      screenStream: this.remoteScreenStreams.get(p.userId),
-      screenShare: p.screenShare || this.remoteScreenStreams.has(p.userId),
-    }));
+    return Array.from(this.participants.values()).map((p) => this.withStreams(p));
   }
   get localAudioStream() { return this.localStream; }
   get localStream_() { return this.localStream; }

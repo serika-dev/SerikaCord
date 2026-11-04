@@ -29,6 +29,7 @@ import { applyTimeout, botCan, DM_BOT_PERMISSIONS, type BotChannelAction } from 
 import { allowedPrivilegedIntents, appHasMessageContent, INTENT } from '@/lib/gateway/intents';
 import { redactMessageContent, shouldRedactContent } from '@/lib/gateway/routing';
 import { normalizeBotAttachments, type IncomingAttachment } from '@/lib/chat/attachmentPolicy';
+import { resolveAttachmentMetadata } from '@/lib/uploads/attachmentRecords';
 import {
   MAX_BOT_FILES, effectiveFilename, imageDimensions, isSpoilerFilename, parseBotMessageBody, planAttachments,
   type AttachmentMeta, type FileLike,
@@ -2548,7 +2549,8 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
     // ownership rule as users); arbitrary URLs would render as native file cards.
     const normalized = normalizeBotAttachments(rawAttachments, { cdnUrl: config.CDN_URL, botId });
     if ('error' in normalized) { set.status = 400; return { code: 50035, message: `Invalid Form Body: ${normalized.error}` }; }
-    attachments = normalized.attachments;
+    // Name / type / size from what the bot's upload stored, not the payload.
+    attachments = await resolveAttachmentMetadata(normalized.attachments, { uploaderId: botId });
   }
   const attachmentCount = parsedBody.files.length + attachments.length;
   if (attachmentCount > 0 && !botCan(c.perms, 'attach', { isThread: isThread && !forumStarter })) {

@@ -35,7 +35,8 @@ import { isSystemUser } from '@/lib/services/systemUsers';
 import { dmSharedServers } from '@/lib/services/dmPrivacy';
 import { typingIndicatorsEnabled } from '@/lib/settings/privacy';
 import { dmSendDenyReason, type DmPolicyUser } from '@/lib/chat/dmPolicy';
-import { validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
+import { maxAttachmentsFor, validateMessageAttachments } from '@/lib/chat/attachmentPolicy';
+import { resolveAttachmentMetadata } from '@/lib/uploads/attachmentRecords';
 import { matchReactionEmoji, addReaction, removeReaction, MAX_REACTION_EMOJIS_ERROR, type StoredReaction } from '@/lib/chat/reactionMutations';
 import { clampInt } from '@/lib/utils/clampInt';
 import { isSilentMessage, parseSilentPrefix, sendFlags, withReplyMention } from '@/lib/chat/messageFlags';
@@ -3040,12 +3041,15 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: 'Message must have content, attachments, or a sticker' };
     }
 
-    // Attachments must be our own uploads by this user (see attachmentPolicy).
-    const attachmentError = validateMessageAttachments(attachments, { cdnUrl: config.CDN_URL, userId: user.id });
+    // Attachments must be our own uploads by this user (see attachmentPolicy),
+    // within the sender's per-message cap; name / type / size are then taken
+    // from what the upload stored, not the body.
+    const attachmentError = validateMessageAttachments(attachments, { cdnUrl: config.CDN_URL, userId: user.id, maxAttachments: maxAttachmentsFor(user) });
     if (attachmentError) {
       set.status = 400;
       return { error: attachmentError };
     }
+    attachments = await resolveAttachmentMetadata(attachments, { uploaderId: user.id });
     // Voice messages (IS_VOICE_MESSAGE): one audio file with duration + waveform.
     const voice = normalizeVoiceMessage({ requestedFlags: body.flags, content, hasSticker: !!stickerData, attachments });
     if ('error' in voice) {

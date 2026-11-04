@@ -430,21 +430,33 @@ export class StorageService {
   }
 
   // Get file metadata
-  async getMetadata(key: string): Promise<{
+  async getMetadata(key: string, opts: { abortSignal?: AbortSignal } = {}): Promise<{
     size: number;
     contentType: string;
     lastModified: Date | undefined;
+    /** The upload's file name (the `original-filename` metadata), if recorded. */
+    originalFilename?: string;
   } | null> {
     try {
       const response = await s3Client.send(new HeadObjectCommand({
         Bucket: config.B2_BUCKET_NAME,
         Key: key,
-      }));
+      }), { abortSignal: opts.abortSignal });
 
+      let originalFilename: string | undefined;
+      const rawName = response.Metadata?.['original-filename'];
+      if (rawName) {
+        try {
+          originalFilename = decodeURIComponent(rawName);
+        } catch {
+          originalFilename = undefined;
+        }
+      }
       return {
         size: response.ContentLength ?? 0,
         contentType: response.ContentType ?? 'application/octet-stream',
         lastModified: response.LastModified,
+        ...(originalFilename ? { originalFilename } : {}),
       };
     } catch {
       return null;

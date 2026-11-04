@@ -1,5 +1,8 @@
 import { Elysia, t } from 'elysia';
-import { checkAttachmentWhitelist, storedAttachmentType } from '@/lib/chat/uploadPolicy';
+import { DOWNLOAD_CONTENT_TYPE, checkAttachmentWhitelist, storedAttachmentType } from '@/lib/chat/uploadPolicy';
+import { mediaTypeMatchesExtension, sanitizeAttachmentFilename, storedKeyExtension } from '@/lib/chat/attachmentPolicy';
+import { imageDimensions } from '@/lib/chat/botMultipart';
+import { recordStoredAttachment } from '@/lib/uploads/attachmentRecords';
 import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
 import { storage, keyFromUrl, ContentBlockedError, UploadRejectedError, type UploadCategory } from '@/lib/services/storage';
 import { checkImageUploadFor, imageTooLargeMessageFor, imageUploadCeiling, type ImageSizeConfig, type ImageUploadKind } from '@/lib/media/imageUploadLimits';
@@ -164,13 +167,37 @@ export interface StoredChatAttachment {
 }
 
 /**
+ * The type to store a chat attachment under, checked against the file rather
+ * than the browser's label: an image type must match the bytes (the sniffed
+ * type is used; anything that isn't an image becomes a download, so an HTML
+ * or other file sent as image/png never renders inline), and an audio /
+ * video type needs a media file ending. Images also get their dimensions.
+ */
+async function verifiedAttachmentType(file: File): Promise<{ contentType: string; dims: { width: number; height: number } | null }> {
+  const declared = storedAttachmentType(file.type, config.ALLOWED_FILE_TYPES);
+  if (declared.startsWith('image/')) {
+    const head = new Uint8Array(await file.slice(0, 256 * 1024).arrayBuffer());
+    let sniffed = sniffImageType(head);
+    // Some AVIFs carry the generic HEIF brand (mif1 / msf1), which sniffs as HEIC.
+    if (sniffed === 'image/heic' && declared === 'image/avif') sniffed = 'image/avif';
+    const contentType = sniffed ? storedAttachmentType(sniffed, config.ALLOWED_FILE_TYPES) : DOWNLOAD_CONTENT_TYPE;
+    return { contentType, dims: contentType.startsWith('image/') ? imageDimensions(head) : null };
+  }
+  return {
+    contentType: mediaTypeMatchesExtension(declared, storedKeyExtension(file.name)) ? declared : DOWNLOAD_CONTENT_TYPE,
+    dims: null,
+  };
+}
+
+/**
  * Store one chat attachment exactly like POST /upload/attachment does: the
  * platform type whitelist, E2EE blob magic check, stored content type, the
  * (premium) size limit, and StorageService.upload (image sniffing + Trust &
  * Safety scanning before anything is written). The key is
  * attachments/[<channelId>/]<uploaderId>/<file>, which validateMessageAttachments
- * recognises as that uploader's. Used by the user route and the bot API's
- * multipart message uploads.
+ * recognises as that uploader's, and what was stored is recorded
+ * (src/lib/uploads/attachmentRecords.ts) for the send routes. Used by the
+ * user route and the bot API's multipart message uploads.
  */
 export async function storeChatAttachment(
   file: File,
@@ -181,24 +208,33 @@ export async function storeChatAttachment(
   if (isE2eeBlobUpload(file.name, file.type) && !hasAttachmentMagic(new Uint8Array(await file.slice(0, 8).arrayBuffer()))) {
     return { ok: false, status: 400, error: 'Not an encrypted attachment' };
   }
-  const storedType = storedAttachmentType(file.type, config.ALLOWED_FILE_TYPES);
   const maxSize = opts.isPremium ? config.MAX_FILE_SIZE_PREMIUM : config.MAX_FILE_SIZE;
   if (file.size > maxSize) return { ok: false, status: 413, error: tooLargeError(maxSize, Boolean(opts.isPremium)), maxSize };
+  const typed = await verifiedAttachmentType(file);
   try {
     const result = await storage.uploadFromFormData(file, 'attachments', {
       ip: opts.ip,
       userId: opts.uploaderId,
       channelId: opts.channelId,
-      contentType: storedType,
+      contentType: typed.contentType,
+    });
+    const filename = sanitizeAttachmentFilename(file.name) || `file.${storedKeyExtension(file.name)}`;
+    // What was really stored; message sends take these over the body's values.
+    await recordStoredAttachment(result.url, {
+      uploaderId: opts.uploaderId,
+      filename,
+      contentType: typed.contentType,
+      size: result.size,
+      ...(typed.dims ?? {}),
     });
     return {
       ok: true,
       warning: check.warning,
       attachment: {
         id: result.hash.slice(0, 16),
-        filename: file.name,
-        contentType: storedType,
-        size: file.size,
+        filename,
+        contentType: typed.contentType,
+        size: result.size,
         url: result.url,
         spoiler: Boolean(opts.spoiler),
       },
@@ -722,7 +758,9 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       set.status = 400;
       return { error: 'Images this large cannot be uploaded' };
     }
-    const storedType = storedAttachmentType(type, config.ALLOWED_FILE_TYPES);
+    // Audio / video types need a media file ending (see verifiedAttachmentType).
+    const declaredType = storedAttachmentType(type, config.ALLOWED_FILE_TYPES);
+    const storedType = mediaTypeMatchesExtension(declaredType, storedKeyExtension(filename)) ? declaredType : DOWNLOAD_CONTENT_TYPE;
     try {
       const { key, uploadId } = await storage.startMultipart({
         category: 'attachments',
@@ -822,12 +860,20 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
     try {
       const url = await storage.completeMultipart(session.key, session.uploadId, parts);
       await redis.del(chunkKey(params.token), chunkPartsKey(params.token));
+      // Every part was checked to be exactly its share of session.size.
+      const filename = sanitizeAttachmentFilename(session.filename) || `file.${storedKeyExtension(session.filename)}`;
+      await recordStoredAttachment(url, {
+        uploaderId: session.userId,
+        filename,
+        contentType: session.storedType,
+        size: session.size,
+      });
       return {
         success: true,
         warning: session.warning,
         attachment: {
           id: nanoid(16),
-          filename: session.filename,
+          filename,
           contentType: session.storedType,
           size: session.size,
           url,

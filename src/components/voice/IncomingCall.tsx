@@ -41,6 +41,9 @@ export function voiceErrorText(gt: Gt, code: VoiceErrorCode | undefined, fallbac
     case "kicked": return gt("A moderator disconnected you from the voice channel.");
     case "screen-unsupported": return gt("Screen sharing isn't supported on this device or browser.");
     case "screen-failed": return gt("Could not start screen share.");
+    case "no-connect-permission": return gt("You don't have permission to join this voice channel.");
+    case "no-speak-permission": return gt("You don't have permission to speak in this voice channel.");
+    case "no-stream-permission": return gt("You don't have permission to share video in this voice channel.");
     default: return fallback;
   }
 }

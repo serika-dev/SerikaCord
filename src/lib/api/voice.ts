@@ -13,7 +13,15 @@ import { isSystemUser } from '@/lib/services/systemUsers';
 import { dmSharedServers } from '@/lib/services/dmPrivacy';
 import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
 import { fanoutToUsers } from './activity';
-import { checkChannelAccess, getMemberChannelPermissions } from './channels';
+import { checkChannelAccess, getEveryoneRoleId, getMemberChannelPermissions } from './channels';
+import type { ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
+import {
+  ALL_VOICE_PERMISSIONS,
+  refusedVoiceStateFields,
+  resolveVoicePermissions,
+  type VoicePermissions,
+} from '@/lib/voice/permissions';
+import { contentLengthTooLarge, signalPayloadProblem } from '@/lib/voice/signal';
 import { BoundedMap } from '@/lib/utils/boundedMap';
 import { CHANNEL_STREAM_RECHECK_MS, CHANNEL_STREAM_REVOKED_EVENT, trackUserChannelStream } from '@/lib/realtime/channelStreams';
 import { processShared, PROCESS_INSTANCE_ID } from '@/lib/realtime/processShared';
@@ -58,9 +66,16 @@ type VoiceParticipant = {
   joinedAt: string;
   /** The tab/device this membership belongs to; a join from another replaces it. */
   sessionId?: string;
-  /** Server Mute / Server Deafen set by a moderator (server channels only). */
+  /**
+   * Server Mute (server channels only): set by a moderator, or because the
+   * member lacks SPEAK in the channel (`suppress`). Receivers play a server
+   * muted member at volume 0, so a modified client can't talk over it.
+   */
   serverMute?: boolean;
+  /** Server Deafen set by a moderator: honest peers stop sending them audio. */
   serverDeaf?: boolean;
+  /** No SPEAK permission in this channel (Discord's voice state `suppress`); implies serverMute. */
+  suppress?: boolean;
   /** Sharing their screen ("LIVE" in the channel list). */
   screenShare?: boolean;
 };
@@ -323,14 +338,14 @@ export function removeFromGroupCall(channelId: string, userId: string) {
 
 // ── Voice moderation ────────────────────────────────────────────────────────
 
-type ModeratedFields = { serverMute?: boolean; serverDeaf?: boolean };
+type ModeratedFields = { serverMute?: boolean; serverDeaf?: boolean; suppress?: boolean };
 type ParticipantFields = ModeratedFields & { audio?: boolean; deafened?: boolean; video?: boolean; screenShare?: boolean };
 
 /** The state fields another instance may merge into its room mirror. */
 function pickParticipantFields(raw: unknown): ParticipantFields {
   const v = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
   const out: ParticipantFields = {};
-  for (const key of ['serverMute', 'serverDeaf', 'audio', 'deafened', 'video', 'screenShare'] as const) {
+  for (const key of ['serverMute', 'serverDeaf', 'suppress', 'audio', 'deafened', 'video', 'screenShare'] as const) {
     if (typeof v[key] === 'boolean') out[key] = v[key] as boolean;
   }
   return out;
@@ -389,7 +404,8 @@ export async function applyServerVoiceState(
   const participant = roomState.get(found.roomId)?.get(userId);
   if (!participant) return;
   const update: ModeratedFields = {};
-  if (fields.mute !== undefined) update.serverMute = fields.mute;
+  // Lifting a moderator's mute doesn't unmute someone who lacks SPEAK.
+  if (fields.mute !== undefined) update.serverMute = fields.mute || participant.suppress === true;
   if (fields.deaf !== undefined) update.serverDeaf = fields.deaf;
   Object.assign(participant, update);
   publishMembership(found.roomId, 'update', { userId, fields: update });
@@ -402,6 +418,46 @@ export async function applyServerVoiceState(
     video: participant.video,
     serverMute: participant.serverMute === true,
     serverDeaf: participant.serverDeaf === true,
+  });
+}
+
+/**
+ * Bring a connected member's published state in line with their current voice
+ * permissions in a server channel (role or overwrite edits mid-call): losing
+ * SPEAK suppresses them (server muted, audio off), getting it back lifts that
+ * (a moderator's own mute stays), losing STREAM turns their camera and screen
+ * share off. Everyone in the room is told; the member's own client stops the
+ * camera / share on the `reason: 'permissions'` update.
+ */
+function enforceVoicePermissions(roomId: string, userId: string, perms: VoicePermissions, moderatorMute: boolean) {
+  const participant = roomState.get(roomId)?.get(userId);
+  if (!participant) return;
+  const fields: ParticipantFields = {};
+  const suppress = !perms.speak;
+  if ((participant.suppress === true) !== suppress) {
+    fields.suppress = suppress;
+    fields.serverMute = moderatorMute || suppress;
+    if (suppress && participant.audio) fields.audio = false;
+  }
+  if (!perms.stream) {
+    if (participant.video) fields.video = false;
+    if (participant.screenShare) fields.screenShare = false;
+  }
+  if (Object.keys(fields).length === 0) return;
+  Object.assign(participant, fields);
+  publishMembership(roomId, 'update', { userId, fields });
+  emitVoiceState(roomId, userId, participant);
+  broadcastToRoom(roomId, {
+    type: 'voice:state_update',
+    userId,
+    audio: participant.audio,
+    deafened: participant.deafened,
+    video: participant.video,
+    ...(fields.screenShare !== undefined ? { screenShare: false } : {}),
+    serverMute: participant.serverMute === true,
+    serverDeaf: participant.serverDeaf === true,
+    suppress: participant.suppress === true,
+    reason: 'permissions',
   });
 }
 
@@ -549,9 +605,13 @@ export async function startVoiceBridge(): Promise<() => void> {
 // seconds; /join always re-checks.
 type RoomAuth =
   | {
-      ok: true; userLimit: number; serverMute?: boolean; serverDeaf?: boolean; serverId?: string | null;
+      ok: true; userLimit: number;
+      /** The moderator's Server Mute / Server Deafen persisted on the membership. */
+      serverMute?: boolean; serverDeaf?: boolean; serverId?: string | null;
       /** Server rooms: the member's per-server nickname / avatar (shown on voice tiles). */
       nickname?: string | null; memberAvatar?: string | null;
+      /** Server rooms: CONNECT / SPEAK / STREAM / USE_SOUNDBOARD here. DM and group calls: absent (no limits). */
+      voice?: VoicePermissions;
     }
   | { ok: false; status: number; error: string };
 const ROOM_AUTH_TTL_MS = 15_000;
@@ -599,7 +659,10 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
     }
     // Server mute/deafen persist on the membership (like Discord's guild
     // member mute/deaf) and apply on every join.
-    const member = access.membership as { mute?: boolean | null; deaf?: boolean | null; nickname?: string | null; avatar?: string | null } | null | undefined;
+    const member = access.membership as { roles?: string[] | null; mute?: boolean | null; deaf?: boolean | null; nickname?: string | null; avatar?: string | null } | null | undefined;
+    const voice = access.channel.serverId
+      ? await computeVoicePermissions(userId, access.channel, member ?? null)
+      : ALL_VOICE_PERMISSIONS;
     return {
       ok: true,
       userLimit: Number(access.channel.userLimit) || 0,
@@ -608,29 +671,51 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
       serverId: access.channel.serverId ?? null,
       nickname: member?.nickname || null,
       memberAvatar: member?.avatar || null,
+      voice,
     };
   } catch {
     return { ok: false, status: 500, error: 'Could not verify voice channel access' };
   }
 }
 
+/** A member's voice permissions in a server voice channel (owner / ADMINISTRATOR: everything). */
+async function computeVoicePermissions(
+  userId: string,
+  channel: { serverId: string; permissionOverwrites?: unknown },
+  membership: { roles?: string[] | null } | null,
+): Promise<VoicePermissions> {
+  const serverId = channel.serverId;
+  const [perms, everyoneRoleId] = await Promise.all([
+    getMemberChannelPermissions(userId, channel, membership),
+    getEveryoneRoleId(serverId),
+  ]);
+  return resolveVoicePermissions(perms, (channel.permissionOverwrites || []) as ChannelOverwrite[], {
+    serverId,
+    everyoneRoleId,
+    memberRoleIds: membership?.roles || [],
+    userId,
+  });
+}
+
 /**
  * Re-checks a server voice channel stream's access (VIEW_CHANNEL, membership)
  * on demand (requestUserChannelStreamRecheck: kick, ban, leave) and every
- * CHANNEL_STREAM_RECHECK_MS. Calls `revoke` once when access is gone. Returns
- * a dispose function.
+ * CHANNEL_STREAM_RECHECK_MS. Calls `revoke` once when access is gone. While
+ * access remains, applies voice permission changes (SPEAK, STREAM) to the
+ * member's live state. Returns a dispose function.
  */
 function attachVoiceAccessGuard(userId: string, roomId: string, channelId: string, revoke: () => void): () => void {
   let done = false;
   const revalidate = async () => {
     if (done) return;
-    let hasAccess = true;
-    try {
-      ({ hasAccess } = await checkChannelAccess(userId, channelId));
-    } catch {
-      return; // transient DB error: keep the stream, try again next tick
+    // Fresh: also re-checks VIEW_CHANNEL and membership (checkChannelAccess).
+    const auth = await authorizeRoom(userId, roomId, { fresh: true });
+    if (done) return;
+    if (auth.ok) {
+      if (auth.voice) enforceVoicePermissions(roomId, userId, auth.voice, auth.serverMute === true);
+      return;
     }
-    if (hasAccess || done) return;
+    if (auth.status === 500) return; // transient DB error: keep the stream, try again next tick
     dispose();
     revoke();
   };
@@ -646,14 +731,22 @@ function attachVoiceAccessGuard(userId: string, roomId: string, channelId: strin
 }
 
 // Shared body of the offer/answer/ice relays: only joined participants may
-// signal each other.
+// signal each other, and only with a bounded JSON object (`signal` is what
+// gets relayed: the SDP / ICE candidate / renegotiation request).
 function relaySignal(
   roomId: string,
   fromUserId: string,
   targetUserId: string,
   payload: Record<string, unknown>,
+  signal: unknown,
+  headers: Record<string, string | undefined>,
   set: { status?: number | string },
 ) {
+  const problem = contentLengthTooLarge(headers['content-length']) ? 'too_large' : signalPayloadProblem(signal);
+  if (problem) {
+    set.status = problem === 'too_large' ? 413 : 400;
+    return { error: problem === 'too_large' ? 'Signal too large' : 'Invalid signal' };
+  }
   const room = roomState.get(roomId);
   if (!canSignalBetween(room?.keys(), fromUserId, targetUserId)) {
     set.status = 403;
@@ -770,15 +863,34 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       }
     }
     const existing = roomState.get(body.roomId);
+    // Server voice channels: CONNECT / SPEAK / STREAM. DM and group calls: no limits.
+    const voicePerms = auth.voice ?? ALL_VOICE_PERMISSIONS;
+    const prevEntry = existing?.get(user.id);
+    const isResume = !!prevEntry && !!body.sessionId && prevEntry.sessionId === body.sessionId;
+    // Moved here by a moderator (MOVE_MEMBERS): allowed in without CONNECT and
+    // past the user limit, once (Discord).
+    let moveGrant: boolean | null = null;
+    const hasMoveGrant = async () => {
+      if (moveGrant === null) moveGrant = !!(await cache.get<number>(moveGrantKey(user.id, body.roomId)).catch(() => null));
+      return moveGrant;
+    };
+    let usedMoveGrant = false;
+    // A session already in the channel resuming after a network blip keeps its seat.
+    if (!voicePerms.connect && !isResume) {
+      if (!(await hasMoveGrant())) {
+        set.status = 403;
+        return { error: 'You do not have permission to connect to this voice channel', code: 'missing_connect' };
+      }
+      usedMoveGrant = true;
+    }
     if (!hasRoomForParticipant(auth.userLimit, existing?.size ?? 0, existing?.has(user.id) ?? false)) {
-      // Moved here by a moderator: allowed past the user limit, once.
-      const grant = await cache.get<number>(moveGrantKey(user.id, body.roomId)).catch(() => null);
-      if (!grant) {
+      if (!(await hasMoveGrant())) {
         set.status = 403;
         return { error: 'This voice channel is full' };
       }
-      void cache.del(moveGrantKey(user.id, body.roomId)).catch(() => {});
+      usedMoveGrant = true;
     }
+    if (usedMoveGrant) void cache.del(moveGrantKey(user.id, body.roomId)).catch(() => {});
     // DM call rooms ("dm:<a>_<b>") are only joinable by those two users.
     let callee: string | null = null;
     if (body.roomId.startsWith('dm:')) {
@@ -818,19 +930,22 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     // and don't ring the other person again.
     const resumed = !!prev && !!sessionId && prev.sessionId === sessionId;
     cancelEviction(body.roomId, userId);
+    // No SPEAK: joins suppressed (server muted, audio off). No STREAM: camera off.
+    const suppress = !voicePerms.speak;
     room.set(userId, {
       userId,
       username: user.username,
       // Server voice channels show the per-server nickname / avatar.
       displayName: auth.nickname || user.displayName || user.username,
       avatar: auth.memberAvatar || user.avatar || undefined,
-      audio: body.audio ?? true,
-      video: body.video ?? false,
+      audio: (body.audio ?? true) && !suppress,
+      video: (body.video ?? false) && voicePerms.stream,
       deafened: resumed && prev ? prev.deafened : false,
       joinedAt: resumed && prev ? prev.joinedAt : new Date().toISOString(),
       sessionId,
-      ...(auth.serverMute ? { serverMute: true } : {}),
+      ...(auth.serverMute || suppress ? { serverMute: true } : {}),
       ...(auth.serverDeaf ? { serverDeaf: true } : {}),
+      ...(suppress ? { suppress: true } : {}),
     });
 
     // Sync membership to other instances' mirrors, then notify participants.
@@ -906,6 +1021,8 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       roomId: body.roomId,
       resumed,
       participants: Array.from(room.values()),
+      // What this member may do here (the client turns its camera off without STREAM).
+      permissions: voicePerms,
     };
   }, {
     body: t.Object({
@@ -1194,10 +1311,10 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       type: 'voice:offer',
       signal: body.signal,
       pcId: body.pcId,
-    }, set);
+    }, body.signal, headers, set);
   }, {
     params: t.Object({ roomId: t.String() }),
-    body: t.Object({ targetUserId: t.String(), signal: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
+    body: t.Object({ targetUserId: t.String({ maxLength: 64 }), signal: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
   })
   // Send WebRTC answer to a specific peer
   .post('/signal/:roomId/answer', async ({ headers, cookie, params, body, set }) => {
@@ -1208,10 +1325,10 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       type: 'voice:answer',
       signal: body.signal,
       pcId: body.pcId,
-    }, set);
+    }, body.signal, headers, set);
   }, {
     params: t.Object({ roomId: t.String() }),
-    body: t.Object({ targetUserId: t.String(), signal: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
+    body: t.Object({ targetUserId: t.String({ maxLength: 64 }), signal: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
   })
   // Send ICE candidate to a specific peer
   .post('/signal/:roomId/ice', async ({ headers, cookie, params, body, set }) => {
@@ -1222,10 +1339,10 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       type: 'voice:ice',
       candidate: body.candidate,
       pcId: body.pcId,
-    }, set);
+    }, body.candidate, headers, set);
   }, {
     params: t.Object({ roomId: t.String() }),
-    body: t.Object({ targetUserId: t.String(), candidate: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
+    body: t.Object({ targetUserId: t.String({ maxLength: 64 }), candidate: t.Any(), pcId: t.Optional(t.String({ maxLength: 64 })) }),
   })
   // Play a soundboard sound to everyone in a voice room
   .post('/soundboard/:roomId', async ({ headers, cookie, params, body, set }) => {
@@ -1242,10 +1359,20 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       set.status = 429;
       return { error: 'Slow down with the sounds', retryAfter: soundLimit.retryAfter };
     }
-    // Server-muted: no sounds either.
+    // Server-muted (by a moderator, or no SPEAK): no sounds either.
     if (room.get(user.id)?.serverMute) {
       set.status = 403;
       return { error: 'You are server muted' };
+    }
+    // USE_SOUNDBOARD isn't in the @everyone defaults, so only a channel
+    // overwrite that denies it blocks the soundboard (lib/voice/permissions).
+    if (params.roomId.startsWith('channel-')) {
+      const auth = await authorizeRoom(user.id, params.roomId);
+      if (!auth.ok) { set.status = auth.status; return { error: auth.error }; }
+      if (auth.voice && !auth.voice.soundboard) {
+        set.status = 403;
+        return { error: 'You do not have permission to use the soundboard in this channel' };
+      }
     }
 
     // Channel rooms: verify the sound belongs to the channel's server and
@@ -1327,10 +1454,40 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     const participant = room.get(user.id);
     if (!participant) { set.status = 404; return { error: 'Not in room' }; }
 
-    if (body.audio !== undefined) participant.audio = body.audio;
+    // Server voice channels: unmuting needs SPEAK, camera / screen share need
+    // STREAM. Turning things off is always fine. Refused fields keep their
+    // current (off) value; the rest of the request still applies.
+    let refused: Array<'audio' | 'video' | 'screenShare'> = [];
+    if (params.roomId.startsWith('channel-') && (body.audio === true || body.video === true || body.screenShare === true)) {
+      const auth = await authorizeRoom(user.id, params.roomId);
+      if (!auth.ok && auth.status !== 500) { set.status = auth.status; return { error: auth.error }; }
+      if (!auth.ok) {
+        // Couldn't check (DB hiccup): hold back only what needs a permission;
+        // deafen / turning things off still applies.
+        refused = (['audio', 'video', 'screenShare'] as const).filter((key) => body[key] === true);
+      } else if (auth.voice) {
+        // Granted SPEAK since joining (or lost it): bring the published state up to date first.
+        enforceVoicePermissions(params.roomId, user.id, auth.voice, auth.serverMute === true);
+        refused = refusedVoiceStateFields(body, auth.voice);
+      }
+    }
+    const allowed = (key: 'audio' | 'video' | 'screenShare') => body[key] !== undefined && !refused.includes(key);
+    const appliedAny = allowed('audio') || allowed('video') || allowed('screenShare') || body.deafened !== undefined;
+    if (refused.length > 0 && !appliedAny) {
+      set.status = 403;
+      return {
+        error: refused.includes('audio')
+          ? 'You do not have permission to speak in this voice channel'
+          : 'You do not have permission to share video in this voice channel',
+        refused,
+      };
+    }
+
+    if (allowed('audio')) participant.audio = body.audio as boolean;
     if (body.deafened !== undefined) participant.deafened = body.deafened;
-    if (body.video !== undefined) participant.video = body.video;
-    if (body.screenShare !== undefined) participant.screenShare = body.screenShare;
+    if (allowed('video')) participant.video = body.video as boolean;
+    const screenShare = allowed('screenShare') ? body.screenShare : undefined;
+    if (screenShare !== undefined) participant.screenShare = screenShare;
     // Keep other instances' mirrors (and so the channel list) in step.
     publishMembership(params.roomId, 'update', {
       userId: user.id,
@@ -1338,7 +1495,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
         audio: participant.audio,
         deafened: participant.deafened,
         video: participant.video,
-        ...(body.screenShare !== undefined ? { screenShare: body.screenShare } : {}),
+        ...(screenShare !== undefined ? { screenShare } : {}),
       },
     });
 
@@ -1348,11 +1505,11 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       audio: participant.audio,
       deafened: participant.deafened,
       video: participant.video,
-      screenShare: body.screenShare,
+      screenShare,
     });
     emitVoiceState(params.roomId, user.id, participant);
 
-    return { success: true };
+    return refused.length > 0 ? { success: true, refused } : { success: true };
   }, {
     params: t.Object({ roomId: t.String() }),
     body: t.Object({
@@ -1466,9 +1623,15 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
 
     const room = roomState.get(params.roomId);
-    if (!room || !room.has(user.id)) {
+    const me = room?.get(user.id);
+    if (!room || !me) {
       set.status = 404;
       return { error: 'Not in room' };
+    }
+    // Server muted (by a moderator or for lacking SPEAK): never shown speaking.
+    if (body.speaking && me.serverMute) {
+      set.status = 403;
+      return { error: 'You are server muted' };
     }
 
     broadcastToRoom(params.roomId, {

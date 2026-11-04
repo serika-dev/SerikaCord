@@ -2,6 +2,7 @@ import type { NextConfig } from "next";
 import { execSync } from "node:child_process";
 import { withGTConfig } from "gt-next/config";
 import packageJson from "./package.json";
+import { PLAYER_HOST_SUFFIXES } from "./src/lib/security/embedPlayer";
 
 const isMobileBuild = process.env.MOBILE_BUILD === '1';
 
@@ -36,18 +37,25 @@ const BUILD_SHA = (process.env.NEXT_PUBLIC_BUILD_SHA = resolveBuildSha());
 const BUILD_TIME = (process.env.NEXT_PUBLIC_BUILD_TIME ||= new Date().toISOString());
 
 /**
- * The app's Content-Security-Policy (see headers()). Inline scripts stay
- * allowed until Next's inline bootstrap scripts carry a nonce.
+ * The app's Content-Security-Policy (see headers()), enforced. No eval / new
+ * Function (client mods patch the app by rewriting webpack modules and
+ * evaluating them; webpack's own `new Function("return this")` probe is in a
+ * try/catch and falls back to `window`), no scripts from other hosts, and
+ * connections only to Serika hosts so injected code can't send data out.
+ * Inline scripts stay allowed until Next's inline bootstrap scripts carry a
+ * nonce (that needs every page rendered per request). Cloudflare injects its
+ * Web Analytics beacon.
  */
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline'",
+  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "media-src 'self' data: blob: https:",
   "font-src 'self' data:",
-  "connect-src 'self' https://cdn.serika.chat https://*.serika.chat https://*.serika.dev",
-  "frame-src https://www.youtube.com https://www.youtube-nocookie.com https://embed.nicovideo.jp https://player.bilibili.com https://serika.video https://*.serika.video https://player.vimeo.com https://www.dailymotion.com https://clips.twitch.tv https://player.twitch.tv https://streamable.com https://open.spotify.com https://w.soundcloud.com https://*.bandcamp.com https://giphy.com https://tenor.com https://music.serika.dev",
+  "connect-src 'self' https://cdn.serika.chat https://*.serika.chat https://*.serika.dev https://cloudflareinsights.com",
+  // Every embed player a link preview may show (and its subdomains).
+  `frame-src ${PLAYER_HOST_SUFFIXES.flatMap((host) => [`https://${host}`, `https://*.${host}`]).join(' ')}`,
   "worker-src 'self' blob:",
   "manifest-src 'self'",
   "object-src 'none'",
@@ -175,17 +183,15 @@ const nextConfig: NextConfig = {
   // Security headers (server-only, ignored during static export)
   async headers() {
     return [
-      // Content-Security-Policy, report-only while it's tuned (reports land in
-      // /api/csp-report, staff read them at /api/admin/csp-reports). Scripts
-      // only from this origin, so a client mod or userscript can't pull in
-      // code from elsewhere, and connections only to Serika hosts, so injected
-      // code can't send data out. Production only (dev needs eval + HMR).
+      // Content-Security-Policy (CONTENT_SECURITY_POLICY above). Violations are
+      // reported to /api/csp-report; staff read them at /api/admin/csp-reports.
+      // Production only (dev needs eval + HMR).
       ...(process.env.NODE_ENV === 'production'
         ? [{
             source: '/((?!widget/|api/).*)',
             headers: [
               { key: 'Reporting-Endpoints', value: 'csp="/api/csp-report"' },
-              { key: 'Content-Security-Policy-Report-Only', value: CONTENT_SECURITY_POLICY },
+              { key: 'Content-Security-Policy', value: CONTENT_SECURITY_POLICY },
             ],
           }]
         : []),
