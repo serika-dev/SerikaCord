@@ -46,7 +46,7 @@
   },
   "android": {
     "allowMixedContent": false,
-    "captureInput": true,
+    "captureInput": false,
     "webContentsDebuggingEnabled": false,
     "backgroundColor": "#05060a"
   }

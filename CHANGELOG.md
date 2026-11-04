@@ -15,6 +15,7 @@
 - Activities you play show up under Recently Played on your profile, and the profile's activity section shows what you played last when you're not doing anything right now (CORD-92)
 
 ### Bug Fixes
+- Samsung Keyboard's extra symbols (` ~ \ | < > { } [ ] • ♥ ☆ ¡ ¿ and the rest of the second symbol page) can be typed in the Android app again. Most of them work right away; `\` needs the next app update
 - Verified bots show the verified BOT tag in the DM list and on their messages that arrive live (they showed the plain tag until you reloaded)
 - Display name styles look like themselves again on profile cards: no extra white or black glow around the name
 

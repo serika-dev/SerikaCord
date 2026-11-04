@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { cn } from "@/lib/utils";
+import { nativePlatform } from "@/lib/native/bridge";
 import { useGT } from "gt-next";
 import { isTouchOnlyInput, useTouchOnlyInput } from "@/hooks/useVisualViewport";
 import { shouldInsertDoubleSpacePeriod } from "@/lib/chat/doubleSpacePeriod";
@@ -1065,6 +1066,25 @@ export const RichComposer = forwardRef<RichComposerHandle, RichComposerProps>(
       editor.addEventListener("beforeinput", onBeforeInput);
       return () => editor.removeEventListener("beforeinput", onBeforeInput);
     }, [getCaret, serialize, domReplaceRange, replayEnter, flushPendingEnter, emitChange, scheduleImeRestart, commitComposition, handleTransfer]);
+
+    // Android app builds with Capacitor's `captureInput` on: text a keyboard can't
+    // send as a key press (Samsung Keyboard's second symbol page: ` ~ \ | < > { } [ ]
+    // • ♥ ☆ ¡ ¿ …) arrives as `activeElement.value = activeElement.value + '…'`,
+    // which does nothing on a contentEditable. A `value` that reads empty and
+    // inserts what's assigned lets those characters through until every install
+    // has a build with the option off (mobile/capacitor.config.json).
+    useEffect(() => {
+      const editor = editorRef.current;
+      if (!editor || nativePlatform() !== "android") return;
+      Object.defineProperty(editor, "value", {
+        configurable: true,
+        get: () => "",
+        set: (v: unknown) => {
+          if (typeof v === "string" && v) insertNodeAtCaret(document.createTextNode(v));
+        },
+      });
+      return () => { delete (editor as { value?: unknown }).value; };
+    }, [insertNodeAtCaret]);
 
     // A pending Enter never outlives the composer.
     useEffect(() => () => {
