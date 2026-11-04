@@ -213,7 +213,7 @@ export async function handleActivityRequest(req: Request, server: UpgradeServer,
       out.set('Location', rewritten);
     }
   }
-  out.set('Content-Security-Policy', appCsp({ host: publicHost, apiOrigins: apiOrigins(), cdnOrigin: cdnOrigin() }));
+  out.set('Content-Security-Policy', appCsp({ host: publicHost, apiOrigins: apiOrigins(), cdnOrigin: cdnOrigin(), ancestors: activityHostOrigins() }));
   out.set('X-Content-Type-Options', 'nosniff');
   out.set('Referrer-Policy', 'strict-origin-when-cross-origin');
   out.set('Permissions-Policy', 'camera=(self), microphone=(self), geolocation=(), payment=(), usb=(), serial=(), hid=(), bluetooth=()');

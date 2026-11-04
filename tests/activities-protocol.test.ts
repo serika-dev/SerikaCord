@@ -144,10 +144,11 @@ describe("relay page and proxy headers", () => {
     expect(relayCsp("abc", [])).toContain("frame-ancestors 'none'");
   });
   test("app CSP keeps everything on the proxy except SerikaCord's API / CDN", () => {
-    const csp = appCsp({ host: "1.waifu.ws", apiOrigins: ["https://serika.chat"], cdnOrigin: "https://cdn.serika.chat" });
+    const csp = appCsp({ host: "1.waifu.ws", apiOrigins: ["https://serika.chat"], cdnOrigin: "https://cdn.serika.chat", ancestors: ["https://serika.chat", "https://canary.serika.chat"] });
     expect(csp).toContain("default-src 'self'");
     expect(csp).toContain("connect-src 'self' wss://1.waifu.ws https://serika.chat https://cdn.serika.chat");
-    expect(csp).toContain("frame-ancestors 'self'");
+    // Every ancestor is checked: the relay (self) AND the SerikaCord page above it.
+    expect(csp).toContain("frame-ancestors 'self' https://serika.chat https://canary.serika.chat");
   });
   test("no cookies or forwarding headers go upstream; no cookies come back", () => {
     const up = upstreamRequestHeaders(new Headers({ cookie: "a=b", "x-forwarded-for": "1.1.1.1", "cf-connecting-ip": "2.2.2.2", accept: "text/html", connection: "keep-alive" }), { clientIp: "9.9.9.9", publicHost: "1.waifu.ws", clientId: "1" });

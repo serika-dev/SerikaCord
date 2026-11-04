@@ -113,9 +113,13 @@ export function relayCsp(nonce: string, ancestors: string[]): string {
  * CSP for proxied app documents: everything external goes through the proxy
  * (`/.proxy/...`), like Discord's. SerikaCord's API and CDN are the exceptions
  * (Discord allows discord.com/api and its CDN the same way), so an Activity can
- * call the API with its own OAuth2 token. Framed only by the relay (same origin).
+ * call the API with its own OAuth2 token.
+ *
+ * frame-ancestors is checked against EVERY ancestor, not just the parent: the
+ * app sits in the relay ('self'), which sits in a SerikaCord page, so the
+ * SerikaCord origins must be listed too or browsers refuse to show it.
  */
-export function appCsp(opts: { host: string; apiOrigins: string[]; cdnOrigin: string | null }): string {
+export function appCsp(opts: { host: string; apiOrigins: string[]; cdnOrigin: string | null; ancestors: string[] }): string {
   const extra = [...opts.apiOrigins, ...(opts.cdnOrigin ? [opts.cdnOrigin] : [])].join(' ');
   return [
     "default-src 'self'",
@@ -127,7 +131,7 @@ export function appCsp(opts: { host: string; apiOrigins: string[]; cdnOrigin: st
     "font-src 'self' data:",
     "worker-src 'self' blob:",
     "frame-src 'self' blob:",
-    "frame-ancestors 'self'",
+    `frame-ancestors 'self' ${opts.ancestors.join(' ')}`.trim(),
     "base-uri 'self'",
     "form-action 'self'",
     "object-src 'none'",
