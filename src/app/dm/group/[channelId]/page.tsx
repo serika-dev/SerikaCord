@@ -71,6 +71,7 @@ const MessageSearchPanel = dynamic(() => import("@/components/chat/search/Messag
 const GroupDmPickerDialog = dynamic(() => import("@/components/dm/GroupDmPickerDialog").then((m) => m.GroupDmPickerDialog), { ssr: false });
 const EditGroupDmDialog = dynamic(() => import("@/components/dm/EditGroupDmDialog").then((m) => m.EditGroupDmDialog), { ssr: false });
 // Shown instead of the conversation until this account has a PIN / this device has keys.
+const ActivityRunningBar = dynamic(() => import("@/components/activities/ActivityRunningBar"), { ssr: false });
 const E2eePinGate = dynamic(() => import("@/components/e2ee/E2eePinGate").then((m) => m.E2eePinGate), { ssr: false });
 
 /**
@@ -715,6 +716,8 @@ export default function GroupDMPage() {
         <TypingIndicator text={chat.typingStatusText} className="pb-1" />
 
         <div className="pt-0">
+          {/* Encrypted chats get no invitation card: join a running Activity here (CORD-92). */}
+          {chat.e2eeActive && channelId && <ActivityRunningBar channelId={channelId} currentUserId={user?.id} />}
           <E2eeConversationBanner
             conversation={chat.conversation}
             active={chat.e2eeActive}

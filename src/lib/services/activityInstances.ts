@@ -379,7 +379,11 @@ export async function launchActivity(opts: LaunchOptions): Promise<ActivityResul
   await multi.exec();
   ensureSweeper();
 
-  if (!opts.voice && opts.invitation !== false) {
+  // Encrypted conversations take no server-readable rows (lib/e2ee), so no
+  // Game Invitation card there: the DM shows a live "Join" bar instead
+  // (ActivityRunningBar, fed by the activity_update stream).
+  const encrypted = (channel as { e2ee?: boolean | null }).e2ee === true;
+  if (!opts.voice && opts.invitation !== false && !encrypted) {
     const messageId = await postInvitation(app, channel, rec, opts.user, opts.commandName ?? null);
     if (messageId) {
       rec.messageId = messageId;

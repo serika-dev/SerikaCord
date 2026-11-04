@@ -335,6 +335,10 @@ The card shows the app icon and name, a status line ("<N> playing" while
 running; "Game ended. Start a new one?" once ended) and **Play** (join the
 running instance) / **Play again** (start a new one, which posts a fresh card).
 
+Encrypted DMs / group DMs (`channels.e2ee`) get no card, since encrypted
+conversations refuse server-written rows (see e2ee.md). `ActivityRunningBar`
+above their composer shows running instances with Join instead.
+
 ---
 
 ## Phases

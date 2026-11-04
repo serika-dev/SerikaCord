@@ -63,6 +63,7 @@ import { StatusBadge } from "@/components/user/StatusBadge";
 import { ActivitySlot } from "@/components/activities/ActivitySlot";
 
 // Shown instead of the conversation until this account has a PIN / this device has keys.
+const ActivityRunningBar = dynamic(() => import("@/components/activities/ActivityRunningBar"), { ssr: false });
 const E2eePinGate = dynamic(() => import("@/components/e2ee/E2eePinGate").then((m) => m.E2eePinGate), { ssr: false });
 
 const MessageSearchPanel = dynamic(() => import("@/components/chat/search/MessageSearchPanel").then((m) => m.MessageSearchPanel), { ssr: false });
@@ -815,6 +816,8 @@ export default function DMConversationPage() {
 
         {/* Message input */}
         <div className="pt-0">
+          {/* Encrypted chats get no invitation card: join a running Activity here (CORD-92). */}
+          {chat.e2eeActive && dmChannelId && <ActivityRunningBar channelId={dmChannelId} currentUserId={user?.id} />}
           <E2eeConversationBanner
             conversation={chat.conversation}
             active={chat.e2eeActive}

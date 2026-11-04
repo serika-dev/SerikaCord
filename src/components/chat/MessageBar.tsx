@@ -1712,7 +1712,8 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
             {/* Editor row: upload button + composer + right buttons */}
             <div className="relative flex items-center">
               {/* Upload button / "+" menu (left side, pinned to editor row) */}
-              {commandMode ? null : pollApiBase ? (
+              {/* The menu also shows without polls (encrypted DMs) so Activities can start there. */}
+              {commandMode ? null : pollApiBase || commandChannelId || channelId ? (
                 <DropdownMenu>
                   <DropdownMenuTrigger asChild>
                     <button
@@ -1733,9 +1734,11 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     <DropdownMenuItem onClick={() => fileInputRef.current?.click()} className="hover:bg-[var(--bg-hover)] cursor-pointer">
                       <Upload className="w-4 h-4 mr-2" /> {gt("Upload a File")}
                     </DropdownMenuItem>
-                    <DropdownMenuItem onClick={() => setPollOpen(true)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
-                      <BarChart3 className="w-4 h-4 mr-2" /> {gt("Create Poll")}
-                    </DropdownMenuItem>
+                    {pollApiBase && (
+                      <DropdownMenuItem onClick={() => setPollOpen(true)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
+                        <BarChart3 className="w-4 h-4 mr-2" /> {gt("Create Poll")}
+                      </DropdownMenuItem>
+                    )}
                     {(commandChannelId ?? channelId) && (
                       <DropdownMenuItem
                         onClick={() => {

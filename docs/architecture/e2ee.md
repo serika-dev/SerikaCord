@@ -214,6 +214,10 @@ gallery's URL list.
   forwards (and their notes) are server-readable rows, so they are refused
   into encrypted conversations (and "Create Poll" is hidden there);
   encrypted messages can't be forwarded.
+  Activities (CORD-92) still launch there, but without the Game Invitation
+  card (a server-written row): `ActivityRunningBar` above the composer lists
+  running instances from `GET /api/activities/channels/:id/running` and the
+  `activity_update` stream.
 - Never seen by the server: search indexing (skipped/removed for rows with
   `e2ee`), link previews (clients don't render LinkEmbed for encrypted
   messages, so links never reach `/api/oembed`), AutoMod (DMs don't run it),

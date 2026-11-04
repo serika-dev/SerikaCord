@@ -130,6 +130,16 @@ export const activityRoutes = new Elysia({ prefix: '/activities' })
     return { available: true, developerMode: settings?.advanced?.developerMode === true, apps, recents, running };
   })
 
+  // Instances running in a chat (the encrypted-DM "Join" bar).
+  .get('/channels/:channelId/running', async ({ headers, cookie, params, set }) => {
+    const user = await sessionUser(headers, cookie as Cookie);
+    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
+    if (!isValidObjectId(params.channelId)) { set.status = 400; return { error: 'Invalid channel' }; }
+    if (!config.ACTIVITIES_DOMAIN) return { running: [] };
+    const { channelInstances } = await import('@/lib/services/activityInstances');
+    return { running: await channelInstances(user.id, params.channelId) };
+  })
+
   .post('/launch', async ({ headers, cookie, body, set }) => {
     const user = await sessionUser(headers, cookie as Cookie);
     if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
