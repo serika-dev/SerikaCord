@@ -9,6 +9,9 @@ import { cleanLabel, cleanText } from './components';
 
 export const CommandType = { CHAT_INPUT: 1, USER: 2, MESSAGE: 3, PRIMARY_ENTRY_POINT: 4 } as const;
 
+/** Entry point command handlers: the app answers (1) or SerikaCord launches the Activity (2). */
+export const EntryPointHandler = { APP_HANDLER: 1, DISCORD_LAUNCH_ACTIVITY: 2 } as const;
+
 export const OptionType = {
   SUB_COMMAND: 1,
   SUB_COMMAND_GROUP: 2,
@@ -40,6 +43,8 @@ export const COMMAND_LIMITS = {
   CHAT_INPUT_PER_SCOPE: 100,
   USER_PER_SCOPE: 15,
   MESSAGE_PER_SCOPE: 15,
+  /** Entry point commands: one per application, global only. */
+  PRIMARY_ENTRY_POINT_PER_SCOPE: 1,
   AUTOCOMPLETE_CHOICES: 25,
 } as const;
 
@@ -326,10 +331,15 @@ export function validateCommand(
     e.add([...path, 'type'], FE.INVALID, 'The command type cannot be changed.');
   }
   const isChat = type === CommandType.CHAT_INPUT;
+  const isEntryPoint = type === CommandType.PRIMARY_ENTRY_POINT;
+  if (isEntryPoint && opts.guildScoped) {
+    e.add([...path, 'type'], FE.INVALID, 'Entry Point commands can only be global.');
+  }
+  // Entry point names may be capitalized ("Launch"), like user / message commands.
   const name = input.name !== undefined || !base ? validName(e, [...path, 'name'], input.name, isChat) : base.name;
   let description: string | undefined = base?.description ?? '';
   if (input.description !== undefined || !base) {
-    if (isChat) description = text(e, [...path, 'description'], input.description, { min: 1, max: COMMAND_LIMITS.DESCRIPTION });
+    if (isChat || isEntryPoint) description = text(e, [...path, 'description'], input.description, { min: 1, max: COMMAND_LIMITS.DESCRIPTION });
     else if (input.description !== undefined && input.description !== null && input.description !== '') {
       e.add([...path, 'description'], FE.INVALID, 'User and message commands cannot have a description.');
     } else description = '';
@@ -370,8 +380,19 @@ export function validateCommand(
   const nameLocalizations = pick('name_localizations', () => localizations(e, [...path, 'name_localizations'], input.name_localizations, COMMAND_LIMITS.NAME, isChat), base?.nameLocalizations ?? null);
   const descriptionLocalizations = pick('description_localizations', () => localizations(e, [...path, 'description_localizations'], input.description_localizations, COMMAND_LIMITS.DESCRIPTION, false), base?.descriptionLocalizations ?? null);
   const nsfw = pick('nsfw', () => (typeof input.nsfw === 'boolean' ? input.nsfw : false), base?.nsfw ?? false);
-  const handler = pick('handler', () => (input.handler === 1 || input.handler === 2 ? input.handler : null), base?.handler ?? null);
-  if (type === CommandType.PRIMARY_ENTRY_POINT) e.add([...path, 'type'], FE.CHOICES, 'Activity entry point commands are not supported on SerikaCord.');
+  // handler only exists on entry point commands (default: SerikaCord launches
+  // the Activity). Other types drop it, as Discord ignores it there. Whether
+  // the app may have an entry point at all (Activities enabled) is checked by
+  // the service (src/lib/services/appCommands.ts).
+  let handler: number | null = null;
+  if (isEntryPoint) {
+    handler = pick('handler', () => {
+      if (input.handler === null) return EntryPointHandler.DISCORD_LAUNCH_ACTIVITY;
+      if (input.handler === 1 || input.handler === 2) return input.handler;
+      e.add([...path, 'handler'], FE.CHOICES, 'Value must be one of (1, 2).');
+      return undefined;
+    }, base?.handler ?? EntryPointHandler.DISCORD_LAUNCH_ACTIVITY);
+  }
   if (opts.guildScoped && input.contexts !== undefined && input.contexts !== null) {
     // Discord ignores contexts on guild commands; keep them but they never widen.
   }
@@ -409,11 +430,12 @@ export function commandFingerprint(c: Omit<CommandDefinition, 'id'>): string {
 
 /** Count limits per command type for one scope (global, or one guild). */
 export function checkScopeLimits(defs: Array<{ type: number }>, errors: FormErrors): void {
-  const counts = { 1: 0, 2: 0, 3: 0 } as Record<number, number>;
+  const counts = { 1: 0, 2: 0, 3: 0, 4: 0 } as Record<number, number>;
   for (const d of defs) counts[d.type] = (counts[d.type] ?? 0) + 1;
   if (counts[1] > COMMAND_LIMITS.CHAT_INPUT_PER_SCOPE) errors.add([], 'APPLICATION_COMMANDS_TOO_MANY', `Maximum number of chat input commands reached (${COMMAND_LIMITS.CHAT_INPUT_PER_SCOPE}).`);
   if (counts[2] > COMMAND_LIMITS.USER_PER_SCOPE) errors.add([], 'APPLICATION_COMMANDS_TOO_MANY', `Maximum number of user commands reached (${COMMAND_LIMITS.USER_PER_SCOPE}).`);
   if (counts[3] > COMMAND_LIMITS.MESSAGE_PER_SCOPE) errors.add([], 'APPLICATION_COMMANDS_TOO_MANY', `Maximum number of message commands reached (${COMMAND_LIMITS.MESSAGE_PER_SCOPE}).`);
+  if (counts[4] > COMMAND_LIMITS.PRIMARY_ENTRY_POINT_PER_SCOPE) errors.add([], 'APPLICATION_COMMANDS_TOO_MANY', 'An application can only have one Entry Point command.');
 }
 
 export interface StoredCommandLike {

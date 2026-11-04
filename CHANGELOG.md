@@ -7,6 +7,7 @@
 ## Unreleased
 
 ### Features
+- **Activities, part 1** — app developers can turn on Activities for their application in the developer portal: URL mappings, supported platforms, orientation, an 18+ age gate and Activity art. Turning it on creates the app's Launch entry point command. Launching Activities in calls and chats comes in a later update. (CORD-92)
 
 ### Changes
 

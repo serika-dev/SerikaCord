@@ -1008,6 +1008,26 @@ export const applicationRoleConnections = pgTable('application_role_connections'
   userIdx: index('application_role_connections_user_idx').on(t.userId),
 }));
 
+// Activities (Embedded App SDK) settings of an application: on/off, URL
+// mappings the Activities proxy routes by, platforms, orientation, age gate,
+// shelf name/art. Validation: src/lib/activities/settings.ts. Created on first
+// use by ensureActivitySettingsSchema() (drizzle/manual_activities.sql).
+export const applicationActivitySettings = pgTable('application_activity_settings', {
+  applicationId: uuid('application_id').primaryKey(),
+  enabled: boolean('enabled').notNull().default(false),
+  urlMappings: jsonb('url_mappings').notNull().default([]),
+  supportedPlatforms: text('supported_platforms').array(),
+  orientationLockPhone: smallint('orientation_lock_phone').notNull().default(1),
+  orientationLockTablet: smallint('orientation_lock_tablet').notNull().default(1),
+  ageGated: boolean('age_gated').notNull().default(false),
+  displayName: text('display_name'),
+  imageUrl: text('image_url'),
+  createdAt: timestamp('created_at').defaultNow(),
+  updatedAt: timestamp('updated_at').defaultNow(),
+}, (t) => ({
+  enabledIdx: index('application_activity_settings_enabled_idx').on(t.enabled),
+}));
+
 export const richPresence = pgTable('rich_presence', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   userId: uuid('user_id').notNull(),

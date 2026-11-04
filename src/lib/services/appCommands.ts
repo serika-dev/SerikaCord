@@ -77,6 +77,18 @@ export const OPTION_TYPES = {
 type ApiResult<T> = { ok: true; status: number; body: T } | { ok: false; status: number; body: DiscordFormError | { code: number; message: string } };
 
 const UNKNOWN_COMMAND = { code: 10063, message: 'Unknown application command' };
+/** Discord's error when a bulk overwrite drops the app's entry point command. */
+const ENTRY_POINT_REMOVED = {
+  code: 50240,
+  message: "You cannot remove this app's Entry Point command in a bulk update operation. Please include the Entry Point command in your update request or delete it separately.",
+};
+
+/** Entry point commands (type 4) need Activities enabled on the app (docs/architecture/activities.md). */
+async function entryPointNotAllowed(applicationId: string, path: Array<string | number>): Promise<DiscordFormError | null> {
+  const { activitiesEnabled } = await import('@/lib/services/activitySettings');
+  if (await activitiesEnabled(applicationId)) return null;
+  return formError([...path, 'type'], FE.CHOICES, 'Entry Point commands need Activities to be enabled for this application.');
+}
 const same = (a: string | null | undefined, b: string | null | undefined) => !!a && !!b && a.toLowerCase() === b.toLowerCase();
 
 // ─── Row ⇄ definition ───────────────────────────────────────
@@ -162,6 +174,10 @@ export async function upsertCommand(applicationId: string, guildId: string | nul
   const errors = new FormErrors();
   const def = validateCommand(body, { errors, guildScoped: Boolean(guildId) });
   if (!def) return { ok: false, status: 400, body: errors.toBody() };
+  if (def.type === CommandType.PRIMARY_ENTRY_POINT) {
+    const denied = await entryPointNotAllowed(applicationId, []);
+    if (denied) return { ok: false, status: 400, body: denied };
+  }
   const existing = await listCommands(applicationId, guildId);
   const match = existing.find((c) => c.name === def.name && (c.type ?? 1) === def.type);
   if (!match) {
@@ -230,7 +246,16 @@ export async function bulkOverwriteCommands(applicationId: string, guildId: stri
   if (body.length > 250) errors.add([], FE.MAX_LENGTH, 'Too many application commands.');
   checkScopeLimits(defs, errors);
   if (!errors.ok) return { ok: false, status: 400, body: errors.toBody() };
+  const entryIndex = defs.findIndex((d) => d.type === CommandType.PRIMARY_ENTRY_POINT);
+  if (entryIndex !== -1) {
+    const denied = await entryPointNotAllowed(applicationId, [entryIndex]);
+    if (denied) return { ok: false, status: 400, body: denied };
+  }
   const existing = await listCommands(applicationId, guildId);
+  if (!guildId && entryIndex === -1 && existing.some((c) => c.type === CommandType.PRIMARY_ENTRY_POINT)) {
+    const { activitiesEnabled } = await import('@/lib/services/activitySettings');
+    if (await activitiesEnabled(applicationId)) return { ok: false, status: 400, body: ENTRY_POINT_REMOVED };
+  }
   const plan = planBulkOverwrite(
     existing.map((c) => ({ id: c.id, name: c.name, type: c.type ?? 1, fingerprint: commandFingerprint(rowToDefinition(c)) })),
     defs,
@@ -512,7 +537,8 @@ export async function getChannelAppCommands(
     const app = await Application.findOne({ botId });
     if (!app) continue;
     const all = await AppCommand.find({ applicationId: app.id });
-    const relevant = all.filter((c) => !c.guildId || (guildId && same(c.guildId, guildId)));
+    // Entry point commands (type 4) stay hidden until launching Activities ships (CORD-92 phase 4).
+    const relevant = all.filter((c) => c.type !== CommandType.PRIMARY_ENTRY_POINT && (!c.guildId || (guildId && same(c.guildId, guildId))));
     const byKey = new Map<string, IAppCommand>();
     for (const c of relevant) {
       const key = `${c.type ?? 1}:${c.name}`;
@@ -555,6 +581,7 @@ export async function resolveInvocableCommand(viewer: CommandViewer, commandId: 
   const cmd = await AppCommand.findById(commandId).catch(() => null);
   if (!cmd) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
   if (expectType !== undefined && (cmd.type ?? 1) !== expectType) return { ok: false, status: 400, error: 'Wrong command type', code: 'unknown_command' };
+  if (cmd.type === CommandType.PRIMARY_ENTRY_POINT) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
   const app = await Application.findById(cmd.applicationId);
   if (!app || !app.botId) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
   const bots = await channelBotIds(viewer.channel);

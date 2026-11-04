@@ -151,6 +151,45 @@ async function uploadAppAsset(app: { id: string; icon?: string | null; coverImag
   return result;
 }
 
+/** Hosts an Activity URL mapping may never target (the Activities domain itself). */
+function activityBlockedHosts(): string[] {
+  return [config.ACTIVITIES_DOMAIN, 'activities.localhost'].filter(Boolean);
+}
+
+/** Best-effort delete of a cleared Activity image (only this app's own upload, never its cover). */
+async function deleteActivityImage(app: { id: string; coverImage?: string | null }, url: string): Promise<void> {
+  if (url === app.coverImage || !isOwnedAppAssetUrl(url, config.CDN_URL, 'cover', app.id)) return;
+  try { await storage.deleteByUrl(url); } catch { /* best-effort cleanup */ }
+}
+
+/** The portal's Activities page payload. */
+async function activitiesView(
+  app: { id: string; name: string; clientId: string; icon?: string | null; coverImage?: string | null },
+  canEdit: boolean,
+  warnings: Array<{ index: number | null; field: string | null; message: string }>,
+) {
+  const { getActivitySettings } = await import('@/lib/services/activitySettings');
+  const { getAppApiExtras } = await import('@/lib/services/applicationApiSettings');
+  const { listCommands, serializeCommand } = await import('@/lib/services/appCommands');
+  const { activityHostLabel } = await import('@/lib/activities/settings');
+  const [settings, extras, commands] = await Promise.all([
+    getActivitySettings(app.id),
+    getAppApiExtras(app.id),
+    listCommands(app.id, null),
+  ]);
+  const entry = commands.find((c) => c.type === 4);
+  const label = activityHostLabel(app.clientId);
+  return {
+    settings,
+    maxParticipants: extras.maxParticipants ?? null,
+    entryPointCommand: entry ? serializeCommand(entry, app.id) : null,
+    activitiesDomain: config.ACTIVITIES_DOMAIN || null,
+    activityOrigin: config.ACTIVITIES_DOMAIN && label ? `https://${label}.${config.ACTIVITIES_DOMAIN}` : null,
+    warnings,
+    canEdit,
+  };
+}
+
 /** Owner, or a team owner / admin / developer (same rule as PATCH /applications/:id). */
 async function canManageApp(app: { ownerId: string; teamId?: string | null }, userId: string): Promise<boolean> {
   if (app.ownerId === userId) return true;
@@ -1308,6 +1347,72 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     console.error('App cover upload error:', error);
     set.status = 500;
     return { error: 'Failed to upload cover image' };
+  }
+}, {
+  body: t.Object({ file: t.File() }),
+})
+
+// ─── Activities (Embedded App SDK, CORD-92) ────────────────
+// The portal's Activities page: on/off, URL mappings for the Activities proxy,
+// platforms, orientation, age gate, shelf name/art, max participants. Rules:
+// src/lib/activities/settings.ts; storage + entry point command:
+// src/lib/services/activitySettings.ts. Design: docs/architecture/activities.md.
+
+.get('/applications/:id/activities', async ({ headers, cookie, params, set }) => {
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { app, user } = access;
+  return activitiesView(app, await canManageApp(app, user.id), []);
+})
+
+.patch('/applications/:id/activities', async ({ headers, cookie, params, body, set }) => {
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { app, user } = access;
+  if (!(await canManageApp(app, user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
+  if (!(await checkRateLimit('activitySettingsEdit', user.id)).success) { set.status = 429; return { error: 'Too many changes. Try again later.' }; }
+  const { getActivitySettings, updateActivitySettings } = await import('@/lib/services/activitySettings');
+  const { validateActivitySettingsPatch } = await import('@/lib/activities/settings');
+  const current = await getActivitySettings(app.id);
+  // The image is set only by uploading it (POST .../activities/image); a PATCH may only clear it.
+  const parsed = validateActivitySettingsPatch(body, current, {
+    blockedHosts: activityBlockedHosts(),
+    isOwnedImageUrl: (url) => url === current.imageUrl,
+  });
+  if (!parsed.ok) { set.status = 400; return { error: parsed.error, mappingErrors: parsed.mappingErrors ?? [] }; }
+  if (parsed.patch.imageUrl === null && current.imageUrl) await deleteActivityImage(app, current.imageUrl);
+  await updateActivitySettings(app, parsed.patch);
+  const fresh = await Application.findById(app.id);
+  return activitiesView(fresh ?? app, true, parsed.warnings);
+})
+
+// Upload the Activity's shelf / invitation card art. Stored under the app's
+// cover prefix; only the previous Activity image is ever deleted.
+.post('/applications/:id/activities/image', async ({ headers, cookie, params, body, request, set }) => {
+  const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
+  if ('error' in access) return access.error;
+  const { app, user } = access;
+  if (!(await canManageApp(app, user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
+  const ip = getClientIP(request);
+  const rateLimit = await checkRateLimit('upload', `${user.id}:${ip}`);
+  if (!rateLimit.success) { set.status = 429; return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter }; }
+  const { file } = body as { file?: File };
+  if (!file) { set.status = 400; return { error: 'No file provided' }; }
+  const image = await readImageUpload(file, config.MAX_BANNER_SIZE);
+  if (!image.ok) { set.status = 400; return { error: image.message }; }
+  const { getActivitySettings, updateActivitySettings } = await import('@/lib/services/activitySettings');
+  try {
+    const current = await getActivitySettings(app.id);
+    // Never the app's cover: uploadAppAsset deletes the `coverImage` it is given.
+    const previous = current.imageUrl && current.imageUrl !== app.coverImage ? current.imageUrl : null;
+    const result = await uploadAppAsset({ id: app.id, coverImage: previous }, 'cover', image, user.id, ip);
+    await updateActivitySettings(app, { imageUrl: result.url });
+    return { success: true, url: result.url };
+  } catch (error: unknown) {
+    if (error instanceof ContentBlockedError) { set.status = 403; return { error: error.message }; }
+    console.error('Activity image upload error:', error);
+    set.status = 500;
+    return { error: 'Failed to upload image' };
   }
 }, {
   body: t.Object({ file: t.File() }),

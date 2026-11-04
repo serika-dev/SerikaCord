@@ -91,6 +91,8 @@ export const rateLimiters_config = {
   integrationTest: { points: 5, duration: 60 },
   // Owner App Directory edits, cover uploads and verification applications, per user.
   appDirectoryEdit: { points: 30, duration: 600 },
+  // Developer portal Activities settings saves (CORD-92), per user.
+  activitySettingsEdit: { points: 30, duration: 600 },
   // Bot profile edits (PATCH /users/@me): Discord allows 2 username changes
   // per hour; avatar / banner changes get a slightly larger budget.
   botUsernameChange: { points: 2, duration: 3600 },

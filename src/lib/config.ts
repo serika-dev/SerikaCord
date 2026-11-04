@@ -44,6 +44,11 @@ export const config = {
 
   // Public frontend base URL (used for OAuth redirects back to the UI)
   FRONTEND_URL: process.env.FRONTEND_URL || process.env.NEXT_PUBLIC_APP_URL || '',
+
+  // Activities (Embedded App SDK, CORD-92): the separate registrable domain each
+  // app is proxied at as <client_id>.<domain> (docs/architecture/activities.md).
+  // Unset = the Activities proxy and launcher stay off.
+  ACTIVITIES_DOMAIN: (process.env.ACTIVITIES_DOMAIN || '').trim().toLowerCase().replace(/^\.+|\.+$/g, ''),
   
   // Database (PostgreSQL)
   POSTGRES_URI: process.env.POSTGRES_URI || 'postgres://localhost:5432/serikacord',

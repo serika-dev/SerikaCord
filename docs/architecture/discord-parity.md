@@ -85,6 +85,20 @@ members/@me`, `override_event_webhooks_url` on lobbies. The sections below are
 the original plan and analysis; the generated tables at the bottom are
 current.
 
+**Activities (Embedded App SDK, CORD-92)**, design in
+[`activities.md`](activities.md). Phase 1 landed (2026-11-04): entry point
+commands (`type: 4`, `handler` 1/2) are accepted on global commands once the
+app enables Activities in the portal. That creates the default `launch`
+command (handler 2) and sets the `EMBEDDED` application flag (1 << 17). There
+is one entry point per app, guild-scoped ones are refused, and a bulk
+overwrite that drops it returns 50240. The portal stores URL mappings with
+Discord's prefix/target rules. Still open (phases 2–5): the Activities proxy
+origin, the SDK host, the `LAUNCH_ACTIVITY` callback (type 12, still 50035),
+`GET /applications/{id}/activity-instances/{instance_id}` (still a 404 stub),
+`embedded_activities` in GUILD_CREATE (still `[]`), and enforcement of
+`USE_EMBEDDED_ACTIVITIES`. Entry point commands stay out of the command picker
+until launching ships.
+
 ## 1. Where we are (summary, as originally written)
 
 See the generated "Headline numbers" below for exact figures. At the snapshot
