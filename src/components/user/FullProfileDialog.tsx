@@ -81,6 +81,28 @@ interface ActivityHistoryEntry {
 }
 
 /** "3h 20m", "45m", "30s" — compact human playtime. */
+/** One Recently Played row: icon, name, playtime and when. */
+function HistoryRow({ entry }: { entry: ActivityHistoryEntry }) {
+  return (
+    <div className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[var(--profile-section-bg)] border border-[var(--profile-section-border)]">
+      {entry.imageUrl ? (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img src={entry.imageUrl} alt={entry.name} className="w-9 h-9 rounded-md object-cover shrink-0 bg-black/30" />
+      ) : (
+        <div className="w-9 h-9 rounded-md bg-[var(--app-accent)]/20 flex items-center justify-center shrink-0">
+          <span className="text-sm font-bold text-[var(--app-accent)]">{(entry.name || "?").charAt(0).toUpperCase()}</span>
+        </div>
+      )}
+      <div className="flex-1 min-w-0">
+        <p className="text-sm font-medium text-[var(--profile-fg)] truncate">{entry.name}</p>
+        <p className="text-xs text-[var(--profile-muted)] truncate">
+          {formatPlaytime(entry.durationSeconds)} · {formatRelative(entry.lastSeenAt)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
 function formatPlaytime(seconds: number): string {
   if (!seconds || seconds < 60) return `${Math.max(0, Math.round(seconds))}s`;
   const h = Math.floor(seconds / 3600);
@@ -129,6 +151,11 @@ export function FullProfileDialog({
   const [mutualFriends, setMutualFriends] = useState<any[]>([]);
   const [mutualServers, setMutualServers] = useState<any[]>([]);
   const [activityHistory, setActivityHistory] = useState<ActivityHistoryEntry[]>([]);
+  // The list is ordered games-first; the board's fallback wants the latest one.
+  const lastPlayed = useMemo(
+    () => activityHistory.reduce<ActivityHistoryEntry | null>((best, e) => (!best || new Date(e.lastSeenAt).getTime() > new Date(best.lastSeenAt).getTime() ? e : best), null),
+    [activityHistory],
+  );
   const [fullUser, setFullUser] = useState<ProfileCardUser>(user);
   const [canModerate, setCanModerate] = useState(false);
   const [isAdminOfServer, setIsAdminOfServer] = useState(false);
@@ -917,7 +944,7 @@ export function FullProfileDialog({
                         ),
                       },
                       activity: {
-                        hasContent: !!(moeActivity || userActivity?.music || userActivity?.activities?.length),
+                        hasContent: !!(moeActivity || userActivity?.music || userActivity?.activities?.length || lastPlayed),
                         showEmptyToOwner: true,
                         node: (
                           <div className="space-y-3">
@@ -926,10 +953,18 @@ export function FullProfileDialog({
                             {userActivity?.activities?.map((game) => (
                               <GameActivityCard key={`${game.type}-${game.name}`} game={game} />
                             ))}
+                            {/* Nothing live: show what they played last. */}
                             {!moeActivity && !userActivity?.music && (!userActivity?.activities || userActivity.activities.length === 0) && (
-                              <div className="flex flex-col items-center justify-center text-center text-[var(--profile-muted)] py-10 rounded-[10px] bg-[var(--profile-section-bg)] border border-[var(--sw-hairline)]">
-                                <p className="text-sm">{gt("No recent activity to show.")}</p>
-                              </div>
+                              lastPlayed ? (
+                                <div>
+                                  <h4 className="text-[11px] font-bold text-[var(--profile-muted)] uppercase tracking-wide mb-2">{gt("Last played")}</h4>
+                                  <HistoryRow entry={lastPlayed} />
+                                </div>
+                              ) : (
+                                <div className="flex flex-col items-center justify-center text-center text-[var(--profile-muted)] py-10 rounded-[10px] bg-[var(--profile-section-bg)] border border-[var(--sw-hairline)]">
+                                  <p className="text-sm">{gt("No recent activity to show.")}</p>
+                                </div>
+                              )
                             )}
                           </div>
                         ),
@@ -954,25 +989,7 @@ export function FullProfileDialog({
                       <h4 className="text-[11px] font-bold text-[var(--profile-muted)] uppercase tracking-wide mb-2">{gt("Recently Played")}</h4>
                       <div className="space-y-1.5">
                         {activityHistory.map((entry) => (
-                          <div
-                            key={`${entry.type}-${entry.name}`}
-                            className="flex items-center gap-3 px-3 py-2 rounded-lg bg-[var(--profile-section-bg)] border border-[var(--profile-section-border)]"
-                          >
-                            {entry.imageUrl ? (
-                              // eslint-disable-next-line @next/next/no-img-element
-                              <img src={entry.imageUrl} alt={entry.name} className="w-9 h-9 rounded-md object-cover shrink-0 bg-black/30" />
-                            ) : (
-                              <div className="w-9 h-9 rounded-md bg-[var(--app-accent)]/20 flex items-center justify-center shrink-0">
-                                <span className="text-sm font-bold text-[var(--app-accent)]">{(entry.name || "?").charAt(0).toUpperCase()}</span>
-                              </div>
-                            )}
-                            <div className="flex-1 min-w-0">
-                              <p className="text-sm font-medium text-[var(--profile-fg)] truncate">{entry.name}</p>
-                              <p className="text-xs text-[var(--profile-muted)] truncate">
-                                {formatPlaytime(entry.durationSeconds)} · {formatRelative(entry.lastSeenAt)}
-                              </p>
-                            </div>
-                          </div>
+                          <HistoryRow key={`${entry.type}-${entry.name}`} entry={entry} />
                         ))}
                       </div>
                     </div>

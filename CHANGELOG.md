@@ -12,6 +12,7 @@
 - **Activities for developers** — Activities built for Discord work with only their client ID and API address changed. Set them up under Activities in the developer portal; with Developer Mode on, the shelf lets you launch your own app from a URL override. Apps with an Activity can apply for verification once 100 different people have played it. (CORD-92)
 
 ### Changes
+- Activities you play show up under Recently Played on your profile, and the profile's activity section shows what you played last when you're not doing anything right now (CORD-92)
 
 ### Bug Fixes
 - Verified bots show the verified BOT tag in the DM list and on their messages that arrive live (they showed the plain tag until you reloaded)

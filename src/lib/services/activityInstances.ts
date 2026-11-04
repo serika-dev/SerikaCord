@@ -23,6 +23,7 @@ import { ensureSchema, withLockTimeout } from '@/lib/db/schemaGuard';
 import { config } from '@/lib/config';
 import { Application, Channel, User, type IChannel } from '@/lib/models';
 import { processShared } from '@/lib/realtime/processShared';
+import { BoundedMap } from '@/lib/utils/boundedMap';
 import {
   DEFAULT_MAX_PARTICIPANTS, INSTANCE_MAX_AGE_MS, LAUNCH_DENIED_MESSAGES, PARTICIPANT_TIMEOUT_MS, checkLaunch, isInstanceId,
   liveParticipants, newInstanceId, shouldEnd, type ActivityInstanceRecord, type ActivityLocation, type LaunchDenied,
@@ -393,6 +394,7 @@ export async function launchActivity(opts: LaunchOptions): Promise<ActivityResul
   void logLaunch(rec);
   void recordPlayer(app.id, opts.user.id);
   void setPlayingPresence(opts.user.id, app, rec);
+  void recordHistory(opts.user.id, app);
   await broadcast(rec, app);
   if (opts.openFor) void openFor(opts.user.id, rec.id);
   return { ok: true, instance: rec, created: true };
@@ -435,6 +437,7 @@ export async function joinActivity(user: { id: string }, instanceId: string, pla
   if (already === null) {
     void recordPlayer(app.id, user.id);
     void setPlayingPresence(user.id, app, rec);
+    void recordHistory(user.id, app);
     await broadcast(rec, app);
   }
   return { ok: true, instance: rec };
@@ -452,6 +455,7 @@ export async function heartbeatActivity(user: { id: string }, instanceId: string
   }
   await r.zadd(kUsers(rec.id), Date.now(), user.id.toLowerCase());
   void refreshPlayingPresence(user.id, rec.applicationId);
+  void recordHistory(user.id, rec.applicationId);
   return true;
 }
 
@@ -739,6 +743,39 @@ async function setPlayingPresence(userId: string, app: ActivityApp, rec: Activit
   } catch (err) {
     console.error('[activities] presence failed:', (err as Error)?.message ?? err);
   }
+}
+
+// ─── Recently Played (profile activity history) ──────────────
+
+const HISTORY_EVERY_MS = 60_000;
+const historyAt = processShared('activities:historyAt', () => new BoundedMap<string, number>(5000));
+
+/**
+ * Time in an Activity counts toward the profile's Recently Played, like games
+ * reported by the desktop app (ActivityHistory, type 'activity'). Heartbeats
+ * come every ~20 s; this writes at most once a minute per user and app, and
+ * honours the user's "store activity history" setting.
+ */
+async function recordHistory(userId: string, appOrId: ActivityApp | string): Promise<void> {
+  try {
+    const appId = typeof appOrId === 'string' ? appOrId : appOrId.id;
+    const key = `${userId.toLowerCase()}:${appId.toLowerCase()}`;
+    const last = historyAt.get(key) ?? 0;
+    if (Date.now() - last < HISTORY_EVERY_MS - 5_000) return;
+    historyAt.set(key, Date.now());
+    const user = await User.findById(userId);
+    const store = (user?.settings as { privacy?: { storeActivityHistory?: boolean } } | undefined)?.privacy?.storeActivityHistory ?? true;
+    if (!user || !store) return;
+    const app = typeof appOrId === 'string' ? await loadActivityApp(appOrId) : appOrId;
+    if (!app) return;
+    const { safeRichPresenceImageUrl } = await import('@/lib/presence/richPresenceSafety');
+    const { ActivityHistory } = await import('@/lib/models/ActivityHistory');
+    await ActivityHistory.record(userId, {
+      type: PRESENCE_TYPE,
+      name: app.name,
+      imageUrl: safeRichPresenceImageUrl(app.icon) ?? safeRichPresenceImageUrl(app.imageUrl),
+    }, { intervalSeconds: HISTORY_EVERY_MS / 1000 });
+  } catch { /* best-effort */ }
 }
 
 async function refreshPlayingPresence(userId: string, applicationId: string): Promise<void> {
