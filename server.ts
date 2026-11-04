@@ -24,6 +24,8 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { GatewayHub, subscribeHubToRedis, GATEWAY_PATH } from '@/lib/gateway/core';
 import { createBunGatewayTransport, type GatewaySocketData } from '@/lib/gateway/bunTransport';
 import { handleCdnCompat } from '@/lib/botapi/cdnCompat';
+import { config } from '@/lib/config';
+import { isActivitiesHost } from '@/lib/activities/settings';
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const dev = process.env.NODE_ENV !== 'production';
@@ -133,6 +135,18 @@ async function main() {
     fetch(req, server) {
       const url = new URL(req.url);
       const pathname = url.pathname;
+
+      // ─── Activities domain (CORD-92) ─────────────────────────
+      // <client_id>.<ACTIVITIES_DOMAIN> is a separate site that serves third-party
+      // Activities. Nothing of SerikaCord's (API, pages, SSE, gateway) may ever be
+      // served there, so this runs before every other route. The per-app proxy
+      // (docs/architecture/activities.md, phase 2) replaces this 404.
+      if (config.ACTIVITIES_DOMAIN && isActivitiesHost(req.headers.get('host'), config.ACTIVITIES_DOMAIN)) {
+        return new Response('Not found', {
+          status: 404,
+          headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
+        });
+      }
 
       // ─── Domain redirect ────────────────────────────────────
       // serika.cc is the short-link domain → send everything to prod

@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   DEFAULT_ACTIVITY_SETTINGS,
   clientIdFromActivityHost,
+  isActivitiesHost,
   isIpLiteral,
   normalizePrefix,
   normalizeTarget,
@@ -207,5 +208,17 @@ describe("entry point commands (validateCommand)", () => {
     const limits = new FormErrors();
     checkScopeLimits([{ type: 4 }, { type: 4 }], limits);
     expect(limits.ok).toBe(false);
+  });
+});
+
+describe("isActivitiesHost", () => {
+  test("matches the domain and its subdomains only", () => {
+    expect(isActivitiesHost("waifu.ws", "waifu.ws")).toBe(true);
+    expect(isActivitiesHost("123.WAIFU.ws:443", "waifu.ws")).toBe(true);
+    expect(isActivitiesHost("a.b.waifu.ws", "waifu.ws")).toBe(true);
+    expect(isActivitiesHost("notwaifu.ws", "waifu.ws")).toBe(false);
+    expect(isActivitiesHost("canary.serika.chat", "waifu.ws")).toBe(false);
+    expect(isActivitiesHost("waifu.ws", "")).toBe(false);
+    expect(isActivitiesHost(null, "waifu.ws")).toBe(false);
   });
 });

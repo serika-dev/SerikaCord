@@ -112,39 +112,51 @@ isn't "same-site" for SameSite or for the CSRF guard in
 `src/lib/security/csrf.ts`, and a bug in an Activity can't read SerikaCord
 storage.
 
-**Proposed: `serika.games`** (it fits `serika.chat` / `.dev` / `.moe` /
-`.art`), configurable through `ACTIVITIES_DOMAIN`. Each app is served at
-`https://<client_id>.serika.games`, the same scheme as Discord's
+**The domain is `waifu.ws`** (`ACTIVITIES_DOMAIN=waifu.ws`). Each app is
+served at `https://<client_id>.waifu.ws`, the same scheme as Discord's
 `<app_id>.discordsays.com`. Our client ids are already numeric
 (`generateClientId()`), so they are valid DNS labels.
 
-### What the owner must set up
+### How it is set up (done 2026-11-04)
 
-1. **Buy** `serika.games` (or another name; set `ACTIVITIES_DOMAIN` to match).
-2. **DNS** (at the registrar or Cloudflare, DNS-only/grey-cloud like the other
-   Coolify hosts): `A serika.games → <Coolify host IP>` and
-   `A *.serika.games → <Coolify host IP>` (plus `AAAA` if the host has IPv6).
-3. **Wildcard TLS**: Let's Encrypt only issues wildcards over the **DNS-01**
-   challenge. In Coolify → Servers → Proxy (Traefik), add a DNS-challenge
-   certificate resolver (for Cloudflare: `CF_DNS_API_TOKEN` with Zone:DNS:Edit
-   on `serika.games` only), e.g.
-   `--certificatesresolvers.letsencrypt-dns.acme.dnschallenge.provider=cloudflare`.
-4. **Route the domain to the SerikaCord app**. In the canary (and later prod)
-   app's custom Traefik labels, add a router with
-   `rule=HostRegexp(`^[0-9]{1,32}\.serika\.games$`)`,
-   `tls.certresolver=letsencrypt-dns`, `tls.domains[0].main=serika.games`,
-   `tls.domains[0].sans=*.serika.games`, pointing at the same service/port as
-   the main router. (Coolify's domain field can't express wildcards, so this
-   has to be a label. Restart the proxy after editing it, see the Coolify notes.)
-5. **Env**: `ACTIVITIES_DOMAIN=serika.games` on canary and prod. With it unset,
-   the proxy and Activities UI stay off and launching reports "Activities are
-   not available on this server".
-6. **Optional but recommended: submit `serika.games` to the Public Suffix
-   List** (private section). Without it, two Activities (`1.serika.games` and
-   `2.serika.games`) are "same-site" with each other and could set
-   `Domain=serika.games` cookies from JavaScript for each other. The proxy
-   never forwards cookies (below), so this can't reach an app's backend, but
-   PSL listing closes it fully. Inclusion takes weeks; nothing blocks on it.
+1. **DNS (Cloudflare, proxied):** `A waifu.ws` and `A *.waifu.ws` →
+   85.215.191.94 (the Coolify host), both orange-cloud. Nothing else lives on
+   the zone.
+2. **Edge TLS:** Cloudflare Universal SSL already covers `waifu.ws` and
+   `*.waifu.ws` (one level, which is all a `<client_id>` host needs).
+3. **Origin TLS:** a Cloudflare Origin CA certificate for `waifu.ws` +
+   `*.waifu.ws` (valid to 2041), the same pattern as serika.chat / .dev / .moe.
+   The key was generated on the server and never left it (only the CSR went to
+   Cloudflare). Files: `/data/coolify/proxy/dynamic/certs/waifu.ws.{crt,key}`,
+   listed in `/data/coolify/proxy/dynamic/cloudflare-origin.yaml` (a backup of
+   the previous file sits next to it). Traefik picks it up by SNI.
+4. **SSL mode: Full (strict)** on the waifu.ws zone. **Still to do by the
+   owner** as of 2026-11-04: the zone was on Flexible, and the switch wasn't
+   made from the agent session. Under Flexible, Cloudflare talks to the origin
+   on port 80, where nothing routes waifu.ws, so it 503s.
+5. **Routing (canary):** custom Traefik labels on the canary app
+   (`wfyj45d34xqn75csfjjn6bro`) add the router `https-activities-…` with
+   `HostRegexp(`^[0-9]{1,32}[.]waifu[.]ws$$`)` (`[.]` avoids backslashes,
+   `$$` survives compose interpolation and is still a valid anchor), `tls=true`
+   (the file-provided Origin cert, no ACME), and the existing port-3000
+   service. Labels apply on the next deploy. If the app's domains are ever
+   edited in the Coolify UI, check that the regenerated labels still include
+   this router. Prod gets the same router when Activities ship there (one
+   domain can only point at one app).
+6. **Env:** `ACTIVITIES_DOMAIN=waifu.ws` on canary. With it unset, the proxy
+   and Activities UI stay off.
+7. **`server.ts` guard:** any request whose Host is `waifu.ws` or a subdomain
+   gets a 404 before any SerikaCord route (API, pages, SSE, gateway), so the
+   domain can never serve SerikaCord itself. Phase 2 replaces the 404 with the
+   per-app proxy.
+8. **Optional: submit `waifu.ws` to the Public Suffix List** (private
+   section). Without it, two Activities (`1.waifu.ws`, `2.waifu.ws`) are
+   "same-site" and could set `Domain=waifu.ws` cookies from JavaScript for each
+   other. The proxy never forwards cookies, so this can't reach an app's
+   backend, but PSL listing closes it fully. Nothing blocks on it.
+9. **Recommended Cloudflare zone settings:** keep Rocket Loader, Email Address
+   Obfuscation and other HTML-rewriting features **off** on waifu.ws, since
+   they would modify third-party Activity pages.
 
 Local development uses `<client_id>.activities.localhost:<PORT>` (Chrome and
 Firefox resolve `*.localhost` to loopback, and it's a different site from
@@ -193,7 +205,7 @@ everything else of ours is unreachable on the Activities domain.
 
 ### SerikaCord's own CSP
 
-`next.config.ts` adds exactly `https://*.<ACTIVITIES_DOMAIN>` (plus the dev
+`next.config.ts` adds exactly `https://*.waifu.ws` (from `ACTIVITIES_DOMAIN`, plus the dev
 `http://*.activities.localhost:*`) to `frame-src`. Nothing else is widened.
 
 ---

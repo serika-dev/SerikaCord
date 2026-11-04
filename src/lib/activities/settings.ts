@@ -394,3 +394,11 @@ export function clientIdFromActivityHost(hostHeader: string | null | undefined, 
   if (!host.endsWith(suffix)) return null;
   return activityHostLabel(host.slice(0, -suffix.length));
 }
+
+/** True when the Host header is the Activities domain or any subdomain of it (port ignored). */
+export function isActivitiesHost(hostHeader: string | null | undefined, domain: string): boolean {
+  if (!hostHeader || !domain) return false;
+  const host = hostHeader.toLowerCase().replace(/:\d+$/, '').replace(/\.$/, '');
+  const d = domain.toLowerCase().replace(/^\.+|\.$/g, '');
+  return !!d && (host === d || host.endsWith(`.${d}`));
+}
