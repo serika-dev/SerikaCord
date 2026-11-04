@@ -272,14 +272,16 @@ function MiniChrome({ boxRef, name, participants, touch, onBack, onLeave }: {
     const r = box.getBoundingClientRect();
     drag.current = { id: e.pointerId, dx: e.clientX - r.left, dy: e.clientY - r.top, sx: e.clientX, sy: e.clientY, moved: false };
     suppressClick.current = false;
-    e.currentTarget.setPointerCapture(e.pointerId);
   };
   const onPointerMove = (e: React.PointerEvent<HTMLDivElement>) => {
     const d = drag.current;
     const box = boxRef.current;
     if (!d || !box || d.id !== e.pointerId) return;
+    if (!d.moved && e.buttons === 0) { drag.current = null; return; } // released outside the bar
     if (!d.moved && Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) < 5) return;
-    if (!d.moved) { d.moved = true; box.dataset.dragging = "1"; }
+    // Capture only once it's a drag: capturing on press would retarget the
+    // click away from the buttons in the bar.
+    if (!d.moved) { d.moved = true; box.dataset.dragging = "1"; e.currentTarget.setPointerCapture(e.pointerId); }
     const p = { x: e.clientX - d.dx, y: e.clientY - d.dy };
     const maxX = window.innerWidth - box.offsetWidth - MINI_MARGIN;
     const maxY = window.innerHeight - box.offsetHeight - MINI_MARGIN;
