@@ -302,6 +302,31 @@ export function toggleChatHidden(): void {
   if (state.open) set({ open: { ...state.open, chatHidden: !state.open.chatHidden } });
 }
 
+// The element holding the open frame (ActivityHost), for full screen.
+let activityBox: HTMLElement | null = null;
+
+export function setActivityBox(el: HTMLElement | null): void {
+  activityBox = el;
+}
+
+export function canFullscreenActivity(): boolean {
+  return typeof document !== "undefined" && document.fullscreenEnabled === true;
+}
+
+/**
+ * Full screen for the open Activity: the box around the frame goes full
+ * screen (the browser's :fullscreen styles override its docked geometry), so
+ * the app keeps running. Esc or the same button leaves it.
+ */
+export function toggleActivityFullscreen(): void {
+  if (typeof document === "undefined") return;
+  if (document.fullscreenElement) {
+    void document.exitFullscreen().catch(() => {});
+    return;
+  }
+  void activityBox?.requestFullscreen?.().catch(() => {});
+}
+
 /** Heartbeat for the open frame. False = the server says we're no longer in it. */
 export async function heartbeat(instanceId: string): Promise<boolean> {
   const r = await post(`/api/activities/instances/${encodeURIComponent(instanceId)}/heartbeat`, {});

@@ -7,6 +7,8 @@
 ## Unreleased
 
 ### Features
+- **Super Serika Kart** — the kart racer is now an Activity: start it from the Activity shelf or with /kart, and Online Race puts everyone in the Activity into one room (CORD-92)
+- Activities have a full screen button next to pop-out (CORD-92)
 - **Activities** — play games and other web apps together. Start one from the rocket button in a voice channel, DM call or group call, from "Start an Activity" in any chat's + menu, or with the app's command (for example /doodle). In a chat it docks above the messages (hide the chat to give it the whole conversation) and posts a Game Invitation card that anyone there can press Play on; in a call it fills the call screen with everyone's tiles below. End-to-end encrypted DMs and group DMs can play too: there the others get a Join bar above the message box instead of the invitation card. It keeps playing in a mini player while you look around (drag it anywhere on screen), can pop out into its own window in the browser, and the sidebar shows what you're playing. 18+ Activities ask you to confirm your age first. People in an Activity show as "Playing an Activity". (CORD-92)
 - **Doodle Party** — a drawing and guessing game Activity: take turns drawing a word while everyone else races to guess it, with hints, scores and a results message in the chat at the end. Start it from the Activity shelf or with /doodle. (CORD-92)
 - **Activities for developers** — Activities built for Discord work with only their client ID and API address changed. Set them up under Activities in the developer portal; with Developer Mode on, the shelf lets you launch your own app from a URL override. Apps with an Activity can apply for verification once 100 different people have played it. (CORD-92)
@@ -15,6 +17,7 @@
 - Activities you play show up under Recently Played on your profile, and the profile's activity section shows what you played last when you're not doing anything right now (CORD-92)
 
 ### Bug Fixes
+- The status dot on profile pictures in profile popups sits on the picture's edge again instead of hanging off the bottom
 - Samsung Keyboard's extra symbols (` ~ \ | < > { } [ ] • ♥ ☆ ¡ ¿ and the rest of the second symbol page) can be typed in the Android app again. Most of them work right away; `\` needs the next app update
 - Verified bots show the verified BOT tag in the DM list and on their messages that arrive live (they showed the plain tag until you reloaded)
 - Display name styles look like themselves again on profile cards: no extra white or black glow around the name

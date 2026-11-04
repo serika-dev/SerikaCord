@@ -179,7 +179,7 @@ export function MobileProfileView() {
                   size={16}
                   ring={4}
                   ringColor="var(--app-bg-solid)"
-                  className="absolute bottom-1.5 right-1.5"
+                  className="absolute bottom-[7px] right-[7px]"
                 />
               </div>
 

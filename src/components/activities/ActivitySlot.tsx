@@ -10,12 +10,12 @@
  */
 import { useEffect, useRef } from "react";
 import { useGT } from "gt-next";
-import { ChevronDown, ChevronUp, ExternalLink, Minimize2, PhoneOff, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, Maximize, Minimize2, PhoneOff, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { cdnImage, cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/useIsMobile";
 import {
-  canPopOut, closeActivity, popOutActivity, registerActivitySlot, returnFromPopout, setActivityLayout, slotKey, toggleChatHidden,
+  canFullscreenActivity, canPopOut, closeActivity, popOutActivity, registerActivitySlot, returnFromPopout, setActivityLayout, slotKey, toggleActivityFullscreen, toggleChatHidden,
   useInstanceView, useOpenActivityAt, type OpenActivity,
 } from "@/lib/activities/clientStore";
 
@@ -125,7 +125,12 @@ export function ActivityBar({ open, voice, chatHidden }: { open: OpenActivity; v
       <button type="button" onClick={closeActivity} className="px-4 py-2 rounded-xl text-white" style={{ background: "#ef4444" }} title={gt("Leave Activity")} aria-label={gt("Leave Activity")}>
         <PhoneOff className="size-5" />
       </button>
-      <div className="flex-1 flex justify-end">
+      <div className="flex-1 flex justify-end gap-1">
+        {canFullscreenActivity() && open.layout === "inline" && (
+          <button type="button" onClick={toggleActivityFullscreen} className={btn} style={{ color: "var(--app-muted)" }} title={gt("Full screen")} aria-label={gt("Full screen")}>
+            <Maximize className="size-5" />
+          </button>
+        )}
         {canPopOut() && open.layout !== "popout" && (
           <button
             type="button"

@@ -24,7 +24,7 @@ import { useBackHandler } from "@/hooks/useBackHandler";
 import { MountWhenOpened } from "@/components/ui/MountWhenOpened";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import {
-  canPopOut, clearActivityError, closeActivity, popOutActivity, setActivityLayout, useActivityError, useActivityShelf, useAgePrompt, useInstanceView,
+  canPopOut, clearActivityError, closeActivity, popOutActivity, setActivityBox, setActivityLayout, useActivityError, useActivityShelf, useAgePrompt, useInstanceView,
   useOpenActivity, useOpenActivitySlot, type ActivityParticipant,
 } from "@/lib/activities/clientStore";
 import type { LayoutMode } from "./ActivityFrame";
@@ -140,6 +140,11 @@ function ActivityStage() {
     : isMobile ? (open.layout === "mini" ? "mini" : "full")
       : open.layout === "inline" && slot ? "docked"
         : "mini";
+
+  useEffect(() => {
+    setActivityBox(boxRef.current);
+    return () => setActivityBox(null);
+  }, []);
 
   // Geometry is set here only (never by React), so switching modes leaves nothing stale.
   // Docked: follow the slot every frame (position + size) without re-rendering.

@@ -231,7 +231,7 @@ function ProfileContent({ user, onClose, copyUserId, copiedId, formatDate, expan
               size={expanded ? 20 : 16}
               ring={4}
               ringColor="#232428"
-              className="absolute bottom-1 right-1"
+              className={cn("absolute", expanded ? "bottom-2.5 right-2.5" : "bottom-1.5 right-1.5")}
             />
           </div>
 

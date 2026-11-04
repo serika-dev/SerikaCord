@@ -176,7 +176,7 @@ export function UserProfilePopup({ children }: UserProfilePopupProps) {
               size={isMobile ? 20 : 14}
               ring={isMobile ? 4 : 3}
               ringColor="var(--border-subtle)"
-              className={cn("absolute", isMobile ? "bottom-1 right-1" : "bottom-0.5 right-0.5")}
+              className="absolute bottom-1 right-1"
             />
           </div>
         </div>
