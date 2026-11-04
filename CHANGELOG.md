@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.4.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.6.0.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.6.0 — 2026-11-04
+
+**Tag:** `v2.6.0` · **Commit:** `be82b30b`
 
 ### Features
 - **Super Serika Kart** — the kart racer is now an Activity: start it from the Activity shelf or with /kart, and Online Race puts everyone in the Activity into one room (CORD-92)
@@ -22,12 +40,8 @@
 - Verified bots show the verified BOT tag in the DM list and on their messages that arrive live (they showed the plain tag until you reloaded)
 - Display name styles look like themselves again on profile cards: no extra white or black glow around the name
 
-### Performance
-
 ### Security
 - **Activities run on their own site** — Activities are served from a separate domain in a sandboxed frame. They never get your SerikaCord session, they can only open links or access your account after you agree, and everything they change is checked on the server. (CORD-92)
-
-### Removed
 
 ---
 
