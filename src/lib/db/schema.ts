@@ -1028,6 +1028,27 @@ export const applicationActivitySettings = pgTable('application_activity_setting
   enabledIdx: index('application_activity_settings_enabled_idx').on(t.enabled),
 }));
 
+// One row per Activity launch (audit / analytics). Running instances live in
+// Redis (src/lib/services/activityInstances.ts). Created on first use by
+// ensureActivityLaunchSchema() (drizzle/manual_activities.sql).
+export const activityLaunches = pgTable('activity_launches', {
+  instanceId: text('instance_id').primaryKey(),
+  applicationId: uuid('application_id').notNull(),
+  launchId: text('launch_id').notNull(),
+  locationKind: text('location_kind').notNull(),
+  channelId: uuid('channel_id').notNull(),
+  guildId: uuid('guild_id'),
+  voice: boolean('voice').notNull().default(false),
+  launcherId: uuid('launcher_id').notNull(),
+  messageId: uuid('message_id'),
+  startedAt: timestamp('started_at').notNull().defaultNow(),
+  endedAt: timestamp('ended_at'),
+  peakParticipants: integer('peak_participants').notNull().default(0),
+}, (t) => ({
+  appIdx: index('activity_launches_application_id_idx').on(t.applicationId, t.startedAt),
+  channelIdx: index('activity_launches_channel_id_idx').on(t.channelId, t.startedAt),
+}));
+
 export const richPresence = pgTable('rich_presence', {
   id: uuid('id').primaryKey().default(sql`gen_random_uuid()`),
   userId: uuid('user_id').notNull(),

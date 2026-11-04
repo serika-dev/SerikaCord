@@ -58,6 +58,7 @@ import { conversationKey, e2eeTargetForApiBase, type E2eeTarget } from "@/lib/e2
 import { getE2eeSnapshot, loadE2eeSession, openE2eeDialog } from "@/lib/e2ee/client/state";
 import { useE2ee } from "@/hooks/useE2ee";
 import { useE2eeDecryptRetry } from "@/hooks/useE2eeDecryptRetry";
+import { dispatchActivityEvent } from "@/lib/activities/clientStore";
 
 const PAGE_SIZE = 50;
 // Scroll-up pagination fetches a smaller batch than the initial load. Mounting
@@ -1056,6 +1057,12 @@ export function useChatSession<M extends ChatMessage>({
               : m
           )
         );
+        return;
+      }
+
+      if (data.type === "activity_update") {
+        // A Game Invitation's Activity changed (players, ended): the card reads the store.
+        dispatchActivityEvent(data);
         return;
       }
 

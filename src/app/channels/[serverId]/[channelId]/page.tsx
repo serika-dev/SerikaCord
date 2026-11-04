@@ -11,7 +11,7 @@ import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { MembersDrawer } from "@/components/chat/MembersDrawer";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, X, Sparkles, ArrowLeft } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, X, Sparkles, ArrowLeft, Rocket } from "lucide-react";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { voiceErrorText } from "@/components/voice/IncomingCall";
@@ -428,6 +428,20 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
                     <Music className={isMobile ? "w-4 h-4" : "w-5 h-5"} />
                   </button>
                 )}
+
+                {/* Activities: play an embedded app together in this call (CORD-92) */}
+                <button
+                  onClick={() => void import("@/lib/activities/clientStore").then((m) => m.openActivityShelf({ channelId, voice: true }))}
+                  title={gt("Activities")}
+                  aria-label={gt("Activities")}
+                  className={cn(
+                    "flex items-center justify-center rounded-full transition-all active:scale-95 hover:scale-105",
+                    isMobile ? "w-9 h-9" : "w-10 h-10",
+                    "bg-[var(--app-border)] text-[var(--app-muted)] hover:bg-[var(--border-strong)] hover:text-[var(--text-primary)]"
+                  )}
+                >
+                  <Rocket className={isMobile ? "w-4 h-4" : "w-5 h-5"} />
+                </button>
 
                 <div className="w-px h-6 bg-white/10 mx-1" />
 

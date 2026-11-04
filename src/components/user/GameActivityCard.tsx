@@ -20,6 +20,7 @@ function formatElapsed(startedAt: string | null, gt: (key: string, vars?: Record
 
 const typeConfig: Record<string, { label: string; Icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>; color: string }> = {
   game:    { label: "Playing a Game",      Icon: Gamepad2, color: "#22c55e" },
+  activity:{ label: "Playing an Activity", Icon: Gamepad2, color: "#22c55e" },
   vscode:  { label: "Coding",              Icon: Code2,    color: "#0ea5e9" },
   music:   { label: "Listening to Music",    Icon: Music,    color: "#e4335a" },
   windsurf:{ label: "Coding in Windsurf",  Icon: Wind,     color: "#38bdf8" },
@@ -36,6 +37,7 @@ const VS_CODE_NAME = /^(visual studio code|vs ?code|vscodium|code - (oss|insider
 function gameTypeLabel(type: string, gt: ReturnType<typeof useGT>, name?: string): string {
   switch (type) {
     case 'game': return gt('Playing a Game');
+    case 'activity': return gt('Playing an Activity');
     case 'vscode': return name && VS_CODE_NAME.test(name.trim()) ? gt('Working in VS Code') : gt('Coding');
     case 'music': return gt('Listening to Music');
     case 'windsurf': return gt('Coding in Windsurf');

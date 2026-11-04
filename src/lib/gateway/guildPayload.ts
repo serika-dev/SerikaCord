@@ -177,6 +177,15 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
   });
   // Only channels (and categories) the bot can view, like the REST list.
   const guildChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'group_dm' && !isThreadChannelType(c.type) && canViewParent(c));
+  // Running Activities (CORD-92) in channels this bot can view.
+  let embeddedActivities: unknown[] = [];
+  try {
+    const { guildInstanceRecords } = await import('@/lib/services/activityInstances');
+    const { discordInstance } = await import('@/lib/activities/instances');
+    embeddedActivities = (await guildInstanceRecords(sid))
+      .filter(({ rec }) => canViewParent(byId.get(rec.location.channelId.toLowerCase()) ?? null))
+      .map(({ rec, users }) => discordInstance(rec, { applicationId: rec.applicationId, channelId: rec.location.channelId, guildId: rec.location.guildId, users }));
+  } catch { /* Activities are optional */ }
 
   // WP7: who is in voice (GUILD_VOICE_STATES), WP1: presences of the members
   // sent here (GUILD_PRESENCES, privileged), online members only.
@@ -230,8 +239,8 @@ export async function buildGuildCreate(serverId: string, opts: GuildCreateOption
     roles: roles.map((r) => toDiscordRole(r, botRoles.get(r.id) ?? null)),
     emojis: emojis.map((e) => toDiscordEmoji(e)),
     stickers: stickers.map((s) => toDiscordSticker(s)),
-    embedded_activities: [],
-    activity_instances: [],
+    embedded_activities: embeddedActivities,
+    activity_instances: embeddedActivities,
     lazy: true,
     application_command_counts: {},
     hub_type: null,

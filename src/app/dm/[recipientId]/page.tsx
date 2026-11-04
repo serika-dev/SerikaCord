@@ -762,6 +762,7 @@ export default function DMConversationPage() {
             roomId={callRoomId}
             me={{ id: user.id, name: user.displayName || user.username, avatar: user.avatar }}
             peer={{ id: recipientId, name: recipientName || gt("your friend"), avatar: recipient?.avatar }}
+            activityChannelId={dmChannelId}
           />
         )}
 

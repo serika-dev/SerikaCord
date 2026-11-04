@@ -7,7 +7,7 @@
 ## Unreleased
 
 ### Features
-- **Activities, part 1** — app developers can turn on Activities for their application in the developer portal: URL mappings, supported platforms, orientation, an 18+ age gate and Activity art. Turning it on creates the app's Launch entry point command. Launching Activities in calls and chats comes in a later update. (CORD-92)
+- **Activities** — play games and other web apps together. Start one from the rocket button in a voice channel, DM call or group call, or from "Start an Activity" in any chat's + menu (or the app's /launch command). In a chat it posts a Game Invitation card that anyone there can press Play on; when the game ends the card says so and Play starts a new one. People in an Activity show as "Playing an Activity". Activities built for Discord work with only their client ID and API address changed; developers set them up under Activities in the developer portal. (CORD-92)
 
 ### Changes
 
@@ -17,6 +17,7 @@
 ### Performance
 
 ### Security
+- **Activities run on their own site** — Activities are served from a separate domain in a sandboxed frame. They never get your SerikaCord session, they can only open links or access your account after you agree, and everything they change is checked on the server. (CORD-92)
 
 ### Removed
 

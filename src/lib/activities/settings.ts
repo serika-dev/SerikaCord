@@ -402,3 +402,21 @@ export function isActivitiesHost(hostHeader: string | null | undefined, domain: 
   const d = domain.toLowerCase().replace(/^\.+|\.$/g, '');
   return !!d && (host === d || host.endsWith(`.${d}`));
 }
+
+/**
+ * An app's Activity origin. Production: https://<client_id>.<domain>. Local
+ * development (`*.activities.localhost`): http with the dev server's port.
+ */
+export function activityOrigin(label: string, domain: string, frontendUrl?: string | null): string {
+  if (domain === 'localhost' || domain.endsWith('.localhost')) {
+    let port = '';
+    try { port = frontendUrl ? new URL(frontendUrl).port : ''; } catch { /* no port */ }
+    return `http://${label}.${domain}${port ? `:${port}` : ''}`;
+  }
+  return `https://${label}.${domain}`;
+}
+
+/** The CSP frame-src source that allows every Activity origin. */
+export function activityFrameSource(domain: string): string {
+  return domain === 'localhost' || domain.endsWith('.localhost') ? `http://*.${domain}:*` : `https://*.${domain}`;
+}

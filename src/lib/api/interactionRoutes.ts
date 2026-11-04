@@ -53,6 +53,7 @@ export const interactionRoutes = new Elysia({ prefix: '/interactions' })
       options: body.options,
       targetId: body.targetId ?? null,
       attachments: (body.attachments ?? []) as IncomingAttachment[],
+      platform: body.platform,
     });
     if (!r.ok) return fail(set, r);
     return { ok: true, interactionId: r.interactionId };
@@ -60,6 +61,7 @@ export const interactionRoutes = new Elysia({ prefix: '/interactions' })
     body: t.Object({
       channelId: ID,
       commandId: ID,
+      platform: t.Optional(t.Union([t.Literal('web'), t.Literal('desktop'), t.Literal('ios'), t.Literal('android')])),
       options: t.Optional(t.Array(t.Any(), { maxItems: 25 })),
       targetId: t.Optional(t.Union([ID, t.Null()])),
       attachments: t.Optional(t.Array(t.Object({

@@ -28,12 +28,17 @@ describe('interaction callback types 10 and 12', () => {
     id: 'i', type: InteractionType.APPLICATION_COMMAND, applicationId: 'a', botId: 'b', channelId: 'c', guildId: null,
     invokerId: 'u', invokerName: 'u', createdAt: 1_000_000,
   };
-  test('PREMIUM_REQUIRED and LAUNCH_ACTIVITY fail with a 50035 tree on `type`', () => {
-    for (const t of [CallbackType.PREMIUM_REQUIRED, CallbackType.LAUNCH_ACTIVITY]) {
-      const r = checkInitialCallback(state, t, false, 1_000_100);
-      expect(r).toMatchObject({ ok: false, status: 400, code: 50035 });
-      if (!r.ok) expect(r.errors?.type._errors[0]).toEqual({ code: 'BASE_TYPE_CHOICES', message: 'Value must be one of {1, 4, 5, 6, 7, 8, 9}.' });
-    }
+  test('PREMIUM_REQUIRED fails with a 50035 tree on `type`', () => {
+    const r = checkInitialCallback(state, CallbackType.PREMIUM_REQUIRED, false, 1_000_100);
+    expect(r).toMatchObject({ ok: false, status: 400, code: 50035 });
+    if (!r.ok) expect(r.errors?.type._errors[0]).toEqual({ code: 'BASE_TYPE_CHOICES', message: 'Value must be one of {1, 4, 5, 6, 7, 8, 9, 12}.' });
+  });
+  test('LAUNCH_ACTIVITY is a valid answer to commands, components and modals (Activities, CORD-92)', () => {
+    // Apps without Activities enabled are refused later, when the callback is applied.
+    expect(checkInitialCallback(state, CallbackType.LAUNCH_ACTIVITY, false, 1_000_100).ok).toBeTrue();
+    expect(checkInitialCallback({ ...state, type: InteractionType.MESSAGE_COMPONENT, sourceMessageId: 'm' }, CallbackType.LAUNCH_ACTIVITY, false, 1_000_100).ok).toBeTrue();
+    expect(checkInitialCallback({ ...state, type: InteractionType.MODAL_SUBMIT }, CallbackType.LAUNCH_ACTIVITY, false, 1_000_100).ok).toBeTrue();
+    expect(checkInitialCallback({ ...state, type: InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE }, CallbackType.LAUNCH_ACTIVITY, false, 1_000_100).ok).toBeFalse();
   });
   test('supported types still pass', () => {
     expect(checkInitialCallback(state, CallbackType.CHANNEL_MESSAGE_WITH_SOURCE, false, 1_000_100).ok).toBeTrue();

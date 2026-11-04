@@ -39,7 +39,7 @@ export default async function InteractionsDoc() {
         <li>{gt("Add ?with_response=true to the callback to get an InteractionCallbackResponse with the created or updated message instead of 204.")}</li>
         <li>{gt("Type 5 shows \"<your bot> is thinking…\" until you edit @original (or send the first followup, which completes it).")}</li>
         <li>{gt("flags: 64 (EPHEMERAL) messages are shown only to the user who ran the interaction, are never stored in the channel, and can be edited or deleted by id for 15 minutes.")}</li>
-        <li>{gt("Types 10 (premium required, deprecated) and 12 (launch activity) are rejected with 50035.")}</li>
+        <li>{gt("Type 10 (premium required, deprecated) is rejected with 50035. Type 12 (launch activity) launches your Activity for apps with Activities enabled.")}</li>
       </UL>
 
       <H2 id="interaction-types">{gt("Interaction Types")}</H2>

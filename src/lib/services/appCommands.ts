@@ -83,6 +83,14 @@ const ENTRY_POINT_REMOVED = {
   message: "You cannot remove this app's Entry Point command in a bulk update operation. Please include the Entry Point command in your update request or delete it separately.",
 };
 
+/** Entry points can be used: the Activities domain is configured and the app has Activities on. */
+async function entryPointsLive(applicationId: string): Promise<boolean> {
+  const { config } = await import('@/lib/config');
+  if (!config.ACTIVITIES_DOMAIN) return false;
+  const { activitiesEnabled } = await import('@/lib/services/activitySettings');
+  return activitiesEnabled(applicationId);
+}
+
 /** Entry point commands (type 4) need Activities enabled on the app (docs/architecture/activities.md). */
 async function entryPointNotAllowed(applicationId: string, path: Array<string | number>): Promise<DiscordFormError | null> {
   const { activitiesEnabled } = await import('@/lib/services/activitySettings');
@@ -537,8 +545,9 @@ export async function getChannelAppCommands(
     const app = await Application.findOne({ botId });
     if (!app) continue;
     const all = await AppCommand.find({ applicationId: app.id });
-    // Entry point commands (type 4) stay hidden until launching Activities ships (CORD-92 phase 4).
-    const relevant = all.filter((c) => c.type !== CommandType.PRIMARY_ENTRY_POINT && (!c.guildId || (guildId && same(c.guildId, guildId))));
+    // Entry point commands (type 4) only show while the app's Activity can launch (CORD-92).
+    const entryOk = all.some((c) => c.type === CommandType.PRIMARY_ENTRY_POINT) && await entryPointsLive(app.id);
+    const relevant = all.filter((c) => (c.type !== CommandType.PRIMARY_ENTRY_POINT || entryOk) && (!c.guildId || (guildId && same(c.guildId, guildId))));
     const byKey = new Map<string, IAppCommand>();
     for (const c of relevant) {
       const key = `${c.type ?? 1}:${c.name}`;
@@ -581,7 +590,7 @@ export async function resolveInvocableCommand(viewer: CommandViewer, commandId: 
   const cmd = await AppCommand.findById(commandId).catch(() => null);
   if (!cmd) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
   if (expectType !== undefined && (cmd.type ?? 1) !== expectType) return { ok: false, status: 400, error: 'Wrong command type', code: 'unknown_command' };
-  if (cmd.type === CommandType.PRIMARY_ENTRY_POINT) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
+  if (cmd.type === CommandType.PRIMARY_ENTRY_POINT && !(await entryPointsLive(cmd.applicationId))) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
   const app = await Application.findById(cmd.applicationId);
   if (!app || !app.botId) return { ok: false, status: 404, error: 'Unknown command', code: 'unknown_command' };
   const bots = await channelBotIds(viewer.channel);

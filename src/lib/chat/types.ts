@@ -174,7 +174,13 @@ export interface ChatMessage {
   /** Ephemeral messages are only visible to the invoking user and are not persisted. */
   ephemeral?: boolean;
   /** Set on a bot's interaction response: who invoked which command (name is '' for button clicks). */
-  interaction?: { id?: string; name: string; user: { id: string; username: string } };
+  interaction?: {
+    id?: string;
+    name: string;
+    user: { id: string; username: string };
+    /** Game Invitation: an Activity launched in this chat (CORD-92). */
+    activity?: { instanceId: string; launchId: string; applicationId: string };
+  };
   /** Bot message components: buttons, select menus, components v2 layouts (lib/botapi/components). */
   components?: MessageComponent[];
   /** When true, link previews and rich embeds are hidden for this message. */

@@ -25,7 +25,9 @@ import { GatewayHub, subscribeHubToRedis, GATEWAY_PATH } from '@/lib/gateway/cor
 import { createBunGatewayTransport, type GatewaySocketData } from '@/lib/gateway/bunTransport';
 import { handleCdnCompat } from '@/lib/botapi/cdnCompat';
 import { config } from '@/lib/config';
-import { isActivitiesHost } from '@/lib/activities/settings';
+import { activityFrameSource, isActivitiesHost } from '@/lib/activities/settings';
+import { handleActivityRequest, withActivitySockets } from '@/lib/activities/proxy';
+import { getClientIP } from '@/lib/security';
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const dev = process.env.NODE_ENV !== 'production';
@@ -115,6 +117,11 @@ async function main() {
     console.error('SSE bridge init failed (realtime cross-instance disabled):', err);
   }
 
+  // Activities (CORD-92): drop participants whose frame went away, end empty instances.
+  import('@/lib/services/activityInstances')
+    .then((m) => m.startActivitySweeper())
+    .catch((err) => console.error('Activity sweeper init failed:', err));
+
   // Unsaved per-server profile images (drafts older than a day): swept in
   // small batches by one instance at a time (Redis leader lock).
   Promise.all([import('@/lib/services/memberProfileMedia'), import('@/lib/realtime/processShared')])
@@ -138,14 +145,27 @@ async function main() {
 
       // ─── Activities domain (CORD-92) ─────────────────────────
       // <client_id>.<ACTIVITIES_DOMAIN> is a separate site that serves third-party
-      // Activities. Nothing of SerikaCord's (API, pages, SSE, gateway) may ever be
-      // served there, so this runs before every other route. The per-app proxy
-      // (docs/architecture/activities.md, phase 2) replaces this 404.
+      // Activities through their URL mappings (src/lib/activities/proxy.ts).
+      // Nothing of SerikaCord's (API, pages, SSE, gateway) is ever served there,
+      // so this runs before every other route.
       if (config.ACTIVITIES_DOMAIN && isActivitiesHost(req.headers.get('host'), config.ACTIVITIES_DOMAIN)) {
-        return new Response('Not found', {
-          status: 404,
-          headers: { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' },
-        });
+        return handleActivityRequest(req, server, getClientIP(req));
+      }
+
+      // ─── Activities calling SerikaCord's API (CORD-92) ───────
+      // Like Discord's discord.com/api exception: an Activity may call the
+      // Discord-compatible API with its own OAuth2 / bot token. Cookies are
+      // dropped and credentials are never allowed, so its frame can't act as
+      // the signed-in user.
+      const activityOrigin = activityCorsOrigin(req.headers.get('origin'));
+      if (activityOrigin) {
+        if (!/^\/api\/(v\d+|oauth2)(\/|$)/.test(pathname)) {
+          return new Response(JSON.stringify({ message: '403: Forbidden', code: 0 }), { status: 403, headers: { 'Content-Type': 'application/json' } });
+        }
+        if (req.method === 'OPTIONS') return new Response(null, { status: 204, headers: activityCorsHeaders(activityOrigin) });
+        const headers = new Headers(req.headers);
+        headers.delete('cookie');
+        return handleApiRequest(new Request(req, { headers })).then((res) => withActivityCors(res, activityOrigin));
       }
 
       // ─── Domain redirect ────────────────────────────────────
@@ -214,9 +234,9 @@ async function main() {
         headers: req.headers,
         body: req.body,
       });
-      return fetch(proxyReq, { redirect: 'manual' });
+      return fetch(proxyReq, { redirect: 'manual' }).then(withActivitiesFrameSrc);
     },
-    websocket: gateway.websocket,
+    websocket: withActivitySockets(gateway.websocket),
   });
 
   console.log(`🚀 SerikaCord ready on http://0.0.0.0:${port}`);
@@ -357,6 +377,51 @@ function withWebhookCors(res: Response): Response {
   const headers = new Headers(res.headers);
   headers.delete('Access-Control-Allow-Credentials');
   for (const [k, v] of Object.entries(WEBHOOK_CORS_HEADERS)) headers.set(k, v);
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+/**
+ * Pages may frame Activity origins (CORD-92). The CSP is built at build time
+ * (next.config.ts) but the Activities domain is runtime config, so its
+ * frame-src source is added here, to frame-src only.
+ */
+function withActivitiesFrameSrc(res: Response): Response {
+  if (!config.ACTIVITIES_DOMAIN) return res;
+  const csp = res.headers.get('content-security-policy');
+  if (!csp || !csp.includes('frame-src ')) return res;
+  const headers = new Headers(res.headers);
+  headers.set('content-security-policy', csp.replace('frame-src ', `frame-src ${activityFrameSource(config.ACTIVITIES_DOMAIN)} `));
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
+/** The Origin header when it is an Activity's own origin (https://<client_id>.<ACTIVITIES_DOMAIN>), else null. */
+function activityCorsOrigin(origin: string | null): string | null {
+  if (!origin || !config.ACTIVITIES_DOMAIN) return null;
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== 'https:' || u.hostname === config.ACTIVITIES_DOMAIN) return null;
+    return isActivitiesHost(u.hostname, config.ACTIVITIES_DOMAIN) ? u.origin : null;
+  } catch {
+    return null;
+  }
+}
+
+function activityCorsHeaders(origin: string): Record<string, string> {
+  return {
+    'Access-Control-Allow-Origin': origin,
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Audit-Log-Reason',
+    'Access-Control-Expose-Headers': 'X-RateLimit-Limit, X-RateLimit-Remaining, X-RateLimit-Reset, X-RateLimit-Reset-After, X-RateLimit-Bucket, Retry-After',
+    'Access-Control-Max-Age': '600',
+    'Vary': 'Origin',
+  };
+}
+
+function withActivityCors(res: Response, origin: string): Response {
+  const headers = new Headers(res.headers);
+  headers.delete('access-control-allow-credentials');
+  headers.delete('set-cookie');
+  for (const [k, v] of Object.entries(activityCorsHeaders(origin))) headers.set(k, v);
   return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
 }
 

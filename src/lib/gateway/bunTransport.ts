@@ -20,6 +20,8 @@ export interface GatewaySocketData {
   compress: string | null;
   encoding: string;
   version: string | null;
+  /** Set on sockets the Activities proxy tunnels to an app's upstream (src/lib/activities/proxy.ts). */
+  activity?: unknown;
 }
 
 type WS = ServerWebSocket<GatewaySocketData>;

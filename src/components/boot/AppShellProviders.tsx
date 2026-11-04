@@ -17,6 +17,8 @@ import ChannelsLayoutClient from "@/app/channels/ChannelsLayoutClient";
 
 // End-to-end encryption setup + dialogs: its own chunk, started when idle.
 const E2eeHost = dynamic(() => import("@/components/e2ee/E2eeHost"), { ssr: false });
+// Activities (embedded apps in calls and chats): the panel, shelf and frame load on first use.
+const ActivityHost = dynamic(() => import("@/components/activities/ActivityHost"), { ssr: false });
 
 // Heavy dialogs are code-split so they don't slow the first paint, but the
 // first click must not wait on a download: warm their chunks once the browser
@@ -83,6 +85,7 @@ export default function AppShellProviders({ children }: { children: ReactNode })
           <UserActionsHost />
           <ChangelogHost />
           <E2eeHost />
+          <ActivityHost />
           <ClientIntegrityReporter />
         </ConfirmProvider>
       </UnreadProvider>

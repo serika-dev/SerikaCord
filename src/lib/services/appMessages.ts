@@ -30,6 +30,8 @@ export interface InteractionRef {
   user: { id: string; username: string };
   /** The app that answered (serialized as message.application_id). */
   applicationId?: string;
+  /** A Game Invitation (Activity launched in a text chat, CORD-92). Not part of Discord's message object. */
+  activity?: { instanceId: string; launchId: string; applicationId: string };
 }
 
 export type AppAuthor =
@@ -182,7 +184,7 @@ function clientMessage(opts: {
     ...(opts.body.mentionEveryone ? { mentionEveryone: true } : {}),
     ...(opts.body.mentionedRoleIds?.length ? { mentionedRoleIds: opts.body.mentionedRoleIds } : {}),
     type: 'default',
-    ...(opts.interaction ? { interaction: { id: opts.interaction.id, name: opts.interaction.name, user: opts.interaction.user } } : {}),
+    ...(opts.interaction ? { interaction: { id: opts.interaction.id, name: opts.interaction.name, user: opts.interaction.user, ...(opts.interaction.activity ? { activity: opts.interaction.activity } : {}) } } : {}),
     ...(opts.ephemeral ? { ephemeral: true } : {}),
     ...(opts.webhookId ? { webhookId: opts.webhookId } : {}),
     ...(opts.body.poll ? { poll: buildPollView(opts.body.poll, {}, 0, []) } : {}),

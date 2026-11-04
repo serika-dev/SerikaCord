@@ -151,6 +151,26 @@ export function playSoundboardInChannel(
   return 0;
 }
 
+/** Voice states of a room's members (this instance's synced mirror), for the Activities SDK (CORD-92). */
+export function voiceRoomStates(roomId: string): Array<{ userId: string; selfMute: boolean; selfDeaf: boolean; mute: boolean; deaf: boolean; suppress: boolean }> {
+  const room = roomState.get(roomId);
+  if (!room) return [];
+  return [...room.values()].map((p) => ({
+    userId: p.userId,
+    selfMute: !p.audio,
+    selfDeaf: p.deafened,
+    mute: Boolean(p.serverMute),
+    deaf: Boolean(p.serverDeaf),
+    suppress: Boolean(p.suppress),
+  }));
+}
+
+/** User ids in a voice room (this instance's synced mirror). Used by Activities (CORD-92). */
+export function voiceRoomMemberIds(roomId: string): string[] {
+  const room = roomState.get(roomId);
+  return room ? [...room.keys()] : [];
+}
+
 /** Participants of every server voice room on this instance's (synced) mirror. */
 export function channelRoomParticipants(): Array<{ channelId: string; participants: VoiceParticipant[] }> {
   const out: Array<{ channelId: string; participants: VoiceParticipant[] }> = [];
@@ -315,6 +335,8 @@ function evictFromRoom(roomId: string, userId: string) {
   emitVoiceState(roomId, userId, null);
   broadcastToRoom(roomId, { type: 'voice:participant_left', userId });
   stopRingingIfEmpty(roomId);
+  // Leaving the call leaves any Activity bound to it (CORD-92).
+  void import('@/lib/services/activityInstances').then((m) => m.onVoiceRoomLeave(roomId, userId)).catch(() => {});
   // Last one out of a DM call: close its call message ("lasted 5 minutes" /
   // "missed call").
   if (empty) void onDmCallRoomEmpty(roomId);

@@ -1,7 +1,8 @@
 # Activities (Embedded App SDK) — design
 
-Tracker: CORD-92. Status: design settled, phase 1 (developer portal + data
-model) built. Phases 2–8 follow this note.
+Tracker: CORD-92. Status (2026-11-04): all phases built. The "As built"
+section at the end lists where the code lives and where it differs from the
+plan below.
 
 Activities are web apps (games, watch-together, whiteboards) that run in a
 sandboxed iframe and talk to the SerikaCord client through Discord's
@@ -355,3 +356,66 @@ Monetization (SKUs, entitlements, `startPurchase`) is out of scope:
 `getSkus`/`getEntitlements` return `[]` and `startPurchase` fails with 4002.
 Doing it later needs a store/SKU model, a payment provider, and entitlement
 grants wired to the existing monetization endpoints.
+
+---
+
+## As built
+
+| Piece | Where |
+|------|-------|
+| Settings, URL mappings, host parsing (pure) | `src/lib/activities/settings.ts` |
+| Relay page, proxy CSP and header rules (pure) | `src/lib/activities/relay.ts` |
+| Instance rules, SDK frames, launch checks (pure) | `src/lib/activities/instances.ts` |
+| Proxy (HTTP + WebSocket tunnel) | `src/lib/activities/proxy.ts`, Host branch at the top of `server.ts` |
+| Instances (Redis), invitation message, presence, sweeper | `src/lib/services/activityInstances.ts` |
+| Server side of SDK commands | `src/lib/services/activityRpc.ts` |
+| User routes `/api/activities/*` | `src/lib/api/activities.ts` |
+| Portal settings | `src/lib/services/activitySettings.ts`, `src/app/developers/applications/[id]/activities/` |
+| Client store, SDK host, panel, shelf, card | `src/lib/activities/clientStore.ts`, `src/components/activities/*` |
+| Entry points, `LAUNCH_ACTIVITY` | `src/lib/services/interactions.ts`, `src/lib/botapi/interactionState.ts` |
+| Bot API | `GET .../activity-instances/{id}` in `src/lib/api/botApi/applications.ts`, `embedded_activities` in `src/lib/gateway/guildPayload.ts` |
+| Developer docs | `src/app/developers/docs/activities/overview/page.tsx` |
+| Tests | `tests/activities-settings.test.ts`, `tests/activities-protocol.test.ts` |
+
+Decisions made while building:
+
+- **Domain is `waifu.ws`**, Cloudflare-proxied. Edge TLS comes from
+  Cloudflare. Origin TLS is a Cloudflare Origin CA certificate in Traefik's
+  `cloudflare-origin.yaml`. The zone must be **Full (strict)**.
+- **SerikaCord's CSP `frame-src`** gets the Activities origin at runtime in
+  `server.ts` (`withActivitiesFrameSrc`). `next.config.ts` builds the CSP at
+  build time, and `ACTIVITIES_DOMAIN` is runtime config.
+- **Direct API calls from a frame:** requests with an `Origin` of
+  `https://<id>.<ACTIVITIES_DOMAIN>` may reach `/api/v<n>/*` and
+  `/api/oauth2/*` only. Their `Cookie` header is dropped, responses carry
+  `Access-Control-Allow-Origin: <origin>` without credentials, and
+  `Set-Cookie` is removed. This mirrors Discord's `discord.com/api` CSP
+  exception.
+- **Ids:** frame query params and every SDK payload use the app's id format
+  (snowflakes for snowflake apps), so they match `/users/@me` and the bot API.
+- **Age gate:** there is no per-user age, so an 18+ Activity only launches in
+  NSFW channels or age-gated servers, never in DMs.
+- **Presence:** "Playing <Activity>" is a `rich_presence` row of type
+  `activity`. Heartbeats refresh it, and leaving or ending deletes it. The
+  desktop rich-presence heartbeat no longer deletes rows of that type.
+  `setActivity` writes details, state, images and party through the usual
+  sanitizer.
+- **Text and call launches** share one instance per (channel, app). A call
+  launch is voice-bound: leaving the call (`evictFromRoom` in
+  `src/lib/api/voice.ts`) leaves the Activity.
+- **Command launches** (`/launch`, `LAUNCH_ACTIVITY`) send `activity_open` to
+  the launcher. Only their visible, focused window opens the frame.
+- **Layout:** one panel for calls and chats: docked right (desktop), full
+  screen (phones or "expand"), or a mini window (PIP, `layout_mode` 1). Not
+  built: a separate pop-out OS window. The SDK's `parent.opener` path would
+  need a SerikaCord-origin popup page hosting the relay.
+- **Not built (out of scope or no API):** monetization (SKUs, entitlements,
+  purchases return empty / unavailable), quests, `initiateImageUpload`,
+  `shareLink`, `inviteUserEmbedded`, `requestProxyTicketRefresh`;
+  `getRelationships` returns an empty list. Monetization later needs a SKU and
+  store model, a payment provider, and entitlement grants wired to the
+  existing monetization endpoints.
+- **Residual risk:** like `safeFetch`, the proxy checks DNS before each
+  request but doesn't pin the IP, so a rebinding window remains (see
+  `src/lib/security/ssrf.ts`).
+

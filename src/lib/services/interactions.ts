@@ -26,7 +26,7 @@ import {
   memoryKV, newInteractionToken, type InteractionKV, type InteractionResponseState, type InteractionState,
 } from '@/lib/botapi/interactionState';
 import {
-  CommandType, DISCORD_LOCALES, OptionType, checkInvocationOptions, findDeclaredOption, stripMention, validateAutocompleteChoices,
+  CommandType, DISCORD_LOCALES, EntryPointHandler, OptionType, checkInvocationOptions, findDeclaredOption, stripMention, validateAutocompleteChoices,
   type CommandOption, type InvocationOption, type InvocationRefs,
 } from '@/lib/botapi/commands';
 import {
@@ -332,6 +332,12 @@ async function applyCallback(
     const errors = new FormErrors();
     modal = validateModal(data, errors);
     if (!modal) return { status: 400, body: errors.toBody() };
+  } else if (cbType === CallbackType.LAUNCH_ACTIVITY) {
+    // Only apps with Activities enabled (Discord: "only available for apps with Activities enabled").
+    const { activitiesEnabled } = await import('@/lib/services/activitySettings');
+    if (!(await activitiesEnabled(state.applicationId))) {
+      return { status: 400, body: { code: 50035, message: 'Invalid Form Body (type: LAUNCH_ACTIVITY needs Activities enabled for this application)', errors: { type: { _errors: [{ code: 'BASE_TYPE_CHOICES', message: 'This application does not have Activities enabled.' }] } } } };
+    }
   } else if (cbType === CallbackType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT) {
     choices = validateAutocompleteChoices(data ?? {}, state.focusedType ?? OptionType.STRING);
     if (!choices) return { status: 400, body: formError(['data', 'choices'], FE.INVALID, 'Invalid autocomplete choices for the focused option') };
@@ -347,7 +353,29 @@ async function applyCallback(
   try {
     let response: InteractionResponseState = { type: cbType };
     let resourceMessage: unknown = null;
+    let activityInstanceId: string | null = null;
     switch (cbType) {
+      case CallbackType.LAUNCH_ACTIVITY: {
+        // Launch (or join) the app's Activity for the invoker where they used it (CORD-92).
+        const invoker = await User.findById(state.invokerId);
+        const { launchActivity } = await import('@/lib/services/activityInstances');
+        const voice = channel.type === 'voice' || channel.type === 'stage';
+        const launched = await launchActivity({
+          user: { id: state.invokerId, username: invoker?.username ?? state.invokerName ?? '' },
+          applicationId: state.applicationId,
+          channelId: state.channelId,
+          voice,
+          platform: 'any',
+          commandName: state.commandName ?? undefined,
+          openFor: true,
+        });
+        if (!launched.ok) {
+          await store.releaseAck(state.id);
+          return { status: 400, body: { code: 50035, message: `Invalid Form Body (type: ${launched.error})` } };
+        }
+        activityInstanceId = launched.instance.id;
+        break;
+      }
       case CallbackType.PONG:
         break;
       case CallbackType.CHANNEL_MESSAGE_WITH_SOURCE: {
@@ -438,7 +466,9 @@ async function applyCallback(
           ...(response.messageId ? { response_message_ephemeral: Boolean(response.ephemeral) } : {}),
           channel_id: state.channelId,
           ...(state.guildId ? { guild_id: state.guildId } : {}),
+          ...(activityInstanceId ? { activity_instance_id: activityInstanceId } : {}),
         },
+        ...(activityInstanceId ? { resource: { type: CallbackType.LAUNCH_ACTIVITY, activity_instance: { id: activityInstanceId } } } : {}),
         ...(resourceMessage && (cbType === CallbackType.CHANNEL_MESSAGE_WITH_SOURCE || cbType === CallbackType.UPDATE_MESSAGE || cbType === CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE)
           ? { resource: { type: cbType === CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE ? CallbackType.CHANNEL_MESSAGE_WITH_SOURCE : cbType, message: resourceMessage } }
           : {}),
@@ -800,7 +830,8 @@ async function dispatchCommand(opts: {
     targetMessage = await loadLiveMessage(ctx.channel.id, opts.targetId);
     if (!targetMessage) return { ok: false, status: 404, error: 'Unknown message', code: 'unknown_message' };
     targetId = targetMessage.id;
-  } else {
+  } else if (type !== CommandType.PRIMARY_ENTRY_POINT) {
+    // Entry points (APP_HANDLER) carry no options: the app may answer with LAUNCH_ACTIVITY.
     return { ok: false, status: 400, error: 'Unsupported command type', code: 'unknown_command' };
   }
   const resolved = await buildResolved({ invokerId: ctx.user.id, channel: ctx.channel, attachments: opts.attachments, targetMessage }, refs);
@@ -832,6 +863,8 @@ export async function invokeApplicationCommand(input: {
   options?: unknown;
   targetId?: string | null;
   attachments?: IncomingAttachment[];
+  /** The client's platform family (Activities check it against the app's supported platforms). */
+  platform?: string;
 }): Promise<DeliveryResult> {
   const limited = await rateLimited('interactionCreate', input.user.id);
   if (limited) return limited;
@@ -839,6 +872,22 @@ export async function invokeApplicationCommand(input: {
   if (!c.ok) return c;
   const resolved = await resolveInvocableCommand({ userId: input.user.id, channel: c.ctx.channel, membership: c.ctx.membership }, input.commandId);
   if (!resolved.ok) return resolved;
+  // Entry point with DISCORD_LAUNCH_ACTIVITY (the default): SerikaCord launches
+  // the Activity and posts the Game Invitation, without asking the app (CORD-92).
+  if ((resolved.command.type ?? CommandType.CHAT_INPUT) === CommandType.PRIMARY_ENTRY_POINT && resolved.command.handler !== EntryPointHandler.APP_HANDLER) {
+    const { launchActivity } = await import('@/lib/services/activityInstances');
+    const launched = await launchActivity({
+      user: { id: input.user.id, username: input.user.username },
+      applicationId: resolved.app.id,
+      channelId: c.ctx.channel.id,
+      voice: false,
+      platform: input.platform ?? 'web',
+      commandName: resolved.command.name,
+      openFor: true,
+    });
+    if (!launched.ok) return { ok: false, status: launched.status, error: launched.error, code: launched.reason };
+    return { ok: true, interactionId: launched.instance.id };
+  }
   return dispatchCommand({ ctx: c.ctx, command: resolved.command, app: resolved.app, options: input.options, targetId: input.targetId, attachments: input.attachments });
 }
 

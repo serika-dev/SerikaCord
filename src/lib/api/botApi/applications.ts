@@ -382,8 +382,17 @@ export const applicationsBotRoutes = new Elysia()
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return UNAUTHORIZED; }
   if (!ownsApp(auth, params.appId)) { set.status = 403; return MISSING_ACCESS; }
-  set.status = 404;
-  return { code: 0, message: '404: Not Found' };
+  // A running instance of this app (CORD-92): lets the app's backend check a
+  // client-reported instance before trusting it.
+  const { getInstance, instanceParticipants } = await import('@/lib/services/activityInstances');
+  const { discordInstance, isInstanceId } = await import('@/lib/activities/instances');
+  const rec = isInstanceId(params.instanceId) ? await getInstance(params.instanceId).catch(() => null) : null;
+  if (!rec || rec.endedAt || rec.applicationId.toLowerCase() !== auth.app.id.toLowerCase()) {
+    set.status = 404;
+    return { code: 0, message: '404: Not Found' };
+  }
+  const users = await instanceParticipants(rec.id);
+  return discordInstance(rec, { applicationId: auth.app.id, channelId: rec.location.channelId, guildId: rec.location.guildId, users });
 })
 
 // ─── OpenID Connect ────────────────────────────────────────

@@ -739,7 +739,7 @@ const KNOWN_GAPS: Record<string, string[]> = {
   'GET /guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/{guild_scheduled_event_exception_id}/users': ['Serika scheduled events do not recur: no exceptions exist'],
   // WP3 interactions
   'POST /interactions/{interaction_id}/{interaction_token}/callback': [
-    'callback types 10 (PREMIUM_REQUIRED, deprecated) and 12 (LAUNCH_ACTIVITY) are rejected with 50035: SerikaCord has no app monetization or Activities',
+    'callback type 10 (PREMIUM_REQUIRED, deprecated) is rejected with 50035: SerikaCord has no app monetization (12 LAUNCH_ACTIVITY works for apps with Activities, CORD-92)',
   ],
   // WP6 applications
   'PATCH /applications/@me': ['event_webhooks_status 2 (enabled) is refused: SerikaCord does not deliver webhook events'],

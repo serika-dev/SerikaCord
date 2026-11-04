@@ -55,6 +55,12 @@ export const docNav: DocNavSection[] = [
     ],
   },
   {
+    title: "Activities",
+    items: [
+      { label: "Overview", slug: "activities/overview" },
+    ],
+  },
+  {
     title: "Topics",
     items: [
       { label: "OAuth2", slug: "topics/oauth2" },

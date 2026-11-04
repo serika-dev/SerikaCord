@@ -23,6 +23,7 @@
  */
 
 import { INTERACTION_EVENT } from "@/lib/chat/interactionEvents";
+import { dispatchActivityEvent } from "@/lib/activities/clientStore";
 import { streamerHidesNow } from "@/hooks/useStreamerMode";
 import { getRelationships, refreshRelationships } from "@/lib/social/relationshipsStore";
 import { receiveUserNote } from "@/lib/social/notesStore";
@@ -776,6 +777,11 @@ export function UnreadProvider({ children }: { children: ReactNode }) {
       // acks / failures, modals. Only this user's streams get them.
       if (data.type === "interaction") {
         window.dispatchEvent(new CustomEvent(INTERACTION_EVENT, { detail: data }));
+        return;
+      }
+      // Activities (CORD-92): participant changes, "open the Activity you launched".
+      if (data.type === "activity_update" || data.type === "activity_open") {
+        dispatchActivityEvent(data);
         return;
       }
 

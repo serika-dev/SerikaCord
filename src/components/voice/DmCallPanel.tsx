@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useGT } from "gt-next";
-import { Headphones, HeadphoneOff, Lock, Mic, MicOff, Monitor, MonitorOff, PhoneOff, Video, VideoOff } from "lucide-react";
+import { Headphones, HeadphoneOff, Lock, Mic, MicOff, Monitor, MonitorOff, PhoneOff, Rocket, Video, VideoOff } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
@@ -60,12 +60,15 @@ export function DmCallPanel({
   peer,
   peers,
   groupName,
+  activityChannelId,
 }: {
   roomId: string;
   me: Person;
   peer?: Person;
   peers?: Person[];
   groupName?: string;
+  /** The DM / group DM channel: shows the Activities button (CORD-92). */
+  activityChannelId?: string | null;
 }) {
   const gt = useGT();
   const voiceRoom = useSyncExternalStore(subscribeRoom, getRoom, getServerRoom);
@@ -294,6 +297,17 @@ export function DmCallPanel({
           </button>
           <StreamQualityPicker sharing={sharing} onStarted={setSharing} className="h-11 w-5" />
         </div>
+        {activityChannelId && (
+          <button
+            type="button"
+            onClick={() => void import("@/lib/activities/clientStore").then((m) => m.openActivityShelf({ channelId: activityChannelId, voice: true }))}
+            title={gt("Activities")}
+            aria-label={gt("Activities")}
+            className={cn(controlBase, neutral)}
+          >
+            <Rocket className="h-5 w-5" />
+          </button>
+        )}
         <button
           type="button"
           onClick={() => void hangUp()}

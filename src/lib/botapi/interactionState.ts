@@ -81,7 +81,7 @@ export type CheckResult =
  * unavailable to every app here: SerikaCord has no app monetization and no
  * Activities, so they fail like any value outside the allowed set.
  */
-const SUPPORTED_CALLBACK_TYPES = [1, 4, 5, 6, 7, 8, 9] as const;
+const SUPPORTED_CALLBACK_TYPES = [1, 4, 5, 6, 7, 8, 9, 12] as const;
 
 function unavailableCallbackType(why: string): CheckResult {
   return {
@@ -99,15 +99,15 @@ const ALREADY_ACKED: CheckResult = { ok: false, status: 400, code: 40060, messag
 /** Callback types each interaction type accepts (Discord's table). */
 const ALLOWED_CALLBACKS: Record<number, readonly number[]> = {
   [InteractionType.PING]: [CallbackType.PONG],
-  [InteractionType.APPLICATION_COMMAND]: [CallbackType.CHANNEL_MESSAGE_WITH_SOURCE, CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE, CallbackType.MODAL],
+  [InteractionType.APPLICATION_COMMAND]: [CallbackType.CHANNEL_MESSAGE_WITH_SOURCE, CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE, CallbackType.MODAL, CallbackType.LAUNCH_ACTIVITY],
   [InteractionType.MESSAGE_COMPONENT]: [
     CallbackType.CHANNEL_MESSAGE_WITH_SOURCE, CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    CallbackType.DEFERRED_UPDATE_MESSAGE, CallbackType.UPDATE_MESSAGE, CallbackType.MODAL,
+    CallbackType.DEFERRED_UPDATE_MESSAGE, CallbackType.UPDATE_MESSAGE, CallbackType.MODAL, CallbackType.LAUNCH_ACTIVITY,
   ],
   [InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE]: [CallbackType.APPLICATION_COMMAND_AUTOCOMPLETE_RESULT],
   [InteractionType.MODAL_SUBMIT]: [
     CallbackType.CHANNEL_MESSAGE_WITH_SOURCE, CallbackType.DEFERRED_CHANNEL_MESSAGE_WITH_SOURCE,
-    CallbackType.DEFERRED_UPDATE_MESSAGE, CallbackType.UPDATE_MESSAGE,
+    CallbackType.DEFERRED_UPDATE_MESSAGE, CallbackType.UPDATE_MESSAGE, CallbackType.LAUNCH_ACTIVITY,
   ],
 };
 
@@ -120,9 +120,6 @@ export function checkInitialCallback(state: InteractionState, callbackType: unkn
   if (acked) return ALREADY_ACKED;
   if (callbackType === CallbackType.PREMIUM_REQUIRED) {
     return unavailableCallbackType('PREMIUM_REQUIRED is deprecated and needs app monetization, which SerikaCord does not have');
-  }
-  if (callbackType === CallbackType.LAUNCH_ACTIVITY) {
-    return unavailableCallbackType('LAUNCH_ACTIVITY needs Activities, which no SerikaCord application has');
   }
   if (typeof callbackType !== 'number' || !Number.isInteger(callbackType)) {
     return { ok: false, status: 400, code: 50035, message: 'Invalid Form Body (type: This field is required)' };

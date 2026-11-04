@@ -35,6 +35,7 @@ import { requestDecryptRetry } from "@/lib/e2ee/client/retryBus";
 
 // Bot buttons / selects / components v2: its own chunk, only for messages that have them.
 const MessageComponents = dynamic(() => import("@/components/chat/MessageComponents"), { ssr: false });
+const ActivityInviteCard = dynamic(() => import("@/components/activities/ActivityInviteCard"), { ssr: false });
 
 /** Why an end-to-end encrypted message can't be shown (lib/e2ee/client DecryptFailure). */
 function e2eeFailureText(gt: ChatGt, reason: string | undefined): string {
@@ -593,6 +594,15 @@ function MessageRowInner<M extends ChatMessage>({
                         serverId={serverId}
                         showMedia={inlineMediaEnabled}
                         onMediaClick={onMediaClick}
+                      />
+                    )}
+
+                    {message.interaction?.activity && (
+                      <ActivityInviteCard
+                        instanceId={message.interaction.activity.instanceId}
+                        applicationId={message.interaction.activity.applicationId}
+                        channelId={message.channelId}
+                        currentUserId={currentUserId}
                       />
                     )}
 

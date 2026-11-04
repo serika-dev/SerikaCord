@@ -93,6 +93,15 @@ export const rateLimiters_config = {
   appDirectoryEdit: { points: 30, duration: 600 },
   // Developer portal Activities settings saves (CORD-92), per user.
   activitySettingsEdit: { points: 30, duration: 600 },
+  // Activities proxy (<client_id>.<ACTIVITIES_DOMAIN>), per client IP + app: page
+  // loads, assets and API calls through URL mappings.
+  activityProxy: { points: 1200, duration: 60 },
+  // Launching / joining Activities, per user.
+  activityLaunch: { points: 20, duration: 60 },
+  // SDK commands that reach the server (authorize, participants, setActivity...), per user.
+  activityRpc: { points: 300, duration: 60 },
+  // Frame heartbeats, per user (one per open frame every 20 s, with headroom).
+  activityHeartbeat: { points: 60, duration: 60 },
   // Bot profile edits (PATCH /users/@me): Discord allows 2 username changes
   // per hour; avatar / banner changes get a slightly larger budget.
   botUsernameChange: { points: 2, duration: 3600 },

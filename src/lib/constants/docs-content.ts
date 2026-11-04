@@ -497,6 +497,30 @@ Content-Type: application/json
   },
 
   // --- Social SDK ---
+  "activities/overview": {
+    slug: "activities/overview",
+    title: "Activities",
+    section: "Activities",
+    description: "Run Discord Embedded App SDK Activities on SerikaCord: what is compatible, what differs, and how to point an existing Activity at SerikaCord.",
+    content: `# Activities
+
+SerikaCord runs Activities built for Discord's Embedded App SDK, in calls (server voice channels, DM and group DM calls) and in text chats (a Game Invitation card with a Play button). Use the stock \`@discord/embedded-app-sdk\` unchanged.
+
+## Point an existing Activity at SerikaCord
+1. Developer Portal → your app → **Activities**: enable, add the same URL mappings as on Discord ("/" = your page).
+2. Use your SerikaCord **client ID** in \`new DiscordSDK(clientId)\`. The Activity is served at \`https://<client_id>.waifu.ws\`.
+3. Point your backend's token exchange and REST calls at SerikaCord's API (\`/api/v10\`, \`/api/v10/oauth2/token\`) with your SerikaCord client secret.
+
+## Compatible
+- Handshake, READY/ERROR, voice and speaking events, participants updates, current user / member updates, orientation, layout mode, thermal state.
+- authorize, authenticate, getChannel, getChannelPermissions, getInstanceConnectedParticipants, getUser, setActivity, openExternalLink, openInviteDialog, openShareMomentDialog, setOrientationLockState, getPlatformBehaviors, encourageHardwareAcceleration, userSettingsGetLocale, setConfig, captureLog. Unknown commands fail with 4002.
+- Entry point commands (type 4, handler 1 or 2), callback type 12 LAUNCH_ACTIVITY, \`GET /applications/{id}/activity-instances/{instance_id}\`, \`embedded_activities\` in GUILD_CREATE.
+
+## Different
+- Origin is \`<client_id>.waifu.ws\`, not discordsays.com. Cookies never cross the proxy.
+- Monetization (SKUs, entitlements, purchases) is not available: empty lists.
+- 18+ Activities only launch in age-restricted channels or servers.`,
+  },
   "social-sdk/overview": {
     slug: "social-sdk/overview",
     title: "Social SDK Overview",
@@ -924,7 +948,7 @@ Represents a developer application registered on SerikaCord.
 - \`GET /applications/{application.id}\` - Fetch application details
 - \`PATCH /applications/@me\`, \`PATCH /applications/{application.id}\` - Edit your own application: \`description\`, \`tags\`, \`icon\` / \`cover_image\` (image data), \`custom_install_url\`, \`install_params\`, \`integration_types_config\`, \`interactions_endpoint_url\` (verified with a signed PING), \`role_connections_verification_url\`, \`event_webhooks_url\` / \`_types\` / \`_status\` (2 = enabled is refused: SerikaCord does not deliver webhook events), \`explicit_content_filter\`, \`max_participants\`, \`flags\`. \`team_id\` can't be changed here.
 - \`POST /applications/{application.id}/attachment\` - Upload an Activities attachment (multipart \`file\`), returned as an ephemeral attachment
-- \`GET /applications/{application.id}/activity-instances/{instance_id}\` - Always 404 (no Embedded App activities)
+- \`GET /applications/{application.id}/activity-instances/{instance_id}\` - A running Activity instance of your app (application_id, instance_id, launch_id, location, users); 404 once it has ended
 - \`PUT /applications/{application.id}/guilds/{guild.id}/commands/permissions\` - Batch command permissions (\`[{ id, permissions }]\`, replaces every override the app has in the guild)`,
   },
   "resources/audit-log": {

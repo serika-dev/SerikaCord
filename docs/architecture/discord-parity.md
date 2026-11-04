@@ -86,18 +86,22 @@ the original plan and analysis; the generated tables at the bottom are
 current.
 
 **Activities (Embedded App SDK, CORD-92)**, design in
-[`activities.md`](activities.md). Phase 1 landed (2026-11-04): entry point
-commands (`type: 4`, `handler` 1/2) are accepted on global commands once the
-app enables Activities in the portal. That creates the default `launch`
-command (handler 2) and sets the `EMBEDDED` application flag (1 << 17). There
-is one entry point per app, guild-scoped ones are refused, and a bulk
-overwrite that drops it returns 50240. The portal stores URL mappings with
-Discord's prefix/target rules. Still open (phases 2–5): the Activities proxy
-origin, the SDK host, the `LAUNCH_ACTIVITY` callback (type 12, still 50035),
-`GET /applications/{id}/activity-instances/{instance_id}` (still a 404 stub),
-`embedded_activities` in GUILD_CREATE (still `[]`), and enforcement of
-`USE_EMBEDDED_ACTIVITIES`. Entry point commands stay out of the command picker
-until launching ships.
+[`activities.md`](activities.md). Built (2026-11-04):
+- Entry point commands (`type: 4`, `handler` 1/2). There is one per app, guild
+  scope is refused, and a bulk overwrite that drops it returns 50240.
+  Enabling Activities creates `launch` and sets `EMBEDDED` (1 << 17).
+- The `LAUNCH_ACTIVITY` callback (type 12) works for commands, components and
+  modals of apps with Activities enabled. `with_response` returns
+  `resource.activity_instance` and `interaction.activity_instance_id`.
+- `GET /applications/{id}/activity-instances/{instance_id}` returns the
+  running instance.
+- GUILD_CREATE fills `embedded_activities` (and `activity_instances`) with
+  instances in channels the bot can view.
+- `USE_EMBEDDED_ACTIVITIES` is enforced on launch and join in server channels.
+- Discord's public spec has no gateway events for activity instances, so none
+  are emitted.
+- The Game Invitation message reaches bots as a type 20 command message with
+  `interaction_metadata`. Its card state isn't part of the bot payload.
 
 ## 1. Where we are (summary, as originally written)
 
@@ -896,7 +900,7 @@ Gateway: 73/82 receive events emitted (89%; 3 of them only from some code paths)
 | WP2 | message_reference on create (replies + forwards), referenced_message in responses | yes | src/lib/api/botApi.ts, src/lib/api/botApi/social.ts, src/lib/botapi/lobbies.ts |
 | WP2 | Message components persisted on messages | yes | src/lib/db/schema.ts |
 | WP2 | Components v2 (IS_COMPONENTS_V2, container/section/text display/media gallery/file) | yes | src/lib/api/botApi.ts, src/lib/botapi/components.ts, src/lib/chat/interactionEvents.ts, src/lib/chat/componentsV2.ts |
-| WP2 | Embed validation + limits (10 embeds, 6000 chars, field limits) | yes | src/lib/api/botApi.ts, src/lib/botapi/commands.ts, src/lib/botapi/threadRules.ts, src/lib/chat/embedValidation.ts |
+| WP2 | Embed validation + limits (10 embeds, 6000 chars, field limits) | yes | src/lib/api/botApi.ts, src/lib/botapi/commands.ts, src/lib/botapi/threadRules.ts, src/lib/chat/interactionEvents.ts |
 | WP2 | GET messages honours before/after/around | yes | src/lib/api/botApi.ts, src/lib/botapi/users.ts |
 | WP2 | MESSAGE_UPDATE emitted on edits (any surface) | yes | src/lib/discord/bot.ts, src/lib/api/dms.ts, src/lib/api/botApi.ts, src/lib/api/announcements.ts |
 | WP2 | Pinning posts a CHANNEL_PINNED_MESSAGE (type 6) system message | yes | src/lib/api/botApi.ts, src/lib/botapi/pinNotice.ts |
@@ -931,15 +935,15 @@ Gateway: 73/82 receive events emitted (89%; 3 of them only from some code paths)
 
 | Object | Schema | Coverage | Missing fields | Source |
 |---|---|---:|---|---|
-| User (REST) | UserResponse | 79% | avatar_decoration_data, collectibles, primary_guild | src/lib/api/botApi.ts:670 formatUser() |
-| User (gateway) | UserResponse | 0% | accent_color, avatar, avatar_decoration_data, banner, bot, collectibles, discriminator, flags, global_name, id, primary_guild, public_flags, system, username | src/lib/services/gatewayEvents.ts:182 toDiscordUser() |
-| Message (REST) | MessageResponse | 75% | activity, actor, application, lobby_member, purchase_notification, resolved, role_subscription_data, shared_client_theme, stickers, thread | src/lib/chat/discordMessage.ts:310 serializeMessage() |
-| Message (gateway) | MessageResponse | 75% | activity, actor, application, lobby_member, purchase_notification, resolved, role_subscription_data, shared_client_theme, stickers, thread | src/lib/chat/discordMessage.ts:310 serializeMessage() |
-| Guild channel | GuildChannelResponse | 0% | available_tags, bitrate, default_auto_archive_duration, default_forum_layout, default_reaction_emoji, default_sort_order, default_tag_setting, default_thread_rate_limit_per_user, flags, guild_id, id, last_message_id, last_pin_timestamp, name, nsfw, parent_id, permission_overwrites, permissions, position, rate_limit_per_user, rtc_region, topic, type, user_limit, video_quality_mode | src/lib/api/botApi.ts:691 formatChannel() |
-| Guild | GuildResponse | 12% | afk_channel_id, afk_timeout, application_id, banner, default_message_notifications, description, discovery_splash, explicit_content_filter, features, home_header, icon, id, incidents_data, max_members, max_presences, max_stage_video_channel_users, max_video_channel_users, mfa_level, name, nsfw, nsfw_level, owner_id, preferred_locale, premium_progress_bar_enabled, premium_progress_bar_enabled_user_updated_at, premium_subscription_count, premium_tier, public_updates_channel_id, region, rules_channel_id, safety_alerts_channel_id, splash, system_channel_flags, system_channel_id, vanity_url_code, verification_level | src/lib/api/botApi.ts:701 formatGuild() |
-| Role | GuildRoleResponse | 0% | color, colors, flags, hoist, icon, id, managed, mentionable, name, permissions, position, tags, unicode_emoji | src/lib/api/botApi.ts:730 formatRole() |
-| Guild member | GuildMemberResponse | 7% | avatar, avatar_decoration_data, banner, collectibles, communication_disabled_until, deaf, flags, joined_at, mute, nick, pending, premium_since, roles | src/lib/api/botApi.ts:734 formatMember() |
-| Invite | GuildInviteResponse | 50% | flags, guild_id, guild_scheduled_event, is_contact, is_nickname_changeable, roles, target_application, target_channel_id, target_message_id, target_type, target_user, type | src/lib/api/botApi.ts:1347 formatInvite() |
+| User (REST) | UserResponse | 79% | avatar_decoration_data, collectibles, primary_guild | src/lib/api/botApi.ts:672 formatUser() |
+| User (gateway) | UserResponse | 0% | accent_color, avatar, avatar_decoration_data, banner, bot, collectibles, discriminator, flags, global_name, id, primary_guild, public_flags, system, username | src/lib/services/gatewayEvents.ts:183 toDiscordUser() |
+| Message (REST) | MessageResponse | 75% | activity, actor, application, lobby_member, purchase_notification, resolved, role_subscription_data, shared_client_theme, stickers, thread | src/lib/chat/discordMessage.ts:315 serializeMessage() |
+| Message (gateway) | MessageResponse | 75% | activity, actor, application, lobby_member, purchase_notification, resolved, role_subscription_data, shared_client_theme, stickers, thread | src/lib/chat/discordMessage.ts:315 serializeMessage() |
+| Guild channel | GuildChannelResponse | 0% | available_tags, bitrate, default_auto_archive_duration, default_forum_layout, default_reaction_emoji, default_sort_order, default_tag_setting, default_thread_rate_limit_per_user, flags, guild_id, id, last_message_id, last_pin_timestamp, name, nsfw, parent_id, permission_overwrites, permissions, position, rate_limit_per_user, rtc_region, topic, type, user_limit, video_quality_mode | src/lib/api/botApi.ts:693 formatChannel() |
+| Guild | GuildResponse | 12% | afk_channel_id, afk_timeout, application_id, banner, default_message_notifications, description, discovery_splash, explicit_content_filter, features, home_header, icon, id, incidents_data, max_members, max_presences, max_stage_video_channel_users, max_video_channel_users, mfa_level, name, nsfw, nsfw_level, owner_id, preferred_locale, premium_progress_bar_enabled, premium_progress_bar_enabled_user_updated_at, premium_subscription_count, premium_tier, public_updates_channel_id, region, rules_channel_id, safety_alerts_channel_id, splash, system_channel_flags, system_channel_id, vanity_url_code, verification_level | src/lib/api/botApi.ts:703 formatGuild() |
+| Role | GuildRoleResponse | 0% | color, colors, flags, hoist, icon, id, managed, mentionable, name, permissions, position, tags, unicode_emoji | src/lib/api/botApi.ts:732 formatRole() |
+| Guild member | GuildMemberResponse | 7% | avatar, avatar_decoration_data, banner, collectibles, communication_disabled_until, deaf, flags, joined_at, mute, nick, pending, premium_since, roles | src/lib/api/botApi.ts:736 formatMember() |
+| Invite | GuildInviteResponse | 50% | flags, guild_id, guild_scheduled_event, is_contact, is_nickname_changeable, roles, target_application, target_channel_id, target_message_id, target_type, target_user, type | src/lib/api/botApi.ts:1365 formatInvite() |
 | READY payload | gateway docs | 100% | - | src/lib/gateway/core.ts |
 | IDENTIFY fields read | gateway docs | 63% | properties, compress, capabilities | src/lib/gateway/core.ts |
 | GUILD_CREATE (after READY + on install) | gateway docs | 98% | premium_progress_bar_enabled_user_updated_at | src/lib/gateway/guildPayload.ts |
@@ -965,7 +969,7 @@ Gateway: 73/82 receive events emitted (89%; 3 of them only from some code paths)
 | CHANNEL_INFO | - | **missing** | - |
 | CHANNEL_PINS_UPDATE | GUILDS, DIRECT_MESSAGES | emitted | emitChannelPinsUpdate() ×1 |
 | THREAD_CREATE | GUILDS | emitted | emitThreadCreate() ×4, emitThreadMembersUpdate() ×1 |
-| THREAD_UPDATE | GUILDS | emitted | emitThreadUpdate() ×5 |
+| THREAD_UPDATE | GUILDS | emitted | emitThreadUpdate() ×6 |
 | THREAD_DELETE | GUILDS | emitted | emitThreadDelete() ×3 |
 | THREAD_LIST_SYNC | GUILDS | partial | emitThreadListSync() ×1; sent by the instance that made the access change, and only when it held a recent audience snapshot of the guild |
 | THREAD_MEMBER_UPDATE | GUILDS | partial | emitThreadMembersUpdate() ×1; only when the bot itself joins a thread (Serika has no per-member thread flags) |
@@ -1059,26 +1063,26 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | POST | `/lobbies` | src/lib/api/botApi/social.ts:272 | body 4/5 |
-| ok | PUT | `/lobbies` | src/lib/api/botApi/social.ts:288 | body 5/5 |
-| ok | DELETE | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:349 |  |
-| ok | GET | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:321 |  |
-| ok | PATCH | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:328 | body 4/5 |
-| partial | PATCH | `/lobbies/{lobby_id}/channel-linking` | src/lib/api/botApi/social.ts:362 | body 1/1; messages sent in the linked channel are not relayed back into the lobby |
-| ok | DELETE | `/lobbies/{lobby_id}/members/{user_id}` | src/lib/api/botApi/social.ts:468 |  |
-| ok | PUT | `/lobbies/{lobby_id}/members/{user_id}` | src/lib/api/botApi/social.ts:444 | body 3/3 |
-| ok | POST | `/lobbies/{lobby_id}/members/{user_id}/invites` | src/lib/api/botApi/social.ts:480 |  |
-| ok | DELETE | `/lobbies/{lobby_id}/members/@me` | src/lib/api/botApi/social.ts:399 |  |
-| ok | POST | `/lobbies/{lobby_id}/members/@me/invites` | src/lib/api/botApi/social.ts:411 |  |
-| ok | POST | `/lobbies/{lobby_id}/members/bulk` | src/lib/api/botApi/social.ts:431 |  |
-| ok | GET | `/lobbies/{lobby_id}/messages` | src/lib/api/botApi/social.ts:492 | query 1/1 |
-| partial | POST | `/lobbies/{lobby_id}/messages` | src/lib/api/botApi/social.ts:506 | body 13/13; text only: embeds/attachments/components/poll/sticker_ids/message_reference/tts rejected with 50035; linked-channel copy is posted by the app bot, only when it can send there; no Social SDK gateway events |
-| ok | PUT | `/lobbies/{lobby_id}/messages/{message_id}/moderation-metadata` | src/lib/api/botApi/social.ts:566 |  |
-| partial | PUT | `/partner-sdk/dms/{user_id_1}/{user_id_2}/messages/{message_id}/moderation-metadata` | src/lib/api/botApi/social.ts:729 | stored app-scoped; no client consumes it |
-| partial | POST | `/partner-sdk/provisional-accounts/unmerge` | src/lib/api/botApi/social.ts:707 | body 4/4; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
-| partial | POST | `/partner-sdk/provisional-accounts/unmerge/bot` | src/lib/api/botApi/social.ts:719 | body 1/1; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
-| partial | POST | `/partner-sdk/token` | src/lib/api/botApi/social.ts:687 | body 4/4; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
-| partial | POST | `/partner-sdk/token/bot` | src/lib/api/botApi/social.ts:699 | body 3/3; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
+| ok | POST | `/lobbies` | src/lib/api/botApi/social.ts:284 | body 4/5 |
+| ok | PUT | `/lobbies` | src/lib/api/botApi/social.ts:300 | body 5/5 |
+| ok | DELETE | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:361 |  |
+| ok | GET | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:333 |  |
+| ok | PATCH | `/lobbies/{lobby_id}` | src/lib/api/botApi/social.ts:340 | body 4/5 |
+| partial | PATCH | `/lobbies/{lobby_id}/channel-linking` | src/lib/api/botApi/social.ts:374 | body 1/1; messages sent in the linked channel are not relayed back into the lobby |
+| ok | DELETE | `/lobbies/{lobby_id}/members/{user_id}` | src/lib/api/botApi/social.ts:482 |  |
+| ok | PUT | `/lobbies/{lobby_id}/members/{user_id}` | src/lib/api/botApi/social.ts:458 | body 3/3 |
+| ok | POST | `/lobbies/{lobby_id}/members/{user_id}/invites` | src/lib/api/botApi/social.ts:494 |  |
+| ok | DELETE | `/lobbies/{lobby_id}/members/@me` | src/lib/api/botApi/social.ts:411 |  |
+| ok | POST | `/lobbies/{lobby_id}/members/@me/invites` | src/lib/api/botApi/social.ts:425 |  |
+| ok | POST | `/lobbies/{lobby_id}/members/bulk` | src/lib/api/botApi/social.ts:445 |  |
+| ok | GET | `/lobbies/{lobby_id}/messages` | src/lib/api/botApi/social.ts:506 | query 1/1 |
+| partial | POST | `/lobbies/{lobby_id}/messages` | src/lib/api/botApi/social.ts:523 | body 13/13; text only: embeds/attachments/components/poll/sticker_ids/message_reference/tts rejected with 50035; linked-channel copy is posted by the app bot, only when it can send there; no Social SDK gateway events |
+| ok | PUT | `/lobbies/{lobby_id}/messages/{message_id}/moderation-metadata` | src/lib/api/botApi/social.ts:583 |  |
+| partial | PUT | `/partner-sdk/dms/{user_id_1}/{user_id_2}/messages/{message_id}/moderation-metadata` | src/lib/api/botApi/social.ts:746 | stored app-scoped; no client consumes it |
+| partial | POST | `/partner-sdk/provisional-accounts/unmerge` | src/lib/api/botApi/social.ts:724 | body 4/4; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
+| partial | POST | `/partner-sdk/provisional-accounts/unmerge/bot` | src/lib/api/botApi/social.ts:736 | body 1/1; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
+| partial | POST | `/partner-sdk/token` | src/lib/api/botApi/social.ts:704 | body 4/4; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
+| partial | POST | `/partner-sdk/token/bot` | src/lib/api/botApi/social.ts:716 | body 3/3; SerikaCord has no provisional accounts: validates the request (and client credentials) then answers 530000 |
 
 </details>
 
@@ -1086,18 +1090,18 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/applications/{application_id}/role-connections/metadata` | src/lib/api/botApi/applications.ts:253 |  |
-| ok | PUT | `/applications/{application_id}/role-connections/metadata` | src/lib/api/botApi/applications.ts:260 |  |
-| ok | GET | `/oauth2/@me` | src/lib/api/botApi.ts:1619 |  |
-| ok | GET | `/oauth2/applications/@me` | src/lib/api/botApi.ts:1644 |  |
-| ok | GET | `/oauth2/authorize` | src/lib/api/botApi.ts:1605 |  |
-| ok | GET | `/oauth2/keys` | src/lib/api/botApi/applications.ts:368 |  |
-| ok | POST | `/oauth2/token` | src/lib/api/botApi.ts:1609 |  |
-| ok | POST | `/oauth2/token/revoke` | src/lib/api/botApi.ts:1614 |  |
-| ok | GET | `/oauth2/userinfo` | src/lib/api/botApi/applications.ts:359 |  |
-| ok | DELETE | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:290 |  |
-| ok | GET | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:271 |  |
-| ok | PUT | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:277 | body 3/3 |
+| ok | GET | `/applications/{application_id}/role-connections/metadata` | src/lib/api/botApi/applications.ts:287 |  |
+| ok | PUT | `/applications/{application_id}/role-connections/metadata` | src/lib/api/botApi/applications.ts:294 |  |
+| ok | GET | `/oauth2/@me` | src/lib/api/botApi.ts:1637 |  |
+| ok | GET | `/oauth2/applications/@me` | src/lib/api/botApi.ts:1662 |  |
+| ok | GET | `/oauth2/authorize` | src/lib/api/botApi.ts:1623 |  |
+| ok | GET | `/oauth2/keys` | src/lib/api/botApi/applications.ts:411 |  |
+| ok | POST | `/oauth2/token` | src/lib/api/botApi.ts:1627 |  |
+| ok | POST | `/oauth2/token/revoke` | src/lib/api/botApi.ts:1632 |  |
+| ok | GET | `/oauth2/userinfo` | src/lib/api/botApi/applications.ts:402 |  |
+| ok | DELETE | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:324 |  |
+| ok | GET | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:305 |  |
+| ok | PUT | `/users/@me/applications/{application_id}/role-connection` | src/lib/api/botApi/applications.ts:311 | body 3/3 |
 
 </details>
 
@@ -1105,8 +1109,8 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/gateway` | src/lib/api/botApi.ts:1515 |  |
-| ok | GET | `/gateway/bot` | src/lib/api/botApi.ts:1516 |  |
+| ok | GET | `/gateway` | src/lib/api/botApi.ts:1533 |  |
+| ok | GET | `/gateway/bot` | src/lib/api/botApi.ts:1534 |  |
 
 </details>
 
@@ -1114,7 +1118,7 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| partial | POST | `/interactions/{interaction_id}/{interaction_token}/callback` | src/lib/api/botApi.ts:3382 | query 1/1; body 2/2; callback types 10 (PREMIUM_REQUIRED, deprecated) and 12 (LAUNCH_ACTIVITY) are rejected with 50035: SerikaCord has no app monetization or Activities |
+| partial | POST | `/interactions/{interaction_id}/{interaction_token}/callback` | src/lib/api/botApi.ts:3465 | query 1/1; body 2/2; callback type 10 (PREMIUM_REQUIRED, deprecated) is rejected with 50035: SerikaCord has no app monetization (12 LAUNCH_ACTIVITY works for apps with Activities, CORD-92) |
 
 </details>
 
@@ -1122,22 +1126,22 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3275 | query 0/1 |
-| ok | POST | `/applications/{application_id}/commands` | src/lib/api/botApi/applications.ts:175 | body 11/11 |
-| ok | PUT | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3282 |  |
-| ok | DELETE | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3297 |  |
-| ok | GET | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3289 |  |
-| ok | PATCH | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi/applications.ts:189 | body 10/10 |
-| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3305 | query 0/1 |
-| ok | POST | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi/applications.ts:204 | body 11/11 |
-| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3314 |  |
-| ok | DELETE | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3345 |  |
-| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3335 |  |
-| ok | PATCH | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi/applications.ts:220 | body 10/10 |
-| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions` | src/lib/api/botApi.ts:3355 |  |
-| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions` | src/lib/api/botApi.ts:3366 | body 1/1 |
-| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/permissions` | src/lib/api/botApi.ts:3326 |  |
-| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands/permissions` | src/lib/api/botApi/applications.ts:242 |  |
+| ok | GET | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3358 | query 0/1 |
+| ok | POST | `/applications/{application_id}/commands` | src/lib/api/botApi/applications.ts:209 | body 11/11 |
+| ok | PUT | `/applications/{application_id}/commands` | src/lib/api/botApi.ts:3365 |  |
+| ok | DELETE | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3380 |  |
+| ok | GET | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi.ts:3372 |  |
+| ok | PATCH | `/applications/{application_id}/commands/{command_id}` | src/lib/api/botApi/applications.ts:223 | body 10/10 |
+| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3388 | query 0/1 |
+| ok | POST | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi/applications.ts:238 | body 11/11 |
+| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands` | src/lib/api/botApi.ts:3397 |  |
+| ok | DELETE | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3428 |  |
+| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi.ts:3418 |  |
+| ok | PATCH | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}` | src/lib/api/botApi/applications.ts:254 | body 10/10 |
+| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions` | src/lib/api/botApi.ts:3438 |  |
+| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands/{command_id}/permissions` | src/lib/api/botApi.ts:3449 | body 1/1 |
+| ok | GET | `/applications/{application_id}/guilds/{guild_id}/commands/permissions` | src/lib/api/botApi.ts:3409 |  |
+| ok | PUT | `/applications/{application_id}/guilds/{guild_id}/commands/permissions` | src/lib/api/botApi/applications.ts:276 |  |
 
 </details>
 
@@ -1145,15 +1149,15 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4775 | query 8/9 |
-| ok | POST | `/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4794 | body 3/3 |
-| ok | DELETE | `/applications/{application_id}/entitlements/{entitlement_id}` | src/lib/api/botApi.ts:4804 |  |
-| ok | GET | `/applications/{application_id}/entitlements/{entitlement_id}` | src/lib/api/botApi.ts:4787 |  |
-| ok | POST | `/applications/{application_id}/entitlements/{entitlement_id}/consume` | src/lib/api/botApi.ts:4811 |  |
-| ok | GET | `/applications/{application_id}/skus` | src/lib/api/botApi.ts:4769 |  |
-| ok | GET | `/skus/{sku_id}/subscriptions` | src/lib/api/botApi.ts:4827 | query 4/4 |
-| ok | GET | `/skus/{sku_id}/subscriptions/{subscription_id}` | src/lib/api/botApi.ts:4834 | query 0/1 |
-| ok | GET | `/users/@me/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4818 | query 1/2 |
+| ok | GET | `/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4877 | query 8/9 |
+| ok | POST | `/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4896 | body 3/3 |
+| ok | DELETE | `/applications/{application_id}/entitlements/{entitlement_id}` | src/lib/api/botApi.ts:4906 |  |
+| ok | GET | `/applications/{application_id}/entitlements/{entitlement_id}` | src/lib/api/botApi.ts:4889 |  |
+| ok | POST | `/applications/{application_id}/entitlements/{entitlement_id}/consume` | src/lib/api/botApi.ts:4913 |  |
+| ok | GET | `/applications/{application_id}/skus` | src/lib/api/botApi.ts:4871 |  |
+| ok | GET | `/skus/{sku_id}/subscriptions` | src/lib/api/botApi.ts:4929 | query 4/4 |
+| ok | GET | `/skus/{sku_id}/subscriptions/{subscription_id}` | src/lib/api/botApi.ts:4936 | query 0/1 |
+| ok | GET | `/users/@me/applications/{application_id}/entitlements` | src/lib/api/botApi.ts:4920 | query 1/2 |
 
 </details>
 
@@ -1161,16 +1165,16 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/applications/{application_id}` | src/lib/api/botApi.ts:1649 |  |
+| ok | GET | `/applications/{application_id}` | src/lib/api/botApi.ts:1667 |  |
 | partial | PATCH | `/applications/{application_id}` | src/lib/api/botApi/applications.ts:155 | body 17/17; event_webhooks_status 2 (enabled) is refused: SerikaCord does not deliver webhook events |
-| ok | GET | `/applications/{application_id}/activity-instances/{instance_id}` | src/lib/api/botApi/applications.ts:347 |  |
-| ok | POST | `/applications/{application_id}/attachment` | src/lib/api/botApi/applications.ts:305 | body 1/1 |
-| ok | GET | `/applications/{application_id}/emojis` | src/lib/api/botApi.ts:3986 |  |
-| ok | POST | `/applications/{application_id}/emojis` | src/lib/api/botApi.ts:4000 | body 2/2 |
-| ok | DELETE | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4016 |  |
-| ok | GET | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3993 |  |
-| ok | PATCH | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4008 | body 1/1 |
-| ok | GET | `/applications/@me` | src/lib/api/botApi.ts:1639 |  |
+| ok | GET | `/applications/{application_id}/activity-instances/{instance_id}` | src/lib/api/botApi/applications.ts:381 |  |
+| ok | POST | `/applications/{application_id}/attachment` | src/lib/api/botApi/applications.ts:339 | body 1/1 |
+| ok | GET | `/applications/{application_id}/emojis` | src/lib/api/botApi.ts:4076 |  |
+| ok | POST | `/applications/{application_id}/emojis` | src/lib/api/botApi.ts:4090 | body 2/2 |
+| ok | DELETE | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4106 |  |
+| ok | GET | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4083 |  |
+| ok | PATCH | `/applications/{application_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4098 | body 1/1 |
+| ok | GET | `/applications/@me` | src/lib/api/botApi.ts:1657 |  |
 | partial | PATCH | `/applications/@me` | src/lib/api/botApi/applications.ts:141 | body 17/17; event_webhooks_status 2 (enabled) is refused: SerikaCord does not deliver webhook events |
 
 </details>
@@ -1179,23 +1183,23 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/channels/{channel_id}/webhooks` | src/lib/api/botApi.ts:4036 |  |
-| ok | POST | `/channels/{channel_id}/webhooks` | src/lib/api/botApi.ts:4049 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/webhooks` | src/lib/api/botApi.ts:4025 |  |
-| ok | DELETE | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4117 |  |
-| ok | GET | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4071 |  |
-| ok | PATCH | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4093 | body 3/3 |
-| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4185 |  |
-| ok | GET | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4162 |  |
-| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4175 | body 2/2 |
-| ok | POST | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4141 | query 3/3; body 12/12 |
+| ok | GET | `/channels/{channel_id}/webhooks` | src/lib/api/botApi.ts:4126 |  |
+| ok | POST | `/channels/{channel_id}/webhooks` | src/lib/api/botApi.ts:4139 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/webhooks` | src/lib/api/botApi.ts:4115 |  |
+| ok | DELETE | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4213 |  |
+| ok | GET | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4161 |  |
+| ok | PATCH | `/webhooks/{webhook_id}` | src/lib/api/botApi.ts:4189 | body 3/3 |
+| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4281 |  |
+| ok | GET | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4258 |  |
+| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4271 | body 2/2 |
+| ok | POST | `/webhooks/{webhook_id}/{webhook_token}` | src/lib/api/botApi.ts:4237 | query 3/3; body 12/12 |
 | ok | POST | `/webhooks/{webhook_id}/{webhook_token}/github` | src/lib/api/botApi/messages.ts:128 | query 2/2; body 20/20 |
-| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4250 | query 1/1 |
-| ok | GET | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4220 | query 1/1 |
-| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4230 | query 2/2; body 7/7 |
-| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4214 | query 0/1 |
-| ok | GET | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4191 | query 0/1 |
-| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4197 | query 2/2; body 7/7 |
+| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4346 | query 1/1 |
+| ok | GET | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4316 | query 1/1 |
+| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}/messages/{message_id}` | src/lib/api/botApi.ts:4326 | query 2/2; body 7/7 |
+| ok | DELETE | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4310 | query 0/1 |
+| ok | GET | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4287 | query 0/1 |
+| ok | PATCH | `/webhooks/{webhook_id}/{webhook_token}/messages/@original` | src/lib/api/botApi.ts:4293 | query 2/2; body 7/7 |
 | ok | POST | `/webhooks/{webhook_id}/{webhook_token}/slack` | src/lib/api/botApi/messages.ts:120 | query 2/2; body 4/4 |
 
 </details>
@@ -1204,12 +1208,12 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions` | src/lib/api/botApi.ts:3222 |  |
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}` | src/lib/api/botApi.ts:3197 |  |
-| ok | GET | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}` | src/lib/api/botApi.ts:3172 | query 3/3 |
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/{user_id}` | src/lib/api/botApi.ts:3163 |  |
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me` | src/lib/api/botApi.ts:3156 |  |
-| ok | PUT | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me` | src/lib/api/botApi.ts:3110 |  |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions` | src/lib/api/botApi.ts:3305 |  |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}` | src/lib/api/botApi.ts:3280 |  |
+| ok | GET | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}` | src/lib/api/botApi.ts:3255 | query 3/3 |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/{user_id}` | src/lib/api/botApi.ts:3246 |  |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me` | src/lib/api/botApi.ts:3239 |  |
+| ok | PUT | `/channels/{channel_id}/messages/{message_id}/reactions/{emoji_name}/@me` | src/lib/api/botApi.ts:3193 |  |
 
 </details>
 
@@ -1217,19 +1221,19 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | POST | `/channels/{channel_id}/messages/{message_id}/threads` | src/lib/api/botApi.ts:4501 | body 3/3 |
-| partial | GET | `/channels/{channel_id}/thread-members` | src/lib/api/botApi.ts:4514 | query 3/3; flags always 0; join_timestamp falls back to the thread creation for members who joined before join times were recorded |
-| ok | DELETE | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4550 |  |
-| ok | GET | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4535 | query 1/1 |
-| ok | PUT | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4544 |  |
-| ok | DELETE | `/channels/{channel_id}/thread-members/@me` | src/lib/api/botApi.ts:4529 |  |
-| ok | PUT | `/channels/{channel_id}/thread-members/@me` | src/lib/api/botApi.ts:4523 |  |
-| ok | POST | `/channels/{channel_id}/threads` | src/lib/api/botApi.ts:4476 | body 7/7 |
-| ok | GET | `/channels/{channel_id}/threads/archived/private` | src/lib/api/botApi.ts:4563 | query 2/2 |
-| ok | GET | `/channels/{channel_id}/threads/archived/public` | src/lib/api/botApi.ts:4556 | query 2/2 |
-| ok | GET | `/channels/{channel_id}/threads/search` | src/lib/api/botApi.ts:4577 | query 11/11 |
-| ok | GET | `/channels/{channel_id}/users/@me/threads/archived/private` | src/lib/api/botApi.ts:4570 | query 2/2 |
-| ok | GET | `/guilds/{guild_id}/threads/active` | src/lib/api/botApi.ts:4584 |  |
+| ok | POST | `/channels/{channel_id}/messages/{message_id}/threads` | src/lib/api/botApi.ts:4597 | body 3/3 |
+| partial | GET | `/channels/{channel_id}/thread-members` | src/lib/api/botApi.ts:4610 | query 3/3; flags always 0; join_timestamp falls back to the thread creation for members who joined before join times were recorded |
+| ok | DELETE | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4646 |  |
+| ok | GET | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4631 | query 1/1 |
+| ok | PUT | `/channels/{channel_id}/thread-members/{user_id}` | src/lib/api/botApi.ts:4640 |  |
+| ok | DELETE | `/channels/{channel_id}/thread-members/@me` | src/lib/api/botApi.ts:4625 |  |
+| ok | PUT | `/channels/{channel_id}/thread-members/@me` | src/lib/api/botApi.ts:4619 |  |
+| ok | POST | `/channels/{channel_id}/threads` | src/lib/api/botApi.ts:4572 | body 7/7 |
+| ok | GET | `/channels/{channel_id}/threads/archived/private` | src/lib/api/botApi.ts:4659 | query 2/2 |
+| ok | GET | `/channels/{channel_id}/threads/archived/public` | src/lib/api/botApi.ts:4652 | query 2/2 |
+| ok | GET | `/channels/{channel_id}/threads/search` | src/lib/api/botApi.ts:4673 | query 11/11 |
+| ok | GET | `/channels/{channel_id}/users/@me/threads/archived/private` | src/lib/api/botApi.ts:4666 | query 2/2 |
+| ok | GET | `/guilds/{guild_id}/threads/active` | src/lib/api/botApi.ts:4680 |  |
 
 </details>
 
@@ -1237,19 +1241,19 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/channels/{channel_id}/messages` | src/lib/api/botApi.ts:2327 | query 4/4 |
-| partial | POST | `/channels/{channel_id}/messages` | src/lib/api/botApi.ts:2388 | body 13/13; sticker_ids: one sticker per message (Serika limit); shared_client_theme ignored |
-| ok | DELETE | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2915 |  |
-| ok | GET | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2378 |  |
-| ok | PATCH | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2736 | body 7/7 |
-| ok | POST | `/channels/{channel_id}/messages/{message_id}/crosspost` | src/lib/api/botApi.ts:3014 |  |
-| ok | POST | `/channels/{channel_id}/messages/bulk-delete` | src/lib/api/botApi.ts:2952 | body 1/1 |
-| ok | GET | `/channels/{channel_id}/messages/pins` | src/lib/api/botApi.ts:2341 | query 2/2 |
-| ok | DELETE | `/channels/{channel_id}/messages/pins/{message_id}` | src/lib/api/botApi.ts:2371 |  |
-| ok | PUT | `/channels/{channel_id}/messages/pins/{message_id}` | src/lib/api/botApi.ts:2364 |  |
-| ok | GET | `/channels/{channel_id}/polls/{message_id}/answers/{answer_id}` | src/lib/api/botApi.ts:3042 | query 2/2 |
-| ok | POST | `/channels/{channel_id}/polls/{message_id}/expire` | src/lib/api/botApi.ts:3066 |  |
-| ok | POST | `/channels/{channel_id}/typing` | src/lib/api/botApi.ts:3248 |  |
+| ok | GET | `/channels/{channel_id}/messages` | src/lib/api/botApi.ts:2361 | query 4/4 |
+| partial | POST | `/channels/{channel_id}/messages` | src/lib/api/botApi.ts:2422 | body 13/13; sticker_ids: one sticker per message (Serika limit); shared_client_theme ignored |
+| ok | DELETE | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2998 |  |
+| ok | GET | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2412 |  |
+| ok | PATCH | `/channels/{channel_id}/messages/{message_id}` | src/lib/api/botApi.ts:2800 | body 7/7 |
+| ok | POST | `/channels/{channel_id}/messages/{message_id}/crosspost` | src/lib/api/botApi.ts:3097 |  |
+| ok | POST | `/channels/{channel_id}/messages/bulk-delete` | src/lib/api/botApi.ts:3035 | body 1/1 |
+| ok | GET | `/channels/{channel_id}/messages/pins` | src/lib/api/botApi.ts:2375 | query 2/2 |
+| ok | DELETE | `/channels/{channel_id}/messages/pins/{message_id}` | src/lib/api/botApi.ts:2405 |  |
+| ok | PUT | `/channels/{channel_id}/messages/pins/{message_id}` | src/lib/api/botApi.ts:2398 |  |
+| ok | GET | `/channels/{channel_id}/polls/{message_id}/answers/{answer_id}` | src/lib/api/botApi.ts:3125 | query 2/2 |
+| ok | POST | `/channels/{channel_id}/polls/{message_id}/expire` | src/lib/api/botApi.ts:3149 |  |
+| ok | POST | `/channels/{channel_id}/typing` | src/lib/api/botApi.ts:3331 |  |
 
 </details>
 
@@ -1257,16 +1261,16 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | DELETE | `/channels/{channel_id}` | src/lib/api/botApi.ts:2122 |  |
-| ok | GET | `/channels/{channel_id}` | src/lib/api/botApi.ts:2085 |  |
-| ok | PATCH | `/channels/{channel_id}` | src/lib/api/botApi.ts:2096 | body 20/26 |
-| ok | POST | `/channels/{channel_id}/followers` | src/lib/api/botApi.ts:2272 | body 1/1 |
-| ok | GET | `/channels/{channel_id}/invites` | src/lib/api/botApi.ts:2189 |  |
-| ok | POST | `/channels/{channel_id}/invites` | src/lib/api/botApi.ts:2198 | body 4/9 |
-| ok | DELETE | `/channels/{channel_id}/permissions/{overwrite_id}` | src/lib/api/botApi.ts:2164 |  |
-| ok | PUT | `/channels/{channel_id}/permissions/{overwrite_id}` | src/lib/api/botApi.ts:2137 | body 3/3 |
-| ok | DELETE | `/channels/{channel_id}/recipients/{user_id}` | src/lib/api/botApi.ts:2311 |  |
-| partial | PUT | `/channels/{channel_id}/recipients/{user_id}` | src/lib/api/botApi.ts:2291 | body 2/2; nick is ignored (Serika group DMs have no per-member nicknames) |
+| ok | DELETE | `/channels/{channel_id}` | src/lib/api/botApi.ts:2156 |  |
+| ok | GET | `/channels/{channel_id}` | src/lib/api/botApi.ts:2119 |  |
+| ok | PATCH | `/channels/{channel_id}` | src/lib/api/botApi.ts:2130 | body 20/26 |
+| ok | POST | `/channels/{channel_id}/followers` | src/lib/api/botApi.ts:2306 | body 1/1 |
+| ok | GET | `/channels/{channel_id}/invites` | src/lib/api/botApi.ts:2223 |  |
+| ok | POST | `/channels/{channel_id}/invites` | src/lib/api/botApi.ts:2232 | body 4/9 |
+| ok | DELETE | `/channels/{channel_id}/permissions/{overwrite_id}` | src/lib/api/botApi.ts:2198 |  |
+| ok | PUT | `/channels/{channel_id}/permissions/{overwrite_id}` | src/lib/api/botApi.ts:2171 | body 3/3 |
+| ok | DELETE | `/channels/{channel_id}/recipients/{user_id}` | src/lib/api/botApi.ts:2345 |  |
+| partial | PUT | `/channels/{channel_id}/recipients/{user_id}` | src/lib/api/botApi.ts:2325 | body 2/2; nick is ignored (Serika group DMs have no per-member nicknames) |
 | partial | POST | `/channels/{channel_id}/send-soundboard-sound` | src/lib/api/botApi/messages.ts:61 | body 2/2; the bot need not be connected to voice (bots cannot join SerikaCord voice); plays for everyone in the channel |
 | partial | PUT | `/channels/{channel_id}/voice-status` | src/lib/api/botApi/messages.ts:33 | body 1/1; MANAGE_CHANNELS always required (bots never join voice); status not shown in the web client |
 
@@ -1276,21 +1280,21 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/scheduled-events` | src/lib/api/botApi.ts:4322 | query 1/1 |
-| ok | POST | `/guilds/{guild_id}/scheduled-events` | src/lib/api/botApi.ts:4329 | body 10/10 |
-| ok | DELETE | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4351 |  |
-| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4336 | query 1/1 |
-| ok | PATCH | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4343 | body 11/11 |
+| ok | GET | `/guilds/{guild_id}/scheduled-events` | src/lib/api/botApi.ts:4418 | query 1/1 |
+| ok | POST | `/guilds/{guild_id}/scheduled-events` | src/lib/api/botApi.ts:4425 | body 10/10 |
+| ok | DELETE | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4447 |  |
+| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4432 | query 1/1 |
+| ok | PATCH | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}` | src/lib/api/botApi.ts:4439 | body 11/11 |
 | partial | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/{guild_scheduled_event_exception_id}/users` | src/lib/api/botApi/guilds.ts:137 | query 4/4; Serika scheduled events do not recur: no exceptions exist |
 | partial | POST | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions` | src/lib/api/botApi/guilds.ts:117 | body 4/4; Serika scheduled events do not recur: no exceptions exist |
 | partial | DELETE | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}` | src/lib/api/botApi/guilds.ts:131 | Serika scheduled events do not recur: no exceptions exist |
 | partial | PATCH | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/exceptions/{exception_id}` | src/lib/api/botApi/guilds.ts:124 | body 3/3; Serika scheduled events do not recur: no exceptions exist |
-| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users` | src/lib/api/botApi.ts:4357 | query 4/4 |
+| ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users` | src/lib/api/botApi.ts:4453 | query 4/4 |
 | ok | GET | `/guilds/{guild_id}/scheduled-events/{guild_scheduled_event_id}/users/counts` | src/lib/api/botApi/guilds.ts:108 | query 1/1 |
-| ok | POST | `/stage-instances` | src/lib/api/botApi.ts:4370 | body 5/5 |
-| ok | DELETE | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4390 |  |
-| ok | GET | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4377 |  |
-| ok | PATCH | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4383 | body 2/2 |
+| ok | POST | `/stage-instances` | src/lib/api/botApi.ts:4466 | body 5/5 |
+| ok | DELETE | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4486 |  |
+| ok | GET | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4473 |  |
+| ok | PATCH | `/stage-instances/{channel_id}` | src/lib/api/botApi.ts:4479 | body 2/2 |
 
 </details>
 
@@ -1298,18 +1302,18 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/regions` | src/lib/api/botApi.ts:1789 |  |
-| ok | GET | `/guilds/{guild_id}/soundboard-sounds` | src/lib/api/botApi.ts:4753 |  |
+| ok | GET | `/guilds/{guild_id}/regions` | src/lib/api/botApi.ts:1807 |  |
+| ok | GET | `/guilds/{guild_id}/soundboard-sounds` | src/lib/api/botApi.ts:4855 |  |
 | ok | POST | `/guilds/{guild_id}/soundboard-sounds` | src/lib/api/botApi/guilds.ts:146 | body 5/5 |
 | ok | DELETE | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` | src/lib/api/botApi/guilds.ts:160 |  |
-| ok | GET | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` | src/lib/api/botApi.ts:4759 |  |
+| ok | GET | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` | src/lib/api/botApi.ts:4861 |  |
 | ok | PATCH | `/guilds/{guild_id}/soundboard-sounds/{sound_id}` | src/lib/api/botApi/guilds.ts:153 | body 4/4 |
-| ok | GET | `/guilds/{guild_id}/voice-states/{user_id}` | src/lib/api/botApi.ts:4714 |  |
-| ok | PATCH | `/guilds/{guild_id}/voice-states/{user_id}` | src/lib/api/botApi.ts:4730 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/voice-states/@me` | src/lib/api/botApi.ts:4708 |  |
-| ok | PATCH | `/guilds/{guild_id}/voice-states/@me` | src/lib/api/botApi.ts:4721 | body 3/3 |
-| ok | GET | `/soundboard-default-sounds` | src/lib/api/botApi.ts:4748 |  |
-| ok | GET | `/voice/regions` | src/lib/api/botApi.ts:4698 |  |
+| ok | GET | `/guilds/{guild_id}/voice-states/{user_id}` | src/lib/api/botApi.ts:4816 |  |
+| ok | PATCH | `/guilds/{guild_id}/voice-states/{user_id}` | src/lib/api/botApi.ts:4832 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/voice-states/@me` | src/lib/api/botApi.ts:4810 |  |
+| ok | PATCH | `/guilds/{guild_id}/voice-states/@me` | src/lib/api/botApi.ts:4823 | body 3/3 |
+| ok | GET | `/soundboard-default-sounds` | src/lib/api/botApi.ts:4850 |  |
+| ok | GET | `/voice/regions` | src/lib/api/botApi.ts:4800 |  |
 
 </details>
 
@@ -1317,19 +1321,19 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/emojis` | src/lib/api/botApi.ts:2042 |  |
-| ok | POST | `/guilds/{guild_id}/emojis` | src/lib/api/botApi.ts:3908 | body 3/3 |
-| ok | DELETE | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3922 |  |
-| ok | GET | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3902 |  |
-| ok | PATCH | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3915 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/stickers` | src/lib/api/botApi.ts:3930 |  |
-| ok | POST | `/guilds/{guild_id}/stickers` | src/lib/api/botApi.ts:3942 | body 4/4 |
-| ok | DELETE | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3960 |  |
-| ok | GET | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3936 |  |
-| ok | PATCH | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:3953 | body 3/3 |
-| ok | GET | `/sticker-packs` | src/lib/api/botApi.ts:3973 |  |
-| ok | GET | `/sticker-packs/{pack_id}` | src/lib/api/botApi.ts:3978 |  |
-| ok | GET | `/stickers/{sticker_id}` | src/lib/api/botApi.ts:3966 |  |
+| ok | GET | `/guilds/{guild_id}/emojis` | src/lib/api/botApi.ts:2076 |  |
+| ok | POST | `/guilds/{guild_id}/emojis` | src/lib/api/botApi.ts:3998 | body 3/3 |
+| ok | DELETE | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4012 |  |
+| ok | GET | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:3992 |  |
+| ok | PATCH | `/guilds/{guild_id}/emojis/{emoji_id}` | src/lib/api/botApi.ts:4005 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/stickers` | src/lib/api/botApi.ts:4020 |  |
+| ok | POST | `/guilds/{guild_id}/stickers` | src/lib/api/botApi.ts:4032 | body 4/4 |
+| ok | DELETE | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:4050 |  |
+| ok | GET | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:4026 |  |
+| ok | PATCH | `/guilds/{guild_id}/stickers/{sticker_id}` | src/lib/api/botApi.ts:4043 | body 3/3 |
+| ok | GET | `/sticker-packs` | src/lib/api/botApi.ts:4063 |  |
+| ok | GET | `/sticker-packs/{pack_id}` | src/lib/api/botApi.ts:4068 |  |
+| ok | GET | `/stickers/{sticker_id}` | src/lib/api/botApi.ts:4056 |  |
 
 </details>
 
@@ -1337,16 +1341,16 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/invites` | src/lib/api/botApi.ts:2072 |  |
-| ok | DELETE | `/invites/{code}` | src/lib/api/botApi.ts:3398 |  |
-| ok | GET | `/invites/{code}` | src/lib/api/botApi.ts:3390 | query 2/4 |
-| ok | GET | `/invites/{code}/target-users` | src/lib/api/botApi/social.ts:581 |  |
-| ok | PUT | `/invites/{code}/target-users` | src/lib/api/botApi/social.ts:595 | body 1/1 |
-| ok | DELETE | `/invites/{code}/target-users/{user_id}` | src/lib/api/botApi/social.ts:676 |  |
-| ok | PUT | `/invites/{code}/target-users/{user_id}` | src/lib/api/botApi/social.ts:666 |  |
-| ok | POST | `/invites/{code}/target-users/bulk-add` | src/lib/api/botApi/social.ts:639 | body 1/1 |
-| ok | POST | `/invites/{code}/target-users/bulk-delete` | src/lib/api/botApi/social.ts:657 | body 1/1 |
-| ok | GET | `/invites/{code}/target-users/job-status` | src/lib/api/botApi/social.ts:634 |  |
+| ok | GET | `/guilds/{guild_id}/invites` | src/lib/api/botApi.ts:2106 |  |
+| ok | DELETE | `/invites/{code}` | src/lib/api/botApi.ts:3481 |  |
+| ok | GET | `/invites/{code}` | src/lib/api/botApi.ts:3473 | query 2/4 |
+| ok | GET | `/invites/{code}/target-users` | src/lib/api/botApi/social.ts:598 |  |
+| ok | PUT | `/invites/{code}/target-users` | src/lib/api/botApi/social.ts:612 | body 1/1 |
+| ok | DELETE | `/invites/{code}/target-users/{user_id}` | src/lib/api/botApi/social.ts:693 |  |
+| ok | PUT | `/invites/{code}/target-users/{user_id}` | src/lib/api/botApi/social.ts:683 |  |
+| ok | POST | `/invites/{code}/target-users/bulk-add` | src/lib/api/botApi/social.ts:656 | body 1/1 |
+| ok | POST | `/invites/{code}/target-users/bulk-delete` | src/lib/api/botApi/social.ts:674 | body 1/1 |
+| ok | GET | `/invites/{code}/target-users/job-status` | src/lib/api/botApi/social.ts:651 |  |
 
 </details>
 
@@ -1354,12 +1358,12 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/audit-logs` | src/lib/api/botApi.ts:4262 | query 6/6 |
-| ok | GET | `/guilds/{guild_id}/auto-moderation/rules` | src/lib/api/botApi.ts:4288 |  |
-| ok | POST | `/guilds/{guild_id}/auto-moderation/rules` | src/lib/api/botApi.ts:4300 | body 8/8 |
-| ok | DELETE | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4314 |  |
-| ok | GET | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4294 |  |
-| ok | PATCH | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4307 | body 8/8 |
+| ok | GET | `/guilds/{guild_id}/audit-logs` | src/lib/api/botApi.ts:4358 | query 6/6 |
+| ok | GET | `/guilds/{guild_id}/auto-moderation/rules` | src/lib/api/botApi.ts:4384 |  |
+| ok | POST | `/guilds/{guild_id}/auto-moderation/rules` | src/lib/api/botApi.ts:4396 | body 8/8 |
+| ok | DELETE | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4410 |  |
+| ok | GET | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4390 |  |
+| ok | PATCH | `/guilds/{guild_id}/auto-moderation/rules/{rule_id}` | src/lib/api/botApi.ts:4403 | body 8/8 |
 | partial | PUT | `/guilds/{guild_id}/incident-actions` | src/lib/api/botApi/guilds.ts:98 | body 2/2; dms_disabled_until is stored and reported but not enforced; invites_disabled_until pauses invite joins |
 
 </details>
@@ -1368,22 +1372,22 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}/bans` | src/lib/api/botApi.ts:2050 | query 3/3 |
-| ok | DELETE | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3886 |  |
-| ok | GET | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3874 |  |
-| ok | PUT | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3836 | body 2/2 |
-| ok | POST | `/guilds/{guild_id}/bulk-ban` | src/lib/api/botApi.ts:3854 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/members` | src/lib/api/botApi.ts:1991 | query 2/2 |
-| ok | DELETE | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3777 |  |
-| ok | GET | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:2030 |  |
-| ok | PATCH | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3670 | body 7/7 |
-| ok | PUT | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3695 | body 5/6 |
-| ok | DELETE | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | src/lib/api/botApi.ts:3689 |  |
-| ok | PUT | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | src/lib/api/botApi.ts:3684 |  |
-| ok | PATCH | `/guilds/{guild_id}/members/@me` | src/lib/api/botApi.ts:3663 | body 3/4 |
-| ok | GET | `/guilds/{guild_id}/members/search` | src/lib/api/botApi.ts:2006 | query 2/2 |
-| ok | GET | `/guilds/{guild_id}/prune` | src/lib/api/botApi.ts:3800 | query 2/2 |
-| ok | POST | `/guilds/{guild_id}/prune` | src/lib/api/botApi.ts:3811 | body 3/3 |
+| ok | GET | `/guilds/{guild_id}/bans` | src/lib/api/botApi.ts:2084 | query 3/3 |
+| ok | DELETE | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3976 |  |
+| ok | GET | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3964 |  |
+| ok | PUT | `/guilds/{guild_id}/bans/{user_id}` | src/lib/api/botApi.ts:3926 | body 2/2 |
+| ok | POST | `/guilds/{guild_id}/bulk-ban` | src/lib/api/botApi.ts:3944 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/members` | src/lib/api/botApi.ts:2025 | query 2/2 |
+| ok | DELETE | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3867 |  |
+| ok | GET | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:2064 |  |
+| ok | PATCH | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3760 | body 7/7 |
+| ok | PUT | `/guilds/{guild_id}/members/{user_id}` | src/lib/api/botApi.ts:3785 | body 5/6 |
+| ok | DELETE | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | src/lib/api/botApi.ts:3779 |  |
+| ok | PUT | `/guilds/{guild_id}/members/{user_id}/roles/{role_id}` | src/lib/api/botApi.ts:3774 |  |
+| ok | PATCH | `/guilds/{guild_id}/members/@me` | src/lib/api/botApi.ts:3753 | body 4/4 |
+| ok | GET | `/guilds/{guild_id}/members/search` | src/lib/api/botApi.ts:2040 | query 2/2 |
+| ok | GET | `/guilds/{guild_id}/prune` | src/lib/api/botApi.ts:3890 | query 2/2 |
+| ok | POST | `/guilds/{guild_id}/prune` | src/lib/api/botApi.ts:3901 | body 3/3 |
 | ok | GET | `/guilds/{guild_id}/requests` | src/lib/api/botApi/guilds.ts:84 | query 4/4 |
 | ok | PATCH | `/guilds/{guild_id}/requests/{request_id}` | src/lib/api/botApi/guilds.ts:91 | body 2/2 |
 
@@ -1393,14 +1397,14 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/users/{user_id}` | src/lib/api/botApi.ts:1588 |  |
-| ok | GET | `/users/@me` | src/lib/api/botApi.ts:1525 |  |
-| partial | PATCH | `/users/@me` | src/lib/api/botApi.ts:1536 | body 3/3; username follows Serika handle rules (2-32 of a-z 0-9 _ .), not Discord display names |
-| ok | POST | `/users/@me/channels` | src/lib/api/botApi.ts:4603 | body 3/3 |
-| ok | GET | `/users/@me/connections` | src/lib/api/botApi.ts:1581 |  |
-| ok | GET | `/users/@me/guilds` | src/lib/api/botApi.ts:1549 | query 4/5 |
-| ok | DELETE | `/users/@me/guilds/{guild_id}` | src/lib/api/botApi.ts:4683 |  |
-| ok | GET | `/users/@me/guilds/{guild_id}/member` | src/lib/api/botApi.ts:1566 |  |
+| ok | GET | `/users/{user_id}` | src/lib/api/botApi.ts:1606 |  |
+| ok | GET | `/users/@me` | src/lib/api/botApi.ts:1543 |  |
+| partial | PATCH | `/users/@me` | src/lib/api/botApi.ts:1554 | body 3/3; username follows Serika handle rules (2-32 of a-z 0-9 _ .), not Discord display names |
+| ok | POST | `/users/@me/channels` | src/lib/api/botApi.ts:4699 | body 3/3 |
+| ok | GET | `/users/@me/connections` | src/lib/api/botApi.ts:1599 |  |
+| ok | GET | `/users/@me/guilds` | src/lib/api/botApi.ts:1567 | query 4/5 |
+| ok | DELETE | `/users/@me/guilds/{guild_id}` | src/lib/api/botApi.ts:4781 |  |
+| ok | GET | `/users/@me/guilds/{guild_id}/member` | src/lib/api/botApi.ts:1584 |  |
 
 </details>
 
@@ -1408,50 +1412,55 @@ Intents missing from `Intents` in gatewayEvents.ts: none.
 
 | Status | Method | Path | Serika | Notes |
 |---|---|---|---|---|
-| ok | GET | `/guilds/{guild_id}` | src/lib/api/botApi.ts:1659 | query 1/1 |
-| ok | PATCH | `/guilds/{guild_id}` | src/lib/api/botApi.ts:1668 | body 14/21 |
-| ok | GET | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:1860 |  |
-| ok | PATCH | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:1898 |  |
-| ok | POST | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:3406 | body 12/19 |
-| ok | GET | `/guilds/{guild_id}/integrations` | src/lib/api/botApi.ts:4462 |  |
-| ok | DELETE | `/guilds/{guild_id}/integrations/{integration_id}` | src/lib/api/botApi.ts:4468 |  |
+| ok | GET | `/guilds/{guild_id}` | src/lib/api/botApi.ts:1677 | query 1/1 |
+| ok | PATCH | `/guilds/{guild_id}` | src/lib/api/botApi.ts:1686 | body 14/21 |
+| ok | GET | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:1878 |  |
+| ok | PATCH | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:1932 |  |
+| ok | POST | `/guilds/{guild_id}/channels` | src/lib/api/botApi.ts:3489 | body 12/19 |
+| ok | GET | `/guilds/{guild_id}/integrations` | src/lib/api/botApi.ts:4558 |  |
+| ok | DELETE | `/guilds/{guild_id}/integrations/{integration_id}` | src/lib/api/botApi.ts:4564 |  |
 | partial | GET | `/guilds/{guild_id}/messages/search` | src/lib/api/botApi/guilds.ts:50 | query 24/24; slop ignored; offsets past 5000 return an empty page |
 | ok | GET | `/guilds/{guild_id}/new-member-welcome` | src/lib/api/botApi/guilds.ts:78 |  |
-| ok | GET | `/guilds/{guild_id}/onboarding` | src/lib/api/botApi.ts:4398 |  |
-| ok | PUT | `/guilds/{guild_id}/onboarding` | src/lib/api/botApi.ts:4404 | body 4/4 |
-| ok | GET | `/guilds/{guild_id}/preview` | src/lib/api/botApi.ts:1762 |  |
-| ok | GET | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:1959 |  |
-| ok | PATCH | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:3574 |  |
-| ok | POST | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:3515 | body 8/8 |
-| ok | DELETE | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:3635 |  |
-| ok | GET | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:1984 |  |
-| ok | PATCH | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:3586 | body 8/8 |
-| ok | GET | `/guilds/{guild_id}/roles/member-counts` | src/lib/api/botApi.ts:1967 |  |
-| ok | GET | `/guilds/{guild_id}/templates` | src/lib/api/botApi.ts:4430 |  |
-| ok | POST | `/guilds/{guild_id}/templates` | src/lib/api/botApi.ts:4436 | body 2/2 |
-| ok | DELETE | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4456 |  |
-| ok | PATCH | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4449 | body 2/2 |
-| ok | PUT | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4443 |  |
-| ok | GET | `/guilds/{guild_id}/vanity-url` | src/lib/api/botApi.ts:1796 |  |
-| ok | GET | `/guilds/{guild_id}/welcome-screen` | src/lib/api/botApi.ts:4411 |  |
-| ok | PATCH | `/guilds/{guild_id}/welcome-screen` | src/lib/api/botApi.ts:4417 | body 3/3 |
-| ok | GET | `/guilds/{guild_id}/widget` | src/lib/api/botApi.ts:1803 |  |
-| ok | PATCH | `/guilds/{guild_id}/widget` | src/lib/api/botApi.ts:1811 | body 2/2 |
-| ok | GET | `/guilds/{guild_id}/widget.json` | src/lib/api/botApi.ts:1856 |  |
+| ok | GET | `/guilds/{guild_id}/onboarding` | src/lib/api/botApi.ts:4494 |  |
+| ok | PUT | `/guilds/{guild_id}/onboarding` | src/lib/api/botApi.ts:4500 | body 4/4 |
+| ok | GET | `/guilds/{guild_id}/preview` | src/lib/api/botApi.ts:1780 |  |
+| ok | GET | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:1993 |  |
+| ok | PATCH | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:3658 |  |
+| ok | POST | `/guilds/{guild_id}/roles` | src/lib/api/botApi.ts:3599 | body 8/8 |
+| ok | DELETE | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:3724 |  |
+| ok | GET | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:2018 |  |
+| ok | PATCH | `/guilds/{guild_id}/roles/{role_id}` | src/lib/api/botApi.ts:3670 | body 8/8 |
+| ok | GET | `/guilds/{guild_id}/roles/member-counts` | src/lib/api/botApi.ts:2001 |  |
+| ok | GET | `/guilds/{guild_id}/templates` | src/lib/api/botApi.ts:4526 |  |
+| ok | POST | `/guilds/{guild_id}/templates` | src/lib/api/botApi.ts:4532 | body 2/2 |
+| ok | DELETE | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4552 |  |
+| ok | PATCH | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4545 | body 2/2 |
+| ok | PUT | `/guilds/{guild_id}/templates/{code}` | src/lib/api/botApi.ts:4539 |  |
+| ok | GET | `/guilds/{guild_id}/vanity-url` | src/lib/api/botApi.ts:1814 |  |
+| ok | GET | `/guilds/{guild_id}/welcome-screen` | src/lib/api/botApi.ts:4507 |  |
+| ok | PATCH | `/guilds/{guild_id}/welcome-screen` | src/lib/api/botApi.ts:4513 | body 3/3 |
+| ok | GET | `/guilds/{guild_id}/widget` | src/lib/api/botApi.ts:1821 |  |
+| ok | PATCH | `/guilds/{guild_id}/widget` | src/lib/api/botApi.ts:1829 | body 2/2 |
+| ok | GET | `/guilds/{guild_id}/widget.json` | src/lib/api/botApi.ts:1874 |  |
 | ok | GET | `/guilds/{guild_id}/widget.png` | src/lib/api/botApi/guilds.ts:168 | query 1/1 |
-| ok | GET | `/guilds/templates/{code}` | src/lib/api/botApi.ts:4424 |  |
+| ok | GET | `/guilds/templates/{code}` | src/lib/api/botApi.ts:4520 |  |
 
 </details>
 
 ### SerikaCord /api/v10 routes with no Discord counterpart
 
-- `GET /api/v10/guilds/:guildId/bridge` (src/lib/api/botApi.ts:1874)
-- `PATCH /api/v10/guilds/:guildId/channels/:channelId` (src/lib/api/botApi.ts:3492)
-- `DELETE /api/v10/guilds/:guildId/channels/:channelId` (src/lib/api/botApi.ts:3502)
-- `GET /api/v10/users/@me/channels` (src/lib/api/botApi.ts:4592)
-- `GET /api/v10/mcp` (src/lib/api/mcp.ts:893)
-- `GET /api/v10/docs/mcp` (src/lib/api/mcp.ts:895)
-- `POST /api/v10/mcp` (src/lib/api/mcp.ts:899)
-- `POST /api/v10/docs/mcp` (src/lib/api/mcp.ts:901)
+- `GET /api/v10/guilds/:guildId/bridge` (src/lib/api/botApi.ts:1908)
+- `PATCH /api/v10/guilds/:guildId/channels/:channelId` (src/lib/api/botApi.ts:3576)
+- `DELETE /api/v10/guilds/:guildId/channels/:channelId` (src/lib/api/botApi.ts:3586)
+- `GET /api/v10/users/@me/channels` (src/lib/api/botApi.ts:4688)
+- `GET /api/v10/applications/@me/discord-link` (src/lib/api/botApi/applications.ts:176)
+- `PUT /api/v10/applications/@me/discord-link` (src/lib/api/botApi/applications.ts:185)
+- `DELETE /api/v10/applications/@me/discord-link` (src/lib/api/botApi/applications.ts:196)
+- `GET /api/v10/mcp` (src/lib/api/mcp.ts:1006)
+- `GET /api/v10/docs/mcp` (src/lib/api/mcp.ts:1008)
+- `DELETE /api/v10/mcp` (src/lib/api/mcp.ts:1012)
+- `DELETE /api/v10/docs/mcp` (src/lib/api/mcp.ts:1014)
+- `POST /api/v10/mcp` (src/lib/api/mcp.ts:1018)
+- `POST /api/v10/docs/mcp` (src/lib/api/mcp.ts:1020)
 
 <!-- parity:generated:end -->

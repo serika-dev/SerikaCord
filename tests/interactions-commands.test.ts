@@ -255,7 +255,7 @@ describe("interaction token state machine", () => {
     expect(checkInitialCallback(base({ type: InteractionType.APPLICATION_COMMAND_AUTOCOMPLETE }), CallbackType.CHANNEL_MESSAGE_WITH_SOURCE, false, now).ok).toBeFalse();
     expect(checkInitialCallback(base({ type: InteractionType.MODAL_SUBMIT }), CallbackType.MODAL, false, now).ok).toBeFalse();
     expect(checkInitialCallback(base(), CallbackType.PREMIUM_REQUIRED, false, now)).toMatchObject({ ok: false, code: 50035 });
-    expect(checkInitialCallback(base(), CallbackType.LAUNCH_ACTIVITY, false, now)).toMatchObject({ ok: false, code: 50035 });
+    expect(checkInitialCallback(base(), CallbackType.LAUNCH_ACTIVITY, false, now).ok).toBeTrue();
   });
 
   test("followups for 15 minutes", () => {

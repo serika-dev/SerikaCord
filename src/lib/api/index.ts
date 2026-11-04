@@ -30,6 +30,7 @@ import { dmRoutes } from './dms';
 import { groupDmRoutes } from './groupDms';
 import { messageExtrasRoutes } from './messageExtras';
 import { interactionRoutes } from './interactionRoutes';
+import { activityRoutes } from './activities';
 import { automodRoutes } from './automod';
 import { communityRoutes } from './community';
 import { faviconRoutes } from './favicons';
@@ -281,6 +282,8 @@ function getPublicPresenceStatus(user: { status?: string | null; presenceLastHea
 // primary card even when a coding session is also live.
 const ACTIVITY_TYPE_PRIORITY: Record<string, number> = {
   game: 0,
+  // "Playing <Activity>" (embedded apps in calls and chats, CORD-92).
+  activity: 0,
 };
 function activityPriorityRank(type: string | null | undefined): number {
   return ACTIVITY_TYPE_PRIORITY[(type ?? 'other') as string] ?? 10;
@@ -3033,6 +3036,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
     // Anything not reported in this batch is no longer active.
     const allPresence = await RichPresence.find({ userId: authUserId });
     const toDelete = allPresence.filter((p: any) => {
+      // "Playing <Activity>" rows belong to the Activity's frame (CORD-92), not this reporter.
+      if (p.type === 'activity') return false;
       return !incoming.some((item) => item.type === p.type && item.name === p.name);
     });
     for (const p of toDelete) {
@@ -4578,6 +4583,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(groupDmRoutes)
   .use(messageExtrasRoutes)
   .use(interactionRoutes)
+  .use(activityRoutes)
   .use(automodRoutes)
   .use(communityRoutes)
   .use(faviconRoutes)

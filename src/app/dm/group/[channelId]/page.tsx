@@ -664,6 +664,7 @@ export default function GroupDMPage() {
             me={{ id: user.id, name: user.displayName || user.username, avatar: user.avatar }}
             peers={callPeers}
             groupName={title || gt("Group")}
+            activityChannelId={channelId || null}
           />
         )}
 

@@ -28,6 +28,7 @@ import {
   BarChart3,
   Upload,
   Mic,
+  Rocket,
 } from "lucide-react";
 import { cn, cdnImage } from "@/lib/utils";
 import { toast } from "sonner";
@@ -1735,6 +1736,17 @@ export const MessageBar = forwardRef<MessageBarHandle, MessageBarProps>(
                     <DropdownMenuItem onClick={() => setPollOpen(true)} className="hover:bg-[var(--bg-hover)] cursor-pointer">
                       <BarChart3 className="w-4 h-4 mr-2" /> {gt("Create Poll")}
                     </DropdownMenuItem>
+                    {(commandChannelId ?? channelId) && (
+                      <DropdownMenuItem
+                        onClick={() => {
+                          const target = commandChannelId ?? channelId;
+                          if (target) void import("@/lib/activities/clientStore").then((m) => m.openActivityShelf({ channelId: target, voice: false }));
+                        }}
+                        className="hover:bg-[var(--bg-hover)] cursor-pointer"
+                      >
+                        <Rocket className="w-4 h-4 mr-2" /> {gt("Start an Activity")}
+                      </DropdownMenuItem>
+                    )}
                   </DropdownMenuContent>
                 </DropdownMenu>
               ) : (
