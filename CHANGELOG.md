@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.3.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.5.4.
 
 ---
 
@@ -15,11 +15,19 @@
 ### Performance
 
 ### Security
+
+### Removed
+
+---
+
+## v2.5.4 — 2026-11-04
+
+**Tag:** `v2.5.4` · **Commit:** `15429a65`
+
+### Security
 - Voice channels enforce Connect, Speak and Video permissions on the server (and a soundboard deny on a channel), people who are server-deafened stop receiving everyone's audio, and voice signalling messages are size-limited
 - Attachments show what they really are: a file's name, type and size come from the upload, so a modified app can't disguise a file, and free accounts are held to 10 attachments per message
 - The web app now enforces a Content-Security-Policy: no scripts from other sites and no evaluated code, which stops client mods that patch the app this way
-
-### Removed
 
 ---
 
