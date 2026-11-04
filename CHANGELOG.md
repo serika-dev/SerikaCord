@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- On phones, a member card in the member list no longer shrinks to half width after you've opened that person's profile
 
 ### Performance
 

@@ -249,8 +249,10 @@ function MemberProfilePopupBody({
   if (isMobile) {
     return (
       <>
+        {/* No box of its own (like the unarmed wrapper above): an inline-flex
+            wrapper shrank full-width rows, e.g. a member list card, after the first tap. */}
         <div
-          className="inline-flex"
+          style={{ display: "contents" }}
           onClick={(e) => {
             e.stopPropagation();
             setFullProfileOpen(true);
