@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.6.1.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.6.2.
 
 ---
 
@@ -9,7 +9,6 @@
 ### Features
 
 ### Changes
-- Every app now uses the bubble-chan icon: the desktop apps (Windows, macOS, Linux), the Android launcher icon, the web app's install icons and the favicon (the old gold S is gone). The desktop and Android icons change with the next app update
 
 ### Bug Fixes
 
@@ -18,6 +17,15 @@
 ### Security
 
 ### Removed
+
+---
+
+## v2.6.2 — 2026-11-05
+
+**Tag:** `v2.6.2` · **Commit:** `2e318dbc`
+
+### Changes
+- Every app now uses the bubble-chan icon: the desktop apps (Windows, macOS, Linux), the Android launcher icon, the web app's install icons and the favicon (the old gold S is gone). The desktop and Android icons change with the next app update
 
 ---
 
