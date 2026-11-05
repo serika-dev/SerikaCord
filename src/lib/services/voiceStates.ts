@@ -109,7 +109,7 @@ async function memberObject(serverId: string, userId: string) {
  * means `userId` left the room. Called by the instance where the change
  * happened (never for mirror updates from other instances).
  */
-export async function emitVoiceStateFor(roomId: string, userId: string, participant: ParticipantLike | null): Promise<void> {
+export async function emitVoiceStateFor(roomId: string, userId: string, participant: ParticipantLike | null, opts: { excludeUserId?: string } = {}): Promise<void> {
   const channelId = channelIdOfVoiceRoom(roomId);
   if (!channelId) return;
   try {
@@ -118,7 +118,7 @@ export async function emitVoiceStateFor(roomId: string, userId: string, particip
     const member = await memberObject(serverId, userId).catch(() => null);
     const state = voiceStateOf(participant ?? { userId }, participant ? channelId : null, { member: member ?? undefined });
     const { emitVoiceStateUpdate } = await import('./gatewayEvents');
-    await emitVoiceStateUpdate(serverId, channelId, state);
+    await emitVoiceStateUpdate(serverId, channelId, state, opts);
   } catch {
     // Best-effort: voice must never fail because the gateway bus is down.
   }

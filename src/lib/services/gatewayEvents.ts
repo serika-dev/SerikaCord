@@ -1267,8 +1267,8 @@ export async function emitPresenceUpdate(userId: string, presence?: { status: st
  * channel joined, changed or left) receive it: private voice channels stay
  * private.
  */
-export function emitVoiceStateUpdate(guildId: string, channelId: string, state: Record<string, unknown>) {
-  return publishChannelScoped({ t: 'VOICE_STATE_UPDATE', guildId, intent: Intents.GUILD_VOICE_STATES, d: { ...state, guild_id: guildId } }, channelId);
+export function emitVoiceStateUpdate(guildId: string, channelId: string, state: Record<string, unknown>, opts: { excludeUserId?: string } = {}) {
+  return publishChannelScoped({ t: 'VOICE_STATE_UPDATE', guildId, intent: Intents.GUILD_VOICE_STATES, d: { ...state, guild_id: guildId } }, channelId, opts);
 }
 
 /** VOICE_CHANNEL_STATUS_UPDATE (GUILDS): a voice channel's status was set or cleared (null). */

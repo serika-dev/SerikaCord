@@ -89,6 +89,8 @@ type VoiceParticipant = {
   tracks?: Record<string, string>;
   /** A bot connected through the Discord voice protocol (lib/voice/botVoice). */
   isBot?: boolean;
+  /** A bot's self_mute from op 4: its mic state comes back with it when it becomes a stage speaker again. */
+  botSelfMute?: boolean;
   /** Stage channels: in a stage, its speaker state, and a raised hand (ISO time). */
   stage?: boolean;
   stageSpeaker?: boolean;
@@ -134,10 +136,10 @@ const VOICE_MEMBERS_BUS = 'voice:members'; // room membership sync
 // ── Bot API voice states (WP7) ──────────────────────────────────────────────
 // VOICE_STATE_UPDATE for server voice channels, sent by the instance where the
 // change happened (mirror updates from other instances never re-emit).
-function emitVoiceState(roomId: string, userId: string, participant: VoiceParticipant | null) {
+function emitVoiceState(roomId: string, userId: string, participant: VoiceParticipant | null, opts: { excludeUserId?: string } = {}) {
   if (!roomId.startsWith('channel-')) return; // DM / group calls are not bot-visible
   void import('@/lib/services/voiceStates')
-    .then((m) => m.emitVoiceStateFor(roomId, userId, participant ? { ...participant } : null))
+    .then((m) => m.emitVoiceStateFor(roomId, userId, participant ? { ...participant } : null, opts))
     .catch(() => {});
 }
 
@@ -339,7 +341,7 @@ async function canCall(caller: CallingUser, calleeId: string): Promise<string | 
 }
 
 /** Remove a user from a room and tell everyone (and stop a now-pointless ring). */
-function evictFromRoom(roomId: string, userId: string) {
+function evictFromRoom(roomId: string, userId: string, opts: { excludeUserId?: string } = {}) {
   cancelEviction(roomId, userId);
   const room = roomState.get(roomId);
   if (!room || !room.has(userId)) return;
@@ -347,7 +349,7 @@ function evictFromRoom(roomId: string, userId: string) {
   const empty = room.size === 0;
   if (empty) roomState.delete(roomId);
   publishMembership(roomId, 'leave', { userId });
-  emitVoiceState(roomId, userId, null);
+  emitVoiceState(roomId, userId, null, opts);
   broadcastToRoom(roomId, { type: 'voice:participant_left', userId });
   if (roomId.startsWith('channel-')) void import('@/lib/voice/sfu').then((m) => m.forgetSfuParticipant(roomId, userId)).catch(() => {});
   stopRingingIfEmpty(roomId);
@@ -451,7 +453,9 @@ export async function joinVoiceAsBot(o: {
   // In another channel of this server: leave it (Discord moves the bot).
   const current = await findServerVoiceRoom(o.serverId, o.botId);
   const moved = !!current && current.roomId !== roomId;
-  if (moved && current) evictFromRoom(current.roomId, o.botId);
+  // The gateway answers op 4 with the bot's own VOICE_STATE_UPDATE, so the
+  // fan-out below skips the bot (one event per change, like Discord).
+  if (moved && current) evictFromRoom(current.roomId, o.botId, { excludeUserId: o.botId });
   const stageSpeaker = auth.stage ? (prev?.stageSpeaker ?? auth.stageModerator === true) : undefined;
   const suppress = (auth.voice ? !auth.voice.speak : false) || (auth.stage === true && !stageSpeaker);
   room.set(o.botId, {
@@ -465,6 +469,7 @@ export async function joinVoiceAsBot(o: {
     joinedAt: prev?.joinedAt ?? new Date().toISOString(),
     sessionId: o.sessionId,
     isBot: true,
+    botSelfMute: o.selfMute,
     ...(prev?.sfuSession ? { sfuSession: prev.sfuSession, tracks: prev.tracks } : {}),
     ...(auth.serverMute || suppress ? { serverMute: true } : {}),
     ...(auth.serverDeaf ? { serverDeaf: true } : {}),
@@ -473,7 +478,7 @@ export async function joinVoiceAsBot(o: {
   });
   const participant = room.get(o.botId)!;
   publishMembership(roomId, 'join', { participant });
-  emitVoiceState(roomId, o.botId, participant);
+  emitVoiceState(roomId, o.botId, participant, { excludeUserId: o.botId });
   if (prev) {
     broadcastToRoom(roomId, { type: 'voice:state_update', userId: o.botId, audio: participant.audio, deafened: participant.deafened, video: false, serverMute: participant.serverMute === true, serverDeaf: participant.serverDeaf === true });
   } else {
@@ -487,9 +492,9 @@ export async function serverVoiceRoomOf(serverId: string, userId: string): Promi
   return (await findServerVoiceRoom(serverId, userId))?.roomId ?? null;
 }
 
-/** The bot left (op 4 with no channel, or its voice connection died). */
+/** The bot left with op 4 (which answers it directly, so the fan-out skips it). */
 export function leaveVoiceAsBot(roomId: string, botId: string): void {
-  evictFromRoom(roomId, botId);
+  evictFromRoom(roomId, botId, { excludeUserId: botId });
 }
 
 // ── Stage channels ──────────────────────────────────────────────────────────
@@ -522,6 +527,8 @@ export function setStageSpeaker(roomId: string, userId: string, speaker: boolean
   const moderatorMute = participant.serverMute === true && participant.suppress !== true;
   const fields: ParticipantFields = { stageSpeaker: speaker, suppress: !speaker, serverMute: moderatorMute || !speaker, requestToSpeakAt: null };
   if (!speaker) fields.audio = false;
+  // People unmute themselves; a bot's mic follows the self_mute it joined with.
+  else if (participant.isBot) fields.audio = participant.botSelfMute !== true;
   Object.assign(participant, fields);
   announceStage(roomId, userId, participant, fields);
   return true;
