@@ -4807,11 +4807,13 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   return VOICE_REGIONS; // the access guard already required membership
 })
-.get('/guilds/:guildId/voice-states/@me', async ({ headers, set }) => {
+.get('/guilds/:guildId/voice-states/@me', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  set.status = 404;
-  return UNKNOWN_VOICE_STATE; // bots never join Serika voice
+  // Bots join voice through gateway op 4 (docs/architecture/voice-sfu.md).
+  const state = await findVoiceState(params.guildId, auth.botUser.id, auth.botUser.id);
+  if (!state) { set.status = 404; return UNKNOWN_VOICE_STATE; }
+  return state;
 })
 .get('/guilds/:guildId/voice-states/:userId', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
