@@ -12,8 +12,9 @@ const CDN_IMAGE_HOST = "cdn.serika.chat";
 /**
  * Rewrite a CDN media URL to request WebP by default.
  *
- * Only touches `cdn.serika.chat` URLs; anything else (Discord CDN, Tenor,
- * data URIs, blob URLs, relative paths, …) is returned unchanged. Idempotent —
+ * Only touches `cdn.serika.chat` URLs, plus Discord-hosted profile images
+ * (still WebP, see discordCdnImage); anything else (Discord attachments and
+ * emoji, Tenor, data URIs, blob URLs, relative paths, …) is returned unchanged. Idempotent —
  * if the caller already set a `format`/`output`/`fm` param (or `n=-1` to keep
  * animation), or requested a flip/resize, those are respected and we only add
  * `format=webp` when no explicit format is present. Existing params (w/h/flip/
@@ -21,6 +22,7 @@ const CDN_IMAGE_HOST = "cdn.serika.chat";
  */
 export function cdnImage(url?: string | null, opts?: { still?: boolean; animated?: boolean }): string {
   if (!url) return url ?? "";
+  if (url.includes("discordapp.")) return discordCdnImage(url, opts);
   // Fast bail-out for non-CDN / non-http strings without constructing a URL.
   if (!url.includes(CDN_IMAGE_HOST)) return url;
   try {
@@ -42,6 +44,32 @@ export function cdnImage(url?: string | null, opts?: { still?: boolean; animated
     // animated stickers and emoji would otherwise arrive as a still WebP.
     if (opts?.animated) u.searchParams.set("n", "-1");
     u.searchParams.set("format", "webp");
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
+const DISCORD_CDN_HOSTS = new Set(["cdn.discordapp.com", "media.discordapp.net"]);
+/** Profile pictures, server icons and banners (not attachments, emoji or stickers). */
+const DISCORD_PROFILE_IMAGE_PATH = /^\/(?:(?:avatars|icons|banners|splashes)\/\d+|guilds\/\d+\/users\/\d+\/(?:avatars|banners))\/[^/]+\.(?:gif|png|jpe?g|webp)$/i;
+
+/**
+ * Discord-hosted avatars, server icons and banners (Discord-linked and bridged
+ * users) arrive as the full-size original, so an animated `a_…gif` avatar was
+ * decoded and redrawn every frame even at 32px: one cost ~14% of a CPU core
+ * in the desktop app. Ask Discord's CDN for a still WebP at a sane size
+ * instead (`.webp` is a still image unless `animated=true`), like our own CDN
+ * does; `animated` keeps the animation where a caller wants it.
+ */
+function discordCdnImage(url: string, opts?: { still?: boolean; animated?: boolean }): string {
+  try {
+    const u = new URL(url);
+    if (!DISCORD_CDN_HOSTS.has(u.hostname) || !DISCORD_PROFILE_IMAGE_PATH.test(u.pathname)) return url;
+    if (opts?.animated) return url;
+    u.pathname = u.pathname.replace(/\.(?:gif|png|jpe?g|webp)$/i, ".webp");
+    u.searchParams.delete("animated");
+    if (!u.searchParams.has("size")) u.searchParams.set("size", "256");
     return u.toString();
   } catch {
     return url;

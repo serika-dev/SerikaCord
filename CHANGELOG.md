@@ -15,6 +15,7 @@
 - On phones, a member card in the member list no longer shrinks to half width after you've opened that person's profile
 
 ### Performance
+- Much lower CPU use while SerikaCord sits idle: animated profile pictures of Discord-linked and bridged users no longer play everywhere at full size (one could use 14% of a CPU core in the desktop app)
 
 ### Security
 
