@@ -112,10 +112,14 @@ the audio sink, speaking detection and volume controls don't change.
   published to the bot's Realtime session. For receive, the bridge pulls every
   speaker's audio, rewrites SSRCs to one per user (announced with op 5), and
   encrypts toward the bot.
-- **Hosting:** UDP can't go through Cloudflare's proxy. The voice endpoint is a
-  DNS-only name (e.g. `voice.serika.chat`) to the app host with one UDP port
-  open; the WebSocket can stay proxied. Until that exists, `VOICE_SERVER_UPDATE`
-  keeps `endpoint: null` (bots can't connect), as today.
+- **Hosting:** UDP can't go through Cloudflare's proxy, so each app has a
+  DNS-only voice host with a Let's Encrypt certificate and one published UDP
+  port: `canary.voice.serika.chat` / 50001 (canary) and `prod.voice.serika.chat`
+  / 50000 (production). The voice WebSocket is served on any path of that host.
+  Two-level names on purpose: a `*.serika.chat` name would get the Cloudflare
+  Origin certificate from Traefik's store, which bots don't trust. Without
+  `VOICE_PUBLIC_HOST` / `VOICE_UDP_PORT`, or in a room not on the SFU,
+  `VOICE_SERVER_UPDATE` keeps `endpoint: null` (bots can't connect).
 
 ### Stage channels
 
