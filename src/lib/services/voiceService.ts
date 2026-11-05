@@ -1427,7 +1427,8 @@ class VoiceService {
         // We are the newcomer (or just reconnected): offer to everyone we don't
         // already have a working connection with. Existing members answer.
         parts.forEach((p) => {
-          if (p.userId !== me && !this.peers.has(p.userId)) {
+          // Bots only connect through the SFU; there's no peer to offer to.
+          if (p.userId !== me && !this.peers.has(p.userId) && !(p as { isBot?: boolean }).isBot) {
             this.createPeer(p.userId, true);
           }
         });

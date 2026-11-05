@@ -27,6 +27,7 @@ import { handleCdnCompat } from '@/lib/botapi/cdnCompat';
 import { config } from '@/lib/config';
 import { activityFrameSource, isActivitiesHost } from '@/lib/activities/settings';
 import { handleActivityRequest, withActivitySockets } from '@/lib/activities/proxy';
+import { isVoiceGatewayRequest, startVoiceUdp, upgradeVoiceGateway, withVoiceSockets } from '@/lib/voice/botVoiceServer';
 import { getClientIP } from '@/lib/security';
 
 const port = parseInt(process.env.PORT || '3000', 10);
@@ -110,6 +111,8 @@ async function main() {
     dmMod.startDmSSEBridge().catch((err) => console.error('DM SSE bridge init failed:', err));
     activityMod.startActivitySSEBridge().catch((err) => console.error('Activity SSE bridge init failed:', err));
     // Voice bridge is optional — don't block startup if it fails.
+    // Bot voice media (UDP), when VOICE_UDP_PORT is set.
+    startVoiceUdp().catch((err) => console.error('[bot-voice] UDP failed:', err?.message ?? err));
     import('@/lib/api/voice').then(({ startVoiceBridge }) => {
       startVoiceBridge().catch(() => {});
     }).catch(() => {});
@@ -186,6 +189,12 @@ async function main() {
         return Response.redirect(target.href, 301);
       }
 
+      // ─── Bot voice gateway (Discord voice protocol) ──────────
+      // Any path on VOICE_PUBLIC_HOST, or /voice-gateway (docs/architecture/voice-sfu.md).
+      if (isVoiceGatewayRequest(req, pathname)) {
+        return upgradeVoiceGateway(req, server);
+      }
+
       // ─── WebSocket upgrade for gateway ──────────────────────
       // A plain GET (no Upgrade header) is Discord's REST `GET /gateway`, which
       // the Elysia bot API answers with `{ url }`.
@@ -236,7 +245,7 @@ async function main() {
       });
       return fetch(proxyReq, { redirect: 'manual' }).then(withActivitiesFrameSrc);
     },
-    websocket: withActivitySockets(gateway.websocket),
+    websocket: withVoiceSockets(withActivitySockets(gateway.websocket)),
   });
 
   console.log(`🚀 SerikaCord ready on http://0.0.0.0:${port}`);

@@ -781,18 +781,53 @@ export class GatewayHub {
       if (channel.type !== 'voice' && channel.type !== 'stage') return;
       channelId = channel.id;
     }
-    const { botVoiceState } = await import('@/lib/services/voiceStates');
-    await this.dispatchTo(conn, 'VOICE_STATE_UPDATE', botVoiceState({
-      guildId: known,
-      channelId,
-      botId: conn.data.botId,
-      sessionId: conn.data.sessionId,
-      selfMute: d.self_mute === true,
-      selfDeaf: d.self_deaf === true,
-    }));
-    if (channelId) {
-      await this.dispatchTo(conn, 'VOICE_SERVER_UPDATE', { token: conn.data.sessionId.slice(0, 16), guild_id: known, endpoint: null });
+    const botId = conn.data.botId;
+    const selfMute = d.self_mute === true;
+    const selfDeaf = d.self_deaf === true;
+    const { botVoiceState, voiceSessionId } = await import('@/lib/services/voiceStates');
+    const voice = await import('@/lib/api/voice');
+    const voiceSession = voiceSessionId(conn.data.sessionId, botId);
+    if (!channelId) {
+      // Leave: drop out of whatever channel of this server the bot is in.
+      const roomId = await voice.serverVoiceRoomOf(known, botId);
+      if (roomId) voice.leaveVoiceAsBot(roomId, botId);
+      await this.dispatchTo(conn, 'VOICE_STATE_UPDATE', botVoiceState({ guildId: known, channelId: null, botId, sessionId: voiceSession, selfMute, selfDeaf }));
+      return;
     }
+    // Bot voice needs the channel on the SFU and the voice endpoint set up;
+    // otherwise answer as before (no endpoint: the bot can't connect).
+    const { createVoiceGrant, voiceEndpoint } = await import('@/lib/voice/botVoiceServer');
+    const { sfuEnabledForRoom } = await import('@/lib/voice/realtime');
+    const endpoint = voiceEndpoint();
+    if (!endpoint || !sfuEnabledForRoom(`channel-${channelId.toLowerCase()}`)) {
+      await this.dispatchTo(conn, 'VOICE_STATE_UPDATE', botVoiceState({ guildId: known, channelId, botId, sessionId: voiceSession, selfMute, selfDeaf }));
+      await this.dispatchTo(conn, 'VOICE_SERVER_UPDATE', { token: voiceSession.slice(0, 16), guild_id: known, endpoint: null });
+      return;
+    }
+    // Really join (docs/architecture/voice-sfu.md): everyone sees the bot in
+    // the channel, and VOICE_SERVER_UPDATE points it at the voice gateway.
+    const bot = await User.findById(botId).catch(() => null);
+    const joined = await voice.joinVoiceAsBot({
+      botId,
+      username: bot?.username ?? 'bot',
+      displayName: bot?.displayName ?? null,
+      avatar: bot?.avatar ?? null,
+      serverId: known,
+      channelId,
+      sessionId: conn.data.sessionId,
+      selfMute,
+      selfDeaf,
+    });
+    if (!joined.ok) return; // no CONNECT / full: Discord just never answers
+    const p = joined.participant;
+    await this.dispatchTo(conn, 'VOICE_STATE_UPDATE', {
+      ...botVoiceState({ guildId: known, channelId, botId, sessionId: voiceSession, selfMute, selfDeaf }),
+      mute: p.serverMute === true,
+      deaf: p.serverDeaf === true,
+      suppress: p.suppress === true,
+    });
+    const token = await createVoiceGrant({ botId, serverId: known, roomId: joined.roomId, sessionId: voiceSession, idFormat: conn.data.idFormat, selfDeaf });
+    await this.dispatchTo(conn, 'VOICE_SERVER_UPDATE', { token, guild_id: known, endpoint });
   }
 
   private async requestSoundboardSounds(conn: Conn, d: Record<string, unknown>) {

@@ -22,6 +22,8 @@ export interface GatewaySocketData {
   version: string | null;
   /** Set on sockets the Activities proxy tunnels to an app's upstream (src/lib/activities/proxy.ts). */
   activity?: unknown;
+  /** Set on bot voice gateway sockets (src/lib/voice/botVoiceServer.ts). */
+  voice?: unknown;
 }
 
 type WS = ServerWebSocket<GatewaySocketData>;

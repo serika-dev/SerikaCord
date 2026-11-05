@@ -86,6 +86,8 @@ type VoiceParticipant = {
    */
   sfuSession?: string;
   tracks?: Record<string, string>;
+  /** A bot connected through the Discord voice protocol (lib/voice/botVoice). */
+  isBot?: boolean;
 };
 
 // Local mirror of every voice room's membership. Kept in sync across instances
@@ -414,6 +416,68 @@ export function setParticipantSfu(roomId: string, userId: string, sfuSession: st
   publishMembership(roomId, 'update', { userId, fields: { sfuSession, tracks: participant.tracks } });
   broadcastToRoom(roomId, { type: 'voice:tracks', userId, sfuSession, tracks: participant.tracks });
   return true;
+}
+
+export type BotVoiceJoin =
+  | { ok: true; roomId: string; participant: Readonly<VoiceParticipant>; moved: boolean }
+  | { ok: false; status: number; error: string };
+
+/**
+ * A bot joins a server voice / stage channel (gateway op 4): the same checks
+ * as a person (CONNECT, user limit, SPEAK → suppressed) and the same
+ * announcements, so everyone sees it in the channel. Leaves a channel of the
+ * same server it was in (a move). `sessionId` is its gateway session.
+ */
+export async function joinVoiceAsBot(o: {
+  botId: string; username: string; displayName?: string | null; avatar?: string | null;
+  serverId: string; channelId: string; sessionId: string; selfMute: boolean; selfDeaf: boolean;
+}): Promise<BotVoiceJoin> {
+  const roomId = `channel-${o.channelId.toLowerCase()}`;
+  const auth = await authorizeRoom(o.botId, roomId, { fresh: true });
+  if (!auth.ok) return { ok: false, status: auth.status, error: auth.error };
+  const room = getRoom(roomId);
+  const prev = room.get(o.botId);
+  if (!prev && !hasRoomForParticipant(auth.userLimit, room.size, false)) return { ok: false, status: 403, error: 'This voice channel is full' };
+  // In another channel of this server: leave it (Discord moves the bot).
+  const current = await findServerVoiceRoom(o.serverId, o.botId);
+  const moved = !!current && current.roomId !== roomId;
+  if (moved && current) evictFromRoom(current.roomId, o.botId);
+  const suppress = auth.voice ? !auth.voice.speak : false;
+  room.set(o.botId, {
+    userId: o.botId,
+    username: o.username,
+    displayName: auth.nickname || o.displayName || o.username,
+    avatar: auth.memberAvatar || o.avatar || undefined,
+    audio: !o.selfMute && !suppress,
+    video: false,
+    deafened: o.selfDeaf,
+    joinedAt: prev?.joinedAt ?? new Date().toISOString(),
+    sessionId: o.sessionId,
+    isBot: true,
+    ...(prev?.sfuSession ? { sfuSession: prev.sfuSession, tracks: prev.tracks } : {}),
+    ...(auth.serverMute || suppress ? { serverMute: true } : {}),
+    ...(auth.serverDeaf ? { serverDeaf: true } : {}),
+    ...(suppress ? { suppress: true } : {}),
+  });
+  const participant = room.get(o.botId)!;
+  publishMembership(roomId, 'join', { participant });
+  emitVoiceState(roomId, o.botId, participant);
+  if (prev) {
+    broadcastToRoom(roomId, { type: 'voice:state_update', userId: o.botId, audio: participant.audio, deafened: participant.deafened, video: false, serverMute: participant.serverMute === true, serverDeaf: participant.serverDeaf === true });
+  } else {
+    broadcastToRoom(roomId, { type: 'voice:participant_joined', participant });
+  }
+  return { ok: true, roomId, participant, moved };
+}
+
+/** The server voice room a member is in, if any (bots: their current channel). */
+export async function serverVoiceRoomOf(serverId: string, userId: string): Promise<string | null> {
+  return (await findServerVoiceRoom(serverId, userId))?.roomId ?? null;
+}
+
+/** The bot left (op 4 with no channel, or its voice connection died). */
+export function leaveVoiceAsBot(roomId: string, botId: string): void {
+  evictFromRoom(roomId, botId);
 }
 
 /** Server mute / deafen / suppression changed: the SFU cuts pulls to match. */
