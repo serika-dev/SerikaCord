@@ -111,7 +111,7 @@ export function MobileServerView() {
 
   // ── Who's in each voice channel ──────────────────────────────────────────
   const voiceChannelIds = useMemo(
-    () => (channelsReady ? channels.filter((c) => c.type === "voice").map((c) => c.id) : []),
+    () => (channelsReady ? channels.filter((c) => c.type === "voice" || c.type === "stage").map((c) => c.id) : []),
     [channels, channelsReady],
   );
   const [externalVoice, setExternalVoice] = useState<Map<string, VoiceParticipant[]>>(() => new Map());

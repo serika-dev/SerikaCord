@@ -59,6 +59,11 @@ export interface VoiceParticipant {
   /** SFU rooms: their Realtime session and published tracks (kind → name). */
   sfuSession?: string;
   tracks?: Record<string, string>;
+  /** Stage channels: in a stage, a speaker (else audience), a raised hand (ISO time). */
+  stage?: boolean;
+  stageSpeaker?: boolean;
+  requestToSpeakAt?: string | null;
+  isBot?: boolean;
 }
 
 /** One reading of your microphone for level meters and the sensitivity slider. */
@@ -202,6 +207,8 @@ class VoiceService {
   // Server voice / stage channels on the SFU (docs/architecture/voice-sfu.md):
   // one connection to Cloudflare Realtime instead of one peer per member.
   private sfu: SfuTransport | null = null;
+  // Stage channels: this member moderates the stage they're in.
+  private stageModeratorFlag = false;
   private remoteStreams: Map<string, MediaStream> = new Map();
   private remoteScreenStreams: Map<string, MediaStream> = new Map();
   private participants: Map<string, VoiceParticipant> = new Map();
@@ -1154,6 +1161,7 @@ class VoiceService {
     }
     this.applyJoinPermissions(channelId, joinData);
     const transport = (joinData as { transport?: "sfu" | "mesh" } | null)?.transport ?? "mesh";
+    this.stageModeratorFlag = (joinData as { stage?: { moderator?: boolean } } | null)?.stage?.moderator === true;
 
     // Fetch ICE servers (STUN + any configured TURN relay) before we start
     // creating peers, so the WebRTC connections can actually traverse NAT.
@@ -1573,6 +1581,8 @@ class VoiceService {
           if (msg.deafened !== undefined) participant.deafened = msg.deafened as boolean;
           if (typeof msg.serverMute === "boolean") participant.serverMute = msg.serverMute;
           if (typeof msg.suppress === "boolean") participant.suppress = msg.suppress;
+          if (typeof msg.stageSpeaker === "boolean") participant.stageSpeaker = msg.stageSpeaker;
+          if (msg.requestToSpeakAt === null || typeof msg.requestToSpeakAt === "string") participant.requestToSpeakAt = msg.requestToSpeakAt as string | null;
           if (typeof msg.serverDeaf === "boolean") {
             const changed = participant.serverDeaf !== msg.serverDeaf;
             participant.serverDeaf = msg.serverDeaf;
@@ -2552,6 +2562,8 @@ class VoiceService {
   get joiningRoomId() { return this.joining?.roomId ?? null; }
   /** Label + link for the current room (set by whoever joined it). */
   get roomMeta(): VoiceRoomMeta { return this.meta; }
+  /** In a stage channel: may invite people to speak / move them to the audience. */
+  get stageModerator() { return this.stageModeratorFlag; }
   /** Update the current room's label (e.g. once a DM recipient's name loads). */
   setRoomMeta(roomId: string, meta: VoiceRoomMeta) {
     if (this.roomId !== roomId && this.joining?.roomId !== roomId) return;

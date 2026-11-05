@@ -582,7 +582,7 @@ export function ChannelSidebar({
   }, [isClient]);
 
   // Group channels by type & category
-  const voiceChannels = useMemo(() => channels.filter(c => c.type === "voice"), [channels]);
+  const voiceChannels = useMemo(() => channels.filter(c => c.type === "voice" || c.type === "stage"), [channels]);
 
   // Channels you've been mentioned in float to the top of their group.
   const mentionFirst = useCallback(
@@ -793,7 +793,7 @@ export function ChannelSidebar({
   const renderChannelItem = (channel: typeof channels[0]) => {
     const showDropBefore = dropIndicator?.targetId === channel.id && dropIndicator.position === "before";
     const showDropAfter = dropIndicator?.targetId === channel.id && dropIndicator.position === "after";
-    if (channel.type === "voice") {
+    if (channel.type === "voice" || channel.type === "stage") {
       const isActive = voiceService.currentRoomId === `channel-${channel.id}`;
       const channelParticipants = isActive ? voiceParticipants : (externalVoiceParticipants.get(channel.id) || []);
       return (

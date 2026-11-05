@@ -666,7 +666,11 @@ on separate files. WP7 is last and partly research.
   `voice_states` in GUILD_CREATE, and member `PATCH` `channel_id`
   (move/disconnect), `mute` and `deaf`. That covers moderation bots and voice
   logging.
-- **Voice media for bots (not feasible short term).** Serika voice is a
+- **Voice media for bots: done (2026-11-05)**, see `docs/architecture/voice-sfu.md`:
+  server channels on the Cloudflare Realtime SFU, a voice gateway + UDP in
+  `server.ts`, werift bridging into the SFU, no DAVE, stage channels. The
+  original assessment, kept for context:
+- **Voice media for bots (was: not feasible short term).** Serika voice is a
   browser P2P mesh (simple-peer + TURN, no SFU). Discord bots expect op 4 →
   VOICE_SERVER_UPDATE → voice WS v8 → UDP IP discovery → RTP with
   `aead_aes256_gcm_rtpsize` / `aead_xchacha20_poly1305_rtpsize` → Opus, plus

@@ -20,7 +20,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Hash, Volume2, Folder, MessagesSquare, Ticket, Lock } from "lucide-react";
+import { Hash, Volume2, Folder, MessagesSquare, Ticket, Lock, Radio } from "lucide-react";
 import { toast } from "sonner";
 import { T, useGT } from "gt-next";
 import { useServerMembersOptional } from "@/contexts/ServerContext";
@@ -28,7 +28,7 @@ import { usePermissions } from "@/hooks/usePermissions";
 import { normalizeOverwrites, setPrivateChannel } from "@/lib/permissions/overwriteEditor";
 import { normalizeChannelName } from "@/lib/servers/channelRules";
 
-type CreatableChannelType = "text" | "voice" | "category" | "forum";
+type CreatableChannelType = "text" | "voice" | "stage" | "category" | "forum";
 
 interface CreateChannelDialogProps {
   open: boolean;
@@ -109,7 +109,7 @@ export function CreateChannelDialog({
     if (!everyone) return undefined;
     const parent = channelType !== "category" && parentId ? channels.find((c) => c.id === parentId) : null;
     return setPrivateChannel(normalizeOverwrites(parent?.permissionOverwrites), everyone.id, true, {
-      voice: channelType === "voice",
+      voice: channelType === "voice" || channelType === "stage",
       grantTo: granted,
     });
   };
@@ -317,6 +317,34 @@ export function CreateChannelDialog({
               </button>
 
               <button
+                onClick={() => setChannelType("stage")}
+                className={`w-full p-3 rounded-lg flex items-center gap-3 transition-colors border ${
+                  channelType === "stage"
+                    ? "bg-[var(--app-accent)]/10 border-[var(--app-accent)]"
+                    : "bg-[var(--bg-card)] border-[var(--border-subtle)] hover:border-[var(--border-strong)]"
+                }`}
+              >
+                <Radio className="w-6 h-6 text-[var(--text-muted)]" />
+                <div className="text-left">
+                  <div className="font-medium">{gt("Stage")}</div>
+                  <div className="text-xs text-[var(--text-muted)]">
+                    {gt("Host events with speakers and an audience")}
+                  </div>
+                </div>
+                <div
+                  className={`ml-auto w-5 h-5 rounded-full border-2 flex items-center justify-center ${
+                    channelType === "stage"
+                      ? "border-[var(--app-accent)] bg-[var(--app-accent)]"
+                      : "border-[var(--text-muted)]"
+                  }`}
+                >
+                  {channelType === "stage" && (
+                    <div className="w-2 h-2 rounded-full bg-[var(--text-on-accent)]" />
+                  )}
+                </div>
+              </button>
+
+              <button
                 onClick={() => setChannelType("forum")}
                 className={`w-full p-3 rounded-lg flex items-center gap-3 transition-colors border ${
                   channelType === "forum"
@@ -385,6 +413,8 @@ export function CreateChannelDialog({
                   <Hash className="w-5 h-5" />
                 ) : channelType === "voice" ? (
                   <Volume2 className="w-5 h-5" />
+                ) : channelType === "stage" ? (
+                  <Radio className="w-5 h-5" />
                 ) : channelType === "forum" ? (
                   <MessagesSquare className="w-5 h-5" />
                 ) : (
@@ -410,6 +440,8 @@ export function CreateChannelDialog({
                     ? "new-channel"
                     : channelType === "voice"
                     ? gt("New Voice Channel")
+                    : channelType === "stage"
+                    ? gt("New Stage")
                     : channelType === "forum"
                     ? "new-forum"
                     : gt("New Category")

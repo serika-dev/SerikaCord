@@ -4822,14 +4822,36 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!state) { set.status = 404; return UNKNOWN_VOICE_STATE; }
   return state;
 })
-.patch('/guilds/:guildId/voice-states/@me', async ({ headers, body, set }) => {
+.patch('/guilds/:guildId/voice-states/@me', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   const { channel_id, suppress, request_to_speak_timestamp } = (body ?? {}) as { channel_id?: unknown; suppress?: unknown; request_to_speak_timestamp?: unknown };
   const bad = voiceStatePatchError({ channel_id, suppress, request_to_speak_timestamp });
   if (bad) { set.status = 400; return bad; }
-  set.status = 404;
-  return UNKNOWN_VOICE_STATE; // the bot is never in a stage channel
+  // The bot's own stage state (docs/architecture/voice-sfu.md): it must be in
+  // the stage `channel_id` names. Unsuppressing needs MUTE_MEMBERS (stepping
+  // down never does); a raised hand needs REQUEST_TO_SPEAK.
+  const state = await findVoiceState(params.guildId, auth.botUser.id, auth.botUser.id);
+  if (!state || !state.channel_id || (typeof channel_id === 'string' && !compareIds(channel_id, state.channel_id))) { set.status = 404; return UNKNOWN_VOICE_STATE; }
+  const roomId = `channel-${String(state.channel_id).toLowerCase()}`;
+  const voice = await import('@/lib/api/voice');
+  if (!voice.voiceParticipantIn(roomId, auth.botUser.id)?.stage) { set.status = 400; return { code: 50024, message: 'Cannot execute action on this channel type' }; }
+  if (suppress === false) {
+    const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MUTE_MEMBERS);
+    if (!g.ok) { set.status = g.status; return g.body; }
+    voice.setStageSpeaker(roomId, auth.botUser.id, true);
+  } else if (suppress === true) {
+    voice.setStageSpeaker(roomId, auth.botUser.id, false);
+  }
+  if (request_to_speak_timestamp !== undefined) {
+    if (request_to_speak_timestamp !== null) {
+      const g = await requireBotPerm(params.guildId, auth.botUser.id, P.REQUEST_TO_SPEAK);
+      if (!g.ok) { set.status = g.status; return g.body; }
+    }
+    voice.setStageHand(roomId, auth.botUser.id, request_to_speak_timestamp !== null);
+  }
+  set.status = 204;
+  return null;
 })
 .patch('/guilds/:guildId/voice-states/:userId', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
@@ -4840,10 +4862,14 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   const g = await requireBotPerm(params.guildId, auth.botUser.id, P.MUTE_MEMBERS);
   if (!g.ok) { set.status = g.status; return g.body; }
   const state = await findVoiceState(params.guildId, params.userId, auth.botUser.id);
-  if (!state) { set.status = 404; return UNKNOWN_VOICE_STATE; }
-  // Serika voice channels are not stage channels: there is nothing to suppress.
-  set.status = 400;
-  return { code: 50024, message: 'Cannot execute action on this channel type' };
+  if (!state || !state.channel_id || (typeof channel_id === 'string' && !compareIds(channel_id, state.channel_id))) { set.status = 404; return UNKNOWN_VOICE_STATE; }
+  // Stages only: invite to speak (suppress false) / move to the audience (true).
+  const roomId = `channel-${String(state.channel_id).toLowerCase()}`;
+  const voice = await import('@/lib/api/voice');
+  if (!voice.voiceParticipantIn(roomId, params.userId)?.stage) { set.status = 400; return { code: 50024, message: 'Cannot execute action on this channel type' }; }
+  if (typeof suppress === 'boolean') voice.setStageSpeaker(roomId, params.userId, !suppress);
+  set.status = 204;
+  return null;
 })
 
 // ─── Soundboard (WP7) ──────────────────────────────────────

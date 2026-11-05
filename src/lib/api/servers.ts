@@ -802,7 +802,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }),
     body: t.Object({
       name: t.String({ minLength: 1, maxLength: 100 }),
-      type: t.Optional(t.Union([t.Literal('text'), t.Literal('voice'), t.Literal('announcement'), t.Literal('category'), t.Literal('forum')])),
+      type: t.Optional(t.Union([t.Literal('text'), t.Literal('voice'), t.Literal('stage'), t.Literal('announcement'), t.Literal('category'), t.Literal('forum')])),
       parentId: t.Optional(t.Union([t.String(), t.Null()])),
       nsfw: t.Optional(t.Boolean()),
       forumMode: t.Optional(t.Union([t.Literal('posts'), t.Literal('tickets')])),

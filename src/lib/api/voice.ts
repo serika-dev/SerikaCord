@@ -15,6 +15,7 @@ import { dmSharedServers } from '@/lib/services/dmPrivacy';
 import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
 import { fanoutToUsers } from './activity';
 import { checkChannelAccess, getEveryoneRoleId, getMemberChannelPermissions } from './channels';
+import { canRequestToSpeak, isStageModerator } from '@/lib/voice/permissions';
 import type { ChannelOverwrite } from '@/lib/permissions/channelOverwrites';
 import {
   ALL_VOICE_PERMISSIONS,
@@ -88,6 +89,10 @@ type VoiceParticipant = {
   tracks?: Record<string, string>;
   /** A bot connected through the Discord voice protocol (lib/voice/botVoice). */
   isBot?: boolean;
+  /** Stage channels: in a stage, its speaker state, and a raised hand (ISO time). */
+  stage?: boolean;
+  stageSpeaker?: boolean;
+  requestToSpeakAt?: string | null;
 };
 
 // Local mirror of every voice room's membership. Kept in sync across instances
@@ -372,7 +377,10 @@ export function removeFromGroupCall(channelId: string, userId: string) {
 // ── Voice moderation ────────────────────────────────────────────────────────
 
 type ModeratedFields = { serverMute?: boolean; serverDeaf?: boolean; suppress?: boolean };
-type ParticipantFields = ModeratedFields & { audio?: boolean; deafened?: boolean; video?: boolean; screenShare?: boolean; sfuSession?: string; tracks?: Record<string, string> };
+type ParticipantFields = ModeratedFields & {
+  audio?: boolean; deafened?: boolean; video?: boolean; screenShare?: boolean; sfuSession?: string; tracks?: Record<string, string>;
+  stageSpeaker?: boolean; requestToSpeakAt?: string | null;
+};
 
 /** The state fields another instance may merge into its room mirror. */
 function pickParticipantFields(raw: unknown): ParticipantFields {
@@ -382,6 +390,8 @@ function pickParticipantFields(raw: unknown): ParticipantFields {
     if (typeof v[key] === 'boolean') out[key] = v[key] as boolean;
   }
   if (typeof v.sfuSession === 'string' && v.sfuSession.length <= 128) out.sfuSession = v.sfuSession;
+  if (typeof v.stageSpeaker === 'boolean') out.stageSpeaker = v.stageSpeaker;
+  if (v.requestToSpeakAt === null || (typeof v.requestToSpeakAt === 'string' && v.requestToSpeakAt.length <= 40)) out.requestToSpeakAt = v.requestToSpeakAt as string | null;
   if (v.tracks && typeof v.tracks === 'object') {
     const tracks: Record<string, string> = {};
     for (const [k, t] of Object.entries(v.tracks as Record<string, unknown>).slice(0, 8)) {
@@ -442,7 +452,8 @@ export async function joinVoiceAsBot(o: {
   const current = await findServerVoiceRoom(o.serverId, o.botId);
   const moved = !!current && current.roomId !== roomId;
   if (moved && current) evictFromRoom(current.roomId, o.botId);
-  const suppress = auth.voice ? !auth.voice.speak : false;
+  const stageSpeaker = auth.stage ? (prev?.stageSpeaker ?? auth.stageModerator === true) : undefined;
+  const suppress = (auth.voice ? !auth.voice.speak : false) || (auth.stage === true && !stageSpeaker);
   room.set(o.botId, {
     userId: o.botId,
     username: o.username,
@@ -458,6 +469,7 @@ export async function joinVoiceAsBot(o: {
     ...(auth.serverMute || suppress ? { serverMute: true } : {}),
     ...(auth.serverDeaf ? { serverDeaf: true } : {}),
     ...(suppress ? { suppress: true } : {}),
+    ...(auth.stage ? { stage: true, stageSpeaker, requestToSpeakAt: prev?.requestToSpeakAt ?? null } : {}),
   });
   const participant = room.get(o.botId)!;
   publishMembership(roomId, 'join', { participant });
@@ -478,6 +490,51 @@ export async function serverVoiceRoomOf(serverId: string, userId: string): Promi
 /** The bot left (op 4 with no channel, or its voice connection died). */
 export function leaveVoiceAsBot(roomId: string, botId: string): void {
   evictFromRoom(roomId, botId);
+}
+
+// ── Stage channels ──────────────────────────────────────────────────────────
+
+function announceStage(roomId: string, userId: string, participant: VoiceParticipant, fields: ParticipantFields) {
+  publishMembership(roomId, 'update', { userId, fields });
+  emitVoiceState(roomId, userId, participant);
+  enforceSfu(roomId, userId);
+  broadcastToRoom(roomId, {
+    type: 'voice:state_update',
+    userId,
+    audio: participant.audio,
+    deafened: participant.deafened,
+    video: participant.video,
+    serverMute: participant.serverMute === true,
+    serverDeaf: participant.serverDeaf === true,
+    suppress: participant.suppress === true,
+    stageSpeaker: participant.stageSpeaker === true,
+    requestToSpeakAt: participant.requestToSpeakAt ?? null,
+  });
+}
+
+/**
+ * Make someone a speaker or move them to the audience (stage moderators; and
+ * anyone may step down themselves). A speaker's hand comes down.
+ */
+export function setStageSpeaker(roomId: string, userId: string, speaker: boolean): boolean {
+  const participant = roomState.get(roomId)?.get(userId);
+  if (!participant?.stage) return false;
+  const moderatorMute = participant.serverMute === true && participant.suppress !== true;
+  const fields: ParticipantFields = { stageSpeaker: speaker, suppress: !speaker, serverMute: moderatorMute || !speaker, requestToSpeakAt: null };
+  if (!speaker) fields.audio = false;
+  Object.assign(participant, fields);
+  announceStage(roomId, userId, participant, fields);
+  return true;
+}
+
+/** Raise or lower a hand in the stage audience. */
+export function setStageHand(roomId: string, userId: string, raised: boolean): boolean {
+  const participant = roomState.get(roomId)?.get(userId);
+  if (!participant?.stage) return false;
+  const fields: ParticipantFields = { requestToSpeakAt: raised ? new Date().toISOString() : null };
+  Object.assign(participant, fields);
+  announceStage(roomId, userId, participant, fields);
+  return true;
 }
 
 /** Server mute / deafen / suppression changed: the SFU cuts pulls to match. */
@@ -569,7 +626,7 @@ function enforceVoicePermissions(roomId: string, userId: string, perms: VoicePer
   const participant = roomState.get(roomId)?.get(userId);
   if (!participant) return;
   const fields: ParticipantFields = {};
-  const suppress = !perms.speak;
+  const suppress = !perms.speak || (participant.stage === true && participant.stageSpeaker !== true);
   if ((participant.suppress === true) !== suppress) {
     fields.suppress = suppress;
     fields.serverMute = moderatorMute || suppress;
@@ -749,6 +806,8 @@ type RoomAuth =
       nickname?: string | null; memberAvatar?: string | null;
       /** Server rooms: CONNECT / SPEAK / STREAM / USE_SOUNDBOARD here. DM and group calls: absent (no limits). */
       voice?: VoicePermissions;
+      /** Stage channels: it's a stage, the member moderates it (joins speaking), may raise a hand. */
+      stage?: boolean; stageModerator?: boolean; requestToSpeak?: boolean;
     }
   | { ok: false; status: number; error: string };
 const ROOM_AUTH_TTL_MS = 15_000;
@@ -791,15 +850,19 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
     if (!access.hasAccess || !access.channel) {
       return { ok: false, status: access.error === 'Channel not found' ? 404 : 403, error: access.error || 'Forbidden' };
     }
-    if (access.channel.type !== 'voice') {
+    if (access.channel.type !== 'voice' && access.channel.type !== 'stage') {
       return { ok: false, status: 400, error: 'Not a voice channel' };
     }
+    const stage = access.channel.type === 'stage';
     // Server mute/deafen persist on the membership (like Discord's guild
     // member mute/deaf) and apply on every join.
     const member = access.membership as { roles?: string[] | null; mute?: boolean | null; deaf?: boolean | null; nickname?: string | null; avatar?: string | null } | null | undefined;
     const voice = access.channel.serverId
       ? await computeVoicePermissions(userId, access.channel, member ?? null)
       : ALL_VOICE_PERMISSIONS;
+    const stagePerms = stage && access.channel.serverId
+      ? await getMemberChannelPermissions(userId, { ...access.channel, serverId: access.channel.serverId }, member ?? null)
+      : null;
     return {
       ok: true,
       userLimit: Number(access.channel.userLimit) || 0,
@@ -809,6 +872,7 @@ async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth
       nickname: member?.nickname || null,
       memberAvatar: member?.avatar || null,
       voice,
+      ...(stage ? { stage: true, stageModerator: stagePerms !== null && isStageModerator(stagePerms), requestToSpeak: stagePerms !== null && canRequestToSpeak(stagePerms) } : {}),
     };
   } catch {
     return { ok: false, status: 500, error: 'Could not verify voice channel access' };
@@ -1068,7 +1132,9 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     const resumed = !!prev && !!sessionId && prev.sessionId === sessionId;
     cancelEviction(body.roomId, userId);
     // No SPEAK: joins suppressed (server muted, audio off). No STREAM: camera off.
-    const suppress = !voicePerms.speak;
+    // Stages: only moderators (and people invited to speak) are speakers.
+    const stageSpeaker = auth.stage ? (resumed && prev ? prev.stageSpeaker === true : auth.stageModerator === true) : undefined;
+    const suppress = !voicePerms.speak || (auth.stage === true && !stageSpeaker);
     room.set(userId, {
       userId,
       username: user.username,
@@ -1083,6 +1149,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       ...(auth.serverMute || suppress ? { serverMute: true } : {}),
       ...(auth.serverDeaf ? { serverDeaf: true } : {}),
       ...(suppress ? { suppress: true } : {}),
+      ...(auth.stage ? { stage: true, stageSpeaker, requestToSpeakAt: resumed && prev ? prev.requestToSpeakAt ?? null : null } : {}),
     });
 
     // Sync membership to other instances' mirrors, then notify participants.
@@ -1163,6 +1230,8 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       // Media path: the SFU for server channels when it's on, peer-to-peer otherwise
       // (DM / group calls always, they're end-to-end encrypted).
       transport: sfuEnabledForRoom(body.roomId) ? 'sfu' : 'mesh',
+      // Stage channels: whether this member moderates it (invite to speak etc.).
+      ...(auth.stage ? { stage: { moderator: auth.stageModerator === true } } : {}),
     };
   }, {
     body: t.Object({
@@ -1758,6 +1827,42 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     }),
   })
   // Broadcast speaking state to other participants
+  // Stage channels: raise / lower a hand in the audience.
+  .post('/stage/:roomId/hand', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const limit = await checkRateLimit('voiceState', user.id);
+    if (!limit.success) { set.status = 429; return { error: 'Rate limited', retryAfter: limit.retryAfter }; }
+    const me = roomState.get(params.roomId)?.get(user.id);
+    if (!me?.stage) { set.status = 404; return { error: 'Not in this stage' }; }
+    if (body.raised) {
+      if (me.stageSpeaker) { set.status = 400; return { error: 'You are already a speaker' }; }
+      const auth = await authorizeRoom(user.id, params.roomId);
+      if (!auth.ok || !auth.requestToSpeak) { set.status = 403; return { error: 'You cannot request to speak here' }; }
+    }
+    setStageHand(params.roomId, user.id, body.raised);
+    return { ok: true };
+  }, { body: t.Object({ raised: t.Boolean() }) })
+
+  // Stage channels: invite someone to speak / move them to the audience
+  // (moderators); anyone may move themself to the audience.
+  .post('/stage/:roomId/speaker', async ({ headers, cookie, params, body, set }) => {
+    const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const limit = await checkRateLimit('voiceModeration', user.id);
+    if (!limit.success) { set.status = 429; return { error: 'Rate limited', retryAfter: limit.retryAfter }; }
+    const room = roomState.get(params.roomId);
+    const target = room?.get(body.userId);
+    if (!room?.get(user.id) || !target?.stage) { set.status = 404; return { error: 'Not in this stage' }; }
+    const selfStepDown = body.userId === user.id && !body.speaker;
+    if (!selfStepDown) {
+      const auth = await authorizeRoom(user.id, params.roomId, { fresh: true });
+      if (!auth.ok || !auth.stageModerator) { set.status = 403; return { error: 'Only stage moderators can do that' }; }
+    }
+    setStageSpeaker(params.roomId, body.userId, body.speaker);
+    return { ok: true };
+  }, { body: t.Object({ userId: t.String({ maxLength: 64 }), speaker: t.Boolean() }) })
+
   .post('/speaking/:roomId', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }

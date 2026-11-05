@@ -23,6 +23,8 @@ export interface ParticipantLike {
   screenShare?: boolean;
   /** Muted because they lack SPEAK in the channel (src/lib/voice/permissions.ts). */
   suppress?: boolean;
+  /** Stage audience: a raised hand (ISO time). */
+  requestToSpeakAt?: string | null;
 }
 
 /** A stable, opaque voice session id (the client's tab id is never exposed). */
@@ -45,7 +47,7 @@ export function voiceStateOf(p: ParticipantLike, channelId: string | null, extra
     self_stream: p.screenShare === true,
     self_video: p.video === true,
     suppress: p.suppress === true,
-    request_to_speak_timestamp: null,
+    request_to_speak_timestamp: p.requestToSpeakAt ?? null,
   };
 }
 

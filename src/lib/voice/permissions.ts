@@ -101,3 +101,21 @@ export function refusedVoiceStateFields(patch: VoiceStatePatch, perms: VoicePerm
   if (patch.screenShare === true && !perms.stream) out.push("screenShare");
   return out;
 }
+
+const STAGE_MODERATOR_BITS = PERMISSION_BITS.MUTE_MEMBERS | PERMISSION_BITS.MOVE_MEMBERS | PERMISSION_BITS.MANAGE_CHANNELS;
+
+/**
+ * A stage moderator (Discord: Mute Members, Move Members or Manage Channels in
+ * the stage): joins as a speaker and can invite people to speak or move them
+ * to the audience. Everyone else joins the audience.
+ */
+export function isStageModerator(finalPerms: bigint): boolean {
+  if ((finalPerms & PERMISSION_BITS.ADMINISTRATOR) === PERMISSION_BITS.ADMINISTRATOR) return true;
+  return (finalPerms & STAGE_MODERATOR_BITS) !== 0n;
+}
+
+/** May raise a hand (REQUEST_TO_SPEAK) in the stage. */
+export function canRequestToSpeak(finalPerms: bigint): boolean {
+  if ((finalPerms & PERMISSION_BITS.ADMINISTRATOR) === PERMISSION_BITS.ADMINISTRATOR) return true;
+  return (finalPerms & PERMISSION_BITS.REQUEST_TO_SPEAK) === PERMISSION_BITS.REQUEST_TO_SPEAK;
+}

@@ -46,11 +46,13 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
 
       <H2 id="voice">{gt("Voice")}</H2>
       <P>
-        {gt("Serika voice is peer-to-peer between browsers, so bots can't send or receive audio yet. Bots do see who is in which voice channel: VOICE_STATE_UPDATE events (GUILD_VOICE_STATES intent), voice_states in GUILD_CREATE and GET /guilds/:guild_id/voice-states/:user_id.")}
+        {gt("Bots join voice and stage channels and send and receive audio like on Discord, so @discordjs/voice and discord.py's VoiceClient work as they are: op 4, VOICE_SERVER_UPDATE with a real endpoint, the voice WebSocket (v4-v8) and UDP with aead_aes256_gcm_rtpsize or aead_xchacha20_poly1305_rtpsize. Bots also see who is in which voice channel: VOICE_STATE_UPDATE events (GUILD_VOICE_STATES intent), voice_states in GUILD_CREATE and GET /guilds/:guild_id/voice-states/:user_id.")}
       </P>
       <UL>
-        <li>{gt("Op 4 (join voice) is answered with your bot's voice state and VOICE_SERVER_UPDATE with endpoint null, which libraries treat as \"no voice server available\". discord.js voice and discord.py VoiceClient joins then stop with a timeout instead of hanging.")}</li>
-        <li>{gt("There is a single voice region, serika. Speaker controls on another member's voice state (suppress) answer 50024; the bot's own voice state answers 10065 because the bot is never in voice.")}</li>
+        <li>{gt("DAVE (Discord's end-to-end encryption for calls) isn't used: the voice server answers with protocol version 0, so libraries use transport encryption only. Bots can't send video or go live.")}</li>
+        <li>{gt("Bots can only join channels whose calls run on Serika's media server. Where a channel still uses peer-to-peer calls, op 4 answers VOICE_SERVER_UPDATE with endpoint null, which libraries treat as no voice server available.")}</li>
+        <li>{gt("Receiving audio: every speaker arrives on their own SSRC, announced with op 5 (Speaking) like on Discord. Bots never hear DM or group calls, which are end-to-end encrypted.")}</li>
+        <li>{gt("Stage channels: bots join the audience unless they moderate the stage (Mute Members, Move Members or Manage Channels). PATCH /guilds/:guild_id/voice-states/@me (suppress, request_to_speak_timestamp) and /voice-states/:user_id (suppress) work like Discord's. There is a single voice region, serika.")}</li>
         <li>{gt("Stage instances (topic and privacy of a live stage) work through /stage-instances, but no \"stage started\" notification is sent, so send_start_notification is only permission-checked.")}</li>
         <li>{gt("The server soundboard is real: bots can list, create, edit and delete sounds. /soundboard-default-sounds is empty because Serika has no built-in sounds. send-soundboard-sound plays a sound to everyone in a voice channel without the bot being connected, which Discord requires.")}</li>
         <li>{gt("Voice channel status (PUT /channels/:channel_id/voice-status) always needs Manage Channels, because the exception Discord makes for members connected to the channel can't apply to bots. The web client does not show the status yet.")}</li>

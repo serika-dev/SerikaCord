@@ -11,7 +11,8 @@ import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { MembersDrawer } from "@/components/chat/MembersDrawer";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, X, Sparkles, ArrowLeft, Rocket } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, X, Sparkles, ArrowLeft, Rocket, Radio } from "lucide-react";
+import { StageBar } from "@/components/voice/StageBar";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { voiceErrorText } from "@/components/voice/IncomingCall";
@@ -56,7 +57,7 @@ function sameParticipants(a: VoiceParticipant[], b: VoiceParticipant[]): boolean
   return a.every((p, i) => JSON.stringify(p) === JSON.stringify(b[i]));
 }
 
-function VoiceChannelView({ channelId, channelName, serverId }: { channelId: string; channelName: string; serverId?: string }) {
+function VoiceChannelView({ channelId, channelName, serverId, stage = false }: { channelId: string; channelName: string; serverId?: string; stage?: boolean }) {
   const { user } = useAuth();
   const router = useRouter();
   const gt = useGT();
@@ -256,7 +257,7 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
               <ArrowLeft className="w-5 h-5" />
             </button>
           )}
-          <Volume2 className="w-5 h-5 text-[var(--app-accent)] flex-shrink-0" />
+          {stage ? <Radio className="w-5 h-5 text-[var(--app-accent)] flex-shrink-0" /> : <Volume2 className="w-5 h-5 text-[var(--app-accent)] flex-shrink-0" />}
           <span className="font-semibold text-[var(--text-primary)] truncate">{channelName}</span>
         </div>
         <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--app-surface-alt)] text-xs text-[var(--app-muted)] ring-1 ring-white/5">
@@ -312,13 +313,16 @@ function VoiceChannelView({ channelId, channelName, serverId }: { channelId: str
               className="flex items-center gap-2 px-7 py-3 rounded-full bg-[var(--app-accent)] text-[var(--text-on-accent)] font-semibold shadow-[0_4px_20px_color-mix(in_srgb,var(--app-accent)_45%,transparent)] transition-all hover:brightness-110 active:scale-95 hover:scale-[1.03] disabled:opacity-50"
             >
               {isJoining ? <Loader size={20} /> : <PhoneOff className="w-5 h-5 rotate-[135deg]" />}
-              {isJoining ? gt("Joining...") : gt("Join Voice")}
+              {isJoining ? gt("Joining...") : stage ? gt("Join Stage") : gt("Join Voice")}
             </button>
             {voiceError && <p className="mt-3 text-sm text-red-400">{voiceError}</p>}
           </div>
         ) : (
           /* Joined — show video grid + controls */
           <>
+            {stage && user?.id && (
+              <StageBar roomId={roomId} participants={participants} myId={user.id} moderator={voiceService.stageModerator} />
+            )}
             {/* An Activity launched in this call fills the stage (CORD-92) */}
             <ActivitySlot channelId={channelId} voice className="min-h-[50%] mx-3 sm:mx-4 mt-3 rounded-xl overflow-hidden" />
             {/* Everyone in the call: cameras, screen shares and avatar cards.
@@ -803,13 +807,14 @@ export default function ChannelPage() {
   }
 
   // Voice channel experience
-  if (currentChannel?.type === "voice") {
+  if (currentChannel?.type === "voice" || currentChannel?.type === "stage") {
     return (
       <>
         <VoiceChannelView
           channelId={currentChannel.id}
           channelName={currentChannel.name}
           serverId={currentServer?.id}
+          stage={currentChannel.type === "stage"}
         />
         {renderMembers(drawerMembers)}
       </>
