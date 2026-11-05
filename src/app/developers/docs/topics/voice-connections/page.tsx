@@ -50,12 +50,12 @@ export default async function VoiceConnectionsDoc() {
 {
   "token": "5a1f0c3e9b7d4a2c8e6f1b3d5c7a9e0f",
   "guild_id": "41771983423143937",
-  "endpoint": "prod.voice.serika.chat:443"
+  "endpoint": "voice.serika.chat:443"
 }`}</CodeBlock>
         </Step>
         <Step n={3} title={gt("Open the voice WebSocket and identify")}>
           <P>
-            {gt("Open a WebSocket to the endpoint with ?v=8, for example wss://prod.voice.serika.chat/?v=8 (any path on the voice host works; v picks the protocol version, 4 by default). The server sends Hello (op 8) right away. Send Identify (op 0) with server_id, user_id, session_id and token; session_id and token must match what the gateway sent. max_dave_protocol_version is accepted and ignored.")}
+            {gt("Open a WebSocket to the endpoint with ?v=8, for example wss://voice.serika.chat/?v=8 (any path on the voice host works; v picks the protocol version, 4 by default). The server sends Hello (op 8) right away. Send Identify (op 0) with server_id, user_id, session_id and token; session_id and token must match what the gateway sent. max_dave_protocol_version is accepted and ignored.")}
           </P>
           <CodeBlock lang="json">{`{
   "op": 0,
@@ -76,7 +76,7 @@ export default async function VoiceConnectionsDoc() {
   "op": 2,
   "d": {
     "ssrc": 1,
-    "ip": "prod.voice.serika.chat",
+    "ip": "203.0.113.10",
     "port": 50000,
     "modes": ["aead_aes256_gcm_rtpsize", "aead_xchacha20_poly1305_rtpsize"],
     "experiments": [],

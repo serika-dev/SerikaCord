@@ -84,9 +84,13 @@ export const config = {
   // even without VOICE_SFU. Canary and production share voice rooms over
   // Redis, so a room must use the same transport on both.
   VOICE_SFU_CHANNELS: (process.env.VOICE_SFU_CHANNELS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
-  // Bot voice (Discord voice protocol): a DNS-only host name for the UDP media
-  // port (UDP can't go through Cloudflare's proxy) and the port itself.
+  // Bot voice (Discord voice protocol): the voice WebSocket host (proxied
+  // like every other name), and where bots send UDP media. Cloudflare's proxy
+  // doesn't carry UDP, so VOICE_UDP_HOST must be an address that reaches the
+  // UDP port without revealing the origin (e.g. a UDP relay); bot voice stays
+  // off (endpoint null) until it is set.
   VOICE_PUBLIC_HOST: process.env.VOICE_PUBLIC_HOST || '',
+  VOICE_UDP_HOST: process.env.VOICE_UDP_HOST || '',
   VOICE_UDP_PORT: Number(process.env.VOICE_UDP_PORT || 0),
 
   // JWT

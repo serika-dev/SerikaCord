@@ -790,7 +790,7 @@ Only server voice and stage channels whose calls run on Serika's media server ta
 
 ## Flow
 1. Gateway op 4 \`{ guild_id, channel_id, self_mute, self_deaf }\`: the bot really joins (needs CONNECT and room under the user limit; without SPEAK it is suppressed; no answer if it can't join). Another channel of the same guild moves it; \`channel_id: null\` leaves.
-2. VOICE_STATE_UPDATE (keep \`session_id\`) and VOICE_SERVER_UPDATE \`{ token, guild_id, endpoint }\`, e.g. \`prod.voice.serika.chat:443\`.
+2. VOICE_STATE_UPDATE (keep \`session_id\`) and VOICE_SERVER_UPDATE \`{ token, guild_id, endpoint }\`, e.g. \`voice.serika.chat:443\`.
 3. WebSocket to \`wss://<endpoint>/?v=8\` (any path; v 4-8, default 4). Server sends Hello (op 8, heartbeat_interval 13750). Send Identify (op 0: server_id, user_id, session_id, token; max_dave_protocol_version ignored).
 4. Ready (op 2): ssrc, ip (may be a host name), port, modes.
 5. UDP IP discovery: 74-byte request (type 1, length 70, ssrc, 64-byte address, 2-byte port) -> type 2 response with your address and port.

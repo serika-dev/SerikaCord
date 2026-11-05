@@ -56,7 +56,7 @@ async function readGrant(token: unknown): Promise<VoiceGrant | null> {
 
 /** What VOICE_SERVER_UPDATE carries as `endpoint`; null while bot voice isn't set up. */
 export function voiceEndpoint(): string | null {
-  if (!config.VOICE_PUBLIC_HOST || !config.VOICE_UDP_PORT) return null;
+  if (!config.VOICE_PUBLIC_HOST || !config.VOICE_UDP_HOST || !config.VOICE_UDP_PORT) return null;
   return config.VOICE_PUBLIC_HOST.includes(':') ? config.VOICE_PUBLIC_HOST : `${config.VOICE_PUBLIC_HOST}:443`;
 }
 
@@ -251,7 +251,8 @@ function opcodeHandler(ws: Sock, state: VoiceSocketState, msg: { op?: unknown; d
         const session = new VoiceSession(String(d.token), grant);
         session.ws = ws;
         state.session = session;
-        const host = config.VOICE_PUBLIC_HOST.split(':')[0] || '127.0.0.1';
+        // Where to send UDP: never the WebSocket host (it's behind Cloudflare's proxy).
+        const host = config.VOICE_UDP_HOST || '127.0.0.1';
         session.send(2, { ssrc: session.ssrc, ip: host, port: config.VOICE_UDP_PORT, modes: [...VOICE_MODES], experiments: [], heartbeat_interval: HEARTBEAT_MS });
       })();
       return;

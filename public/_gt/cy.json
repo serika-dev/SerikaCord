@@ -11900,5 +11900,6 @@
   "852fbde1a467f817": "Voice channel status (PUT /channels/:channel_id/voice-status) always needs Manage Channels, even when the bot is connected to the channel (Discord only asks for it from members who aren't). The web client does not show the status yet.",
   "9dcb9c3dbbec579c": "with up to 500 characters; null or an empty string clears it. Only voice channels take a status (50024 otherwise). The bot needs View Channel and Set Voice Channel Status, plus Manage Channels when it isn't connected to the channel (like Discord). The status is cleared when the last person leaves the channel. Changes send VOICE_CHANNEL_STATUS_UPDATE to bots that can see the channel.",
   "c00df904c0ab5a2e": "The SerikaCord app does not show voice channel statuses yet.",
-  "63220b47f90d3399": "Voice channel status (PUT /channels/:channel_id/voice-status) works like Discord's, but the web client does not show the status yet."
+  "63220b47f90d3399": "Voice channel status (PUT /channels/:channel_id/voice-status) works like Discord's, but the web client does not show the status yet.",
+  "bebbc267729745a6": "Open a WebSocket to the endpoint with ?v=8, for example wss://voice.serika.chat/?v=8 (any path on the voice host works; v picks the protocol version, 4 by default). The server sends Hello (op 8) right away. Send Identify (op 0) with server_id, user_id, session_id and token; session_id and token must match what the gateway sent. max_dave_protocol_version is accepted and ignored."
 }
