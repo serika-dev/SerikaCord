@@ -80,6 +80,10 @@ export const config = {
   CF_REALTIME_APP_ID: process.env.CF_REALTIME_APP_ID || '',
   CF_REALTIME_APP_TOKEN: process.env.CF_REALTIME_APP_TOKEN || '',
   VOICE_SFU: process.env.VOICE_SFU === '1',
+  // Rollout / testing: only these channel ids use the SFU (comma separated),
+  // even without VOICE_SFU. Canary and production share voice rooms over
+  // Redis, so a room must use the same transport on both.
+  VOICE_SFU_CHANNELS: (process.env.VOICE_SFU_CHANNELS || '').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean),
   // Bot voice (Discord voice protocol): a DNS-only host name for the UDP media
   // port (UDP can't go through Cloudflare's proxy) and the port itself.
   VOICE_PUBLIC_HOST: process.env.VOICE_PUBLIC_HOST || '',

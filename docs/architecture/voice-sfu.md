@@ -137,5 +137,7 @@ participant's audio is never pullable.
 
 ## Config
 
-`CF_REALTIME_APP_ID`, `CF_REALTIME_APP_TOKEN` (secret), `VOICE_SFU=1`,
+`CF_REALTIME_APP_ID`, `CF_REALTIME_APP_TOKEN` (secret), `VOICE_SFU=1` (or
+`VOICE_SFU_CHANNELS=<id>,<id>` for a test / gradual rollout: canary and
+production share rooms over Redis, so set the same value on both),
 `VOICE_PUBLIC_HOST` (DNS-only voice name), `VOICE_UDP_PORT`.

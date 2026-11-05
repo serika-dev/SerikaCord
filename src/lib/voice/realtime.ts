@@ -42,7 +42,8 @@ export function realtimeConfigured(): boolean {
 
 /** Server voice / stage channels use the SFU (DM and group calls never do). */
 export function sfuEnabledForRoom(roomId: string): boolean {
-  return config.VOICE_SFU && realtimeConfigured() && roomId.startsWith('channel-');
+  if (!roomId.startsWith('channel-') || !realtimeConfigured()) return false;
+  return config.VOICE_SFU || config.VOICE_SFU_CHANNELS.includes(roomId.slice('channel-'.length).toLowerCase());
 }
 
 async function call(path: string, body: unknown, method: 'POST' | 'PUT' | 'GET' = 'POST'): Promise<RealtimeResponse> {
