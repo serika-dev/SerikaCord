@@ -87,11 +87,14 @@ export const config = {
   // Bot voice (Discord voice protocol): the voice WebSocket host (proxied
   // like every other name), and where bots send UDP media. Cloudflare's proxy
   // doesn't carry UDP, so VOICE_UDP_HOST must be an address that reaches the
-  // UDP port without revealing the origin (e.g. a UDP relay); bot voice stays
-  // off (endpoint null) until it is set.
+  // UDP port without revealing the origin (a playit.gg UDP tunnel); bot voice
+  // stays off (endpoint null) until it is set. VOICE_UDP_PORT is the port this
+  // process binds; VOICE_UDP_PUBLIC_PORT is the one bots are told to use (the
+  // tunnel's public port), defaulting to the bind port.
   VOICE_PUBLIC_HOST: process.env.VOICE_PUBLIC_HOST || '',
   VOICE_UDP_HOST: process.env.VOICE_UDP_HOST || '',
   VOICE_UDP_PORT: Number(process.env.VOICE_UDP_PORT || 0),
+  VOICE_UDP_PUBLIC_PORT: Number(process.env.VOICE_UDP_PUBLIC_PORT || process.env.VOICE_UDP_PORT || 0),
 
   // JWT
   JWT_SECRET: process.env.JWT_SECRET || 'serikacord-super-secret-jwt-key-change-in-production',

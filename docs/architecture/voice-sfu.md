@@ -118,8 +118,14 @@ the audio sink, speaking detection and volume controls don't change.
   doesn't carry UDP, so the media address bots get in Ready is a separate
   setting, `VOICE_UDP_HOST`, meant for something that reaches the UDP port
   (`VOICE_UDP_PORT`, published by each app: 50000 / 50001) without revealing
-  the origin, such as a UDP relay on another machine. Until it is set,
-  `VOICE_SERVER_UPDATE` keeps `endpoint: null` and bots can't connect.
+  the origin. That is a playit.gg UDP tunnel per app, run by the playit agent
+  already on the host (Coolify service, host networking) with local address
+  `127.0.0.1:<VOICE_UDP_PORT>`; `VOICE_UDP_HOST` is the tunnel's `*.ply.gg`
+  name and `VOICE_UDP_PUBLIC_PORT` its public port, which is what Ready (op 2)
+  announces. Packets reach us from the agent, so IP discovery answers with the
+  agent's address; that is fine, since replies go back the same way. Until
+  `VOICE_UDP_HOST` is set, `VOICE_SERVER_UPDATE` keeps `endpoint: null` and
+  bots can't connect.
 
 ### Stage channels
 
@@ -144,4 +150,5 @@ participant's audio is never pullable.
 `CF_REALTIME_APP_ID`, `CF_REALTIME_APP_TOKEN` (secret), `VOICE_SFU=1` (or
 `VOICE_SFU_CHANNELS=<id>,<id>` for a test / gradual rollout: canary and
 production share rooms over Redis, so set the same value on both),
-`VOICE_PUBLIC_HOST` (DNS-only voice name), `VOICE_UDP_PORT`.
+`VOICE_PUBLIC_HOST` (proxied voice WebSocket name), `VOICE_UDP_PORT` (bind),
+`VOICE_UDP_HOST` / `VOICE_UDP_PUBLIC_PORT` (the playit tunnel's public address).

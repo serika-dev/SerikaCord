@@ -253,7 +253,7 @@ function opcodeHandler(ws: Sock, state: VoiceSocketState, msg: { op?: unknown; d
         state.session = session;
         // Where to send UDP: never the WebSocket host (it's behind Cloudflare's proxy).
         const host = config.VOICE_UDP_HOST || '127.0.0.1';
-        session.send(2, { ssrc: session.ssrc, ip: host, port: config.VOICE_UDP_PORT, modes: [...VOICE_MODES], experiments: [], heartbeat_interval: HEARTBEAT_MS });
+        session.send(2, { ssrc: session.ssrc, ip: host, port: config.VOICE_UDP_PUBLIC_PORT, modes: [...VOICE_MODES], experiments: [], heartbeat_interval: HEARTBEAT_MS });
       })();
       return;
     }
