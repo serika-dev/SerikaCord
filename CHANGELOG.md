@@ -9,6 +9,7 @@
 ### Features
 
 ### Changes
+- Every app now uses the bubble-chan icon: the desktop apps (Windows, macOS, Linux), the Android launcher icon, the web app's install icons and the favicon (the old gold S is gone). The desktop and Android icons change with the next app update
 
 ### Bug Fixes
 

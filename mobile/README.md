@@ -124,6 +124,7 @@ the project, in `ios/App/ExportOptions.plist`, and in
 | `ios/App/App/PrivacyInfo.xcprivacy` | Privacy manifest (no tracking) |
 | `ios/App/ExportOptions.plist` | App Store export: method `app-store-connect`, team B648X59JCQ, profile "SerikaCord App Store" |
 | `scripts/generate-ios-assets.ts` | Regenerates the app icon (1024, opaque) and the dark `#05060a` launch image from `public/logo-icon.svg`: `bun mobile/scripts/generate-ios-assets.ts` |
+| `../scripts/generate-app-icons.ts` | Regenerates every other app icon (web/PWA, favicon, Qt and Tauri desktop, Android launcher + adaptive icon) from `public/logo-icon.svg`: `bun scripts/generate-app-icons.ts` |
 
 The web view is edge to edge (`ios.contentInset: "never"`); the web app pads
 itself with `env(safe-area-inset-*)` (`--safe-area-*` in `globals.css`, the
