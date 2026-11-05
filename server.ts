@@ -442,9 +442,23 @@ async function handleApiRequest(req: Request): Promise<Response> {
   return handleApiRequestInner(req);
 }
 
+// Discord answers with exactly `application/json`, and discord.py only parses
+// a body as JSON when the header matches that exactly; Bun's Response.json()
+// adds `;charset=utf-8`. Bot API paths (/api/v<n>/...) get Discord's header.
+const BOT_API_PATH = /^\/api\/v\d+\//;
+
+function withDiscordJsonType(res: Response): Response {
+  const type = res.headers.get('content-type');
+  if (!type || !/^application\/json\s*;/i.test(type)) return res;
+  const headers = new Headers(res.headers);
+  headers.set('content-type', 'application/json');
+  return new Response(res.body, { status: res.status, statusText: res.statusText, headers });
+}
+
 async function handleApiRequestInner(req: Request): Promise<Response> {
   try {
-    return await api.handle(versionWebhookRequest(req));
+    const res = await api.handle(versionWebhookRequest(req));
+    return BOT_API_PATH.test(new URL(req.url).pathname) ? withDiscordJsonType(res) : res;
   } catch (err) {
     console.error('[API] Unhandled error:', err);
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
