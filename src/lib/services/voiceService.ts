@@ -158,6 +158,9 @@ function mediaErrorCode(err: unknown, withVideo: boolean): VoiceErrorCode {
   return "mic-denied";
 }
 
+/** Retries of a pull that didn't settle (1s, 2s, 4s, then every 8s). */
+const SFU_RETRY_LIMIT = 8;
+
 const ERROR_FALLBACK: Record<VoiceErrorCode, string> = {
   "mic-denied": "Microphone access was blocked. Allow it in your browser's site settings to join calls.",
   "mic-missing": "No microphone was found. Plug one in and try again.",
@@ -207,6 +210,7 @@ class VoiceService {
   // Server voice / stage channels on the SFU (docs/architecture/voice-sfu.md):
   // one connection to Cloudflare Realtime instead of one peer per member.
   private sfu: SfuTransport | null = null;
+  private sfuRetryTimer: ReturnType<typeof setTimeout> | null = null;
   // Stage channels: this member moderates the stage they're in.
   private stageModeratorFlag = false;
   private remoteStreams: Map<string, MediaStream> = new Map();
@@ -1341,14 +1345,25 @@ class VoiceService {
     }
   }
 
-  /** Pull what the room allows (the server re-checks every pull). */
-  private reconcileSfu() {
+  /**
+   * Pull what the room allows (the server re-checks every pull). A pull that
+   * doesn't settle (refused, or the server still had someone's older track)
+   * is retried with backoff instead of waiting for the next room event
+   * (CORD-93: a reconnecting bot went silent until the listener rejoined).
+   */
+  private reconcileSfu(retry = 0) {
     const sfu = this.sfu;
     if (!sfu) return;
+    if (this.sfuRetryTimer) { clearTimeout(this.sfuRetryTimer); this.sfuRetryTimer = null; }
     const me = this.getMyUserId();
     const mine = this.participants.get(me);
     const peers = Array.from(this.participants.values()).filter((p) => p.userId !== me);
-    void sfu.reconcile(peers, { serverDeaf: mine?.serverDeaf === true }).catch((err) => console.warn("[voice] SFU pull failed", err));
+    void sfu.reconcile(peers, { serverDeaf: mine?.serverDeaf === true })
+      .then((settled) => settled, (err) => { console.warn("[voice] SFU pull failed", err); return false; })
+      .then((settled) => {
+        if (settled || this.sfu !== sfu || retry >= SFU_RETRY_LIMIT) return;
+        this.sfuRetryTimer = setTimeout(() => { this.sfuRetryTimer = null; if (this.sfu === sfu) this.reconcileSfu(retry + 1); }, Math.min(1000 * 2 ** retry, 8000));
+      });
   }
 
   /** A pulled track arrived (or went away): it joins that member's streams. */
@@ -1913,6 +1928,7 @@ class VoiceService {
     this.stopScreenShare(roomId);
     this.sfu?.close();
     this.sfu = null;
+    if (this.sfuRetryTimer) { clearTimeout(this.sfuRetryTimer); this.sfuRetryTimer = null; }
     this.stopSpeakingDetection();
     this.cleanupNoiseSuppression();
 

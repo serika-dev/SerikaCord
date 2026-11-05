@@ -151,11 +151,14 @@ export class SfuTransport {
   /**
    * Bring the pulls in line with the room: pull what `peers` publish and this
    * member may receive, drop what went away (left, camera off, server muted,
-   * republished under a new name).
+   * republished under a new name). Resolves true when every wanted track is
+   * pulled under the name this member sees; false means try again shortly (a
+   * refused pull, or the server still had an older track, e.g. a bot that is
+   * reconnecting: CORD-93).
    */
-  reconcile(peers: SfuPeerView[], me: { serverDeaf?: boolean }): Promise<void> {
+  reconcile(peers: SfuPeerView[], me: { serverDeaf?: boolean }): Promise<boolean> {
     return this.serial(async () => {
-      if (!this.pc || this.closed) return;
+      if (!this.pc || this.closed) return true;
       const want = new Map<string, { userId: string; kind: SfuKind; trackName: string }>();
       for (const peer of peers) {
         for (const kind of wantedKinds(peer, me)) {
@@ -166,18 +169,23 @@ export class SfuTransport {
       if (stale.length) await this.drop(stale.map(([, p]) => p));
       const missing = [...want.entries()].filter(([key]) => !this.pulled.has(key)).map(([, w]) => w);
       if (missing.length) await this.pull(missing);
+      return [...want.entries()].every(([key, w]) => this.pulled.get(key)?.trackName === w.trackName);
     });
   }
 
   private async pull(list: Array<{ userId: string; kind: SfuKind; trackName: string }>): Promise<void> {
     const pc = this.pc!;
-    const res = await this.api<{ offer: RTCSessionDescriptionInit | null; pulled: Array<{ userId: string; kind: SfuKind; mid: string }> }>(
-      "pull",
-      { tracks: list.map(({ userId, kind }) => ({ userId, kind })) },
-    );
+    const res = await this.api<{
+      offer: RTCSessionDescriptionInit | null;
+      pulled: Array<{ userId: string; kind: SfuKind; mid: string; trackName?: string }>;
+      refused?: Array<{ userId: string; kind: string; reason: string }>;
+    }>("pull", { tracks: list.map(({ userId, kind }) => ({ userId, kind })) });
+    if (res.refused?.length) console.warn("[voice] SFU pull refused", res.refused);
     for (const p of res.pulled) {
-      const trackName = list.find((w) => w.userId === p.userId && w.kind === p.kind)?.trackName ?? "";
-      const entry = { ...p, trackName };
+      // The track the server actually pulled, which can be older than the one
+      // this member sees; reconcile then replaces it.
+      const trackName = p.trackName ?? list.find((w) => w.userId === p.userId && w.kind === p.kind)?.trackName ?? "";
+      const entry = { userId: p.userId, kind: p.kind, mid: p.mid, trackName };
       this.pulled.set(`${p.userId}|${p.kind}`, entry);
       this.byMid.set(p.mid, entry);
     }

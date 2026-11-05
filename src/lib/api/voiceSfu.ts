@@ -115,12 +115,12 @@ export const voiceSfuRoutes = new Elysia({ prefix: '/voice/sfu' })
     if (wanted.length === 0) return { offer: null, pulled: [], refused };
     try {
       const res = await pullTracks(session, wanted.map(({ sessionId, trackName }) => ({ sessionId, trackName })));
-      const pulled: Array<{ userId: string; kind: TrackKind; mid: string }> = [];
+      const pulled: Array<{ userId: string; kind: TrackKind; mid: string; trackName: string }> = [];
       (res.tracks ?? []).forEach((tr, i) => {
         const w = wanted.find((x) => x.trackName === tr.trackName) ?? wanted[i];
         if (!w) return;
         if (tr.errorCode || !tr.mid) { refused.push({ userId: w.userId, kind: w.kind, reason: tr.errorCode ?? 'sfu' }); return; }
-        pulled.push({ userId: w.userId, kind: w.kind, mid: tr.mid });
+        pulled.push({ userId: w.userId, kind: w.kind, mid: tr.mid, trackName: w.trackName });
         void recordPull(params.roomId, ctx.user.id, w.userId, w.kind, session, tr.mid);
       });
       return {
