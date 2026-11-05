@@ -71,6 +71,12 @@ export default async function ChannelDoc() {
       <Endpoint method="PUT" path="/channels/{channel.id}/recipients/{user.id}">{gt("Add someone to a group DM the bot is in, using their OAuth2 access token (see below).")}</Endpoint>
       <Endpoint method="DELETE" path="/channels/{channel.id}/recipients/{user.id}">{gt("Remove someone from a group DM the bot owns.")}</Endpoint>
 
+      <H3 id="create-guild-channel">{gt("Create Guild Channel")}</H3>
+      <P>
+        {gt("Bots can create text (0), voice (2), category (4), announcement (5), stage (13) and forum (15) channels; other types answer 50035. Voice and stage channels take bitrate and user_limit. Bots join voice and stage channels with gateway op 4, see")}{" "}
+        <Link2 href="/developers/docs/topics/voice-connections">{gt("Voice Connections")}</Link2>.
+      </P>
+
       <H2 id="pinned-message-notice">{gt("Pinned Message Notice")}</H2>
       <P>
         {gt("Pinning a message posts a CHANNEL_PINNED_MESSAGE system message (type 6), shown as \"X pinned a message to this channel.\", like Discord. Its message_reference points at the pinned message, and bots receive it as MESSAGE_CREATE. It marks the channel unread but never sends a notification. Unpinning posts nothing.")}

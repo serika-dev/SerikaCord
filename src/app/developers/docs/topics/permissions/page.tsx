@@ -92,6 +92,21 @@ export default async function PermissionsDoc() {
         {gt("The")} <InlineCode>ADMINISTRATOR</InlineCode> {gt("permission (bit 3) grants all permissions implicitly. Use with caution.")}
       </P>
 
+      <H2 id="voice-permissions">{gt("Voice and Stage Permissions")}</H2>
+      <Table headers={[gt("Permission"), gt("What it does in voice")]} rows={[
+        ["CONNECT", gt("Join a voice or stage channel. Without it, op 4 gets no answer.")],
+        ["SPEAK", gt("Be heard. Without it, the member or bot joins suppressed and nobody hears them.")],
+        ["MUTE_MEMBERS", gt("Server mute members. In a stage: joins as a speaker, makes others speakers or moves them to the audience (PATCH voice-states), and lets a bot make itself a speaker.")],
+        ["MOVE_MEMBERS", gt("Move members between voice channels or disconnect them (member PATCH channel_id). In a stage: joins as a speaker.")],
+        ["MANAGE_CHANNELS", gt("In a stage: joins as a speaker.")],
+        ["DEAFEN_MEMBERS", gt("Server deafen members. A server-deafened bot receives no audio.")],
+        ["REQUEST_TO_SPEAK", gt("Raise a hand in a stage audience (request_to_speak_timestamp).")],
+      ]} />
+      <P>
+        {gt("Stage moderators are members with Mute Members, Move Members or Manage Channels in the stage, or Administrator. Opening a stage instance needs all three. See")}{" "}
+        <Link2 href="/developers/docs/topics/voice-connections">{gt("Voice Connections")}</Link2>.
+      </P>
+
       <H2 id="calculating">{gt("Calculating Permissions")}</H2>
       <P>{gt("Combine permissions using bitwise OR:")}</P>
       <CodeBlock lang="javascript">{`// Send Messages + Read Message History + View Channel

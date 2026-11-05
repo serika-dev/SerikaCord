@@ -69,6 +69,7 @@ export const docNav: DocNavSection[] = [
       { label: "Rate Limits", slug: "topics/rate-limits" },
       { label: "Threads", slug: "topics/threads" },
       { label: "Gateway", slug: "topics/gateway" },
+      { label: "Voice Connections", slug: "topics/voice-connections", badge: "NEW" },
       { label: "Webhooks", slug: "topics/webhooks" },
       { label: "Message Formatting", slug: "topics/message-formatting" },
       { label: "Slash Commands", slug: "topics/slash-commands" },

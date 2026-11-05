@@ -28,8 +28,8 @@ export const messagesBotRoutes = new Elysia()
 
 // ─── Voice channel status ──────────────────────────────────
 // { status } (≤ 500 characters, null clears). SET_VOICE_CHANNEL_STATUS, plus
-// MANAGE_CHANNELS when not connected to the channel, which bots never are on
-// SerikaCord (they can't join voice). 204, VOICE_CHANNEL_STATUS_UPDATE.
+// MANAGE_CHANNELS when the bot isn't connected to the channel (Discord's rule;
+// bots join voice with gateway op 4). 204, VOICE_CHANNEL_STATUS_UPDATE.
 .put('/channels/:channelId/voice-status', async ({ headers, params, body, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return UNAUTHORIZED; }
@@ -43,7 +43,10 @@ export const messagesBotRoutes = new Elysia()
   if (!channel) { set.status = 404; return UNKNOWN_CHANNEL; }
   if (!isVoiceChannel(channel)) { set.status = 400; return WRONG_CHANNEL_TYPE; }
   const perms = await botChannelPermissions(auth.botUser.id, channel);
-  if (!can(perms, P.VIEW_CHANNEL | P.SET_VOICE_CHANNEL_STATUS | P.MANAGE_CHANNELS)) { set.status = 403; return MISSING_PERMISSIONS; }
+  const { voiceParticipantIn } = await import('@/lib/api/voice');
+  const connected = !!voiceParticipantIn(`channel-${channel.id.toLowerCase()}`, auth.botUser.id);
+  const needed = P.VIEW_CHANNEL | P.SET_VOICE_CHANNEL_STATUS | (connected ? 0n : P.MANAGE_CHANNELS);
+  if (!can(perms, needed)) { set.status = 403; return MISSING_PERMISSIONS; }
 
   if (await setVoiceChannelStatus(channel.id, parsed.status)) {
     const { emitVoiceChannelStatusUpdate } = await import('@/lib/services/gatewayEvents');

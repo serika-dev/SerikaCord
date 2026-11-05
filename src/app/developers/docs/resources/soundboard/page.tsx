@@ -74,7 +74,7 @@ export default async function SoundboardDoc() {
       </P>
 
       <Callout type="info" title={gt("SerikaCord Differences")}>
-        {gt("There are no default sounds. Bots can play sounds without joining voice, since bots can't join SerikaCord voice.")}
+        {gt("There are no default sounds. Bots can play sounds without being connected to the voice channel, which Discord requires.")}
       </Callout>
     </DocPage>
   );

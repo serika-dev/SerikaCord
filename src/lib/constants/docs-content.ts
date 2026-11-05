@@ -661,9 +661,17 @@ Complete reference for all Gateway opcodes, close codes, HTTP status codes, and 
 - \`0\` Dispatch | \`1\` Heartbeat | \`2\` Identify | \`3\` Presence Update | \`4\` Voice State Update
 - \`6\` Resume | \`7\` Reconnect | \`8\` Request Guild Members | \`9\` Invalid Session | \`10\` Hello | \`11\` Heartbeat ACK | \`31\` Request Soundboard Sounds
 - Op 43 (Request Channel Info) is not implemented (close 4001).
+- Op 4 joins, moves between or leaves voice and stage channels; answered with VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE (see Voice Connections).
 
 ## Close Event Codes
 - \`4000\` Unknown Error | \`4001\` Unknown opcode | \`4002\` Decode error | \`4003\` Not authenticated | \`4004\` Authentication Failed | \`4005\` Already authenticated | \`4007\` Invalid seq | \`4008\` Rate Limited | \`4009\` Session timed out | \`4010\` Invalid shard | \`4011\` Sharding required | \`4012\` Invalid API version | \`4013\` Invalid intent(s) | \`4014\` Disallowed Intent(s)
+
+## Voice opcodes (voice WebSocket)
+- \`0\` Identify | \`1\` Select Protocol | \`2\` Ready | \`3\` Heartbeat | \`4\` Session Description | \`5\` Speaking | \`6\` Heartbeat ACK | \`7\` Resume | \`8\` Hello | \`9\` Resumed | \`13\` Client Disconnect
+- Video (12), DAVE (21-31) and binary frames are ignored.
+
+## Voice close codes
+- \`4000\` Voice server unavailable | \`4002\` Failed to decode payload | \`4004\` Authentication failed | \`4006\` Session no longer valid | \`4014\` Disconnected (left, moved or kicked) | \`4016\` Unknown encryption mode
 
 ## JSON error codes
 Discord's numbers, e.g. \`10003\` Unknown Channel, \`10031\` Unknown lobby, \`10067\` Unknown Stage Instance, \`10097\` Unknown Sound, \`50004\` Widget disabled, \`50013\` Missing Permissions, \`50025\` Invalid OAuth2 access token, \`50026\` Missing required OAuth2 scope, \`50035\` Invalid Form Body (with an \`errors\` tree), \`160004\` A thread has already been created for this message, \`530000\` provisional accounts not enabled, \`530007\` invalid client secret.
@@ -768,6 +776,87 @@ Connect to \`${API.gateway}\` to maintain real-time bidirectional communication.
 - 120 payloads per 60 seconds per connection; the next one closes with 4008.
 - RESUME within 5 minutes replays missed dispatches (last 1000 / 1 MB per session, same instance only); otherwise op 9 and identify again. A seq ahead of the session closes with 4007.
 - \`compress=zlib-stream\` is supported; ETF and zstd are not.`,
+  },
+  "topics/voice-connections": {
+    slug: "topics/voice-connections",
+    title: "Voice Connections",
+    section: "Topics",
+    description: "Connect bots to voice and stage channels: op 4, the voice WebSocket, UDP IP discovery, Opus over RTP, encryption modes and receiving audio.",
+    content: `# Voice Connections
+
+Bots join voice and stage channels and send and receive audio with Discord's voice protocol (voice gateway v4-v8). @discordjs/voice and discord.py's VoiceClient work unchanged once the library points at SerikaCord's REST and gateway (see Quick Start).
+
+Only server voice and stage channels whose calls run on Serika's media server take bots. Elsewhere op 4 answers VOICE_SERVER_UPDATE with \`endpoint: null\` (no voice server) and the bot doesn't appear in the channel. DM and group DM calls are end-to-end encrypted and never reachable by bots.
+
+## Flow
+1. Gateway op 4 \`{ guild_id, channel_id, self_mute, self_deaf }\`: the bot really joins (needs CONNECT and room under the user limit; without SPEAK it is suppressed; no answer if it can't join). Another channel of the same guild moves it; \`channel_id: null\` leaves.
+2. VOICE_STATE_UPDATE (keep \`session_id\`) and VOICE_SERVER_UPDATE \`{ token, guild_id, endpoint }\`, e.g. \`prod.voice.serika.chat:443\`.
+3. WebSocket to \`wss://<endpoint>/?v=8\` (any path; v 4-8, default 4). Server sends Hello (op 8, heartbeat_interval 13750). Send Identify (op 0: server_id, user_id, session_id, token; max_dave_protocol_version ignored).
+4. Ready (op 2): ssrc, ip (may be a host name), port, modes.
+5. UDP IP discovery: 74-byte request (type 1, length 70, ssrc, 64-byte address, 2-byte port) -> type 2 response with your address and port.
+6. Select Protocol (op 1): \`{ protocol: "udp", data: { address, port, mode } }\`.
+7. Session Description (op 4): mode, secret_key (32 bytes), audio_codec opus, dave_protocol_version 0. Send encrypted Opus (48 kHz) over UDP from the selected address/port.
+
+## Voice opcodes
+0 Identify, 1 Select Protocol, 2 Ready, 3 Heartbeat, 4 Session Description, 5 Speaking (ignored from bots; from the server: user_id, ssrc, speaking per person before their audio), 6 Heartbeat ACK (v8: \`{ t }\`), 7 Resume (within about a minute of a drop), 8 Hello, 9 Resumed, 13 Client Disconnect (a person the bot was hearing left or is no longer heard). In v8, server ops 5 and 13 carry \`seq\`. Video (12), DAVE (21-31) and binary frames are ignored; op 11 is never sent.
+
+## Close codes
+4000 voice server unavailable, 4002 failed to decode payload (bad JSON, >16 KiB, bad address/port), 4004 authentication failed (token / session_id), 4006 session no longer valid (resume), 4014 disconnected (left, moved or kicked), 4016 unknown encryption mode (or protocol not udp, or Select Protocol before Identify).
+
+## Encryption
+\`aead_aes256_gcm_rtpsize\` and \`aead_xchacha20_poly1305_rtpsize\`: RTP header incl. CSRCs and the 4-byte extension header is AAD; extension body + Opus are encrypted; a 4-byte nonce counter is appended (padded with zeros to 12 / 24 bytes for the cipher nonce). No xsalsa20 modes, no DAVE, no video / Go Live.
+
+## Receiving
+Each person on their own SSRC, announced with op 5 first. Self-deafened (op 4 self_deaf; @discordjs/voice defaults to selfDeaf true) and server-deafened bots receive nothing. Server-muted people and stage audience are never forwarded; the same applies to a server-muted or suppressed bot's own audio.
+
+## Stages
+Stage moderators (MUTE_MEMBERS, MOVE_MEMBERS, MANAGE_CHANNELS or ADMINISTRATOR) join as speakers, everyone else as audience. \`PATCH /guilds/{guild_id}/voice-states/@me\` with request_to_speak_timestamp (REQUEST_TO_SPEAK) or suppress (false needs MUTE_MEMBERS); \`/voice-states/{user_id}\` with suppress (MUTE_MEMBERS).`,
+    codeExamples: [
+      {
+        lang: "javascript",
+        title: "discord.js + @discordjs/voice",
+        code: `import { Client, Events, GatewayIntentBits } from "discord.js";
+import { createAudioPlayer, createAudioResource, entersState, joinVoiceChannel, VoiceConnectionStatus } from "@discordjs/voice";
+
+const client = new Client({
+  intents: [GatewayIntentBits.Guilds, GatewayIntentBits.GuildVoiceStates],
+  rest: { api: "${API.host}", cdn: "${API.cdn}" },
+});
+
+client.once(Events.ClientReady, async () => {
+  const channel = await client.channels.fetch(process.env.VOICE_CHANNEL_ID);
+  const connection = joinVoiceChannel({ channelId: channel.id, guildId: channel.guild.id, adapterCreator: channel.guild.voiceAdapterCreator });
+  await entersState(connection, VoiceConnectionStatus.Ready, 20_000);
+  const player = createAudioPlayer();
+  connection.subscribe(player);
+  player.play(createAudioResource("./song.mp3"));
+});
+
+client.login(process.env.BOT_TOKEN);`,
+      },
+      {
+        lang: "python",
+        title: "discord.py VoiceClient",
+        code: `import os
+import discord, yarl
+from discord.asset import Asset
+from discord.gateway import DiscordWebSocket
+from discord.http import Route
+
+Route.BASE = "${API.rest}"
+DiscordWebSocket.DEFAULT_GATEWAY = yarl.URL("${API.gateway}")
+Asset.BASE = "${API.cdn}"
+
+client = discord.Client(intents=discord.Intents.default())
+
+@client.event
+async def on_ready():
+    vc = await client.get_channel(int(os.environ["VOICE_CHANNEL_ID"])).connect()
+    vc.play(discord.FFmpegPCMAudio("song.mp3"))
+
+client.run(os.environ["BOT_TOKEN"])`,
+      },
+    ],
   },
   "topics/webhooks": {
     slug: "topics/webhooks",
@@ -983,8 +1072,9 @@ Represents a guild text channel, voice channel, category, thread, or DM channel.
 - \`PATCH /channels/{channel.id}\` - Modify channel
 - \`DELETE /channels/{channel.id}\` - Delete channel
 - \`PUT /channels/{channel.id}/recipients/{user.id}\` - Add a user to a group DM with their \`gdm.join\` access token for your application (\`nick\` is ignored); 50025 for a bad token, 50026 without the scope
-- \`PUT /channels/{channel.id}/voice-status\` - Set a voice channel's status (\`status\` up to 500 characters, null clears; needs Set Voice Channel Status and Manage Channels; cleared when the channel empties; not shown in the web client yet)
-- \`POST /channels/{channel.id}/send-soundboard-sound\` - Play a soundboard sound (\`sound_id\`, \`source_guild_id\`) to everyone in a voice channel; the bot need not be connected (bots can't join voice)
+- \`PUT /channels/{channel.id}/voice-status\` - Set a voice channel's status (\`status\` up to 500 characters, null clears; needs Set Voice Channel Status, plus Manage Channels when the bot isn't connected to the channel; cleared when the channel empties; not shown in the web client yet)
+- \`POST /channels/{channel.id}/send-soundboard-sound\` - Play a soundboard sound (\`sound_id\`, \`source_guild_id\`) to everyone in a voice channel; the bot need not be connected (Discord requires it)
+- \`POST /guilds/{guild.id}/channels\` - Create text (0), voice (2), category (4), announcement (5), stage (13) or forum (15) channels
 - Pinning a message posts a "pinned a message" system message (type 6) with \`message_reference\` to the pinned message.`,
   },
   "resources/emoji": {
@@ -1160,25 +1250,26 @@ Represents a SerikaCord user account or bot user.
     slug: "resources/voice",
     title: "Voice Resource",
     section: "Resources",
-    description: "Voice state schemas, voice regions, RTC connection parameters, and voice status.",
+    description: "Voice state schemas, stage speaker endpoints, voice regions, and voice status. Bots join voice with op 4.",
     content: `# Voice Resource
 
-Represents voice channel connectivity and WebRTC audio session state.
-
-Bots can see voice state but cannot carry audio yet: op 4 is answered with VOICE_SERVER_UPDATE \`endpoint: null\`.
+Bots join voice and stage channels with gateway op 4 and send and receive audio (see Voice Connections). Voice states include \`request_to_speak_timestamp\`; a stage audience has \`suppress: true\` (and \`mute: true\` while suppressed).
 
 ## Endpoints
-- \`GET /voice/regions\`, \`GET /guilds/{guild_id}/regions\` - One region, \`serika\`
-- \`GET /guilds/{guild_id}/voice-states/{user_id}\` - A member's voice state (10065 when not in voice); \`@me\` is always 10065
-- \`PATCH /guilds/{guild_id}/voice-states/{user_id}\` - Needs MUTE_MEMBERS; answers 10065 when the user isn't in voice, otherwise 50024 (suppress isn't supported); \`@me\` is always 10065
+- \`GET /voice/regions\` - One region, \`serika\`
+- \`GET /guilds/{guild_id}/voice-states/@me\` - The bot's own voice state (404 10065 when not in voice)
+- \`GET /guilds/{guild_id}/voice-states/{user_id}\` - A member's voice state (10065 when not in voice)
+- \`PATCH /guilds/{guild_id}/voice-states/@me\` - Stage only (50024 otherwise): \`suppress: false\` needs MUTE_MEMBERS, \`suppress: true\` always allowed; \`request_to_speak_timestamp\` raises the hand (needs REQUEST_TO_SPEAK), null lowers it; 204
+- \`PATCH /guilds/{guild_id}/voice-states/{user_id}\` - Needs MUTE_MEMBERS; stage only (50024 otherwise); \`suppress: false\` makes the user a speaker, \`true\` moves them to the audience; 10065 when not in voice; 204
 - \`PUT /channels/{channel_id}/voice-status\` - Voice channel status (see Channel)
 - \`POST /channels/{channel_id}/send-soundboard-sound\` - Play a server soundboard sound to the channel (bot need not be connected)
 - \`GET /soundboard-default-sounds\` - Empty (no built-in sounds); \`/guilds/{guild_id}/soundboard-sounds\` lists, creates, edits and deletes the server soundboard
 - \`/stage-instances\` - Stage instance CRUD (topic, privacy_level 2)
 
 ## Events
-- \`VOICE_STATE_UPDATE\` (GUILD_VOICE_STATES intent) on join, leave, mute, deafen, camera, screen share and moderator mute / deafen / disconnect
-- \`voice_states\` in GUILD_CREATE`,
+- \`VOICE_STATE_UPDATE\` (GUILD_VOICE_STATES intent) on join, leave, mute, deafen, camera, screen share, moderator mute / deafen / disconnect, and stage hand / speaker changes
+- \`voice_states\` in GUILD_CREATE
+- \`VOICE_SERVER_UPDATE\` answers op 4 with \`token\`, \`guild_id\` and \`endpoint\``,
   },
   "topics/differences": {
     slug: "topics/differences",
@@ -1189,7 +1280,7 @@ Bots can see voice state but cannot carry audio yet: op 4 is answered with VOICE
 
 - **Ids**: new apps see snowflakes and image hashes; apps created earlier see UUIDs and full URLs until switched in the portal.
 - **CDN**: set the library CDN base to ${API.cdn} (discord.js \`rest.cdn\`, discord.py \`Asset.BASE\`); Discord CDN paths redirect to cdn.serika.chat. Images hosted elsewhere come back as null.
-- **Voice**: no audio for bots; voice states and VOICE_STATE_UPDATE work; op 4 gets VOICE_SERVER_UPDATE endpoint null. send-soundboard-sound plays without the bot connected; voice-status always needs Manage Channels and isn't shown in the web client; stage instances send no start notification.
+- **Voice**: bots join voice and stage channels (op 4) and send and receive audio; @discordjs/voice and discord.py's VoiceClient work unchanged. No DAVE (dave_protocol_version 0) and no video. Only channels on Serika's media server take bots (elsewhere VOICE_SERVER_UPDATE endpoint is null); DM and group DM calls never. Stage moderators join as speakers, others as audience. send-soundboard-sound plays without the bot connected; voice-status always needs Manage Channels and isn't shown in the web client; stage instances send no start notification.
 - **Presence**: op 3 activities show on the bot's profile; PRESENCE_UPDATE for bots with GUILD_PRESENCES.
 - **OAuth2**: Bearer tokens work on the routes Discord allows them on. OpenID Connect (\`openid\`, \`/oauth2/userinfo\`, \`/oauth2/keys\`) and gdm.join work; linked roles are stored but no server uses them for roles yet. client_credentials tokens only get identify and applications.commands scopes.
 - **Applications**: interaction callback types 10 and 12 are rejected (50035); \`event_webhooks_status\` 2 is refused (no webhook events); activity instances 404.
@@ -1271,7 +1362,10 @@ A stage instance holds the topic of a live stage channel. One per stage channel.
 - \`POST /stage-instances\` - \`channel_id\`, \`topic\` (1-120), \`privacy_level\` (2 GUILD_ONLY; 1 is refused), \`send_start_notification\` (needs Mention Everyone; no notification is sent yet), \`guild_scheduled_event_id\`
 - \`GET\` / \`PATCH\` / \`DELETE /stage-instances/{channel_id}\`
 
-Needs the stage moderator permissions (Manage Channels, Mute Members and Move Members in the channel). Emits STAGE_INSTANCE_CREATE / UPDATE / DELETE and audit log entries 83-85.`,
+Needs the stage moderator permissions (Manage Channels, Mute Members and Move Members in the channel). Emits STAGE_INSTANCE_CREATE / UPDATE / DELETE and audit log entries 83-85.
+
+## Speakers and audience
+Stage channels (type 13) can be created and joined by people and bots (op 4). Stage moderators (Mute Members, Move Members or Manage Channels, or Administrator) join as speakers; everyone else joins the audience (\`suppress: true\`) and can raise a hand with Request to Speak. The audience is never heard. Bots use \`PATCH /guilds/{guild_id}/voice-states/@me\` and \`/voice-states/{user_id}\` (see Voice).`,
   },
 };
 

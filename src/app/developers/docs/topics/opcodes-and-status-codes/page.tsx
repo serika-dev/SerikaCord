@@ -5,9 +5,9 @@ import { getGT } from "gt-next/server";
 export const metadata = buildMetadata({
   title: "Opcodes & Status Codes",
   description:
-    "SerikaCord Gateway opcodes, Gateway close codes, HTTP status codes, and JSON error codes. Complete reference for all API and Gateway codes.",
+    "SerikaCord Gateway opcodes, Gateway close codes, voice opcodes and close codes, HTTP status codes, and JSON error codes. Complete reference for all API and Gateway codes.",
   path: "/developers/docs/topics/opcodes-and-status-codes",
-  keywords: ["SerikaCord opcodes", "status codes", "error codes", "gateway close codes", "HTTP status"],
+  keywords: ["SerikaCord opcodes", "status codes", "error codes", "gateway close codes", "voice opcodes", "voice close codes", "HTTP status"],
 });
 
 export default async function OpcodesDoc() {
@@ -20,7 +20,7 @@ export default async function OpcodesDoc() {
         ["1", "Heartbeat", "Both", gt("Maintains connection; the server may ask for an immediate beat")],
         ["2", "Identify", "Client→Server", gt("Initial authentication")],
         ["3", "Presence Update", "Client→Server", gt("Update the bot's status and activities")],
-        ["4", "Voice State Update", "Client→Server", gt("Join/leave voice (answered with VOICE_SERVER_UPDATE endpoint null)")],
+        ["4", "Voice State Update", "Client→Server", gt("Join, move or leave voice (answered with VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE)")],
         ["6", "Resume", "Client→Server", gt("Resume a session and replay missed events")],
         ["7", "Reconnect", "Server→Client", gt("Server requests reconnect and resume")],
         ["8", "Request Guild Members", "Client→Server", gt("Request members, answered with GUILD_MEMBERS_CHUNK")],
@@ -48,6 +48,35 @@ export default async function OpcodesDoc() {
         ["4013", gt("Invalid intent(s)"), gt("No")],
         ["4014", gt("Disallowed intent(s)"), gt("No")],
       ]} />
+
+      <H2 id="voice">{gt("Voice")}</H2>
+      <H3 id="voice-opcodes">{gt("Voice Opcodes")}</H3>
+      <Table headers={[gt("Opcode"), gt("Name"), gt("Sent by"), gt("Description")]} rows={[
+        ["0", "Identify", gt("Client"), gt("Begin a voice websocket connection")],
+        ["1", "Select Protocol", gt("Client"), gt("Select the voice protocol and encryption mode")],
+        ["2", "Ready", gt("Server"), gt("Complete the websocket handshake (ssrc, UDP address and port, modes)")],
+        ["3", "Heartbeat", gt("Client"), gt("Keep the websocket connection alive")],
+        ["4", "Session Description", gt("Server"), gt("Describe the session (mode and secret key)")],
+        ["5", "Speaking", gt("Both"), gt("Ignored from bots; from the server, announces a speaker's SSRC")],
+        ["6", "Heartbeat ACK", gt("Server"), gt("Heartbeat acknowledged")],
+        ["7", "Resume", gt("Client"), gt("Resume a connection")],
+        ["8", "Hello", gt("Server"), gt("Heartbeat interval (13,750 ms)")],
+        ["9", "Resumed", gt("Server"), gt("Acknowledge a successful session resume")],
+        ["13", "Client Disconnect", gt("Server"), gt("A user the bot was hearing is no longer heard")],
+      ]} />
+      <P>{gt("Other voice opcodes, including video (12) and DAVE (21 to 31), and binary frames are ignored.")}</P>
+      <H3 id="voice-close-codes">{gt("Voice Close Codes")}</H3>
+      <Table headers={[gt("Code"), gt("Description")]} rows={[
+        ["4000", gt("Voice server unavailable")],
+        ["4002", gt("Failed to decode payload")],
+        ["4004", gt("Authentication failed")],
+        ["4006", gt("Session no longer valid")],
+        ["4014", gt("Disconnected (left the channel, moved or kicked)")],
+        ["4016", gt("Unknown encryption mode")],
+      ]} />
+      <P>
+        {gt("See")}{" "}<Link2 href="/developers/docs/topics/voice-connections">{gt("Voice Connections")}</Link2>.
+      </P>
 
       <H2 id="http-status-codes">{gt("HTTP Status Codes")}</H2>
       <Table headers={[gt("Code"), gt("Name"), gt("Description")]} rows={[

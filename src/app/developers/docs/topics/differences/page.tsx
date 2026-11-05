@@ -53,9 +53,10 @@ https://api.serika.chat/cdn-compat/embed/avatars/0.png`}</CodeBlock>
         <li>{gt("Bots can only join channels whose calls run on Serika's media server. Where a channel still uses peer-to-peer calls, op 4 answers VOICE_SERVER_UPDATE with endpoint null, which libraries treat as no voice server available.")}</li>
         <li>{gt("Receiving audio: every speaker arrives on their own SSRC, announced with op 5 (Speaking) like on Discord. Bots never hear DM or group calls, which are end-to-end encrypted.")}</li>
         <li>{gt("Stage channels: bots join the audience unless they moderate the stage (Mute Members, Move Members or Manage Channels). PATCH /guilds/:guild_id/voice-states/@me (suppress, request_to_speak_timestamp) and /voice-states/:user_id (suppress) work like Discord's. There is a single voice region, serika.")}</li>
+        <li>{gt("Bot voice connections are described in full on")}{" "}<Link2 href="/developers/docs/topics/voice-connections">{gt("Voice Connections")}</Link2>.</li>
         <li>{gt("Stage instances (topic and privacy of a live stage) work through /stage-instances, but no \"stage started\" notification is sent, so send_start_notification is only permission-checked.")}</li>
         <li>{gt("The server soundboard is real: bots can list, create, edit and delete sounds. /soundboard-default-sounds is empty because Serika has no built-in sounds. send-soundboard-sound plays a sound to everyone in a voice channel without the bot being connected, which Discord requires.")}</li>
-        <li>{gt("Voice channel status (PUT /channels/:channel_id/voice-status) always needs Manage Channels, because the exception Discord makes for members connected to the channel can't apply to bots. The web client does not show the status yet.")}</li>
+        <li>{gt("Voice channel status (PUT /channels/:channel_id/voice-status) works like Discord's, but the web client does not show the status yet.")}</li>
       </UL>
 
       <H2 id="presence">{gt("Presence")}</H2>

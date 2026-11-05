@@ -147,6 +147,14 @@ export default async function ReferenceDoc() {
 
       <H2 id="voice-endpoints">{gt("Voice Endpoints")}</H2>
       <Endpoint method="GET" path="/voice/regions">{gt("List available voice regions.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/voice-states/@me">{gt("Get the bot's own voice state. Answers 404 with 10065 (Unknown voice state) when the bot is not in a voice channel of the guild.")}</Endpoint>
+      <Endpoint method="GET" path="/guilds/{guild.id}/voice-states/{user.id}">{gt("Get a user's voice state in a guild.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/voice-states/@me">{gt("Update the bot's own voice state in a stage channel.")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/voice-states/{user.id}">{gt("Update another user's voice state in a stage channel (requires")}{" "}<InlineCode>MUTE_MEMBERS</InlineCode>{")."}</Endpoint>
+      <P>
+        {gt("Bots connect to voice with gateway op 4, see")}{" "}
+        <Link2 href="/developers/docs/topics/voice-connections">{gt("Voice Connections")}</Link2>.
+      </P>
 
       <H2 id="snowflakes">{gt("Snowflake IDs")}</H2>
       <P>
@@ -183,6 +191,7 @@ export default async function ReferenceDoc() {
         <li>{gt("OAuth2 including client credentials, OpenID Connect, and bot install")}</li>
         <li>{gt("Lobbies, invite target users, and partner-sdk routes (which answer 530000: no provisional accounts)")}</li>
         <li>{gt("Voice regions, voice states, voice channel status and send-soundboard-sound")}</li>
+        <li>{gt("Bot voice connections in voice and stage channels: op 4, the voice WebSocket (v4 to v8) and UDP audio, sent and received")}</li>
         <li>{gt("Monetization routes (SKUs, entitlements, subscriptions) return empty lists")}</li>
         <li>{gt("Gateway: zlib-stream, resume with replay, sharding, presence, op 8 and op 31, intents, Discord close codes and rate limits")}</li>
       </UL>

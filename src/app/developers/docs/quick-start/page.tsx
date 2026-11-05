@@ -142,6 +142,11 @@ client.run(os.environ["BOT_TOKEN"])`}</CodeBlock>
         {gt("The same three lines work with commands.Bot and app_commands. Put them at the top of your entry file, before any client is created.")}
       </P>
 
+      <P>
+        {gt("Voice works with these same settings: @discordjs/voice and discord.py's VoiceClient connect to voice and stage channels unchanged. See")}{" "}
+        <Link2 href="/developers/docs/topics/voice-connections">{gt("Voice Connections")}</Link2>.
+      </P>
+
       <H2 id="other-libraries">{gt("Other libraries (not tested yet)")}</H2>
       <P>{gt("These libraries parse ids as 64-bit integers, which works for applications that use Discord-style ids (the default for new applications). We have not run them against SerikaCord yet.")}</P>
       <Table headers={[gt("Library"), gt("REST base"), gt("Gateway"), gt("CDN")]} rows={[

@@ -1,4 +1,4 @@
-import { DocPage, P, H2, CodeBlock, Callout, Endpoint, Table } from "../../DocPage";
+import { DocPage, P, H2, UL, CodeBlock, Callout, Endpoint, Link2, Table } from "../../DocPage";
 import { buildMetadata } from "@/lib/seo";
 import { getGT } from "gt-next/server";
 
@@ -42,6 +42,20 @@ export default async function StageInstanceDoc() {
       </P>
       <P>
         {gt("guild_scheduled_event_id must name a stage event of the same channel. Opening a stage that is already open answers 150006, and a channel without a stage instance answers 10067 (Unknown Stage Instance).")}
+      </P>
+
+      <H2 id="speakers-and-audience">{gt("Speakers and Audience")}</H2>
+      <P>{gt("Stage channels (type 13) can be created like other channels, and people and bots join them like voice channels. A stage works without a stage instance; the instance only adds the topic.")}</P>
+      <UL>
+        <li>{gt("Stage moderators (Mute Members, Move Members or Manage Channels in the stage, or Administrator) join as speakers. Everyone else joins the audience, with suppress true in their voice state.")}</li>
+        <li>{gt("Audience members with Request to Speak can raise their hand; it shows as request_to_speak_timestamp. Moderators invite people to speak or move them back to the audience, and anyone can step down.")}</li>
+        <li>{gt("The audience is never heard, by people or by bots.")}</li>
+      </UL>
+      <P>
+        {gt("Bots change their own stage state and other people's through the voice state endpoints on")}{" "}
+        <Link2 href="/developers/docs/resources/voice">{gt("Voice")}</Link2>{" "}
+        {gt("and join with gateway op 4, see")}{" "}
+        <Link2 href="/developers/docs/topics/voice-connections">{gt("Voice Connections")}</Link2>.
       </P>
 
       <H2 id="audit-log-and-events">{gt("Audit Log and Events")}</H2>

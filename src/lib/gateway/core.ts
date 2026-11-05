@@ -9,7 +9,7 @@
  * Protocol (Discord v10): HELLO -> IDENTIFY -> READY + one GUILD_CREATE per
  * guild; HEARTBEAT/ACK; RESUME with a per-session replay buffer; op 3
  * presence (PRESENCE_UPDATE to bots with GUILD_PRESENCES); op 4 voice
- * (VOICE_SERVER_UPDATE endpoint null); op 8 -> GUILD_MEMBERS_CHUNK; op 31
+ * (joins; VOICE_SERVER_UPDATE points at the voice gateway); op 8 -> GUILD_MEMBERS_CHUNK; op 31
  * -> SOUNDBOARD_SOUNDS (the server soundboard); op 7 RECONNECT on shutdown; Discord close codes
  * (./session.ts). Ids: payloads are built with internal UUIDs and translated
  * per connection for snowflake-format apps (src/lib/botapi/boundary.ts).
@@ -344,9 +344,9 @@ export class GatewayHub {
         await run;
       }
       else if (op === OP.REQUEST_SOUNDBOARD_SOUNDS) await this.requestSoundboardSounds(conn, (frame.d ?? {}) as Record<string, unknown>);
-      // Op 4: bots can't carry voice media yet (WP7). Answer like Discord with
-      // the bot's voice state and VOICE_SERVER_UPDATE endpoint null ("no
-      // voice server available"), so library joins stop instead of hanging.
+      // Op 4: join / leave voice (docs/architecture/voice-sfu.md). Channels
+      // not on the SFU answer VOICE_SERVER_UPDATE endpoint null, like Discord's
+      // "no voice server available".
       else if (op === OP.VOICE_STATE_UPDATE) await this.voiceStateRequest(conn, (frame.d ?? {}) as Record<string, unknown>);
     } catch (err) {
       console.error(`Gateway: op ${op} failed`, err);

@@ -1,5 +1,5 @@
 import { DocPage, P, H2, UL, CodeBlock, Callout, Strong, InlineCode, Link2, CardGrid, Card } from "../DocPage";
-import { Bot, Zap, Cable, KeyRound, Webhook, TerminalSquare, ShieldCheck, Users } from "lucide-react";
+import { Bot, Zap, Cable, KeyRound, Webhook, TerminalSquare, ShieldCheck, Users, Mic } from "lucide-react";
 import { buildMetadata } from "@/lib/seo";
 import { getGT } from "gt-next/server";
 
@@ -79,6 +79,9 @@ OAuth2   https://api.serika.chat/api/oauth2/authorize`}</CodeBlock>
         <Card href="/developers/docs/topics/permissions" title={gt("Permissions")} icon={<ShieldCheck className="size-4" />}>
           {gt("The bitwise permission system, identical to Discord.")}
         </Card>
+        <Card href="/developers/docs/topics/voice-connections" title={gt("Voice Connections")} icon={<Mic className="size-4" />}>
+          {gt("Join voice and stage channels and send and receive audio.")}
+        </Card>
       </CardGrid>
 
       <H2 id="support">{gt("Support")}</H2>
@@ -118,7 +121,7 @@ const gateway = await client.connectGateway({
         <li>{gt("Webhooks, including Slack- and GitHub-compatible execute")}</li>
         <li>{gt("Audit log, auto moderation and scheduled events")}</li>
         <li>{gt("Application commands, interactions (gateway or Ed25519-signed HTTP), autocomplete, modals and context menus")}</li>
-        <li>{gt("Voice states, stage instances and voice channel status (bots can't send or receive audio)")}</li>
+        <li>{gt("Voice and stage channels: bots join, send and receive audio (@discordjs/voice and discord.py's VoiceClient work); voice states, stage instances and voice channel status")}</li>
         <li>{gt("Linked roles metadata, lobbies and invite target users")}</li>
         <li>{gt("Gateway: zlib-stream compression, resume with replay, sharding, presence, op 8 member chunks, intents and Discord's close codes and rate limits")}</li>
         <li>{gt("Redis-based cross-instance event fan-out for multi-server deployments")}</li>

@@ -5,8 +5,8 @@
  * `voice_states` and GET /guilds/{id}/voice-states/{user}. DM and group DM
  * calls are never exposed (Discord has no bot-visible voice state for them).
  *
- * Serika voice is a browser WebRTC mesh: bots can see voice state but not
- * carry audio. Op 4 answers with VOICE_SERVER_UPDATE endpoint null.
+ * Bots also join voice / stage channels themselves with gateway op 4
+ * (docs/architecture/voice-sfu.md); their own state comes from botVoiceState.
  */
 import { createHash } from 'crypto';
 import { BoundedMap } from '@/lib/utils/boundedMap';
@@ -41,7 +41,8 @@ export function voiceStateOf(p: ParticipantLike, channelId: string | null, extra
     ...(extra.member ? { member: extra.member } : {}),
     session_id: voiceSessionId(p.sessionId, p.userId),
     deaf: p.serverDeaf === true,
-    mute: p.serverMute === true,
+    // Stage audience is `suppress`, not muted (Discord); a moderator's mute stays.
+    mute: p.serverMute === true && p.suppress !== true,
     self_deaf: p.deafened === true,
     self_mute: p.audio === false,
     self_stream: p.screenShare === true,
@@ -51,7 +52,7 @@ export function voiceStateOf(p: ParticipantLike, channelId: string | null, extra
   };
 }
 
-/** The bot's own voice state in answer to op 4 (it never really joins). */
+/** The bot's own voice state in answer to op 4. */
 export function botVoiceState(o: { guildId: string; channelId: string | null; botId: string; sessionId: string; selfMute: boolean; selfDeaf: boolean }) {
   return {
     guild_id: o.guildId,

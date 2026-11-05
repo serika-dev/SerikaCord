@@ -64,7 +64,7 @@ GET https://api.serika.chat/api/v10/gateway/bot   (Authorization: Bot <token>)
         ["1", "Heartbeat", "Both", gt("Maintains connection — send every heartbeat_interval ms; the server may also send it to request an immediate beat")],
         ["2", "Identify", "Client→Server", gt("Initial authentication with token and intents")],
         ["3", "Presence Update", "Client→Server", gt("Update the bot's status and activities")],
-        ["4", "Voice State Update", "Client→Server", gt("Join/leave a voice channel (answered with VOICE_SERVER_UPDATE endpoint null: bots can't join Serika voice)")],
+        ["4", "Voice State Update", "Client→Server", gt("Join, move between or leave voice and stage channels; answered with VOICE_STATE_UPDATE and VOICE_SERVER_UPDATE")],
         ["6", "Resume", "Client→Server", gt("Resume a disconnected session")],
         ["7", "Reconnect", "Server→Client", gt("Server requests you to reconnect and resume (sent before a deploy or shutdown)")],
         ["8", "Request Guild Members", "Client→Server", gt("Request members of a guild, answered with GUILD_MEMBERS_CHUNK")],
@@ -279,7 +279,12 @@ GET https://api.serika.chat/api/v10/gateway/bot   (Authorization: Bot <token>)
         ["INTERACTION_CREATE", "—", gt("A slash command or interaction occurred")],
         ["PRESENCE_UPDATE", "GUILD_PRESENCES (1<<8)", gt("A user's presence changed (privileged)")],
         ["VOICE_STATE_UPDATE", "GUILD_VOICE_STATES (1<<7)", gt("A user joined/left voice")],
+        ["VOICE_SERVER_UPDATE", "—", gt("The answer to op 4: the voice token and endpoint the bot connects to")],
       ]} />
+      <P>
+        {gt("Op 4 and the voice WebSocket it leads to are described on")}{" "}
+        <Link2 href="/developers/docs/topics/voice-connections">{gt("Voice Connections")}</Link2>.
+      </P>
 
       <H2 id="sharding">{gt("Sharding")}</H2>
       <P>

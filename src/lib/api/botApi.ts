@@ -781,15 +781,6 @@ async function afterGuildChange(serverId: string) {
 }
 
 /** GET /guilds/{id}/regions (same static list as /voice/regions). */
-const GUILD_VOICE_REGIONS = [
-  { id: 'us-west', name: 'US West', optimal: false, deprecated: false, custom: false },
-  { id: 'us-east', name: 'US East', optimal: false, deprecated: false, custom: false },
-  { id: 'eu-central', name: 'EU Central', optimal: false, deprecated: false, custom: false },
-  { id: 'eu-west', name: 'EU West', optimal: false, deprecated: false, custom: false },
-  { id: 'japan', name: 'Japan', optimal: false, deprecated: false, custom: false },
-  { id: 'singapore', name: 'Singapore', optimal: false, deprecated: false, custom: false },
-];
-
 // ─── Guild channel writes (WP4a) ───────────────────────────
 
 type RouteSet = { status?: number | string; headers: Record<string, string | number> };
@@ -1397,8 +1388,8 @@ export async function discordApplication(app: IApplication, botUser: unknown) {
 
 // ─── Voice / monetization helpers (WP7) ────────────────────
 
-/** Serika voice is one peer-to-peer mesh: a single, always-optimal region. */
-const VOICE_REGIONS = [{ id: 'serika', name: 'SerikaCord (peer-to-peer)', optimal: true, deprecated: false, custom: false }];
+/** Serika has one voice region (calls run on one media server, docs/architecture/voice-sfu.md). */
+const VOICE_REGIONS = [{ id: 'serika', name: 'Serika', optimal: true, deprecated: false, custom: false }];
 const UNKNOWN_VOICE_STATE = { code: 10065, message: 'Unknown voice state' };
 const UNKNOWN_ENTITLEMENT = { code: 10029, message: 'Unknown entitlement' };
 
@@ -1809,7 +1800,7 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   const g = await loadBotGuild(params.guildId, auth.botUser.id);
   if (!g.ok) { set.status = g.status; return g.body; }
-  return GUILD_VOICE_REGIONS;
+  return VOICE_REGIONS;
 })
 .get('/guilds/:guildId/vanity-url', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);
@@ -4793,19 +4784,13 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
 })
 
 // ─── Voice (WP7) ───────────────────────────────────────────
-// Bots see voice state (who is in which voice channel, mute / deafen) from
-// the voice room mirror; they cannot join voice themselves (op 4 answers
-// VOICE_SERVER_UPDATE endpoint null). Serika voice has one peer-to-peer
-// "region"; stage channels have no speaker / suppress model yet.
+// Bots see voice state from the voice room mirror and join voice / stage
+// channels with gateway op 4 (docs/architecture/voice-sfu.md). One region;
+// /guilds/:id/regions is registered with the other guild routes above.
 .get('/voice/regions', async ({ headers, set }) => {
   const auth = await authenticateBot(headers);
   if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
   return VOICE_REGIONS;
-})
-.get('/guilds/:guildId/regions', async ({ headers, set }) => {
-  const auth = await authenticateBot(headers);
-  if (!auth) { set.status = 401; return { code: 0, message: '401: Unauthorized' }; }
-  return VOICE_REGIONS; // the access guard already required membership
 })
 .get('/guilds/:guildId/voice-states/@me', async ({ headers, params, set }) => {
   const auth = await authenticateBot(headers);

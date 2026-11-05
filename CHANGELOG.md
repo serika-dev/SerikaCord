@@ -8,9 +8,11 @@
 
 ### Features
 - **Stage channels** — create a Stage channel to host events: stage moderators (Mute Members, Move Members or Manage Channels) speak, everyone else joins the audience and can raise a hand with Request to speak; moderators invite people to speak, and anyone can move themself back to the audience
-- **Bots can talk in voice** — music and voice bots built with discord.js or discord.py can join voice and stage channels, play audio and hear the call, on channels that run on Serika's new voice server (being rolled out)
+- **Bots can talk in voice** — music and voice bots built with discord.js or discord.py can join voice and stage channels, play audio and hear the call, in server voice and stage channels
 
 ### Changes
+- Calls in server voice and stage channels now run on Serika's voice server instead of connecting everyone to everyone: lighter on your upload in bigger calls, and server mute and deafen are enforced for everyone. DM and group calls stay end-to-end encrypted
+- Developer docs: a new Voice Connections page, and every page now describes bot voice, stage channels and the voice-state endpoints as they work today
 
 ### Bug Fixes
 

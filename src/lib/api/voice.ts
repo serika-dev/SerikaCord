@@ -715,7 +715,7 @@ export async function planServerVoiceMove(opts: {
     if (!isValidObjectId(opts.channelId)) return { ok: false, status: 404, code: 10003, message: 'Unknown Channel' };
     const dest = await Channel.findById(opts.channelId);
     if (!dest || dest.serverId?.toLowerCase() !== opts.serverId.toLowerCase()) return { ok: false, status: 404, code: 10003, message: 'Unknown Channel' };
-    if (dest.type !== 'voice') return { ok: false, status: 400, code: 50024, message: 'Cannot execute action on this channel type' };
+    if (dest.type !== 'voice' && dest.type !== 'stage') return { ok: false, status: 400, code: 50024, message: 'Cannot execute action on this channel type' };
     destination = dest as typeof dest & { serverId: string };
     const [perms, targetAccess] = await Promise.all([
       getMemberChannelPermissions(opts.actorId, destination, actorMember ?? null),
@@ -1771,7 +1771,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     let targetCanJoin = true;
     if (body.channelId) {
       const dest = await Channel.findById(body.channelId);
-      if (dest && dest.type === 'voice' && dest.serverId?.toLowerCase() === server.id.toLowerCase()) {
+      if (dest && (dest.type === 'voice' || dest.type === 'stage') && dest.serverId?.toLowerCase() === server.id.toLowerCase()) {
         destination = dest as typeof dest & { serverId: string };
         const [perms, targetAccess] = await Promise.all([
           getMemberChannelPermissions(user.id, destination, actorMember ?? null),

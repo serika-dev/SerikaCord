@@ -53,7 +53,7 @@ export default async function GuildDoc() {
       <Endpoint method="GET" path="/guilds/{guild.id}/members">{gt("List members (limit and after; needs the Server Members intent).")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/members/search">{gt("Search members by username or nickname prefix (needs the Server Members intent).")}</Endpoint>
       <Endpoint method="GET" path="/guilds/{guild.id}/members/{user.id}">{gt("Get a member.")}</Endpoint>
-      <Endpoint method="PATCH" path="/guilds/{guild.id}/members/{user.id}">{gt("Update a member (nick, roles, mute, deaf, timeout).")}</Endpoint>
+      <Endpoint method="PATCH" path="/guilds/{guild.id}/members/{user.id}">{gt("Update a member (nick, roles, mute, deaf, timeout). channel_id moves a member who is in voice to another voice channel, and null disconnects them (needs Move Members; 40032 when they are not connected).")}</Endpoint>
       <Endpoint method="PATCH" path="/guilds/{guild.id}/members/@me">{gt("Update the bot's own nickname, server avatar, banner or server bio.")}</Endpoint>
       <Endpoint method="PUT" path="/guilds/{guild.id}/members/{user.id}/roles/{role.id}">{gt("Give a member a role.")}</Endpoint>
       <Endpoint method="DELETE" path="/guilds/{guild.id}/members/{user.id}/roles/{role.id}">{gt("Take a role from a member.")}</Endpoint>
