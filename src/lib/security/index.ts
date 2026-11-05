@@ -132,6 +132,7 @@ export const rateLimiters_config = {
   richPresence: { points: 30, duration: 60 }, // rich presence (game activity) updates, per user
   soundboard: { points: 5, duration: 10 }, // soundboard plays in a call, per user
   voiceState: { points: 60, duration: 10 }, // voice join / state / speaking updates, per user
+  voiceSfu: { points: 120, duration: 10 }, // SFU session / publish / pull / renegotiate calls, per user
   audioUpload: { points: 10, duration: 60 }, // voice message / audio uploads, per user
   
   // Upload rate limits

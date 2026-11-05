@@ -12,6 +12,7 @@ import {
   type VoiceGateState,
 } from "@/lib/voice/voiceActivity";
 import { deviceConstraint, getPreferredDevice } from "@/lib/voice/devices";
+import { SfuTransport, type SfuKind } from "@/lib/voice/sfuTransport";
 import {
   displayMediaVideoConstraints,
   loadStreamQuality,
@@ -55,6 +56,9 @@ export interface VoiceParticipant {
   serverDeaf?: boolean;
   /** No SPEAK permission in this channel (implies serverMute). */
   suppress?: boolean;
+  /** SFU rooms: their Realtime session and published tracks (kind → name). */
+  sfuSession?: string;
+  tracks?: Record<string, string>;
 }
 
 /** One reading of your microphone for level meters and the sensitivity slider. */
@@ -195,6 +199,9 @@ class VoiceService {
   private roomId: string | null = null;
   private localStream: MediaStream | null = null;
   private peers: Map<string, SimplePeer.Instance> = new Map();
+  // Server voice / stage channels on the SFU (docs/architecture/voice-sfu.md):
+  // one connection to Cloudflare Realtime instead of one peer per member.
+  private sfu: SfuTransport | null = null;
   private remoteStreams: Map<string, MediaStream> = new Map();
   private remoteScreenStreams: Map<string, MediaStream> = new Map();
   private participants: Map<string, VoiceParticipant> = new Map();
@@ -277,6 +284,7 @@ class VoiceService {
 
   /** Swap a sent track for every peer (simple-peer keeps its sender map in step). */
   private replaceSentTrack(old: MediaStreamTrack, next: MediaStreamTrack, stream: MediaStream) {
+    this.sfu?.replaceTrack(old, next);
     this.peers.forEach((peer) => {
       try {
         (peer as unknown as { replaceTrack: (o: MediaStreamTrack, n: MediaStreamTrack, s: MediaStream) => void })
@@ -1110,7 +1118,7 @@ class VoiceService {
 
     // Register with server
     const sessionId = this.sessionId;
-    let joinData: { permissions?: { stream?: boolean } } | null = null;
+    let joinData: { permissions?: { stream?: boolean }; transport?: "sfu" | "mesh" } | null = null;
     try {
       const joinRes = await fetch(`/api/voice/join`, {
         method: "POST",
@@ -1145,6 +1153,7 @@ class VoiceService {
       return;
     }
     this.applyJoinPermissions(channelId, joinData);
+    const transport = (joinData as { transport?: "sfu" | "mesh" } | null)?.transport ?? "mesh";
 
     // Fetch ICE servers (STUN + any configured TURN relay) before we start
     // creating peers, so the WebRTC connections can actually traverse NAT.
@@ -1164,6 +1173,19 @@ class VoiceService {
       // Keep the STUN fallback already set.
     }
     if (cancelled()) return;
+
+    if (transport === "sfu") {
+      try {
+        await this.startSfu(channelId);
+      } catch (err) {
+        console.warn("[voice] SFU connection failed", err);
+        if (cancelled()) return;
+        await this.leaveChannel();
+        this.emitError("join-failed");
+        return;
+      }
+      if (cancelled()) return;
+    }
 
     // Connect SSE signaling
     this.attachPttListeners();
@@ -1278,6 +1300,77 @@ class VoiceService {
     if (this.roomId === roomId) this.connectSignaling(roomId);
   }
 
+  /** Connect to the SFU and publish the mic (and camera if on). */
+  private async startSfu(roomId: string) {
+    this.sfu?.close();
+    const sfu = new SfuTransport(
+      roomId,
+      this.iceServers,
+      (userId, kind, track) => this.onSfuTrack(userId, kind, track),
+      () => { if (this.sfu === sfu && this.roomId === roomId) void this.restartSfu(roomId); },
+    );
+    this.sfu = sfu;
+    await sfu.start();
+    const audio = this.localStream?.getAudioTracks()[0];
+    if (audio) await sfu.publish("audio", audio);
+    const video = this.localStream?.getVideoTracks()[0];
+    if (video && this.isVideoOn) await sfu.publish("video", video);
+    const screen = this.screenStream?.getVideoTracks()[0];
+    if (screen && this.isScreenSharing) await sfu.publish("screen", screen);
+  }
+
+  /** The SFU connection failed (network change): reconnect and pull again. */
+  private async restartSfu(roomId: string) {
+    this.remoteStreams.clear();
+    this.remoteScreenStreams.clear();
+    this.emitParticipants();
+    try {
+      await this.startSfu(roomId);
+      this.reconcileSfu();
+    } catch (err) {
+      console.warn("[voice] SFU reconnect failed", err);
+      if (this.roomId === roomId) setTimeout(() => { if (this.roomId === roomId) void this.restartSfu(roomId); }, 3000);
+    }
+  }
+
+  /** Pull what the room allows (the server re-checks every pull). */
+  private reconcileSfu() {
+    const sfu = this.sfu;
+    if (!sfu) return;
+    const me = this.getMyUserId();
+    const mine = this.participants.get(me);
+    const peers = Array.from(this.participants.values()).filter((p) => p.userId !== me);
+    void sfu.reconcile(peers, { serverDeaf: mine?.serverDeaf === true }).catch((err) => console.warn("[voice] SFU pull failed", err));
+  }
+
+  /** A pulled track arrived (or went away): it joins that member's streams. */
+  private onSfuTrack(userId: string, kind: SfuKind, track: MediaStreamTrack | null) {
+    if (kind === "screen") {
+      if (track) this.remoteScreenStreams.set(userId, new MediaStream([track]));
+      else this.remoteScreenStreams.delete(userId);
+      this.emitParticipants();
+      return;
+    }
+    if (kind === "screenAudio") return;
+    const trackKind = kind === "audio" ? "audio" : "video";
+    const kept = (this.remoteStreams.get(userId)?.getTracks() ?? []).filter((t) => t.kind !== trackKind);
+    if (track) {
+      if (track.kind === "audio") track.enabled = !this.hearingOff;
+      kept.push(track);
+    }
+    // A new stream object, so audio elements and tiles pick the change up.
+    if (kept.length) this.remoteStreams.set(userId, new MediaStream(kept));
+    else this.remoteStreams.delete(userId);
+    if (trackKind === "audio") {
+      const analyser = this.speakingAnalysers.get(userId);
+      if (analyser) {
+        void analyser.ctx.close().catch(() => {});
+        this.speakingAnalysers.delete(userId);
+      }
+    }
+    this.emitParticipants();
+  }
+
   private resetAllPeers() {
     for (const userId of Array.from(this.peers.keys())) this.destroyPeer(userId);
     this.emitParticipants();
@@ -1321,6 +1414,12 @@ class VoiceService {
         }
         this.participants = new Map(parts.map((p) => [p.userId, p]));
         if (mine) this.applyServerVoiceFlags(mine.serverMute === true, mine.serverDeaf === true);
+        if (this.sfu) {
+          // SFU room: pull what everyone publishes (no peer connections).
+          this.reconcileSfu();
+          this.emitParticipants();
+          break;
+        }
         // Connections to people who are gone are stale.
         for (const userId of Array.from(this.peers.keys())) {
           if (!this.participants.has(userId)) this.destroyPeer(userId);
@@ -1346,6 +1445,13 @@ class VoiceService {
           break;
         }
         const prev = this.participants.get(p.userId);
+        if (this.sfu) {
+          // Their tracks arrive with voice:tracks once they've published.
+          this.participants.set(p.userId, p);
+          this.reconcileSfu();
+          this.emitParticipants();
+          break;
+        }
         // Same person from a new device/tab, or back after the server let them
         // go: the old connection is dead. They offer to us; wait for it.
         if (prev && prev.sessionId !== p.sessionId) this.destroyPeer(p.userId);
@@ -1355,6 +1461,19 @@ class VoiceService {
         // will arrive via voice:offer which creates the non-initiator peer.
         // This avoids WebRTC glare (both sides initiating).
         this.emitParticipants();
+        break;
+      }
+      case "voice:tracks": {
+        // Someone (re)published in an SFU room: pull what's new.
+        const userId = msg.userId as string;
+        const p = userId ? this.participants.get(userId) : undefined;
+        if (!p) break;
+        this.participants.set(userId, {
+          ...p,
+          sfuSession: typeof msg.sfuSession === "string" ? msg.sfuSession : p.sfuSession,
+          tracks: msg.tracks && typeof msg.tracks === "object" ? (msg.tracks as Record<string, string>) : p.tracks,
+        });
+        this.reconcileSfu();
         break;
       }
       case "voice:replaced": {
@@ -1394,6 +1513,11 @@ class VoiceService {
         }
         this.participants.delete(userId);
         this.destroyPeer(userId);
+        if (this.sfu) {
+          this.reconcileSfu();
+          this.remoteStreams.delete(userId);
+          this.remoteScreenStreams.delete(userId);
+        }
         this.emitParticipants();
         break;
       }
@@ -1461,6 +1585,8 @@ class VoiceService {
               this.remoteScreenStreams.delete(userId);
             }
           }
+          // SFU: mute / deafen / camera / share changes change what may be pulled.
+          if (this.sfu) this.reconcileSfu();
           this.emitParticipants();
         }
         break;
@@ -1774,6 +1900,8 @@ class VoiceService {
 
     // Stop screen share
     this.stopScreenShare(roomId);
+    this.sfu?.close();
+    this.sfu = null;
     this.stopSpeakingDetection();
     this.cleanupNoiseSuppression();
 
@@ -1941,6 +2069,7 @@ class VoiceService {
       this.peers.forEach((peer) => {
         try { peer.addTrack(sent, stream); } catch { /* peer closing; a retry re-offers with it */ }
       });
+      void this.sfu?.publish("audio", sent).catch(() => {});
       this.micMissing = false;
       this.isMuted = false;
       this.applyMicState();
@@ -2152,6 +2281,7 @@ class VoiceService {
    * the last frame frozen remotely).
    */
   private stopCameraLocally() {
+    void this.sfu?.unpublish("video").catch(() => {});
     const stream = this.localStream;
     if (stream) {
       stream.getVideoTracks().forEach((t) => {
@@ -2173,6 +2303,7 @@ class VoiceService {
 
     if (this.isVideoOn) {
       const stream = this.localStream;
+      void this.sfu?.unpublish("video").catch(() => {});
       stream.getVideoTracks().forEach((t) => {
         this.peers.forEach((peer) => {
           try { peer.removeTrack(t, stream); } catch { /* not sent to this peer */ }
@@ -2197,6 +2328,7 @@ class VoiceService {
           this.peers.forEach((peer) => {
             try { peer.addTrack(videoTrack, stream); } catch { /* peer closing */ }
           });
+          void this.sfu?.publish("video", videoTrack).catch(() => {});
         }
       } catch {
         this.emitError("camera-denied");
@@ -2301,6 +2433,7 @@ class VoiceService {
 
         // Add screen track to all peers
         this.peers.forEach((peer) => this.sendScreenTo(peer));
+        void this.sfu?.publish("screen", screenTrack).catch(() => {});
       }
 
       // Notify server. No STREAM permission in this voice channel: it
@@ -2333,6 +2466,7 @@ class VoiceService {
 
   stopScreenShare(roomId: string | null = this.roomId) {
     const stream = this.screenStream;
+    if (stream && this.isScreenSharing) void this.sfu?.unpublish("screen").catch(() => {});
     if (stream) {
       // Stop sending it before stopping it, so the other side's tile goes away.
       const tracks = stream.getVideoTracks();

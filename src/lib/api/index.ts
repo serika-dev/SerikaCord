@@ -47,6 +47,7 @@ import { badgeRoutes } from './badges';
 import { oembedRoutes } from './oembed';
 import { experimentRoutes, instanceRoutes } from './experiments';
 import { voiceRoutes } from './voice';
+import { voiceSfuRoutes } from './voiceSfu';
 import { gifRoutes } from './gifs';
 import { developerRoutes, oauth2Routes } from './developers';
 import { appDirectoryRoutes, adminAppRoutes } from './appDirectory';
@@ -4593,6 +4594,7 @@ export const api = new Elysia({ prefix: '/api' })
   .use(scheduledEventRoutes)
   .use(announcementRoutes)
   .use(voiceRoutes)
+  .use(voiceSfuRoutes)
   .use(gifRoutes)
   .use(uploadRoutes)
   .use(staffRoutes)

@@ -73,6 +73,18 @@ export const config = {
   TURN_PASSWORD: process.env.TURN_PASSWORD || '',
   STUN_URLS: process.env.STUN_URLS || 'stun:stun.l.google.com:19302,stun:stun1.l.google.com:19302',
 
+  // Cloudflare Realtime SFU for server voice / stage channels
+  // (docs/architecture/voice-sfu.md). The token is a bearer secret: only the
+  // server calls the Realtime API. VOICE_SFU=1 switches channel rooms over;
+  // DM / group calls always stay peer-to-peer (end-to-end encrypted).
+  CF_REALTIME_APP_ID: process.env.CF_REALTIME_APP_ID || '',
+  CF_REALTIME_APP_TOKEN: process.env.CF_REALTIME_APP_TOKEN || '',
+  VOICE_SFU: process.env.VOICE_SFU === '1',
+  // Bot voice (Discord voice protocol): a DNS-only host name for the UDP media
+  // port (UDP can't go through Cloudflare's proxy) and the port itself.
+  VOICE_PUBLIC_HOST: process.env.VOICE_PUBLIC_HOST || '',
+  VOICE_UDP_PORT: Number(process.env.VOICE_UDP_PORT || 0),
+
   // JWT
   JWT_SECRET: process.env.JWT_SECRET || 'serikacord-super-secret-jwt-key-change-in-production',
   JWT_EXPIRES_IN: '30d',

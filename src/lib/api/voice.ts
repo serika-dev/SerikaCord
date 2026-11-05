@@ -2,6 +2,7 @@ import { Elysia, t } from 'elysia';
 import { effectiveSoundPercent } from '@/lib/servers/soundboardVolume';
 import { authenticateRequest } from '@/lib/services/auth';
 import { config } from '@/lib/config';
+import { sfuEnabledForRoom } from '@/lib/voice/realtime';
 import { cache, getPublisher } from '@/lib/db';
 import { randomUUID } from 'crypto';
 import { Channel, Server, ServerMember, User, type IServerSettings } from '@/lib/models';
@@ -78,6 +79,13 @@ type VoiceParticipant = {
   suppress?: boolean;
   /** Sharing their screen ("LIVE" in the channel list). */
   screenShare?: boolean;
+  /**
+   * SFU rooms (server channels with VOICE_SFU, docs/architecture/voice-sfu.md):
+   * their Cloudflare Realtime session and the tracks it publishes, by kind
+   * (audio / video / screen / screenAudio) → track name. Others pull these.
+   */
+  sfuSession?: string;
+  tracks?: Record<string, string>;
 };
 
 // Local mirror of every voice room's membership. Kept in sync across instances
@@ -334,6 +342,7 @@ function evictFromRoom(roomId: string, userId: string) {
   publishMembership(roomId, 'leave', { userId });
   emitVoiceState(roomId, userId, null);
   broadcastToRoom(roomId, { type: 'voice:participant_left', userId });
+  if (roomId.startsWith('channel-')) void import('@/lib/voice/sfu').then((m) => m.forgetSfuParticipant(roomId, userId)).catch(() => {});
   stopRingingIfEmpty(roomId);
   // Leaving the call leaves any Activity bound to it (CORD-92).
   void import('@/lib/services/activityInstances').then((m) => m.onVoiceRoomLeave(roomId, userId)).catch(() => {});
@@ -361,7 +370,7 @@ export function removeFromGroupCall(channelId: string, userId: string) {
 // ── Voice moderation ────────────────────────────────────────────────────────
 
 type ModeratedFields = { serverMute?: boolean; serverDeaf?: boolean; suppress?: boolean };
-type ParticipantFields = ModeratedFields & { audio?: boolean; deafened?: boolean; video?: boolean; screenShare?: boolean };
+type ParticipantFields = ModeratedFields & { audio?: boolean; deafened?: boolean; video?: boolean; screenShare?: boolean; sfuSession?: string; tracks?: Record<string, string> };
 
 /** The state fields another instance may merge into its room mirror. */
 function pickParticipantFields(raw: unknown): ParticipantFields {
@@ -370,7 +379,47 @@ function pickParticipantFields(raw: unknown): ParticipantFields {
   for (const key of ['serverMute', 'serverDeaf', 'suppress', 'audio', 'deafened', 'video', 'screenShare'] as const) {
     if (typeof v[key] === 'boolean') out[key] = v[key] as boolean;
   }
+  if (typeof v.sfuSession === 'string' && v.sfuSession.length <= 128) out.sfuSession = v.sfuSession;
+  if (v.tracks && typeof v.tracks === 'object') {
+    const tracks: Record<string, string> = {};
+    for (const [k, t] of Object.entries(v.tracks as Record<string, unknown>).slice(0, 8)) {
+      if (typeof t === 'string' && t.length <= 128 && /^[a-zA-Z]{1,16}$/.test(k)) tracks[k] = t;
+    }
+    out.tracks = tracks;
+  }
   return out;
+}
+
+// ── SFU rooms (docs/architecture/voice-sfu.md) ──────────────────────────────
+
+/** A participant of a room, as this instance's mirror knows them. */
+export function voiceParticipantIn(roomId: string, userId: string): Readonly<VoiceParticipant> | null {
+  return roomState.get(roomId)?.get(userId) ?? null;
+}
+
+/** Everyone in a room (the mirror). */
+export function voiceParticipantsOf(roomId: string): Array<Readonly<VoiceParticipant>> {
+  return Array.from(roomState.get(roomId)?.values() ?? []);
+}
+
+/**
+ * Record a participant's SFU session and published tracks, sync them to other
+ * instances and tell the room (`voice:tracks`), so the others pull them.
+ */
+export function setParticipantSfu(roomId: string, userId: string, sfuSession: string, tracks: Record<string, string>): boolean {
+  const participant = roomState.get(roomId)?.get(userId);
+  if (!participant) return false;
+  participant.sfuSession = sfuSession;
+  participant.tracks = { ...tracks };
+  publishMembership(roomId, 'update', { userId, fields: { sfuSession, tracks: participant.tracks } });
+  broadcastToRoom(roomId, { type: 'voice:tracks', userId, sfuSession, tracks: participant.tracks });
+  return true;
+}
+
+/** Server mute / deafen / suppression changed: the SFU cuts pulls to match. */
+function enforceSfu(roomId: string, userId: string) {
+  if (!roomId.startsWith('channel-')) return;
+  void import('@/lib/voice/sfu').then((m) => m.enforceSfuCuts(roomId, userId)).catch(() => {});
 }
 
 // A session a moderator disconnected may not silently "resume" (its client
@@ -432,6 +481,7 @@ export async function applyServerVoiceState(
   Object.assign(participant, update);
   publishMembership(found.roomId, 'update', { userId, fields: update });
   emitVoiceState(found.roomId, userId, participant);
+  enforceSfu(found.roomId, userId);
   broadcastToRoom(found.roomId, {
     type: 'voice:state_update',
     userId,
@@ -469,6 +519,7 @@ function enforceVoicePermissions(roomId: string, userId: string, perms: VoicePer
   Object.assign(participant, fields);
   publishMembership(roomId, 'update', { userId, fields });
   emitVoiceState(roomId, userId, participant);
+  enforceSfu(roomId, userId);
   broadcastToRoom(roomId, {
     type: 'voice:state_update',
     userId,
@@ -1045,6 +1096,9 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       participants: Array.from(room.values()),
       // What this member may do here (the client turns its camera off without STREAM).
       permissions: voicePerms,
+      // Media path: the SFU for server channels when it's on, peer-to-peer otherwise
+      // (DM / group calls always, they're end-to-end encrypted).
+      transport: sfuEnabledForRoom(body.roomId) ? 'sfu' : 'mesh',
     };
   }, {
     body: t.Object({
