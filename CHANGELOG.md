@@ -15,6 +15,7 @@
 - Developer docs: a new Voice Connections page, and every page now describes bot voice, stage channels and the voice-state endpoints as they work today
 
 ### Bug Fixes
+- discord.py bots can log in: the bot API now answers with the exact JSON content type discord.py expects.
 
 ### Performance
 
