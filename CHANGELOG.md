@@ -1,6 +1,6 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.6.0.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.6.1.
 
 ---
 
@@ -11,15 +11,25 @@
 ### Changes
 
 ### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.6.1 — 2026-11-05
+
+**Tag:** `v2.6.1` · **Commit:** `9965d61a`
+
+### Bug Fixes
 - In the Android app, the screen no longer gets stuck squeezed into the top half (with a grey area below) after the keyboard closes while you switch apps or lock the phone (needs the app update)
 - On phones, a member card in the member list no longer shrinks to half width after you've opened that person's profile
 
 ### Performance
 - Much lower CPU use while SerikaCord sits idle: animated profile pictures of Discord-linked and bridged users no longer play everywhere at full size (one could use 14% of a CPU core in the desktop app)
-
-### Security
-
-### Removed
 
 ---
 
