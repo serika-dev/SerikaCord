@@ -59,3 +59,45 @@ export function VoiceParticipantAvatar({
     </div>
   );
 }
+
+/**
+ * A small avatar for an AvatarGroup row (the voice bar): green ring while
+ * speaking, a tiny muted dot, the name on hover.
+ */
+export function VoiceGroupAvatar({
+  participant,
+  speaking = false,
+  label,
+  onContextMenu,
+}: {
+  participant: VoiceParticipantAvatarProps["participant"];
+  speaking?: boolean;
+  /** Shown on hover instead of the name (e.g. "You"). */
+  label?: string;
+  onContextMenu?: (e: React.MouseEvent) => void;
+}) {
+  const name = participant.displayName || participant.username || "?";
+  const muted = !participant.audio || participant.serverMute === true;
+  return (
+    <span role="img" aria-label={label ?? name} title={label ?? name} className="relative shrink-0" onContextMenu={onContextMenu}>
+      <Avatar
+        className={cn(
+          "size-8 ring-2 transition-shadow duration-100",
+          speaking && !muted
+            ? "ring-[#22c55e] shadow-[0_0_8px_rgba(34,197,94,0.5)]"
+            : "ring-[var(--avatar-group-ring,var(--app-bg-solid))]"
+        )}
+      >
+        <AvatarImage src={cdnImage(participant.avatar)} alt="" />
+        <AvatarFallback className="bg-gradient-to-br from-[#8B5CF6] to-[#6366F1] text-white text-xs font-semibold">
+          {name.charAt(0).toUpperCase()}
+        </AvatarFallback>
+      </Avatar>
+      {muted && (
+        <span className="absolute -bottom-0.5 -right-0.5 z-[1] flex size-3.5 items-center justify-center rounded-full bg-[#ef4444] ring-2 ring-[var(--avatar-group-ring,var(--app-bg-solid))]">
+          <MicOff className="size-2 text-white" />
+        </span>
+      )}
+    </span>
+  );
+}

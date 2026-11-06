@@ -9,7 +9,9 @@ import { cn } from "@/lib/utils";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { hangUp } from "@/lib/services/dmCallController";
 import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
-import { VoiceParticipantAvatar } from "@/components/voice/VoiceParticipantAvatar";
+import { VoiceGroupAvatar } from "@/components/voice/VoiceParticipantAvatar";
+import { AvatarGroup, AvatarGroupCount } from "@/components/ui/avatar";
+import { useAuth } from "@/contexts/AuthContext";
 import { onHotkey } from "@/lib/keybinds";
 import { useGT } from "gt-next";
 import { useVoiceUserMenu } from "@/components/voice/VoiceUserMenu";
@@ -26,6 +28,9 @@ interface VoiceBarProps {
 const subscribeVoice = (onChange: () => void) => voiceService.subscribe((e) => {
   if (e.type === "connected" || e.type === "disconnected" || e.type === "meta_changed") onChange();
 });
+
+/** Avatars shown in the voice bar before the rest fold into "+N". */
+const MAX_SHOWN = 6;
 
 export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProps) {
   const gt = useGT();
@@ -45,6 +50,7 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
   const [isVideoOn, setIsVideoOn] = useState(() => voiceService.videoOn);
   const [isScreenSharing, setIsScreenSharing] = useState(() => voiceService.screenSharing);
   const [participants, setParticipants] = useState<VoiceParticipant[]>(() => voiceService.currentParticipants);
+  const { user } = useAuth();
   const [currentChannel, setCurrentChannel] = useState<string | null>(() => voiceService.currentRoomId);
   const speakingUsers = useSpeakingUsers();
   const [serverVoice, setServerVoice] = useState(() => ({ mute: voiceService.serverMute, deaf: voiceService.serverDeaf }));
@@ -132,6 +138,7 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
   }, []);
 
   const hidden = !!hideForRoomId && currentChannel === hideForRoomId;
+  const others = participants.filter((p) => p.userId !== voiceService.myId);
 
   return (
     <AnimatePresence>
@@ -171,7 +178,7 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
               ))}
             </div>
             <span className="text-[10px] text-[var(--app-muted-2)] flex-shrink-0">
-              {participants.filter((p) => p.userId !== voiceService.myId).length + 1} {gt("in call")}
+              {others.length + 1} {gt("in call")}
             </span>
           </div>
 
@@ -185,35 +192,34 @@ export function VoiceBar({ channelName, className, hideForRoomId }: VoiceBarProp
             </div>
           )}
 
-          {/* Participant avatars with speaking rings */}
-          <div className="flex items-center gap-3 mb-3 flex-wrap">
-            <div className="flex flex-col items-center gap-1">
-              <VoiceParticipantAvatar
-                participant={{
-                  userId: voiceService.myId,
-                  username: gt("You"),
-                  displayName: gt("You"),
-                  audio: !isMuted,
-                  serverMute: serverVoice.mute,
-                }}
-                speaking={speakingUsers.has(voiceService.myId)}
-                size="md"
+          {/* Who's in the call: you first, overlapping, speaking rings */}
+          <AvatarGroup className="mb-3 [--avatar-group-ring:var(--bg-app)]">
+            <VoiceGroupAvatar
+              participant={{
+                userId: voiceService.myId,
+                username: user?.username ?? "",
+                displayName: user?.displayName ?? user?.username ?? "",
+                avatar: participants.find((p) => p.userId === voiceService.myId)?.avatar ?? user?.avatar ?? undefined,
+                audio: !isMuted,
+                serverMute: serverVoice.mute,
+              }}
+              speaking={speakingUsers.has(voiceService.myId)}
+              label={gt("You")}
+            />
+            {others.slice(0, MAX_SHOWN - 1).map((p) => (
+              <VoiceGroupAvatar
+                key={p.userId}
+                participant={p}
+                speaking={speakingUsers.has(p.userId)}
+                onContextMenu={(e) => openVoiceUserMenu(e, p)}
               />
-              <span className="text-[10px] text-[var(--app-muted)] max-w-[56px] truncate">{gt("You")}</span>
-            </div>
-            {participants.filter(p => p.userId !== voiceService.myId).map((p) => (
-              <div key={p.userId} className="flex flex-col items-center gap-1" onContextMenu={(e) => openVoiceUserMenu(e, p)}>
-                <VoiceParticipantAvatar
-                  participant={p}
-                  speaking={speakingUsers.has(p.userId)}
-                  size="md"
-                />
-                <span className="text-[10px] text-[var(--app-muted)] max-w-[56px] truncate">
-                  {p.displayName || p.username}
-                </span>
-              </div>
             ))}
-          </div>
+            {others.length > MAX_SHOWN - 1 && (
+              <AvatarGroupCount title={others.slice(MAX_SHOWN - 1).map((p) => p.displayName || p.username).join(", ")}>
+                +{others.length - (MAX_SHOWN - 1)}
+              </AvatarGroupCount>
+            )}
+          </AvatarGroup>
 
           {/* Controls */}
           <div className="flex items-center gap-2 sm:gap-1">

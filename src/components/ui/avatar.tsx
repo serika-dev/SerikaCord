@@ -88,4 +88,36 @@ function AvatarFallback({ className, ...props }: React.ComponentProps<"span">) {
   )
 }
 
-export { Avatar, AvatarImage, AvatarFallback }
+/**
+ * Overlapping avatars (shadcn's AvatarGroup). Direct Avatar children get a
+ * ring in the surface colour so each one looks cut out of the next; set
+ * `--avatar-group-ring` to the colour behind the group.
+ */
+function AvatarGroup({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="avatar-group"
+      className={cn(
+        "flex items-center -space-x-2 *:data-[slot=avatar]:ring-2 *:data-[slot=avatar]:ring-[var(--avatar-group-ring,var(--app-bg-solid))]",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+/** The "+N" bubble at the end of an AvatarGroup. */
+function AvatarGroupCount({ className, ...props }: React.ComponentProps<"div">) {
+  return (
+    <div
+      data-slot="avatar-group-count"
+      className={cn(
+        "relative flex size-8 shrink-0 items-center justify-center rounded-full bg-[var(--app-surface)] text-xs font-medium text-[var(--app-muted)] ring-2 ring-[var(--avatar-group-ring,var(--app-bg-solid))]",
+        className
+      )}
+      {...props}
+    />
+  )
+}
+
+export { Avatar, AvatarImage, AvatarFallback, AvatarGroup, AvatarGroupCount }

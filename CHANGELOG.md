@@ -13,6 +13,7 @@
 ### Changes
 - Calls in server voice and stage channels now run on Serika's voice server instead of connecting everyone to everyone: lighter on your upload in bigger calls, and server mute and deafen are enforced for everyone. DM and group calls stay end-to-end encrypted
 - Developer docs: a new Voice Connections page, and every page now describes bot voice, stage channels and the voice-state endpoints as they work today
+- The voice bar shows everyone in the call as a row of small overlapping avatars, starting with your own picture instead of a "You" bubble.
 
 ### Bug Fixes
 - discord.py bots can log in: the bot API now answers with the exact JSON content type discord.py expects.
