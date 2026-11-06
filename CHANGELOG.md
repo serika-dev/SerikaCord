@@ -17,6 +17,7 @@
 ### Bug Fixes
 - discord.py bots can log in: the bot API now answers with the exact JSON content type discord.py expects.
 - People already in a voice channel hear a bot again on their own after it reconnects, without leaving and rejoining (CORD-93).
+- Status dots show on top of avatars again instead of slipping behind them on profile cards.
 
 ### Performance
 

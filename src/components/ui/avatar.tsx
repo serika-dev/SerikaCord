@@ -16,8 +16,10 @@ function Avatar({ className, ...props }: React.ComponentProps<"span">) {
     <span
       data-slot="avatar"
       className={cn(
-        // A loaded image hides the fallback (transparent avatars).
-        "relative flex size-8 shrink-0 overflow-hidden rounded-full [&:has(>[data-loaded])>[data-slot=avatar-fallback]]:invisible",
+        // A loaded image hides the fallback (transparent avatars). `isolate`
+        // keeps the image's z-index inside the avatar, so status badges and
+        // other overlays drawn next to it stay on top.
+        "relative isolate flex size-8 shrink-0 overflow-hidden rounded-full [&:has(>[data-loaded])>[data-slot=avatar-fallback]]:invisible",
         className
       )}
       {...props}
