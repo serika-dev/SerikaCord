@@ -10,6 +10,8 @@ import type { AppContent, CompareSource } from "../types";
 
 export const sources: CompareSource[] = [
   { id: "home", title: "Commet homepage", url: "https://commet.chat", publisher: "Commet", kind: "primary" },
+  { id: "v051", title: "Commet v0.5.1 release notes", url: "https://github.com/commetchat/commet/releases/tag/v0.5.1", publisher: "GitHub", kind: "primary", date: "2026-11-01" },
+  { id: "dm-code", title: "Commet direct message code (encryption when the other user has keys)", url: "https://github.com/commetchat/commet/blob/main/commet/lib/client/matrix/components/direct_messages/matrix_direct_messages_component.dart", publisher: "GitHub", kind: "primary" },
   { id: "install-android", title: "Install Commet on Android", url: "https://commet.chat/install/android", publisher: "Commet", kind: "primary" },
   { id: "install-linux", title: "Install Commet on Linux", url: "https://commet.chat/install/linux", publisher: "Commet", kind: "primary" },
   { id: "install-windows", title: "Install Commet on Windows", url: "https://commet.chat/install/windows", publisher: "Commet", kind: "primary" },
@@ -102,14 +104,14 @@ export async function content(): Promise<AppContent> {
       maturity: {
         status: "partial",
         value: gt("Pre-1.0, since 2023"),
-        note: gt("First release in September 2023; the latest is 0.5.0 from 24 September 2026. Releases come months apart."),
-        src: ["github", "v050"],
+        note: gt("First release in September 2023; the latest is 0.5.1 from 1 November 2026. Releases come weeks to months apart."),
+        src: ["github", "v050", "v051"],
       },
       e2eeDms: {
         status: "yes",
         value: gt("Matrix encryption"),
-        note: gt("Matrix's Olm and Megolm encryption with cross-signing and emoji verification. We couldn't confirm whether new DMs are encrypted by default."),
-        src: ["github"],
+        note: gt("Matrix's Olm and Megolm encryption with cross-signing and emoji verification. New DMs are encrypted by default when the other person has encryption keys set up."),
+        src: ["github", "dm-code"],
       },
       e2eeGroups: {
         status: "yes",
@@ -129,9 +131,9 @@ export async function content(): Promise<AppContent> {
         note: gt("Public rooms and spaces are typically unencrypted."),
       },
       e2eeDefault: {
-        status: "unknown",
-        note: gt("We couldn't confirm Commet's defaults. Matrix's usual convention is encrypted DMs and private rooms, unencrypted public rooms."),
-        src: ["mx-e2ee"],
+        status: "partial",
+        note: gt("New DMs are encrypted by default when the other person has encryption keys; rooms follow Matrix's usual convention of encrypted private rooms and unencrypted public rooms."),
+        src: ["dm-code", "mx-e2ee"],
       },
       audit: {
         status: "partial",
@@ -205,8 +207,8 @@ export async function content(): Promise<AppContent> {
       },
       videoScreen: {
         status: "yes",
-        note: gt("Video calls and screen sharing. We couldn't verify screen-share quality or whether it carries audio."),
-        src: ["github"],
+        note: gt("Video calls and screen sharing of a whole screen, a tab or a window, with screen-share audio on Windows since version 0.5.1 (November 2026)."),
+        src: ["github", "v051"],
       },
       streamingStage: {
         status: "no",
@@ -273,7 +275,7 @@ export async function content(): Promise<AppContent> {
       },
       scale: {
         value: gt("Unknown; small"),
-        note: gt("Commet publishes no user numbers. Rough signs in October 2026: about 60,400 downloads of release files on GitHub since 2023 and 1,121 GitHub stars."),
+        note: gt("Commet publishes no user numbers. Rough signs in November 2026: about 62,700 downloads of release files on GitHub since 2023 and 1,139 GitHub stars."),
         src: ["github"],
       },
       incidents: {
@@ -285,7 +287,7 @@ export async function content(): Promise<AppContent> {
     whyUs: [
       {
         title: gt("Apps for Mac, and a web app for iPhone"),
-        text: gt("SerikaCord has a macOS app and a web app that works in Safari on iPhone. Commet has no macOS or iPhone app, and we couldn't confirm its web build is a full client. Our native iPhone app is still in development."),
+        text: gt("SerikaCord has macOS and iPhone apps and a web app. Commet has no macOS or iPhone app, and we couldn't confirm its web build is a full client."),
         src: ["home"],
       },
       {
@@ -360,11 +362,11 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Is Commet end-to-end encrypted?"),
-        answer: gt("It uses Matrix's standard encryption for DMs and encrypted rooms, with emoji verification. Encrypted group calls are still experimental, and we couldn't confirm whether new DMs are encrypted by default."),
+        answer: gt("It uses Matrix's standard encryption for DMs and encrypted rooms, with emoji verification. Encrypted group calls are still experimental, and new DMs are encrypted by default when the other person has encryption keys."),
       },
       {
         question: gt("Is Commet available on iPhone or Mac?"),
-        answer: gt("Not yet; both are planned. Commet runs on Windows, Linux and Android (as an APK). SerikaCord has a macOS app and works in Safari on iPhone."),
+        answer: gt("Not yet; both are planned. Commet runs on Windows, Linux and Android (as an APK). SerikaCord has a macOS app and an iPhone app in the App Store."),
       },
       {
         question: gt("Is Commet open source?"),
@@ -372,7 +374,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("How many people use Commet?"),
-        answer: gt("Nobody knows for sure; the project publishes no numbers. In October 2026 its GitHub release files had been downloaded about 60,400 times since 2023, and it had 1,121 GitHub stars."),
+        answer: gt("Nobody knows for sure; the project publishes no numbers. In November 2026 its GitHub release files had been downloaded about 62,700 times since 2023, and it had 1,139 GitHub stars."),
       },
       {
         question: gt("Can I move my Discord server to Commet?"),

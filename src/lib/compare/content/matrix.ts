@@ -9,6 +9,7 @@ import type { AppContent, CompareSource } from "../types";
 
 export const sources: CompareSource[] = [
   { id: "element-home", title: "Element homepage", url: "https://element.io/", publisher: "Element", kind: "primary" },
+  { id: "spaces-x", title: "Spaces has landed on Element X!", url: "https://element.io/blog/spaces-has-landed-on-element-x/", publisher: "Element", kind: "primary", date: "2026-03-30" },
   { id: "matrix-home", title: "Matrix.org homepage", url: "https://matrix.org/", publisher: "Matrix.org Foundation", kind: "primary" },
   { id: "element-pricing", title: "Element pricing", url: "https://element.io/pricing", publisher: "Element", kind: "primary" },
   { id: "element-download", title: "Element downloads", url: "https://element.io/download", publisher: "Element", kind: "primary" },
@@ -167,8 +168,8 @@ export async function content(): Promise<AppContent> {
       maturity: {
         status: "yes",
         value: gt("Since 2014"),
-        note: gt("Matrix launched in 2014 and its spec reached v1.19 in July 2026. Element X, the newer mobile app, still lagged behind Element Classic on spaces and threads in November 2025."),
-        src: ["foundation-about", "v119", "elementx-update"],
+        note: gt("Matrix launched in 2014 and its spec reached v1.19 in July 2026. Element X, the newer mobile app, got full spaces in March 2026 but still keeps threads behind a Labs flag."),
+        src: ["foundation-about", "v119", "elementx-update", "spaces-x"],
       },
       e2eeDms: {
         status: "yes",
@@ -237,8 +238,8 @@ export async function content(): Promise<AppContent> {
       servers: {
         status: "partial",
         value: gt("Spaces"),
-        note: gt("Spaces group rooms like a Discord server, and a room can belong to several spaces. In November 2025 Element X could only show spaces read-only."),
-        src: ["elementx-update"],
+        note: gt("Spaces group rooms like a Discord server, and a room can belong to several spaces. Element X has supported browsing, creating and managing spaces since March 2026."),
+        src: ["elementx-update", "spaces-x"],
       },
       roles: {
         status: "partial",
@@ -352,7 +353,7 @@ export async function content(): Promise<AppContent> {
     whyUs: [
       {
         title: gt("Voice channels and screen sharing built in"),
-        text: gt("In February 2026 the Matrix.org Foundation said Matrix has no production-ready Discord alternative yet, listing voice channels and streaming as missing. SerikaCord has drop-in voice channels and screen sharing up to 60 FPS. Our calls connect peer-to-peer where possible, so others in a call can see your IP address, and server voice channels aren't end-to-end encrypted."),
+        text: gt("In February 2026 the Matrix.org Foundation said Matrix has no production-ready Discord alternative yet, listing voice channels and streaming as missing. SerikaCord has drop-in voice channels and screen sharing up to 60 FPS. Server voice channels aren't end-to-end encrypted, and our encrypted DM calls connect peer-to-peer where possible, so the other people in them can see your IP address."),
         src: ["welcome-discord"],
       },
       {
@@ -362,7 +363,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("One consistent app"),
-        text: gt("On Matrix, what you get depends on your client and your homeserver: Element Classic, Element X and dozens of other apps differ, and in November 2025 Element X still showed spaces read-only and hid threads behind an experimental flag. SerikaCord is one app that works the same on web, desktop and Android."),
+        text: gt("On Matrix, what you get depends on your client and your homeserver: Element Classic, Element X and dozens of other apps differ, and Element X still hides threads behind an experimental flag. SerikaCord is one app that works the same on web, desktop and Android."),
         src: ["elementx-update"],
       },
       {
@@ -404,7 +405,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("A native iPhone app"),
-        text: gt("Element X and Element Classic are in the App Store. SerikaCord's iPhone app is still in development, so iPhone users use the web app for now."),
+        text: gt("Element X and Element Classic are in the App Store. SerikaCord's iPhone app is there too, since November 2026."),
         src: ["elementx-appstore"],
       },
     ],
@@ -458,7 +459,7 @@ export async function content(): Promise<AppContent> {
       gt("The price of matrix.org Premium accounts and of Element's business plans."),
       gt("Any Matrix-wide user numbers newer than September 2023, or active-user figures at all."),
       gt("Whether matrix.org has started mandatory ID or face checks for UK users; primary sources only describe self-declaration and planned measures."),
-      gt("How far Element X has caught up with Element Classic on spaces and threads since November 2025."),
+      gt("How far Element X has caught up with Element Classic on threads."),
       gt("Whether any Discord bridge can copy a server's full message history."),
     ],
     notes: {

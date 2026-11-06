@@ -84,8 +84,8 @@ export const sources: CompareSource[] = [
     kind: "primary",
   },
   { id: "github", title: "RootPlatform on GitHub (SDK samples and DevKit)", url: "https://github.com/RootPlatform", publisher: "GitHub", kind: "primary" },
-  { id: "appstore", title: "Root on the App Store", url: "https://apps.apple.com/us/app/root-build-real-communities/id6742028281", publisher: "Apple", kind: "primary" },
-  { id: "play", title: "Root: Built for Community on Google Play", url: "https://play.google.com/store/apps/details?id=com.rootapp.mobile", publisher: "Google Play", kind: "primary" },
+  { id: "appstore", title: "Root: Community Chat & Voice on the App Store (v0.9.42)", url: "https://apps.apple.com/us/app/root-community-chat-voice/id6742028281", publisher: "Apple", kind: "primary" },
+  { id: "play", title: "Root: Community Chat & Voice on Google Play", url: "https://play.google.com/store/apps/details?id=com.rootapp.mobile", publisher: "Google Play", kind: "primary" },
   {
     id: "funding",
     title: "Root Raises $9M in Funding to Build a Next-Gen Discord",
@@ -111,7 +111,7 @@ export async function content(): Promise<AppContent> {
     take: gt("A funded, Discord-like app whose standout is real GUI apps inside channels, like task boards and raid planners. But it is closed source, has no end-to-end encryption and no browser version."),
     intro: [
       gt("Root is a Discord-style community app from Root Communications, a US startup that raised a $9 million seed round in 2025. Its big idea is ‘apps’: full mini-programs such as task trackers, raid planners and polls that run inside a channel, built with Root's own TypeScript SDK and hosted in Root's cloud."),
-      gt("SerikaCord takes a different route: end-to-end encrypted DMs, a Discord-compatible bot API, a browser app and an EU home. Root wins on in-channel apps, funding and native iPhone and Android apps from the stores; SerikaCord wins on private messages, Discord bot compatibility, forums and onboarding, and running in a browser."),
+      gt("SerikaCord takes a different route: end-to-end encrypted DMs, a Discord-compatible bot API, a browser app and an EU home. Root wins on in-channel apps, funding and having both phone apps in the stores; SerikaCord wins on private messages, Discord bot compatibility, forums and onboarding, and running in a browser."),
     ],
     verdict: gt("If your community lives on planning tools, raid schedules or custom mini-apps, Root does something nobody else does. If you want encrypted DMs, your existing Discord bots and a browser app, SerikaCord fits better."),
     facts: {
@@ -343,7 +343,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("iPhone and Android apps from the stores"),
-        text: gt("Root has native apps on the App Store and Google Play. SerikaCord has no iPhone app yet, and its Android app is installed from our website."),
+        text: gt("Root has native apps on the App Store and Google Play. SerikaCord is in the App Store too, but its Android app is installed from our website."),
         src: ["appstore", "play"],
       },
       {

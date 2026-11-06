@@ -392,7 +392,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Polished apps everywhere, including iPhone"),
-        text: gt("Telegram has had native apps for iPhone, Android, Windows, macOS and Linux for years, plus two web apps and smartwatch apps. SerikaCord has no iPhone app yet, and its Android app comes from our website rather than Google Play."),
+        text: gt("Telegram has had native apps for iPhone, Android, Windows, macOS and Linux for years, plus two web apps and smartwatch apps. SerikaCord's iPhone app is new to the App Store, and its Android app comes from our website rather than Google Play."),
         src: ["apps", "watch"],
       },
       {

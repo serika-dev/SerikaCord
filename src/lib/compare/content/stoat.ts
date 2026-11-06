@@ -40,7 +40,7 @@ export const sources: CompareSource[] = [
   { id: "web-releases", title: "Stoat for Web releases", url: "https://github.com/stoatchat/for-web/releases", publisher: "GitHub", kind: "primary" },
   { id: "desktop", title: "Stoat desktop app (Electron, AGPL-3.0)", url: "https://github.com/stoatchat/for-desktop", publisher: "GitHub", kind: "primary" },
   { id: "android", title: "Stoat Android app (AGPL-3.0)", url: "https://github.com/stoatchat/for-android", publisher: "GitHub", kind: "primary" },
-  { id: "ios-repo", title: "Stoat iOS app (TestFlight, early stage)", url: "https://github.com/stoatchat/for-ios", publisher: "GitHub", kind: "primary" },
+  { id: "ios-repo", title: "Stoat iOS app (no commits since June 2026)", url: "https://github.com/stoatchat/for-ios", publisher: "GitHub", kind: "primary" },
   { id: "sdk", title: "stoat.js JavaScript SDK (MIT)", url: "https://github.com/stoatchat/javascript-client-sdk", publisher: "GitHub", kind: "primary" },
   {
     id: "companies-house",
@@ -240,7 +240,7 @@ export async function content(): Promise<AppContent> {
       mobile: {
         status: "partial",
         value: gt("Android early access"),
-        note: gt("The Android app is on Google Play but still labelled Early Access. There is no iPhone app in the App Store; Stoat recommends the web app, and its TestFlight beta is at an early stage."),
+        note: gt("The Android app is on Google Play but still labelled Early Access. There is no iPhone app in the App Store; Stoat recommends the web app and says a native iOS app is in the works, with no public beta."),
         src: ["android", "ios", "ios-repo"],
       },
       web: {
@@ -330,8 +330,8 @@ export async function content(): Promise<AppContent> {
         src: ["million"],
       },
       {
-        title: gt("Calls don't reveal your IP address to others"),
-        text: gt("Stoat's voice and video run through its own LiveKit media server. SerikaCord connects calls peer-to-peer where possible, which exposes your IP address to others in the call and gets heavy in large video calls."),
+        title: gt("Every call goes through a server"),
+        text: gt("Stoat's voice and video run through its own LiveKit media server. SerikaCord's server voice channels have also used a media server since November 2026, but its end-to-end encrypted DM calls connect peer-to-peer where possible, which shows your IP address to the other people in the call."),
         src: ["voice-v2", "api"],
       },
       {
@@ -341,7 +341,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("A Google Play app and a longer history"),
-        text: gt("Stoat's Android app is on Google Play, though still labelled Early Access, and the project has been public since 2021. SerikaCord's Android app is installed from our website and we launched in January 2026. Neither has an iPhone app in the App Store yet."),
+        text: gt("Stoat's Android app is on Google Play, though still labelled Early Access, and the project has been public since 2021. SerikaCord's Android app is installed from our website and we launched in January 2026, though our iPhone app is in the App Store and Stoat's isn't."),
         src: ["android", "wikipedia", "ios"],
       },
       {
@@ -390,7 +390,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Is there a Stoat app for iPhone?"),
-        answer: gt("Not in the App Store as of October 2026. Stoat recommends adding its web app to your Home Screen, and a native app is in an early TestFlight beta. SerikaCord has no iPhone app yet either."),
+        answer: gt("Not in the App Store as of November 2026. Stoat recommends adding its web app to your Home Screen and says a native app is in the works, with no public beta. SerikaCord's iPhone app is in the App Store."),
       },
       {
         question: gt("Does Stoat ask for ID or a face scan?"),

@@ -150,7 +150,7 @@ export async function content(): Promise<AppContent> {
       },
       modTools: {
         status: "partial",
-        note: gt("Kick, ban, mute and nickname controls for servers. We found no AutoMod or server audit log; staff have platform-wide tools such as suspensions and IP bans."),
+        note: gt("Kick, ban, mute and nickname controls for servers, and a server audit log, but no AutoMod. Staff have platform-wide tools such as suspensions and IP bans."),
         src: ["server-repo"],
       },
       platformSafety: {
@@ -252,7 +252,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Roles, threads and moderation for bigger communities"),
-        text: gt("SerikaCord has Discord-style roles with detailed per-channel permissions, threads, forum channels, AutoMod and an audit log. Nerimity has about 10 role permissions, no threads or forums, and basic server moderation."),
+        text: gt("SerikaCord has Discord-style roles with detailed per-channel permissions, threads, forum channels, AutoMod and an audit log. Nerimity has about 10 role permissions, no threads or forums, and basic server moderation with an audit log but no AutoMod."),
         src: ["server-repo", "threads-issue"],
       },
       {
@@ -323,7 +323,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Is there a Nerimity app for iPhone?"),
-        answer: gt("No. Nerimity offers an Android APK from GitHub and desktop apps, but no iPhone app. SerikaCord's iPhone app is also still in development; until then you can use SerikaCord in Safari."),
+        answer: gt("No. Nerimity offers an Android APK from GitHub and desktop apps, but no iPhone app. SerikaCord's iPhone app is in the App Store."),
       },
       {
         question: gt("Will my Discord bot work on Nerimity?"),

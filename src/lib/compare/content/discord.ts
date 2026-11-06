@@ -8,6 +8,7 @@ import type { AppContent, CompareSource } from "../types";
 
 export const sources: CompareSource[] = [
   { id: "company", title: "Discord company page (users, leadership)", url: "https://discord.com/company", publisher: "Discord", kind: "primary" },
+  { id: "discoverable-web", title: "Making Content from Discoverable Servers Easier to Discover", url: "https://discord.com/blog/making-content-from-discoverable-servers-easier-to-discover", publisher: "Discord", kind: "primary", date: "2026-10-27" },
   { id: "dave", title: "Meet DAVE: end-to-end encryption for audio & video", url: "https://discord.com/blog/meet-dave-e2ee-for-audio-video", publisher: "Discord", kind: "primary", date: "2024-09-17" },
   {
     id: "every-call",
@@ -105,9 +106,9 @@ export async function content(): Promise<AppContent> {
     take: gt("The default home for online communities, with the most polish, the biggest bot ecosystem and audited encrypted calls. But text is never end-to-end encrypted, age checks now apply worldwide, and ads are growing."),
     intro: [
       gt("Discord is where most online communities already live, and for most people it works well. SerikaCord looks and feels similar on purpose, so switching is easy, but it is run very differently: by a small team in the Netherlands, without ads, with end-to-end encrypted direct messages and without ID or face scans."),
-      gt("Discord is better on almost every measure of size and maturity: more people, more polish, more bots, an iPhone app and end-to-end encryption for every call, audited by an outside firm. SerikaCord is better if you care about private text messages, ads or age checks, and don't mind being early."),
+      gt("Discord is better on almost every measure of size and maturity: more people, more polish, more bots and end-to-end encryption for every call, audited by an outside firm. SerikaCord is better if you care about private text messages, ads or age checks, and don't mind being early."),
     ],
-    verdict: gt("Big, bot-heavy or iPhone-heavy communities: Discord is still the safer choice today. If you want encrypted DMs, no ads and no ID checks in something that feels like Discord, try SerikaCord."),
+    verdict: gt("Big or bot-heavy communities: Discord is still the safer choice today. If you want encrypted DMs, no ads and no ID checks in something that feels like Discord, try SerikaCord."),
     facts: {
       operator: {
         value: gt("Discord Inc."),
@@ -178,8 +179,8 @@ export async function content(): Promise<AppContent> {
       },
       metadata: {
         value: gt("Discord sees all text"),
-        note: gt("All messages are stored readable on Discord's servers and scanned for rule violations."),
-        src: ["privacy"],
+        note: gt("All messages are stored readable on Discord's servers and scanned for rule violations. From December 2026 some messages in public Discoverable servers can appear in web search unless members opt out."),
+        src: ["privacy", "discoverable-web"],
       },
       dataUse: {
         status: "partial",
@@ -304,7 +305,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Polish, features and every platform"),
-        text: gt("Discord has been built by a large team since 2015. It has native iPhone and Android apps in the stores, console and VR integrations, Stage channels and Activities. SerikaCord is young: no iPhone app yet, no Stage channels, and more rough edges."),
+        text: gt("Discord has been built by a large team since 2015. It has apps in every store and console and VR integrations. SerikaCord is young: it now has an iPhone app, Stage channels and Activities too, but its Android app comes from our website and it has more rough edges."),
         src: ["download"],
       },
       {
@@ -314,7 +315,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Scale and reliability"),
-        text: gt("Discord runs huge servers and voice channels on its own infrastructure. SerikaCord's calls connect peer-to-peer where possible, which exposes your IP address to others in the call and gets heavy in large video calls."),
+        text: gt("Discord runs huge servers and voice channels on its own infrastructure. SerikaCord's server voice channels have used a media server since November 2026 but haven't been tested at Discord's scale, and its end-to-end encrypted DM calls connect peer-to-peer where possible, which shows your IP address to the other people in the call."),
       },
       {
         title: gt("Younger teens can join"),
@@ -357,7 +358,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Is there a SerikaCord app for iPhone?"),
-        answer: gt("Not yet. An iOS app is in development. Until then you can use SerikaCord in Safari and add it to your Home Screen."),
+        answer: gt("Yes. SerikaCord is on the App Store for iPhone and iPad with iOS 15 or newer."),
       },
       {
         question: gt("Does Discord sell my data?"),

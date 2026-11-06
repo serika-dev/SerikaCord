@@ -4,6 +4,8 @@
 
 export const RELEASES_URL = "https://github.com/serika-dev/SerikaCord/releases";
 export const LATEST_RELEASE_URL = `${RELEASES_URL}/latest`;
+/** The iPhone and iPad app (no country in the path, so the store picks the visitor's). */
+export const APP_STORE_URL = "https://apps.apple.com/app/serikacord/id6828383613";
 
 export interface ReleaseAsset {
   name: string;

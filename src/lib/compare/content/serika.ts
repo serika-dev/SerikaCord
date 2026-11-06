@@ -21,8 +21,17 @@ export const serikaSources: CompareSource[] = [
   },
   { id: "license", title: "SerikaCord Source Available License, version 2.0 (October 2026)", url: "https://github.com/serika-dev/SerikaCord/blob/main/LICENSE", publisher: "GitHub", kind: "primary" },
   { id: "github", title: "SerikaCord source code", url: "https://github.com/serika-dev/SerikaCord", publisher: "GitHub", kind: "primary" },
-  { id: "changelog", title: "SerikaCord changelog (v2.1, October 2026)", url: "https://serika.chat/changelog", publisher: "SerikaCord", kind: "primary" },
+  { id: "changelog", title: "SerikaCord changelog", url: "https://serika.chat/changelog", publisher: "SerikaCord", kind: "primary" },
   { id: "download", title: "Download SerikaCord", url: "https://serika.chat/download", publisher: "SerikaCord", kind: "primary" },
+  { id: "appstore", title: "SerikaCord on the App Store", url: "https://apps.apple.com/app/serikacord/id6828383613", publisher: "Apple", kind: "primary", date: "2026-11" },
+  {
+    id: "voice",
+    title: "SerikaCord voice: media server, Stage channels and bot voice",
+    url: "https://github.com/serika-dev/SerikaCord/blob/main/docs/architecture/voice-sfu.md",
+    publisher: "GitHub",
+    kind: "primary",
+    date: "2026-11",
+  },
   { id: "devdocs", title: "SerikaCord developer documentation (bots and gateway)", url: "https://serika.chat/developers/docs/intro", publisher: "SerikaCord", kind: "primary" },
 ];
 
@@ -157,8 +166,8 @@ export async function serikaFacts(): Promise<Facts> {
     },
     voiceChannels: {
       status: "yes",
-      note: gt("Drop-in voice channels. Calls connect peer-to-peer where possible, so others in a call can see your IP address, and large calls get heavy."),
-      src: ["github"],
+      note: gt("Drop-in voice and Stage channels. Since November 2026 server calls run through our media server on Cloudflare's network, so others don't see your IP address; end-to-end encrypted DM calls still connect peer-to-peer where possible."),
+      src: ["voice", "e2ee"],
     },
     videoScreen: {
       status: "yes",
@@ -166,19 +175,19 @@ export async function serikaFacts(): Promise<Facts> {
       src: ["changelog"],
     },
     streamingStage: {
-      status: "partial",
-      note: gt("You can stream a screen to a voice channel, but there are no Stage-style speaker and audience channels."),
-      src: ["changelog"],
+      status: "yes",
+      note: gt("Stream a screen to a voice channel, and since November 2026 Stage channels with speakers, an audience and raised hands."),
+      src: ["changelog", "voice"],
     },
     botApi: {
       status: "yes",
-      note: gt("REST API, WebSocket gateway, slash commands, interactions and webhooks."),
-      src: ["devdocs"],
+      note: gt("REST API, WebSocket gateway, slash commands, interactions and webhooks. Bots can join voice and Stage channels and send and receive audio."),
+      src: ["devdocs", "voice"],
     },
     discordBots: {
       status: "partial",
       value: gt("Discord API v10 compatible"),
-      note: gt("Many discord.js and discord.py bots work after changing the API address. Not everything Discord offers is covered."),
+      note: gt("Many discord.js and discord.py bots work after changing the API address, music bots included, since Discord's voice protocol works too. Not everything Discord offers is covered."),
       src: ["devdocs"],
     },
     discordMigration: {
@@ -193,10 +202,10 @@ export async function serikaFacts(): Promise<Facts> {
       src: ["download"],
     },
     mobile: {
-      status: "partial",
-      value: gt("Android; iPhone in development"),
-      note: gt("The Android app is downloaded from our website, not Google Play. iPhone users use the web app from the Home Screen for now."),
-      src: ["download"],
+      status: "yes",
+      value: gt("iPhone, iPad and Android"),
+      note: gt("iPhone and iPad from the App Store since November 2026 (iOS 15 or newer). The Android app is downloaded from our website, not Google Play."),
+      src: ["appstore", "download"],
     },
     web: {
       status: "yes",
@@ -264,9 +273,9 @@ export async function serikaCaveats(): Promise<string[]> {
   const gt = await getGT();
   return [
     gt("SerikaCord is young (first release January 2026) and made by a small team, so expect rough edges and far fewer public communities than on the big apps."),
-    gt("Calls connect peer-to-peer when possible, so other people in a call can see your IP address, and large group video calls get heavy."),
+    gt("End-to-end encrypted DM and group DM calls connect peer-to-peer when possible, so the other people in the call can see your IP address. Server voice channels go through our media server instead, which is new (November 2026)."),
     gt("The code is source-available, not open source. You may self-host it only for personal, non-commercial use with people you invite, and self-hosted instances don't connect to serika.chat."),
-    gt("There is no native iPhone app yet, and the Android app is installed from our website rather than Google Play."),
+    gt("The Android app is installed from our website rather than Google Play."),
     gt("We use AI coding assistants to help build SerikaCord."),
   ];
 }

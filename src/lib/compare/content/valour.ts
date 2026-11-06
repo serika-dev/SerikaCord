@@ -36,7 +36,7 @@ export const sources: CompareSource[] = [
 export async function content(): Promise<AppContent> {
   const gt = await getGT();
   return {
-    take: gt("An open-source, self-hostable Discord alternative that end-to-end encrypts text even in community channels. But that encryption is weeks old and unaudited, calls and files aren't covered, and very few people use it yet."),
+    take: gt("An open-source, self-hostable Discord alternative that end-to-end encrypts text even in community channels. But that encryption only launched in September 2026 and is unaudited, calls and files aren't covered, and very few people use it yet."),
     intro: [
       gt("Valour is an open-source (AGPL) Discord-style app from Valour Software, a small US company, in development since 2020. In September 2026 it switched on its own end-to-end encryption for all chat text, including community channels, which it calls planets, and it can be self-hosted with Docker."),
       gt("This is one area where Valour goes further than SerikaCord: our server channels are not end-to-end encrypted. SerikaCord wins on encrypted calls and files in DMs, Discord bot compatibility, larger uploads and an EU home; Valour wins on encrypted community text, open source and real self-hosting. Both encryption designs are new and unaudited."),
@@ -72,7 +72,7 @@ export async function content(): Promise<AppContent> {
       maturity: {
         status: "partial",
         value: gt("Pre-1.0 (v0.9)"),
-        note: gt("Version 0.9.19 came out on 8 October 2026, with new releases every few days."),
+        note: gt("Version 0.9.22 came out on 6 November 2026, with new releases every few days."),
         src: ["github"],
       },
       e2eeDms: {
@@ -234,7 +234,7 @@ export async function content(): Promise<AppContent> {
       scale: {
         status: "unknown",
         value: gt("Very small"),
-        note: gt("Valour publishes no user count. Google Play shows 10+ installs, and its GitHub releases have about 10,800 downloads in total."),
+        note: gt("Valour publishes no user count. Google Play shows 100+ installs, and its GitHub releases have about 11,400 downloads in total."),
         src: ["play", "github"],
       },
       incidents: {
@@ -246,7 +246,7 @@ export async function content(): Promise<AppContent> {
     whyUs: [
       {
         title: gt("Encrypted calls and files in your DMs"),
-        text: gt("SerikaCord encrypts text, files and voice and video calls in DMs and group DMs. Valour encrypts message text but not calls, files, images or GIFs. Neither design has been independently audited, and both launched in the last few weeks."),
+        text: gt("SerikaCord encrypts text, files and voice and video calls in DMs and group DMs. Valour encrypts message text but not calls, files, images or GIFs. Neither design has been independently audited, and both launched in autumn 2026."),
         src: ["privacy", "e2ee"],
       },
       {
@@ -287,8 +287,8 @@ export async function content(): Promise<AppContent> {
         src: ["github"],
       },
       {
-        title: gt("Calls don't expose your IP to others"),
-        text: gt("Valour's calls run through Cloudflare's real-time service or the planet's own server. SerikaCord's calls connect peer-to-peer where possible, so others in a call can see your IP address."),
+        title: gt("Every call goes through a server"),
+        text: gt("Valour's calls run through Cloudflare's real-time service or the planet's own server. SerikaCord's server voice channels have also run on Cloudflare's real-time service since November 2026, but its end-to-end encrypted DM calls connect peer-to-peer where possible, which shows your IP address to the other people in the call."),
         src: ["privacy"],
       },
       {
@@ -341,7 +341,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Does Valour have an iPhone app?"),
-        answer: gt("No. iPhone users use the web app. SerikaCord is in the same position: our iOS app is in development, and the web app works on iPhone meanwhile."),
+        answer: gt("No. iPhone users use the web app. SerikaCord's iPhone app is in the App Store."),
       },
     ],
     couldNotVerify: [

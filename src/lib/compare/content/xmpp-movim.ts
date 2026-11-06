@@ -53,7 +53,7 @@ export async function content(): Promise<AppContent> {
     take: gt("XMPP is an open chat standard in use since 1999, and Movim is a free, self-hostable web app for it that added Discord-style Spaces in 2026. Encryption is optional, and Movim's user base is tiny."),
     intro: [
       gt("XMPP (also called Jabber) is an open, federated chat standard: like email, anyone can run a server, and people on different servers can talk to each other. Movim is one app for it, a web app that runs in the browser and combines chats, chatrooms, blogs, video calls and, since April 2026, Discord-style Spaces. SerikaCord is a single service run by one team instead."),
-      gt("XMPP and Movim win on openness: an open standard, federation, AGPL code you can host anywhere and no company in control. SerikaCord wins on the community experience: roles, onboarding, moderation tools, voice channels, native desktop and Android apps, Discord-compatible bots, and encryption that is on by default for private chats."),
+      gt("XMPP and Movim win on openness: an open standard, federation, AGPL code you can host anywhere and no company in control. SerikaCord wins on the community experience: roles, onboarding, moderation tools, voice channels, native desktop, Android and iPhone apps, Discord-compatible bots, and encryption that is on by default for private chats."),
     ],
     verdict: gt("If you value an open, federated standard and want to host your own server, XMPP with Movim is a principled choice. If you want a Discord-style community app that works out of the box, SerikaCord is the easier pick."),
     facts: {
@@ -278,7 +278,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Native desktop and Android apps"),
-        text: gt("SerikaCord has apps for Windows, macOS, Linux and Android plus the web app. Movim is a web app only, which you can install from the browser. On iPhone, SerikaCord is also web-only for now."),
+        text: gt("SerikaCord has apps for Windows, macOS, Linux, Android and iPhone plus the web app. Movim is a web app only, which you can install from the browser."),
         src: ["movim-home"],
       },
       {
@@ -333,7 +333,7 @@ export async function content(): Promise<AppContent> {
     pickUs: [
       gt("you want encryption on by default for private chats"),
       gt("you want Discord-style roles, onboarding and moderation tools"),
-      gt("you want native desktop and Android apps instead of a web app"),
+      gt("you want native desktop and phone apps instead of a web app"),
       gt("you want your Discord bots to work with small changes"),
     ],
     faq: [

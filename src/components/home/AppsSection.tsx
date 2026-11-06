@@ -5,6 +5,7 @@ import { ArrowRight, Globe, Smartphone } from "lucide-react";
 import { AndroidMark, AppleMark, LinuxMark, WindowsMark } from "@/components/ui/PlatformMarks";
 import { SectionHeading } from "./SectionHeading";
 import { cn } from "@/lib/utils";
+import { APP_STORE_URL } from "@/lib/downloads";
 
 function PlatformTile({ href, icon, name, note, muted }: { href: string; icon: ReactNode; name: string; note: string; muted?: boolean }) {
   return (
@@ -43,7 +44,7 @@ export async function AppsSection() {
             id="hm-apps-title"
             label={gt("Apps")}
             title={gt("On your computer, your phone and the web.")}
-            lede={gt("Desktop apps with native notifications, tray controls and global push to talk, an Android app with push notifications, and the full app in any modern browser.")}
+            lede={gt("Desktop apps with native notifications, tray controls and global push to talk, iPhone and Android apps with push notifications, and the full app in any modern browser.")}
           />
           <Link href="/download" className="hm-btn hm-btn-ghost hm-btn-compact shrink-0 self-start md:self-end" data-reveal>
             {gt("All downloads")}
@@ -58,13 +59,7 @@ export async function AppsSection() {
           <PlatformTile href="/download" icon={<LinuxMark className="h-5 w-5" />} name="Linux" note={gt("Most 64-bit distributions")} />
           <PlatformTile href="/download" icon={<AndroidMark className="h-5 w-5" />} name="Android" note={gt("Android 7.0 or newer")} />
           <PlatformTile href="/channels/me" icon={<Globe className="h-5 w-5" />} name={gt("Web")} note={gt("Any modern browser, nothing to install")} />
-          <PlatformTile
-            href="/download"
-            icon={<Smartphone className="h-5 w-5" />}
-            name={gt("iPhone and iPad")}
-            note={gt("Use the web app from your Home Screen. A native app is in development.")}
-            muted
-          />
+          <PlatformTile href={APP_STORE_URL} icon={<Smartphone className="h-5 w-5" />} name={gt("iPhone and iPad")} note={gt("iOS 15 or newer, on the App Store")} />
         </ul>
       </div>
     </section>

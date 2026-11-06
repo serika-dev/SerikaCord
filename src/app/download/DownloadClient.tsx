@@ -8,7 +8,6 @@ import {
   Bell,
   Download,
   ExternalLink,
-  Globe,
   Hash,
   MessagesSquare,
   Mic,
@@ -20,7 +19,7 @@ import { Logo } from "@/components/ui/Logo";
 import { cn } from "@/lib/utils";
 import { detectPlatform } from "@/lib/detectPlatform";
 import { PLATFORM_MARKS } from "@/components/ui/PlatformMarks";
-import { formatSize, type DownloadFile, type PlatformDownloads, type ReleaseInfo } from "@/lib/downloads";
+import { APP_STORE_URL, formatSize, type DownloadFile, type PlatformDownloads, type ReleaseInfo } from "@/lib/downloads";
 
 type Platform = keyof PlatformDownloads;
 type Detected = Platform | "ios" | "unknown";
@@ -196,13 +195,13 @@ export default function DownloadClient({ release }: { release: ReleaseInfo }) {
                   {gt("Download for {platform}", { platform: names[primaryPlatform] })}
                 </a>
               ) : detected === "ios" ? (
-                <Link
-                  href="/channels/me"
+                <a
+                  href={APP_STORE_URL}
                   className="inline-flex items-center gap-3 rounded-full bg-[#8B5CF6] px-7 py-4 text-base font-bold text-white shadow-lg shadow-[#8B5CF6]/30 transition-all hover:scale-[1.03] hover:bg-[#7c4dff]"
                 >
-                  <Globe className="h-5 w-5" />
-                  {gt("Open in Safari")}
-                </Link>
+                  <Download className="h-5 w-5" />
+                  {gt("Download on the App Store")}
+                </a>
               ) : (
                 <a
                   href="#platforms"
@@ -231,7 +230,7 @@ export default function DownloadClient({ release }: { release: ReleaseInfo }) {
                     .filter(Boolean)
                     .join(" · ")
                 : detected === "ios"
-                  ? gt("No iPhone app yet: open SerikaCord in Safari and choose Add to Home Screen.")
+                  ? gt("Free for iPhone and iPad with iOS 15 or newer.")
                   : gt("Free for Windows, macOS, Linux and Android.")}
             </p>
           </div>
@@ -332,16 +331,16 @@ export default function DownloadClient({ release }: { release: ReleaseInfo }) {
               <div>
                 <p className="font-semibold">{gt("iPhone and iPad")}</p>
                 <p className="text-sm text-[#7a7a86]">
-                  {gt("Open SerikaCord in Safari, tap Share and choose Add to Home Screen.")}
+                  {gt("Free on the App Store for iPhone and iPad with iOS 15 or newer.")}
                 </p>
               </div>
             </div>
-            <Link
-              href="/channels/me"
+            <a
+              href={APP_STORE_URL}
               className="shrink-0 rounded-xl bg-white/[0.08] px-4 py-2 text-sm font-semibold transition-colors hover:bg-white/[0.14]"
             >
-              {gt("Open in browser")}
-            </Link>
+              {gt("Get it on the App Store")}
+            </a>
           </div>
         </div>
       </section>

@@ -9,11 +9,13 @@
 ### Features
 - **Stage channels** — create a Stage channel to host events: stage moderators (Mute Members, Move Members or Manage Channels) speak, everyone else joins the audience and can raise a hand with Request to speak; moderators invite people to speak, and anyone can move themself back to the audience
 - **Bots can talk in voice** — music and voice bots built with discord.js or discord.py can join voice and stage channels, play audio and hear the call, in server voice and stage channels
+- The download page, homepage and FAQ link to the SerikaCord iPhone and iPad app on the App Store.
 
 ### Changes
 - Calls in server voice and stage channels now run on Serika's voice server instead of connecting everyone to everyone: lighter on your upload in bigger calls, and server mute and deafen are enforced for everyone. DM and group calls stay end-to-end encrypted
 - Developer docs: a new Voice Connections page, and every page now describes bot voice, stage channels and the voice-state endpoints as they work today
 - The voice bar shows everyone in the call as a row of small overlapping avatars, starting with your own picture instead of a "You" bubble.
+- The comparison pages and tier list were rechecked on 6 November 2026: new facts and sources for every app, SerikaCord moves up in voice and apps, and Sable moves up in apps.
 
 ### Bug Fixes
 - discord.py bots can log in: the bot API now answers with the exact JSON content type discord.py expects.

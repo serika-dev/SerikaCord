@@ -8,7 +8,8 @@ import type { AppContent, CompareSource } from "../types";
 
 export const sources: CompareSource[] = [
   { id: "company", title: "TeamSpeak company page (history, headquarters)", url: "https://teamspeak.com/en/more/company/", publisher: "TeamSpeak", kind: "primary" },
-  { id: "downloads", title: "TeamSpeak downloads (TeamSpeak 3 client 3.6.2, TeamSpeak 6 6.0.0-beta5, server 3.13.8)", url: "https://teamspeak.com/en/downloads/", publisher: "TeamSpeak", kind: "primary" },
+  { id: "downloads", title: "TeamSpeak downloads (TeamSpeak 3 client 3.6.2, TeamSpeak 6 6.0.0-beta5.1, server 3.13.8)", url: "https://teamspeak.com/en/downloads/", publisher: "TeamSpeak", kind: "primary" },
+  { id: "beta5", title: "TeamSpeak 6.0.0-beta5 - Foundation III Update", url: "https://community.teamspeak.com/t/65513", publisher: "TeamSpeak", kind: "primary", date: "2026-10-13" },
   { id: "privacy", title: "TeamSpeak privacy policy", url: "https://teamspeak.com/en/privacy-policy/", publisher: "TeamSpeak", kind: "primary" },
   { id: "terms", title: "TeamSpeak general terms and conditions (effective 22 June 2026)", url: "https://teamspeak.com/en/terms-and-conditions/", publisher: "TeamSpeak", kind: "primary", date: "2026-06-22" },
   { id: "communities", title: "What are TeamSpeak Communities?", url: "https://teamspeak.com/en/solutions/communities/", publisher: "TeamSpeak", kind: "primary" },
@@ -121,7 +122,7 @@ export async function content(): Promise<AppContent> {
     take: gt("The classic low-latency voice app for gaming groups, with self-hostable servers and no ads or ID checks. But there are no persistent text channels, TeamSpeak 6 is still in beta, and there's no web app."),
     intro: [
       gt("TeamSpeak has been the voice app of choice for gaming clans, esports teams and simulation groups since 2001. It is voice first: a server is a tree of voice channels, and you can run that server on your own machine. Its successor, TeamSpeak 6, adds screen sharing and a global chat, but has been in beta since January 2025."),
-      gt("TeamSpeak wins on voice latency, years of reliability and real self-hosting. SerikaCord wins on everything around the voice: text channels with history, threads and forums, bots, a web app, a current Android app and free servers without slot limits."),
+      gt("TeamSpeak wins on voice latency, years of reliability and real self-hosting. SerikaCord wins on everything around the voice: text channels with history, threads and forums, bots, a web app, current Android and iPhone apps and free servers without slot limits."),
     ],
     verdict: gt("If your group mostly talks and wants the lowest-latency voice on a server it controls, TeamSpeak is still excellent. If you want a full community with text, threads, bots and phone access, SerikaCord fits better."),
     facts: {
@@ -255,8 +256,8 @@ export async function content(): Promise<AppContent> {
       videoScreen: {
         status: "partial",
         value: gt("TeamSpeak 6 beta only"),
-        note: gt("Camera feeds and screen sharing up to 4K in the TeamSpeak 6 beta, with direct calls and picture-in-picture announced in August 2026."),
-        src: ["alternativeto"],
+        note: gt("Camera feeds and screen sharing up to 4K in the TeamSpeak 6 beta, which added one-to-one calls with video, screen sharing and picture-in-picture in October 2026."),
+        src: ["alternativeto", "beta5"],
       },
       streamingStage: {
         status: "partial",
@@ -313,8 +314,8 @@ export async function content(): Promise<AppContent> {
       },
       uploads: {
         value: gt("About 5 MB in chat"),
-        note: gt("Drag-and-drop chat attachments are limited to about 5 MB. File limits on a server are set by its admin."),
-        src: ["file-limit"],
+        note: gt("Drag-and-drop chat attachments were limited to about 5 MB; the October 2026 beta sends bigger files through channel file transfers instead. File limits on a server are set by its admin."),
+        src: ["file-limit", "beta5"],
       },
       groupSize: {
         value: gt("Set by slots"),
@@ -340,8 +341,8 @@ export async function content(): Promise<AppContent> {
         src: ["discord-alt"],
       },
       {
-        title: gt("A web app and a current Android app"),
-        text: gt("SerikaCord works fully in the browser and has an Android app. TeamSpeak has no web app, and its TeamSpeak 6 mobile app isn't out, so phone users are on older TeamSpeak 3 apps. We don't have an iPhone app yet either."),
+        title: gt("A web app and current phone apps"),
+        text: gt("SerikaCord works fully in the browser and has Android and iPhone apps. TeamSpeak has no web app, and its TeamSpeak 6 mobile app isn't out, so phone users are on older TeamSpeak 3 apps."),
         src: ["downloads", "mobile"],
       },
       {
@@ -368,7 +369,7 @@ export async function content(): Promise<AppContent> {
     whyThem: [
       {
         title: gt("Voice that gamers have trusted for 20 years"),
-        text: gt("TeamSpeak's low-latency voice has been the standard for competitive gaming, esports and simulation groups since the early 2000s, and runs through a server built for it. SerikaCord's calls connect peer-to-peer where possible, which shows your IP address to others in the call and gets heavy in large calls."),
+        text: gt("TeamSpeak's low-latency voice has been the standard for competitive gaming, esports and simulation groups since the early 2000s, and runs through a server built for it. SerikaCord's server voice channels have only run through a media server since November 2026."),
         src: ["wikipedia"],
       },
       {

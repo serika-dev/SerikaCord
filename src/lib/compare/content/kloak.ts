@@ -9,7 +9,8 @@ import type { AppContent, CompareSource } from "../types";
  */
 
 export const sources: CompareSource[] = [
-  { id: "farewell", title: "Kloak homepage, now a shutdown notice", url: "https://kloak.app/", publisher: "Kloak", kind: "primary", date: "2026-10" },
+  { id: "farewell", title: "Kloak homepage (a shutdown notice in October 2026)", url: "https://kloak.app/", publisher: "Kloak", kind: "primary", date: "2026-10" },
+  { id: "redirect", title: "kloak.app redirect script (sends visitors to The Port)", url: "https://kloak.app/redirect.js", publisher: "Kloak", kind: "primary", date: "2026-11" },
   { id: "privacy", title: "Kloak Privacy Policy", url: "https://kloak.app/privacy", publisher: "Kloak", kind: "primary" },
   { id: "terms", title: "Kloak Terms of Service", url: "https://kloak.app/terms", publisher: "Kloak", kind: "primary" },
   { id: "faq", title: "Kloak FAQ", url: "https://kloak.app/faq", publisher: "Kloak", kind: "primary" },
@@ -227,8 +228,8 @@ export async function content(): Promise<AppContent> {
       web: {
         status: "partial",
         value: gt("Was the main app"),
-        note: gt("The web app was the main way to use Kloak. It now shows only a farewell page."),
-        src: ["farewell", "wb-live"],
+        note: gt("The web app was the main way to use Kloak. By November 2026 kloak.app redirected to a new app, The Port, which we haven't reviewed."),
+        src: ["farewell", "wb-live", "redirect"],
       },
       license: {
         status: "no",
@@ -322,7 +323,7 @@ export async function content(): Promise<AppContent> {
     faq: [
       {
         question: gt("Is Kloak still working?"),
-        answer: gt("No. Since mid-October 2026 kloak.app shows only a farewell page, and the Android app has been removed from Google Play. The app was still running on 11 October 2026."),
+        answer: gt("No. Kloak shut down in mid-October 2026 and its Android app was removed from Google Play; the app was still running on 11 October 2026. By November kloak.app redirected to a new app, The Port, and we don't know who runs it."),
       },
       {
         question: gt("Why did Kloak shut down?"),
@@ -358,7 +359,7 @@ export async function content(): Promise<AppContent> {
     ],
     notes: {
       title: gt("Kloak has shut down"),
-      intro: gt("As of 15 October 2026, kloak.app shows only a farewell page. This is what we know and what we don't."),
+      intro: gt("On 15 October 2026 kloak.app showed only a farewell page, and by November it redirected to a new app, The Port. This is what we know and what we don't."),
       points: [
         gt("Archived copies show the app still running on 11 October 2026, and the farewell page was up by 15 October 2026. We found no announcement post with an exact date."),
         gt("The farewell page says Kloak was attacked relentlessly from day one and that the team spent most of its time defending the service. It gives no details about the attacks."),
@@ -367,7 +368,7 @@ export async function content(): Promise<AppContent> {
         gt("Encryption: AlternativeTo and other listings described Kloak as end-to-end encrypted. Kloak's own FAQ said it was still working toward it, and a founder said in February 2026 that messages were technically accessible at the database level. Privacy Guides forum users pointed out the mismatch in March 2026."),
         gt("Money: Kloak's about page said there were no subscriptions and its terms said it generated no revenue, but its web client contained a Kloak Prime subscription at $6.99 a month with a working checkout."),
       ],
-      src: ["farewell", "wb-oct11", "play", "alternativeto", "faq", "hn-founder", "privacyguides", "about", "terms", "client"],
+      src: ["farewell", "redirect", "wb-oct11", "play", "alternativeto", "faq", "hn-founder", "privacyguides", "about", "terms", "client"],
     },
   };
 }

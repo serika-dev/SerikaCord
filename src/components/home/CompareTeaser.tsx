@@ -15,7 +15,7 @@ export async function CompareTeaser() {
   ];
   const gaps = [
     gt("Far fewer people and communities than Discord, for now"),
-    gt("No native iPhone app yet"),
+    gt("The Android app isn't on Google Play yet"),
     gt("Server channels aren't end-to-end encrypted"),
     gt("A young app from a small team, so expect some rough edges"),
   ];

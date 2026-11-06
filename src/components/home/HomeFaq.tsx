@@ -33,7 +33,7 @@ export async function getHomeFaq(): Promise<FaqEntry[]> {
     },
     {
       question: gt("Is there an iPhone app?"),
-      answer: gt("It's on its way: the SerikaCord app for iPhone and iPad is coming to the App Store. Until then, open serika.chat in Safari and add it to your Home Screen to use it like an app."),
+      answer: gt("Yes. SerikaCord is free on the App Store for iPhone and iPad with iOS 15 or newer."),
     },
     {
       question: gt("Which devices does SerikaCord work on?"),

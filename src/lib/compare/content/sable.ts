@@ -10,6 +10,7 @@ import type { AppContent, CompareSource } from "../types";
 
 export const sources: CompareSource[] = [
   { id: "github", title: "Sable v1 source code, README and changelog", url: "https://github.com/SableClient/Sable", publisher: "GitHub", kind: "primary" },
+  { id: "appstore", title: "Sable Chat on the App Store", url: "https://apps.apple.com/us/app/sable-chat/id6820482696", publisher: "Apple", kind: "primary", date: "2026-11" },
   { id: "sable-next", title: "Sable v2 (sable-next) source code and releases", url: "https://git.sable.moe/SableClient/sable-next", publisher: "Sable", kind: "primary" },
   { id: "original", title: "Original Sable repository and early releases", url: "https://github.com/7w1/sable", publisher: "GitHub", kind: "primary", date: "2026-02" },
   { id: "docs", title: "Sable documentation", url: "https://docs.sable.moe/", publisher: "Sable", kind: "primary" },
@@ -67,7 +68,7 @@ export const sources: CompareSource[] = [
 export async function content(): Promise<AppContent> {
   const gt = await getGT();
   return {
-    take: gt("A young, open-source Matrix app made to feel like Discord, so you can talk to anyone on the Matrix network. It was rewritten from scratch in October 2026, and on iPhone it needs sideloading."),
+    take: gt("A young, open-source Matrix app made to feel like Discord, so you can talk to anyone on the Matrix network. It was rewritten from scratch in October 2026 and reached the App Store in November 2026."),
     intro: [
       gt("Sable is a free, open-source app (a client) for Matrix, the open, federated chat network. It doesn't run the network itself: you pick a Matrix homeserver such as matrix.org or sable.moe, and Sable gives you a Discord-like look with spaces, voice rooms, polls and themes on top. It started in February 2026 as a fork of the Cinny client and was rewritten from scratch as version 2.0 on 10 October 2026."),
       gt("Sable inherits Matrix's strengths: federation, open source and encryption that has been on by default for private chats since 2020. SerikaCord is a single app and service, so it offers what Matrix lacks: named roles, onboarding, moderation tools, Discord-compatible bots and no homeserver to choose. Both are young, small projects."),
@@ -110,8 +111,8 @@ export async function content(): Promise<AppContent> {
       e2eeDms: {
         status: "yes",
         value: gt("Matrix encryption"),
-        note: gt("Uses Matrix's standard Olm and Megolm end-to-end encryption. We couldn't confirm whether Sable turns it on by default for new DMs."),
-        src: ["github"],
+        note: gt("Uses Matrix's standard Olm and Megolm end-to-end encryption, on by default for new DMs unless the homeserver turns that off."),
+        src: ["github", "sable-next"],
       },
       e2eeGroups: {
         status: "yes",
@@ -130,9 +131,9 @@ export async function content(): Promise<AppContent> {
         note: gt("Public rooms and spaces are typically unencrypted so they can be searched and moderated."),
       },
       e2eeDefault: {
-        status: "unknown",
-        note: gt("We couldn't confirm Sable's defaults. Matrix's usual convention is encrypted DMs and private rooms, unencrypted public rooms."),
-        src: ["mx-e2ee"],
+        status: "partial",
+        note: gt("New DMs and private rooms are encrypted by default unless the homeserver turns that off; public rooms are never encrypted."),
+        src: ["sable-next", "mx-e2ee"],
       },
       audit: {
         status: "partial",
@@ -183,7 +184,7 @@ export async function content(): Promise<AppContent> {
       },
       threadsForums: {
         status: "partial",
-        note: gt("Version 1 had threads and, from August 2026, forum rooms. We couldn't confirm both carried over to the version 2 rewrite."),
+        note: gt("Version 1 had threads and, from August 2026, forum rooms; the App Store listing for version 2 lists both."),
         src: ["github"],
       },
       onboarding: {
@@ -233,14 +234,14 @@ export async function content(): Promise<AppContent> {
       },
       desktop: {
         status: "yes",
-        note: gt("Windows, macOS (through Homebrew) and Linux (Flathub, AUR, .deb, .rpm and AppImage)."),
+        note: gt("Native downloads for Windows and macOS (also through Homebrew and, on Apple silicon Macs, the App Store) and Linux (Flathub, AUR, .deb, .rpm and AppImage)."),
         src: ["install", "flathub"],
       },
       mobile: {
-        status: "partial",
-        value: gt("Android; iPhone by sideloading"),
-        note: gt("Android from Google Play or as an APK. On iPhone you have to sideload an unsigned app with AltStore or SideStore and refresh it every 7 days."),
-        src: ["install", "play"],
+        status: "yes",
+        value: gt("Android, iPhone and iPad"),
+        note: gt("Android from Google Play, IzzyOnDroid or as an APK. iPhone and iPad from the App Store since November 2026."),
+        src: ["install", "play", "appstore"],
       },
       web: {
         status: "yes",
@@ -356,7 +357,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Is Sable end-to-end encrypted?"),
-        answer: gt("It uses Matrix's standard encryption for DMs and encrypted rooms. Public rooms are usually unencrypted, and we couldn't confirm whether Sable encrypts new DMs by default."),
+        answer: gt("It uses Matrix's standard encryption for DMs and encrypted rooms. New DMs and private rooms are encrypted by default, and public rooms are not."),
       },
       {
         question: gt("Is Sable open source?"),
@@ -364,7 +365,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Is there a Sable app for iPhone?"),
-        answer: gt("Not in the App Store. You can sideload it with AltStore or SideStore, refreshing it every 7 days, or use the web app. SerikaCord also has no iPhone app yet, but its web app works in Safari."),
+        answer: gt("Yes. Sable Chat has been in the App Store since November 2026, and so has SerikaCord."),
       },
       {
         question: gt("How many people use Sable?"),

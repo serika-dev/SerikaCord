@@ -7,27 +7,30 @@ import type { AppContent, CompareSource } from "../types";
  */
 
 export const sources: CompareSource[] = [
-  { id: "home", title: "Fluxer homepage", url: "https://fluxer.app", publisher: "Fluxer", kind: "primary" },
+  { id: "home", title: "Fluxer homepage", url: "https://fluxer.com", publisher: "Fluxer", kind: "primary" },
   {
     id: "how-built",
     title: "How I built Fluxer, a Discord-like chat app",
-    url: "https://fluxer.app/blog/how-i-built-fluxer-a-discord-like-chat-app",
+    url: "https://fluxer.com/blog/how-i-built-fluxer-a-discord-like-chat-app",
     publisher: "Fluxer",
     kind: "primary",
     date: "2026-01-24",
   },
-  { id: "v2", title: "Mobile clients and Fluxer v2", url: "https://fluxer.app/blog/mobile-clients-and-fluxer-v2", publisher: "Fluxer", kind: "primary", date: "2026-06-15" },
-  { id: "roadmap", title: "Roadmap 2026", url: "https://fluxer.app/blog/roadmap-2026", publisher: "Fluxer", kind: "primary", date: "2026-10-14" },
-  { id: "plutonium", title: "Fluxer Plutonium", url: "https://fluxer.app/plutonium", publisher: "Fluxer", kind: "primary" },
-  { id: "pass", title: "Fluxer Operator Pass", url: "https://fluxer.app/pass", publisher: "Fluxer", kind: "primary" },
-  { id: "selfhost", title: "Self-hosting Fluxer", url: "https://fluxer.app/selfhost", publisher: "Fluxer", kind: "primary" },
-  { id: "download", title: "Download Fluxer", url: "https://fluxer.app/download", publisher: "Fluxer", kind: "primary" },
-  { id: "company", title: "Company information (Fluxer Platform AB)", url: "https://fluxer.app/company-information", publisher: "Fluxer", kind: "primary" },
-  { id: "privacy", title: "Fluxer Privacy Policy (updated 5 October 2026)", url: "https://fluxer.app/privacy", publisher: "Fluxer", kind: "primary", date: "2026-10-05" },
-  { id: "terms", title: "Fluxer Terms of Service (updated 5 October 2026)", url: "https://fluxer.app/terms", publisher: "Fluxer", kind: "primary", date: "2026-10-05" },
-  { id: "guidelines", title: "Fluxer Community Guidelines (updated 5 October 2026)", url: "https://fluxer.app/guidelines", publisher: "Fluxer", kind: "primary", date: "2026-10-05" },
-  { id: "regional", title: "Regional restrictions", url: "https://fluxer.app/help/regional-restrictions", publisher: "Fluxer", kind: "primary", date: "2026-10-12" },
-  { id: "min-age", title: "Minimum age requirements", url: "https://fluxer.app/help/minimum-age", publisher: "Fluxer", kind: "primary" },
+  { id: "v2", title: "Mobile clients and Fluxer v2", url: "https://fluxer.com/blog/mobile-clients-and-fluxer-v2", publisher: "Fluxer", kind: "primary", date: "2026-06-15" },
+  { id: "roadmap", title: "Roadmap 2026", url: "https://fluxer.com/blog/roadmap-2026", publisher: "Fluxer", kind: "primary", date: "2026-11-04" },
+  { id: "nov2026", title: "Fluxer in November 2026", url: "https://fluxer.com/blog/fluxer-november-2026", publisher: "Fluxer", kind: "primary", date: "2026-11-04" },
+  { id: "patch1016", title: "Patch notes: 16 October 2026", url: "https://fluxer.com/blog/patch-notes-2026-10-16", publisher: "Fluxer", kind: "primary", date: "2026-10-16" },
+  { id: "selfhost-pass", title: "Self-hosting and the Operator Pass", url: "https://fluxer.com/blog/self-hosting-and-the-operator-pass", publisher: "Fluxer", kind: "primary", date: "2026-10-24" },
+  { id: "plutonium", title: "Fluxer Plutonium", url: "https://fluxer.com/plutonium", publisher: "Fluxer", kind: "primary" },
+  { id: "pass", title: "Fluxer Operator Pass", url: "https://fluxer.com/pass", publisher: "Fluxer", kind: "primary" },
+  { id: "selfhost", title: "Self-hosting Fluxer", url: "https://fluxer.com/selfhost", publisher: "Fluxer", kind: "primary" },
+  { id: "download", title: "Download Fluxer", url: "https://fluxer.com/download", publisher: "Fluxer", kind: "primary" },
+  { id: "company", title: "Company information (Fluxer Platform AB)", url: "https://fluxer.com/company-information", publisher: "Fluxer", kind: "primary" },
+  { id: "privacy", title: "Fluxer Privacy Policy (updated 3 November 2026)", url: "https://fluxer.com/privacy", publisher: "Fluxer", kind: "primary", date: "2026-11-03" },
+  { id: "terms", title: "Fluxer Terms of Service (updated 5 October 2026)", url: "https://fluxer.com/terms", publisher: "Fluxer", kind: "primary", date: "2026-10-05" },
+  { id: "guidelines", title: "Fluxer Community Guidelines (updated 5 October 2026)", url: "https://fluxer.com/guidelines", publisher: "Fluxer", kind: "primary", date: "2026-10-05" },
+  { id: "regional", title: "Regional restrictions", url: "https://fluxer.com/help/regional-restrictions", publisher: "Fluxer", kind: "primary", date: "2026-10-12" },
+  { id: "min-age", title: "Minimum age requirements", url: "https://fluxer.com/help/minimum-age", publisher: "Fluxer", kind: "primary" },
   { id: "github", title: "fluxerapp/fluxer repository", url: "https://github.com/fluxerapp/fluxer", publisher: "GitHub", kind: "primary" },
   {
     id: "threads-docs",
@@ -55,10 +58,10 @@ export async function content(): Promise<AppContent> {
   return {
     take: gt("A fast-growing, open-source Discord look-alike from Sweden that you can self-host for free with every feature, but its hosted service runs on US servers and encryption is only planned for 2026 to 2027."),
     intro: [
-      gt("Fluxer is a Discord-style chat app made by Fluxer Platform AB, a tiny Swedish company, and opened to the public in January 2026. It is open source under the AGPL, has no ads and no ID checks, and lets you self-host the full version for free. Its hosted service, Fluxer.app, runs on US servers in New Jersey."),
-      gt("Fluxer wins on openness, community size and desktop coverage, and its iPhone and Android apps are in public beta. SerikaCord wins on what exists today: end-to-end encrypted DMs and calls, Discord-compatible bots, threads and forums, and an operator based in the EU."),
+      gt("Fluxer is a Discord-style chat app made by Fluxer Platform AB, a tiny Swedish company, and opened to the public in January 2026. It is open source under the AGPL, has no ads and no ID checks, and lets you self-host the full version for free. Its hosted service, Fluxer.com, runs on US servers in New Jersey."),
+      gt("Fluxer wins on openness, community size and desktop coverage. SerikaCord wins on what exists today: end-to-end encrypted DMs and calls, Discord-compatible bots with slash commands, finished threads and forums, an iPhone app in the App Store, and an operator based in the EU."),
     ],
-    verdict: gt("Pick Fluxer if you want open-source software you can self-host freely, or an iPhone beta right now. Pick SerikaCord if you want encrypted private messages today, your Discord bots to work, and a service run from the EU."),
+    verdict: gt("Pick Fluxer if you want open-source software you can self-host freely. Pick SerikaCord if you want encrypted private messages today, your Discord bots to work, and a service run from the EU."),
     facts: {
       operator: {
         value: gt("Fluxer Platform AB"),
@@ -67,7 +70,7 @@ export async function content(): Promise<AppContent> {
       },
       jurisdiction: {
         value: gt("Sweden; servers in the US"),
-        note: gt("The company is in Stockholm, but Fluxer.app is hosted by Vultr in New Jersey, and the privacy policy acknowledges that US lawful-access rules can apply."),
+        note: gt("The company is in Stockholm, but Fluxer.com is hosted by Vultr in New Jersey, and the privacy policy acknowledges that US lawful-access rules can apply."),
         src: ["company", "privacy"],
       },
       businessModel: {
@@ -89,7 +92,7 @@ export async function content(): Promise<AppContent> {
       maturity: {
         status: "partial",
         value: gt("Public since January 2026"),
-        note: gt("The desktop and web apps are stable; the iPhone and Android apps are still public betas. Fluxer v2 was announced in June 2026."),
+        note: gt("The desktop and web apps are stable and the Android app is a public beta. The iPhone beta on TestFlight is paused, with an App Store release promised for November 2026. Fluxer v2 was announced in June 2026."),
         src: ["wikipedia", "download", "v2"],
       },
       e2eeDms: {
@@ -137,10 +140,10 @@ export async function content(): Promise<AppContent> {
         src: ["privacy"],
       },
       phone: {
-        status: "partial",
-        value: gt("Sometimes"),
-        note: gt("The terms don't require a phone number, but optional or conditional SMS verification exists. We couldn't confirm when it is triggered."),
-        src: ["terms", "privacy"],
+        status: "no",
+        value: gt("Not required"),
+        note: gt("Phone verification was removed on 16 October 2026. An account whose messaging is paused may still be asked to text a code."),
+        src: ["patch1016", "terms"],
       },
       email: {
         status: "unknown",
@@ -165,9 +168,9 @@ export async function content(): Promise<AppContent> {
       },
       threadsForums: {
         status: "partial",
-        value: gt("In the API, not clearly shipped"),
-        note: gt("Thread and forum APIs are documented but hidden behind a client capability flag, and both are still on the 2026 roadmap."),
-        src: ["threads-docs", "forums-docs", "roadmap"],
+        value: gt("Early beta"),
+        note: gt("Public and private threads, plus forum and media channels with tags, have been in early beta for everyone since 16 October 2026."),
+        src: ["patch1016", "threads-docs", "forums-docs"],
       },
       onboarding: {
         status: "unknown",
@@ -223,7 +226,7 @@ export async function content(): Promise<AppContent> {
       mobile: {
         status: "partial",
         value: gt("Public beta"),
-        note: gt("Android 7 or newer through a Google Play beta or APK; iPhone and iPad through TestFlight. Not in the App Store as of October 2026."),
+        note: gt("Android 7 or newer through a Google Play beta or APK. The iPhone TestFlight beta is paused, and the App Store release is promised for November 2026."),
         src: ["download", "v2"],
       },
       web: {
@@ -239,8 +242,8 @@ export async function content(): Promise<AppContent> {
       selfHost: {
         status: "yes",
         value: gt("Free, full version"),
-        note: gt("The same code as Fluxer.app, with no license key and every Plutonium perk unlocked. An optional €199 Operator Pass buys support and perks, not features."),
-        src: ["selfhost", "pass"],
+        note: gt("The same code as Fluxer.com, with no license key and every Plutonium perk unlocked, and since October 2026 the official desktop and mobile apps can connect to your own server. An optional €199 Operator Pass buys support and perks, not features."),
+        src: ["selfhost", "pass", "selfhost-pass"],
       },
       federation: {
         status: "notyet",
@@ -259,9 +262,9 @@ export async function content(): Promise<AppContent> {
       },
       scale: {
         status: "yes",
-        value: gt("About 500,000 accounts"),
-        note: gt("Fluxer reported nearly 500,000 registered users in September 2026; these are sign-ups, not active users. Its GitHub repository has about 10,600 stars."),
-        src: ["how-built", "github"],
+        value: gt("About 547,000 accounts"),
+        note: gt("Fluxer reported 546,609 registered accounts on 2 November 2026; these are sign-ups, not active users. Its GitHub repository has about 10,600 stars."),
+        src: ["nov2026", "github"],
       },
       incidents: {
         value: gt("Launch-surge outages"),
@@ -277,7 +280,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Run from the EU, not hosted in the US"),
-        text: gt("SerikaCord is run from the Netherlands under the GDPR. Fluxer is a Swedish company, but Fluxer.app is hosted on US servers in New Jersey, and its privacy policy acknowledges US lawful-access rules."),
+        text: gt("SerikaCord is run from the Netherlands under the GDPR. Fluxer is a Swedish company, but Fluxer.com is hosted on US servers in New Jersey, and its privacy policy acknowledges US lawful-access rules."),
         src: ["privacy", "company"],
       },
       {
@@ -304,22 +307,22 @@ export async function content(): Promise<AppContent> {
     whyThem: [
       {
         title: gt("Open source, and self-hosting is free and complete"),
-        text: gt("Fluxer is AGPL-3.0 and its self-hosted version is the same code as Fluxer.app, with no license key and every paid perk unlocked, for any use. SerikaCord is source-available: self-hosting is allowed only for personal, non-commercial use, with no official guide."),
+        text: gt("Fluxer is AGPL-3.0 and its self-hosted version is the same code as Fluxer.com, with no license key and every paid perk unlocked, for any use. SerikaCord is source-available: self-hosting is allowed only for personal, non-commercial use, with no official guide."),
         src: ["selfhost", "github"],
       },
       {
-        title: gt("An iPhone app you can try now"),
-        text: gt("Fluxer has public beta apps for iPhone and iPad through TestFlight and for Android through Google Play. SerikaCord's iPhone app is still in development and our Android app is installed from our website."),
+        title: gt("Android on Google Play"),
+        text: gt("Fluxer's Android app is a public beta on Google Play, and its iPhone app is promised for the App Store in November 2026. SerikaCord's iPhone app is already in the App Store, but our Android app is installed from our website."),
         src: ["download"],
       },
       {
         title: gt("A bigger, faster-growing community"),
-        text: gt("Fluxer reported nearly 500,000 registered users by September 2026 and has about 10,600 GitHub stars. SerikaCord is smaller and doesn't publish user numbers."),
+        text: gt("Fluxer reported 546,609 registered accounts in November 2026 and has about 10,600 GitHub stars. SerikaCord is smaller and doesn't publish user numbers."),
         src: ["how-built", "github"],
       },
       {
         title: gt("Calls through servers, not peer-to-peer"),
-        text: gt("Fluxer routes voice through its own servers in many regions. SerikaCord connects calls peer-to-peer where possible, which exposes your IP address to others in the call and gets heavy in large video calls."),
+        text: gt("Fluxer routes voice through its own servers in many regions. SerikaCord's server voice channels have also used a media server since November 2026, but its end-to-end encrypted DM calls connect peer-to-peer where possible, which shows your IP address to the other people in the call."),
         src: ["status"],
       },
       {
@@ -335,7 +338,7 @@ export async function content(): Promise<AppContent> {
     ],
     pickThem: [
       gt("you want open-source software you can self-host for free with every feature"),
-      gt("you need an iPhone app, even a beta, today"),
+      gt("you want the official apps to connect to a server you host yourself"),
       gt("you use an Intel Mac or an ARM64 Windows or Linux machine"),
       gt("some of your members are 13 to 15 years old"),
     ],
@@ -352,11 +355,11 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Where is Fluxer's data stored?"),
-        answer: gt("In the United States. Fluxer Platform AB is a Swedish company, but Fluxer.app runs on Vultr servers in New Jersey, and calls may route through other regions."),
+        answer: gt("In the United States. Fluxer Platform AB is a Swedish company, but Fluxer.com runs on Vultr servers in New Jersey, and calls may route through other regions."),
       },
       {
         question: gt("Is Fluxer open source, and can I self-host it?"),
-        answer: gt("Yes. Fluxer is AGPL-3.0, and the self-hosted version is the same code as Fluxer.app, free and with every Plutonium perk unlocked. An optional Operator Pass sells support, not features."),
+        answer: gt("Yes. Fluxer is AGPL-3.0, and the self-hosted version is the same code as Fluxer.com, free and with every Plutonium perk unlocked. An optional Operator Pass sells support, not features."),
       },
       {
         question: gt("Can I host SerikaCord myself?"),
@@ -372,11 +375,11 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Is there a Fluxer app for iPhone?"),
-        answer: gt("Only a public beta through TestFlight, for iOS 16 or newer; it is not in the App Store as of October 2026. SerikaCord's iPhone app is still in development."),
+        answer: gt("Not yet. Its TestFlight beta is paused, and Fluxer says the App Store release is due in November 2026. SerikaCord's iPhone app is in the App Store."),
       },
     ],
     couldNotVerify: [
-      gt("Whether an email address is strictly required to sign up, and when SMS phone verification is triggered."),
+      gt("Whether an email address is strictly required to sign up."),
       gt("Whether threads and forums are visible to normal users in the current apps."),
       gt("Stage-style channels and server onboarding or rules screening."),
       gt("Any independent security audit or transparency report."),

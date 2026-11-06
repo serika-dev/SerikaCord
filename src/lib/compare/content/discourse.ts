@@ -37,7 +37,7 @@ export const sources: CompareSource[] = [
   },
   {
     id: "voice",
-    title: "Voice: Discord-style voice and video rooms, now bundled",
+    title: "Live (formerly Voice): Discord-style voice and video rooms, now bundled",
     url: "https://meta.discourse.org/t/-/411337",
     publisher: "Discourse Meta",
     kind: "primary",
@@ -47,8 +47,8 @@ export const sources: CompareSource[] = [
   { id: "github", title: "Discourse source code (GPL-2.0)", url: "https://github.com/discourse/discourse", publisher: "GitHub", kind: "primary" },
   {
     id: "voice-plugin",
-    title: "Voice core plugin (experimental, off by default)",
-    url: "https://github.com/discourse/discourse/tree/main/plugins/voice",
+    title: "Live core plugin, renamed from Voice in October 2026 (experimental, off by default)",
+    url: "https://github.com/discourse/discourse/tree/main/plugins/live",
     publisher: "GitHub",
     kind: "primary",
     date: "2026-09-01",
@@ -211,7 +211,7 @@ export async function content(): Promise<AppContent> {
       voiceChannels: {
         status: "partial",
         value: gt("Experimental"),
-        note: gt("Discord-style voice and video rooms arrived on 1 September 2026, off by default. Beyond about 50 voice or 10 video participants they need a LiveKit server, which hosted plans only include from Business."),
+        note: gt("Discord-style voice and video rooms arrived on 1 September 2026, off by default, and were renamed Live in October 2026. Beyond about 50 voice or 10 video participants they need a LiveKit server, which hosted plans only include from Business."),
         src: ["voice", "voice-plugin", "pricing"],
       },
       videoScreen: {
@@ -293,7 +293,7 @@ export async function content(): Promise<AppContent> {
       },
       incidents: {
         value: gt("Security advisories, no breach found"),
-        note: gt("Two high-severity advisories in September 2026 (HTML injection through embeds, and uploads staying public after category permissions were tightened), plus several medium data-leak advisories in May and June 2026. Self-hosters need to update to get the fixes."),
+        note: gt("Four high-severity advisories in September and October 2026 (HTML injection through embeds, uploads staying public after category permissions were tightened, chat messages reaching people who shouldn't see them, and gaps in its AI tool access to private messages), plus several medium data-leak advisories. Self-hosters need to update to get the fixes."),
         src: ["advisories"],
       },
     },
@@ -310,7 +310,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("One account, many communities, native apps"),
-        text: gt("On SerikaCord one account joins any number of servers, with apps for Windows, macOS, Linux and Android. Each Discourse forum is its own site, with no native desktop app and a thin DiscourseHub wrapper on mobile. We don't have an iPhone app yet either."),
+        text: gt("On SerikaCord one account joins any number of servers, with apps for Windows, macOS, Linux, Android and iPhone. Each Discourse forum is its own site, with no native desktop app and a thin DiscourseHub wrapper on mobile."),
         src: ["hub-ios"],
       },
       {

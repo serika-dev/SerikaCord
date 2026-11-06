@@ -46,9 +46,9 @@ export async function content(): Promise<AppContent> {
     take: gt("A gaming voice app with generous free limits, apps on every platform and the best Discord import we've seen. But it's an open beta, closed source, and its own documents disagree on encryption and tracking."),
     intro: [
       gt("GameVox is a Discord-style app for gamers from LightSpeed Gaming, an Ohio company that has hosted voice servers since 2004 and says it bought Ventrilo in 2023. It launched in 2026 and is in open beta, with servers, voice and video, an in-game overlay, per-server paid tiers and a paid self-hosted server option."),
-      gt("GameVox beats SerikaCord on moving from Discord (it can import a whole server's structure), on having an iPhone app, and on gaming extras like positional voice for roleplay servers. SerikaCord is ahead on documented encryption for DMs, on privacy (no analytics or ad pixels) and on free servers without member caps."),
+      gt("GameVox beats SerikaCord on moving from Discord (it can import a whole server's structure), on having both phone apps in the stores, and on gaming extras like positional voice for roleplay servers. SerikaCord is ahead on documented encryption for DMs, on privacy (no analytics or ad pixels) and on free servers without member caps."),
     ],
-    verdict: gt("If you want to copy your Discord server over in one step and need an iPhone app, GameVox is worth a look. If you care about encrypted DMs, no trackers and an EU-based operator, pick SerikaCord."),
+    verdict: gt("If you want to copy your Discord server over in one step, GameVox is worth a look. If you care about encrypted DMs, no trackers and an EU-based operator, pick SerikaCord."),
     facts: {
       operator: {
         value: gt("LightSpeed Gaming LLC"),
@@ -249,7 +249,7 @@ export async function content(): Promise<AppContent> {
       scale: {
         status: "unknown",
         value: gt("Small; no numbers"),
-        note: gt("GameVox publishes no user numbers. On 15 October 2026 Google Play showed 5,000+ installs and the iPhone app had 8 ratings."),
+        note: gt("GameVox publishes no user numbers. On 6 November 2026 Google Play showed 5,000+ installs and the iPhone app had 9 ratings."),
         src: ["play", "appstore"],
       },
       incidents: {
@@ -293,12 +293,12 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Apps in both app stores"),
-        text: gt("GameVox has an iPhone app on the App Store and an Android app on Google Play. SerikaCord has no iPhone app yet, and its Android app is downloaded from our website."),
+        text: gt("GameVox has an iPhone app on the App Store and an Android app on Google Play. SerikaCord is in the App Store too, but its Android app is downloaded from our website."),
         src: ["appstore", "play"],
       },
       {
         title: gt("Calls routed through servers"),
-        text: gt("GameVox calls go through media servers in several regions, so other people in a call don't see your IP address. SerikaCord connects calls peer-to-peer where possible, which exposes your IP address and gets heavy in large calls."),
+        text: gt("GameVox calls go through media servers in several regions, so other people in a call don't see your IP address. SerikaCord does the same for server voice channels since November 2026, but its end-to-end encrypted DM calls connect peer-to-peer where possible, which shows your IP address to the other people in the call."),
         src: ["privacy"],
       },
       {

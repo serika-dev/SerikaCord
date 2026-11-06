@@ -36,7 +36,7 @@ const META: Record<AppId, Omit<AppMeta, "id">> = {
     name: "Fluxer",
     short: "Fluxer",
     kind: "community",
-    website: "https://fluxer.app",
+    website: "https://fluxer.com",
     status: "active",
     seoTitle: "SerikaCord vs Fluxer: an honest comparison",
     seoDescription:

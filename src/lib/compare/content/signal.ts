@@ -8,6 +8,8 @@ import type { AppContent, CompareSource } from "../types";
 
 export const sources: CompareSource[] = [
   { id: "home", title: "Signal homepage", url: "https://signal.org/", publisher: "Signal", kind: "primary" },
+  { id: "akv", title: "Introducing Automatic Key Verification", url: "https://signal.org/blog/automatic-key-verification/", publisher: "Signal", kind: "primary", date: "2026-08-11" },
+  { id: "ringrtc-cve", title: "Signal Vulnerability Lets Malicious Callers Block Hang-Ups", url: "https://www.securityweek.com/signal-vulnerability-lets-malicious-callers-block-hang-ups/", publisher: "SecurityWeek", kind: "secondary", date: "2026-10-22" },
   { id: "bigbrother", title: "Signal Government Communication (legal requests and responses)", url: "https://signal.org/bigbrother/", publisher: "Signal", kind: "primary" },
   {
     id: "dc-subpoena",
@@ -206,8 +208,8 @@ export async function content(): Promise<AppContent> {
       audit: {
         status: "partial",
         value: gt("Studied in depth"),
-        note: gt("The Signal Protocol is the most studied messaging protocol in academic research, and Signal says its 2025 post-quantum ratchet was formally verified. We found no recent public third-party audit of the full apps and servers."),
-        src: ["spqr", "wikipedia"],
+        note: gt("The Signal Protocol is the most studied messaging protocol in academic research, and Signal says its 2025 post-quantum ratchet was formally verified. Since August 2026 safety numbers are checked automatically in the background. We found no recent public third-party audit of the full apps and servers."),
+        src: ["spqr", "wikipedia", "akv"],
       },
       metadata: {
         value: gt("Almost nothing"),
@@ -343,8 +345,8 @@ export async function content(): Promise<AppContent> {
       },
       incidents: {
         value: gt("Mostly others' mistakes"),
-        note: gt("In March 2025 US officials accidentally added a journalist to a Signal group about military strikes; that was user error, not a flaw in Signal. A 2022 breach at SMS vendor Twilio exposed numbers of about 1,900 users. Blocked in Russia and Venezuela since 2024."),
-        src: ["signalgate", "wikipedia"],
+        note: gt("In March 2025 US officials accidentally added a journalist to a Signal group about military strikes; that was user error, not a flaw in Signal. A 2022 breach at SMS vendor Twilio exposed numbers of about 1,900 users. Blocked in Russia and Venezuela since 2024. A serious bug in its calling library, which could keep a caller's mic and camera running after hanging up, was fixed before it was disclosed in October 2026."),
+        src: ["signalgate", "wikipedia", "ringrtc-cve"],
       },
     },
     whyUs: [
@@ -360,7 +362,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Voice channels you can drop into"),
-        text: gt("On SerikaCord you can hang out in a voice channel and leave whenever you like, with screen sharing up to 60 FPS. Signal has excellent encrypted group calls of up to 75 people but no always-open voice rooms. Our server voice channels are not end-to-end encrypted, and calls are peer-to-peer where possible, so others can see your IP address."),
+        text: gt("On SerikaCord you can hang out in a voice channel and leave whenever you like, with screen sharing up to 60 FPS. Signal has excellent encrypted group calls of up to 75 people but no always-open voice rooms. Our server voice channels are not end-to-end encrypted, and our DM calls are peer-to-peer where possible, so the other people in them can see your IP address."),
         src: ["support-video", "call-links"],
       },
       {
@@ -397,7 +399,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Mature, widely used and on iPhone"),
-        text: gt("Signal has been around since 2014 and has an estimated 70 to 100 million monthly users, with native apps for Android and iPhone. SerikaCord launched in January 2026 and has no iPhone app yet."),
+        text: gt("Signal has been around since 2014 and has an estimated 70 to 100 million monthly users, with native apps for Android and iPhone. SerikaCord launched in January 2026 and reached the App Store in November 2026."),
         src: ["stats", "download"],
       },
       {

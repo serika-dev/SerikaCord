@@ -12,7 +12,7 @@ export const sources: CompareSource[] = [
   { id: "github", title: "simplex-chat source code and README", url: "https://github.com/simplex-chat/simplex-chat", publisher: "GitHub", kind: "primary" },
   {
     id: "releases",
-    title: "SimpleX Chat releases (v7.0.0, v7.0.3, v7.1.0 beta)",
+    title: "SimpleX Chat releases (v7.0.0, v7.0.4, v7.1.0)",
     url: "https://api.github.com/repos/simplex-chat/simplex-chat/releases",
     publisher: "GitHub",
     kind: "primary",
@@ -92,7 +92,7 @@ export async function content(): Promise<AppContent> {
       },
       businessModel: {
         value: gt("Investors, donations and badges"),
-        note: gt("Venture funding (a $1.3 million round in 2024 was led by Jack Dorsey), user donations, equity crowdfunding on Wefunder since August 2026 and paid supporter badges in beta since September 2026. Paid public names are announced for December 2026."),
+        note: gt("Venture funding (a $1.3 million round in 2024 was led by Jack Dorsey), user donations, equity crowdfunding on Wefunder since August 2026 and paid supporter badges in beta since September 2026. Paid public names go on sale on 12 December 2026."),
         src: ["wikipedia", "crowdfunding", "badges", "names"],
       },
       ads: {
@@ -138,9 +138,9 @@ export async function content(): Promise<AppContent> {
       },
       e2eeDefault: {
         status: "yes",
-        value: gt("Always on"),
-        note: gt("There is no unencrypted mode for chats, groups or calls."),
-        src: ["faq"],
+        value: gt("Always on for messages"),
+        note: gt("Chats and groups are always end-to-end encrypted. Calls are too, except with some older phones, which the app warns about since October 2026."),
+        src: ["faq", "releases"],
       },
       audit: {
         status: "yes",
@@ -200,8 +200,8 @@ export async function content(): Promise<AppContent> {
       modTools: {
         status: "partial",
         value: gt("Basic group tools"),
-        note: gt("Members can report messages to group moderators (since March 2025); moderators can block members for everyone, remove them or make them read-only. Directory-listed groups can add a captcha and a name filter."),
-        src: ["v63", "large-groups"],
+        note: gt("Members can report messages to group moderators (since March 2025); moderators can block members for everyone, remove them or make them read-only. Directory-listed groups can add a captcha and a name filter. Version 7.1 (November 2026, pre-release) adds channel moderators and optional signing of every message."),
+        src: ["v63", "large-groups", "releases"],
       },
       platformSafety: {
         status: "partial",
@@ -295,7 +295,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Voice channels, group calls and screen sharing"),
-        text: gt("On SerikaCord you can drop into a voice channel with friends and share your screen at up to 60 FPS. SimpleX only has one-to-one calls. Our server voice channels are not end-to-end encrypted, and calls are peer-to-peer where possible, so others can see your IP address."),
+        text: gt("On SerikaCord you can drop into a voice channel with friends and share your screen at up to 60 FPS. SimpleX only has one-to-one calls. Our server voice channels are not end-to-end encrypted, and our DM calls are peer-to-peer where possible, so the other people in them can see your IP address."),
         src: ["faq"],
       },
       {
@@ -337,7 +337,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("An iPhone app, F-Droid and younger users"),
-        text: gt("SimpleX has native apps for iPhone and Android, including on F-Droid, and its minimum age is 13. SerikaCord has no iPhone app yet, ships its Android app from its own website and is 16 and over."),
+        text: gt("SimpleX has native apps for iPhone and Android, including on F-Droid, and its minimum age is 13. SerikaCord ships its Android app from its own website and is 16 and over."),
         src: ["appstore", "fdroid", "privacy"],
       },
     ],

@@ -35,7 +35,8 @@ export const sources: CompareSource[] = [
   { id: "github", title: "RocketChat/Rocket.Chat source code and README", url: "https://github.com/RocketChat/Rocket.Chat", publisher: "GitHub", kind: "primary" },
   { id: "license", title: "Rocket.Chat LICENSE", url: "https://github.com/RocketChat/Rocket.Chat/blob/develop/LICENSE", publisher: "GitHub", kind: "primary" },
   { id: "ee-license", title: "Rocket.Chat Enterprise Edition (EE) License", url: "https://github.com/RocketChat/Rocket.Chat/blob/develop/apps/meteor/ee/LICENSE", publisher: "GitHub", kind: "primary" },
-  { id: "releases", title: "Rocket.Chat releases (8.9.0 LTS, 8.8.0, 8.0.0, 7.0.0)", url: "https://github.com/RocketChat/Rocket.Chat/releases", publisher: "GitHub", kind: "primary" },
+  { id: "releases", title: "Rocket.Chat releases (8.9.1 LTS, 8.9.0 LTS, 8.8.0, 8.0.0, 7.0.0)", url: "https://github.com/RocketChat/Rocket.Chat/releases", publisher: "GitHub", kind: "primary" },
+  { id: "rc90rc", title: "Rocket.Chat 9.0.0-rc.0 release notes", url: "https://github.com/RocketChat/Rocket.Chat/releases/tag/9.0.0-rc.0", publisher: "GitHub", kind: "primary", date: "2026-10-27" },
   { id: "rc88", title: "Rocket.Chat 8.8.0 release notes", url: "https://github.com/RocketChat/Rocket.Chat/releases/tag/8.8.0", publisher: "GitHub", kind: "primary", date: "2026-09-01" },
   {
     id: "upload-settings",
@@ -153,8 +154,8 @@ export async function content(): Promise<AppContent> {
       maturity: {
         status: "yes",
         value: gt("Since 2015"),
-        note: gt("Monthly releases, with 6 months of support for standard versions and 12 for long-term ones. Version 8.9.0 LTS came out on 5 October 2026."),
-        src: ["releases", "endoflife"],
+        note: gt("Monthly releases, with 6 months of support for standard versions and 12 for long-term ones. Version 8.9.0 LTS came out on 5 October 2026 and 8.9.1 followed on 6 November with a security fix; 9.0 is in release candidates."),
+        src: ["releases", "endoflife", "rc90rc"],
       },
       e2eeDms: {
         status: "partial",
@@ -257,8 +258,8 @@ export async function content(): Promise<AppContent> {
       },
       videoScreen: {
         status: "partial",
-        note: gt("Built-in peer-to-peer voice calls since October 2025, with screen sharing since 8.8.0 (September 2026). Video meetings mostly run through Jitsi, Pexip, BigBlueButton or Google Meet, and phone (SIP) calling is a paid add-on."),
-        src: ["rc711", "rc88", "conference", "rc70"],
+        note: gt("Built-in peer-to-peer voice calls since October 2025, with screen sharing since 8.8.0 (September 2026). Video meetings mostly run through Jitsi, Pexip, BigBlueButton or Google Meet, and phone (SIP) calling is a paid add-on. The 9.0 release candidates add a built-in LiveKit video option, in alpha and as a paid add-on."),
+        src: ["rc711", "rc88", "conference", "rc70", "rc90rc"],
       },
       streamingStage: {
         status: "no",
@@ -299,8 +300,8 @@ export async function content(): Promise<AppContent> {
       selfHost: {
         status: "yes",
         value: gt("Yes, with strings attached"),
-        note: gt("Runs on Docker or Kubernetes. Offline installs need a paid license, push notifications for the official apps need registration with Rocket.Chat's cloud, and LDAP, SAML and custom OAuth sign-in will need a license from version 9.0."),
-        src: ["rc70", "push-faq", "rc88"],
+        note: gt("Runs on Docker or Kubernetes. Offline installs need a paid license, push notifications for the official apps need registration with Rocket.Chat's cloud, and from version 9.0 LDAP, SAML and custom OAuth sign-in need a premium plan (the free Starter plan counts)."),
+        src: ["rc70", "push-faq", "rc88", "rc90rc"],
       },
       federation: {
         status: "partial",
@@ -338,7 +339,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Drop-in voice channels and screen sharing"),
-        text: gt("SerikaCord has voice channels people can hang out in, with screen sharing up to 60 FPS. Rocket.Chat has calls you start and leans on Jitsi or other apps for video meetings. Our server voice channels are not end-to-end encrypted, and calls are peer-to-peer where possible, so others can see your IP address."),
+        text: gt("SerikaCord has voice channels people can hang out in, with screen sharing up to 60 FPS. Rocket.Chat has calls you start and leans on Jitsi or other apps for video meetings. Our server voice channels are not end-to-end encrypted, and our DM calls are peer-to-peer where possible, so the other people in them can see your IP address."),
         src: ["conference", "rc711"],
       },
       {
@@ -380,7 +381,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Mostly open source, with native apps everywhere"),
-        text: gt("Rocket.Chat's core is MIT-licensed, and it has apps for web, Windows, macOS, Linux, Android and iPhone. SerikaCord is source-available, not open source, and has no iPhone app yet."),
+        text: gt("Rocket.Chat's core is MIT-licensed, and it has apps for web, Windows, macOS, Linux, Android and iPhone. SerikaCord is source-available, not open source, and its Android app isn't on Google Play."),
         src: ["license", "ios"],
       },
     ],

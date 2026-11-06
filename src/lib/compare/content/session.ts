@@ -240,10 +240,10 @@ export async function content(): Promise<AppContent> {
         src: ["faq", "pro-beta"],
       },
       scale: {
-        status: "unknown",
-        value: gt("‘Millions’ (self-reported)"),
-        note: gt("Session says it has millions of users but gives no figure."),
-        src: ["future"],
+        status: "partial",
+        value: gt("About 1.5 million a month (self-reported)"),
+        note: gt("Session's cofounder wrote in March 2026 that more than 1.5 million people use it every month."),
+        src: ["appeal"],
       },
       incidents: {
         value: gt("Near shutdown in 2026"),
@@ -259,7 +259,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Voice channels and group calls"),
-        text: gt("On SerikaCord you can drop into a voice channel and share your screen at up to 60 FPS. Session has only one-to-one calls, still in beta. Both apps' calls are peer-to-peer where possible, so others can see your IP address, and our server voice channels are not end-to-end encrypted."),
+        text: gt("On SerikaCord you can drop into a voice channel and share your screen at up to 60 FPS. Session has only one-to-one calls, still in beta. Session's calls and our DM calls are peer-to-peer where possible, so others can see your IP address, and our server voice channels are not end-to-end encrypted."),
         src: ["faq"],
       },
       {
@@ -300,7 +300,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Native apps everywhere, including iPhone"),
-        text: gt("Session has apps for Android, iPhone, Windows, macOS and Linux, and a 4.4 rating from about 5,200 App Store reviews. SerikaCord has no iPhone app yet."),
+        text: gt("Session has apps for Android, iPhone, Windows, macOS and Linux, and a 4.4 rating from about 5,200 App Store reviews. SerikaCord's iPhone app only reached the App Store in November 2026."),
         src: ["appstore"],
       },
       {
@@ -352,7 +352,7 @@ export async function content(): Promise<AppContent> {
       },
     ],
     couldNotVerify: [
-      gt("How many people use Session: it says ‘millions’ but gives no figure."),
+      gt("How many people use Session: the only figure is its cofounder's 1.5 million monthly users from March 2026."),
       gt("The price of Session Pro, which was never published."),
       gt("How much the 2026 donation campaign raised."),
       gt("Which countries block Session."),

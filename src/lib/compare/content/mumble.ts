@@ -8,6 +8,8 @@ import type { AppContent, CompareSource } from "../types";
 
 export const sources: CompareSource[] = [
   { id: "home", title: "Mumble homepage", url: "https://www.mumble.info/", publisher: "Mumble", kind: "primary" },
+  { id: "rc2", title: "Mumble 1.6.1001 (RC 2)", url: "https://www.mumble.info/blog/mumble-1.6.1001-rc-2/", publisher: "Mumble", kind: "primary", date: "2026-10-23" },
+  { id: "r1939", title: "Mumble 1.5.939", url: "https://www.mumble.info/blog/mumble-1.5.939/", publisher: "Mumble", kind: "primary", date: "2026-10-09" },
   { id: "about", title: "About Mumble (team and license)", url: "https://www.mumble.info/about/", publisher: "Mumble", kind: "primary" },
   { id: "downloads", title: "Mumble downloads (macOS note, mobile clients)", url: "https://www.mumble.info/downloads/", publisher: "Mumble", kind: "primary" },
   { id: "sponsors", title: "Mumble sponsors", url: "https://www.mumble.info/sponsors/", publisher: "Mumble", kind: "primary" },
@@ -50,7 +52,7 @@ export async function content(): Promise<AppContent> {
     take: gt("Free, open-source voice chat with excellent low latency, positional audio and servers you run yourself. But text isn't saved, there's no video or screen sharing, and mobile apps are weak."),
     intro: [
       gt("Mumble is a free, open-source voice chat app made by volunteers since 2005. You run your own server (or join someone else's), and it delivers very low-latency, high-quality voice with fine-grained permissions and positional audio for games. It does voice and little else: text chat isn't saved, and there is no video."),
-      gt("Mumble wins on voice latency, openness and control: it is truly open source, free, needs no account and runs anywhere. SerikaCord wins on everything around the voice: saved text, threads and forums, files, video and screen sharing, encrypted DMs, bots, and apps for the browser and Android."),
+      gt("Mumble wins on voice latency, openness and control: it is truly open source, free, needs no account and runs anywhere. SerikaCord wins on everything around the voice: saved text, threads and forums, files, video and screen sharing, encrypted DMs, bots, and apps for the browser, Android and iPhone."),
     ],
     verdict: gt("For a group that mainly talks and wants fast voice on its own open-source server, Mumble is hard to beat. For a complete community app with text, video and phones, pick SerikaCord."),
     facts: {
@@ -82,8 +84,8 @@ export async function content(): Promise<AppContent> {
       maturity: {
         status: "yes",
         value: gt("Since 2005"),
-        note: gt("The stable 1.5 series still gets regular releases (1.5.939 in October 2026). Version 1.6 has been a release candidate since March 2026."),
-        src: ["wikipedia", "release", "rc"],
+        note: gt("The stable 1.5 series still gets regular releases (1.5.939 in October 2026). Version 1.6 has been a release candidate since March 2026; the second one came out on 23 October 2026."),
+        src: ["wikipedia", "release", "rc", "rc2"],
       },
       e2eeDms: {
         status: "no",
@@ -207,8 +209,8 @@ export async function content(): Promise<AppContent> {
       desktop: {
         status: "partial",
         value: gt("Mac stuck on 1.5.901"),
-        note: gt("Windows and Linux are current. Since July 2026 the project can't build newer 1.5 releases for macOS, so Mac users stay on 1.5.901 until 1.6 ships."),
-        src: ["macos", "downloads"],
+        note: gt("Windows and Linux are current. Since July 2026 the project can't build newer 1.5 releases for macOS, so Mac users stay on 1.5.901 until 1.6 ships. An unsigned Apple silicon test build of 1.6 has existed since October 2026."),
+        src: ["macos", "downloads", "rc2"],
       },
       mobile: {
         status: "partial",
@@ -255,8 +257,8 @@ export async function content(): Promise<AppContent> {
       },
       incidents: {
         value: gt("Bug fixes, macOS gap"),
-        note: gt("A client crash bug (CVE-2025-71264) was fixed in 1.6.870 in March 2026. In July 2026 the project stopped shipping macOS builds for the 1.5 series."),
-        src: ["cves", "macos"],
+        note: gt("A client crash bug (CVE-2025-71264) was fixed in 1.6.870 in March 2026. In July 2026 the project stopped shipping macOS builds for the 1.5 series. Version 1.5.939 (October 2026) fixed several server crash and denial-of-service bugs."),
+        src: ["cves", "macos", "r1939"],
       },
     },
     whyUs: [
@@ -282,7 +284,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Browser and Android apps"),
-        text: gt("SerikaCord works fully in the browser and has an Android app. Mumble has no official web app, its iPhone app dates from 2017, and Android users rely on third-party apps. We don't have an iPhone app yet either."),
+        text: gt("SerikaCord works fully in the browser and has Android and iPhone apps. Mumble has no official web app, its iPhone app dates from 2017, and Android users rely on third-party apps."),
         src: ["ios-app", "mumla", "mumble-web"],
       },
       {
@@ -294,7 +296,7 @@ export async function content(): Promise<AppContent> {
     whyThem: [
       {
         title: gt("Excellent low-latency voice"),
-        text: gt("Mumble's Opus voice is fast, clear and light on your computer, and it has been refined for 20 years. Large gaming groups rely on it for coordinated play. SerikaCord's calls connect peer-to-peer where possible, which shows your IP address to others in the call and gets heavy in large calls."),
+        text: gt("Mumble's Opus voice is fast, clear and light on your computer, and it has been refined for 20 years. Large gaming groups rely on it for coordinated play. SerikaCord's server voice channels have only run through a media server since November 2026."),
         src: ["wikipedia", "home"],
       },
       {
@@ -345,7 +347,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         question: gt("Does Mumble work on iPhone, Android and Mac?"),
-        answer: gt("Partly. The official iPhone app is from 2017, Android users rely on third-party apps such as Mumla, and Mac users are on version 1.5.901 until 1.6 is released."),
+        answer: gt("Partly. The official iPhone app is from 2017, Android users rely on third-party apps such as Mumla, and Mac users are on version 1.5.901 or an unsigned 1.6 test build until 1.6 is released."),
       },
       {
         question: gt("Who makes Mumble?"),

@@ -10,7 +10,7 @@ import type { CompareFaqItem, CompareSource } from "./types";
 
 export * from "./types";
 
-export const COMPARE_LAST_CHECKED_ISO = "2026-10-15";
+export const COMPARE_LAST_CHECKED_ISO = "2026-11-06";
 
 const SITE = "https://serika.chat";
 

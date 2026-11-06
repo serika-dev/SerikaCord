@@ -258,7 +258,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Calls that don't depend on one person's connection"),
-        text: gt("Jami group calls run on one participant's device, so quality depends on that person's bandwidth. SerikaCord calls also connect peer-to-peer where possible, which shows your IP address to others and gets heavy in large calls, so our edge here is modest."),
+        text: gt("Jami group calls run on one participant's device, so quality depends on that person's bandwidth. SerikaCord's server voice channels have run through a media server since November 2026, so a call doesn't depend on one person's connection; its encrypted DM calls still connect peer-to-peer."),
         src: ["faq"],
       },
       {
@@ -290,7 +290,7 @@ export async function content(): Promise<AppContent> {
       },
       {
         title: gt("Native apps everywhere, including iPhone"),
-        text: gt("Jami has native apps for iPhone and Android, including F-Droid and Android TV, and the App Store rates it 4+. SerikaCord has no iPhone app yet and is 16 and over."),
+        text: gt("Jami has native apps for iPhone and Android, including F-Droid and Android TV, and the App Store rates it 4+. SerikaCord's iPhone app is in the App Store too, but SerikaCord is for people 16 and over."),
         src: ["appstore", "android"],
       },
     ],

@@ -9,6 +9,7 @@ import type { AppContent, CompareSource } from "../types";
 
 export const sources: CompareSource[] = [
   { id: "home", title: "Spacebar homepage", url: "https://spacebar.chat", publisher: "Spacebar", kind: "primary" },
+  { id: "docker-images", title: "Publish multi-platform Docker images (spacebarchat/server pull request 1701)", url: "https://github.com/spacebarchat/server/pull/1701", publisher: "GitHub", kind: "primary", date: "2026-10-28" },
   { id: "docs", title: "Spacebar documentation", url: "https://docs.spacebar.chat/", publisher: "Spacebar", kind: "primary" },
   { id: "faq", title: "Spacebar FAQ", url: "https://docs.spacebar.chat/faq/", publisher: "Spacebar", kind: "primary" },
   { id: "clients", title: "Spacebar clients", url: "https://docs.spacebar.chat/setup/clients/", publisher: "Spacebar", kind: "primary" },
@@ -28,7 +29,7 @@ export async function content(): Promise<AppContent> {
     take: gt("Free, open-source server software that recreates Discord's own API so you can run a Discord-like service yourself; great for developers, but still in development, with experimental voice and no official mobile apps."),
     intro: [
       gt("Spacebar, formerly Fosscord, is not a chat service you sign up for but open-source software that reimplements Discord's API, gateway and file server so anyone can host their own Discord-like instance. It is built by volunteers, funded by small donations and has been in development since 2020."),
-      gt("That makes it a different kind of project from SerikaCord. Spacebar is the closer match to Discord's bot API and the freer choice for self-hosting; SerikaCord is a finished, hosted app with working voice and video, encrypted DMs, apps for desktop and Android, and a safety team."),
+      gt("That makes it a different kind of project from SerikaCord. Spacebar is the closer match to Discord's bot API and the freer choice for self-hosting; SerikaCord is a finished, hosted app with working voice and video, encrypted DMs, apps for desktop, Android and iPhone, and a safety team."),
     ],
     verdict: gt("Developers who want a Discord-compatible backend to host, test bots on or tinker with should look at Spacebar. Communities that want a ready-to-use app with reliable voice and video should pick SerikaCord."),
     facts: {
@@ -44,7 +45,7 @@ export async function content(): Promise<AppContent> {
       },
       businessModel: {
         value: gt("Donations"),
-        note: gt("About €277 a year in income from 46 backers on Open Collective, as of October 2026."),
+        note: gt("About €307 a year in income from 47 backers on Open Collective, as of November 2026."),
         src: ["opencollective"],
       },
       ads: {
@@ -203,8 +204,8 @@ export async function content(): Promise<AppContent> {
       selfHost: {
         status: "yes",
         value: gt("Its main purpose"),
-        note: gt("You run the server, file server and voice server yourself. Setup is documented with Node.js and a Nix flake; the separate Docker repository is archived."),
-        src: ["docs", "server"],
+        note: gt("You run the server, file server and voice server yourself. Setup is documented with Node.js and a Nix flake, and since October 2026 the server repository publishes official Docker images for amd64 and arm64."),
+        src: ["docs", "server", "docker-images"],
       },
       federation: {
         status: "no",
@@ -234,7 +235,7 @@ export async function content(): Promise<AppContent> {
     whyUs: [
       {
         title: gt("Ready to use today"),
-        text: gt("SerikaCord is a hosted app you can sign up for now, with web, desktop and Android apps. Spacebar is server software still in development: you need an instance and a community client, and the official client hasn't had a release since February 2024."),
+        text: gt("SerikaCord is a hosted app you can sign up for now, with web, desktop, Android and iPhone apps. Spacebar is server software still in development: you need an instance and a community client, and the official client hasn't had a release since February 2024."),
         src: ["client", "faq"],
       },
       {

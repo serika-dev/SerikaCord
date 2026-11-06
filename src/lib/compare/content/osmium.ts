@@ -49,7 +49,7 @@ export async function content(): Promise<AppContent> {
     take: gt("A fast, carefully engineered Discord-like app with an open protocol and apps on every platform. But it's in early access, moderation is thin, and despite one store listing, it has no end-to-end encryption yet."),
     intro: [
       gt("Osmium is a young Discord-style chat app that opened early access in February 2026. It is run by Uncollapse, a small self-funded company that hosts it on its own servers, and it stands out for solid engineering, a public protocol that lets anyone build bots or even their own client, and apps for every major platform."),
-      gt("SerikaCord and Osmium are both young, ad-free and against ID checks. Osmium wins on iPhone and store apps, an open protocol and calls that don't expose your IP address to others; SerikaCord wins on end-to-end encrypted DMs that actually exist today, moderation tools, forums and onboarding, and Discord bot compatibility."),
+      gt("SerikaCord and Osmium are both young, ad-free and against ID checks. Osmium wins on having both phone apps in the stores and an open protocol; SerikaCord wins on end-to-end encrypted DMs that actually exist today, moderation tools, forums and onboarding, and Discord bot compatibility."),
     ],
     verdict: gt("For a small group that wants a fast, polished app on every device and likes to tinker, Osmium is a good fit. For a growing community that needs moderation tools, Discord bots or encrypted DMs, SerikaCord is further along."),
     facts: {
@@ -271,7 +271,7 @@ export async function content(): Promise<AppContent> {
     whyThem: [
       {
         title: gt("Apps for every platform, including iPhone"),
-        text: gt("Osmium has Android and iPhone apps in the stores and Linux packages for Flatpak, AUR and APT on x64 and arm64. SerikaCord has no iPhone app yet, and its Android app is installed from our website."),
+        text: gt("Osmium has Android and iPhone apps in the stores and Linux packages for Flatpak, AUR and APT on x64 and arm64. SerikaCord is in the App Store too, but its Android app is installed from our website."),
         src: ["download", "play", "appstore"],
       },
       {
@@ -280,8 +280,8 @@ export async function content(): Promise<AppContent> {
         src: ["api", "proto", "github"],
       },
       {
-        title: gt("Calls don't expose your IP to others"),
-        text: gt("Osmium's calls run through its own voice servers. SerikaCord's calls connect peer-to-peer where possible, so others in a call can see your IP address."),
+        title: gt("Every call goes through a server"),
+        text: gt("Osmium's calls run through its own voice servers. SerikaCord's server voice channels have also used a media server since November 2026, but its end-to-end encrypted DM calls connect peer-to-peer where possible, which shows your IP address to the other people in the call."),
         src: ["voice-docs", "blog-scale"],
       },
       {
