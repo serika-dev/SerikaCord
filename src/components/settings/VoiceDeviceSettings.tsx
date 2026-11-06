@@ -7,6 +7,7 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { ToggleSwitch } from "@/components/ui/toggle-switch";
 import { voiceService } from "@/lib/services/voiceService";
+import { buildMicChain, type MicChain } from "@/lib/voice/micChain";
 import {
   DEFAULT_DEVICE_ID,
   applySinkId,
@@ -129,6 +130,7 @@ export function InputSensitivity({
   pushToTalk,
   echoCancellation,
   noiseSuppression,
+  rnnoise = false,
   autoGainControl,
   onAutoChange,
   onThresholdChange,
@@ -138,6 +140,8 @@ export function InputSensitivity({
   pushToTalk: boolean;
   echoCancellation: boolean;
   noiseSuppression: boolean;
+  /** Noise suppression runs RNNoise instead of the browser's own. */
+  rnnoise?: boolean;
   autoGainControl: boolean;
   onAutoChange: (auto: boolean) => void;
   onThresholdChange: (db: number) => void;
@@ -147,7 +151,7 @@ export function InputSensitivity({
   const [testing, setTesting] = useState(false);
   const fillRef = useRef<HTMLDivElement>(null);
   const markerRef = useRef<HTMLDivElement>(null);
-  const testRef = useRef<{ stream: MediaStream; ctx: AudioContext; audio: HTMLAudioElement; raf: number } | null>(null);
+  const testRef = useRef<{ stream: MediaStream; ctx: AudioContext; audio: HTMLAudioElement; raf: number; chain: MicChain | null } | null>(null);
   const settingsRef = useRef({ auto, thresholdDb });
   useEffect(() => {
     settingsRef.current = { auto, thresholdDb };
@@ -180,6 +184,7 @@ export function InputSensitivity({
     if (!t) return;
     cancelAnimationFrame(t.raf);
     t.stream.getTracks().forEach((tr) => tr.stop());
+    t.chain?.close();
     t.audio.pause();
     t.audio.srcObject = null;
     void t.ctx.close().catch(() => {});
@@ -190,19 +195,25 @@ export function InputSensitivity({
 
   const startTest = async () => {
     try {
+      // Same processing as a call: with RNNoise on, the browser's own noise
+      // suppression is off and you hear RNNoise's output.
+      const useRnnoise = noiseSuppression && rnnoise;
       const stream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation, noiseSuppression, autoGainControl, ...deviceConstraint(getPreferredDevice("input")) },
+        audio: { echoCancellation, noiseSuppression: noiseSuppression && !useRnnoise, autoGainControl, ...deviceConstraint(getPreferredDevice("input")) },
         video: false,
       });
+      const raw = stream.getAudioTracks()[0];
+      const chain = useRnnoise && raw ? await buildMicChain(raw, { gain: 1, rnnoise: true }) : null;
+      const heard = chain ? new MediaStream([chain.track]) : stream;
       const ctx = new AudioContext();
-      const source = ctx.createMediaStreamSource(stream);
+      const source = ctx.createMediaStreamSource(heard);
       const analyser = ctx.createAnalyser();
       analyser.fftSize = 1024;
       analyser.smoothingTimeConstant = 0.2;
       source.connect(analyser);
       // Hear yourself through the chosen speaker, like Discord's mic test.
       const audio = new Audio();
-      audio.srcObject = stream;
+      audio.srcObject = heard;
       applySinkId(audio, getPreferredDevice("output"));
       void audio.play().catch(() => {});
       const buf = new Uint8Array(new ArrayBuffer(analyser.fftSize));
@@ -221,7 +232,7 @@ export function InputSensitivity({
         paint(levelDb, gate.thresholdDb, gate.open);
         t.raf = requestAnimationFrame(tick);
       };
-      testRef.current = { stream, ctx, audio, raf: 0 };
+      testRef.current = { stream, ctx, audio, raf: 0, chain };
       setTesting(true);
       testRef.current.raf = requestAnimationFrame(tick);
     } catch {

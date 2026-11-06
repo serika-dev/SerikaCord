@@ -48,7 +48,9 @@ const BUILD_TIME = (process.env.NEXT_PUBLIC_BUILD_TIME ||= new Date().toISOStrin
  */
 const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",
-  "script-src 'self' 'unsafe-inline' https://static.cloudflareinsights.com",
+  // 'wasm-unsafe-eval' lets WebAssembly compile (RNNoise noise suppression in
+  // calls, src/lib/voice/micChain.ts); JavaScript eval stays blocked.
+  "script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://static.cloudflareinsights.com",
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' data: blob: https:",
   "media-src 'self' data: blob: https:",

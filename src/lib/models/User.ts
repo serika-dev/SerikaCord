@@ -133,6 +133,8 @@ export interface IUserSettings {
     inputVolume: number;
     outputVolume: number;
     noiseSuppression: boolean;
+    /** Noise suppression uses RNNoise instead of the browser's own. Default false. */
+    rnnoise?: boolean;
     echoCancellation: boolean;
     autoGainControl: boolean;
     pushToTalk: boolean;

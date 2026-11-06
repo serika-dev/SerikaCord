@@ -13,6 +13,7 @@ import {
 } from "@/lib/voice/voiceActivity";
 import { deviceConstraint, getPreferredDevice } from "@/lib/voice/devices";
 import { SfuTransport, type SfuKind } from "@/lib/voice/sfuTransport";
+import { buildMicChain, preloadRnnoise, type MicChain } from "@/lib/voice/micChain";
 import {
   displayMediaVideoConstraints,
   loadStreamQuality,
@@ -294,7 +295,31 @@ class VoiceService {
 
   /** getUserMedia audio constraints: processing flags + the chosen microphone. */
   private micConstraints(): MediaTrackConstraints {
-    return { ...this.audioConstraints, ...deviceConstraint(getPreferredDevice("input")) };
+    // With RNNoise on, the browser's own noise suppression is turned off so
+    // the two don't stack.
+    const noiseSuppression = this.audioConstraints.noiseSuppression !== false && !this.rnnoiseActive;
+    return { ...this.audioConstraints, noiseSuppression, ...deviceConstraint(getPreferredDevice("input")) };
+  }
+
+  /** RNNoise is used for noise suppression (instead of the browser's) when noise suppression is on. */
+  private rnnoisePreferred = false;
+
+  private get rnnoiseActive(): boolean {
+    return this.rnnoisePreferred && this.audioConstraints.noiseSuppression !== false;
+  }
+
+  /** Whether noise suppression uses RNNoise rather than the browser's own. */
+  get rnnoiseEnabled(): boolean {
+    return this.rnnoisePreferred;
+  }
+
+  /** Use RNNoise for noise suppression; mid-call the mic is reopened with it. */
+  setRnnoise(enabled: boolean) {
+    if (enabled) void preloadRnnoise().catch(() => {});
+    if (this.rnnoisePreferred === enabled) return;
+    const wasActive = this.rnnoiseActive;
+    this.rnnoisePreferred = enabled;
+    if (wasActive !== this.rnnoiseActive && this.localStream && this.roomId && !this.micMissing) void this.switchInputDevice();
   }
 
   /** getUserMedia video constraints for the camera (720p, chosen device). */
@@ -344,8 +369,12 @@ class VoiceService {
     }
     const stream = this.localStream;
     const old = stream.getAudioTracks()[0];
-    this.teardownInputGain();
-    const sent = this.wrapWithInputGain(raw);
+    const sent = await this.processMic(raw);
+    if (this.roomId !== roomId || this.localStream !== stream) {
+      this.teardownMicChain();
+      raw.stop();
+      return false;
+    }
     if (old) {
       this.replaceSentTrack(old, sent, stream);
       stream.removeTrack(old);
@@ -395,6 +424,7 @@ class VoiceService {
    */
   applyVoiceSettings(voiceVideo: unknown) {
     const s = readVoiceCallSettings(voiceVideo);
+    if (s.rnnoise !== undefined) this.setRnnoise(s.rnnoise);
     if (Object.keys(s.constraints).length) this.setAudioConstraints(s.constraints);
     if (s.pushToTalk !== undefined || s.pushToTalkKey !== undefined) {
       this.setPushToTalk(s.pushToTalk ?? this.pttEnabled, s.pushToTalkKey ?? this.pttKey);
@@ -763,69 +793,44 @@ class VoiceService {
     this.applyDeafGates();
   }
 
-  // -- Input volume (mic gain) -----------------------------------------------
-  // Only inserted into the mic path when the gain isn't 100%, so the common
-  // case sends the raw device track untouched.
+  // -- Mic processing (input gain, RNNoise) ------------------------------------
+  // Only built when needed (gain isn't 100% or RNNoise is on), so the common
+  // case sends the raw device track untouched. See src/lib/voice/micChain.ts.
   private inputVolume = 100;
-  private inputGainCtx: AudioContext | null = null;
-  private inputGainNode: GainNode | null = null;
+  private micChain: MicChain | null = null;
   private inputRawTrack: MediaStreamTrack | null = null;
 
   setInputVolume(percent: number) {
     if (!Number.isFinite(percent)) return;
     this.inputVolume = Math.min(Math.max(Math.round(percent), 0), 200);
-    if (this.inputGainNode) {
-      this.inputGainNode.gain.value = this.inputVolume / 100;
+    if (this.micChain) {
+      this.micChain.setGain(this.inputVolume / 100);
       return;
     }
-    // Mid-call and no gain stage yet: splice one in.
-    if (!this.localStream || this.inputVolume === 100) return;
-    const old = this.localStream.getAudioTracks()[0];
-    if (!old) return;
-    const wrapped = this.wrapWithInputGain(old);
-    if (wrapped === old) return;
-    this.replaceSentTrack(old, wrapped, this.localStream);
-    this.localStream.removeTrack(old);
-    this.localStream.addTrack(wrapped);
-    this.applyMicState();
+    // Mid-call with no chain yet: reopen the mic so one is built around it.
+    if (this.inputVolume !== 100 && this.localStream && this.roomId && !this.micMissing) void this.switchInputDevice();
   }
 
-  /** Route a raw mic track through a GainNode; returns the track to send. */
-  private wrapWithInputGain(track: MediaStreamTrack): MediaStreamTrack {
-    if (this.inputVolume === 100) return track;
-    try {
-      this.teardownInputGain();
-      const ctx = new AudioContext();
-      const source = ctx.createMediaStreamSource(new MediaStream([track]));
-      const gain = ctx.createGain();
-      gain.gain.value = this.inputVolume / 100;
-      const dest = ctx.createMediaStreamDestination();
-      source.connect(gain);
-      gain.connect(dest);
-      const out = dest.stream.getAudioTracks()[0];
-      if (!out) {
-        void ctx.close().catch(() => {});
-        return track;
-      }
-      void ctx.resume().catch(() => {});
-      // The raw track feeds the gain stage and must stay enabled; mute/PTT
-      // act on the processed track that is actually sent.
-      track.enabled = true;
-      this.inputGainCtx = ctx;
-      this.inputGainNode = gain;
-      this.inputRawTrack = track;
-      return out;
-    } catch {
-      return track;
-    }
+  /**
+   * Run a raw mic track through the processing chain (replacing any previous
+   * one); returns the track to send, which is the raw track when there is
+   * nothing to process.
+   */
+  private async processMic(track: MediaStreamTrack): Promise<MediaStreamTrack> {
+    this.teardownMicChain();
+    const chain = await buildMicChain(track, { gain: this.inputVolume / 100, rnnoise: this.rnnoiseActive });
+    if (!chain) return track;
+    // The raw track feeds the chain and must stay enabled; mute/PTT act on
+    // the processed track that is actually sent.
+    track.enabled = true;
+    this.micChain = chain;
+    this.inputRawTrack = track;
+    return chain.track;
   }
 
-  private teardownInputGain() {
-    if (this.inputGainCtx) {
-      void this.inputGainCtx.close().catch(() => {});
-    }
-    this.inputGainCtx = null;
-    this.inputGainNode = null;
+  private teardownMicChain() {
+    this.micChain?.close();
+    this.micChain = null;
     if (this.inputRawTrack) {
       this.inputRawTrack.stop();
       this.inputRawTrack = null;
@@ -1117,7 +1122,13 @@ class VoiceService {
     }
     const rawAudio = stream.getAudioTracks()[0];
     if (rawAudio) {
-      const sent = this.wrapWithInputGain(rawAudio);
+      const sent = await this.processMic(rawAudio);
+      // Left while RNNoise was loading: the chain holds the mic open, so close it.
+      if (cancelled()) {
+        this.teardownMicChain();
+        stream.getTracks().forEach((t) => t.stop());
+        return;
+      }
       if (sent !== rawAudio) {
         stream.removeTrack(rawAudio);
         stream.addTrack(sent);
@@ -1223,7 +1234,7 @@ class VoiceService {
   private resetLocalJoin() {
     this.localStream?.getTracks().forEach((t) => t.stop());
     this.localStream = null;
-    this.teardownInputGain();
+    this.teardownMicChain();
     this.isVideoOn = false;
     this.micMissing = false;
     this.roomId = null;
@@ -1937,7 +1948,7 @@ class VoiceService {
       this.localStream.getTracks().forEach((t) => t.stop());
       this.localStream = null;
     }
-    this.teardownInputGain();
+    this.teardownMicChain();
     this.isVideoOn = false;
     this.isMuted = false;
     this.micMissing = false;
@@ -2090,7 +2101,11 @@ class VoiceService {
         return false;
       }
       const stream = this.localStream;
-      const sent = this.wrapWithInputGain(track);
+      const sent = await this.processMic(track);
+      if (this.roomId !== roomId || this.localStream !== stream) {
+        this.teardownMicChain();
+        return false;
+      }
       stream.addTrack(sent);
       this.peers.forEach((peer) => {
         try { peer.addTrack(sent, stream); } catch { /* peer closing; a retry re-offers with it */ }

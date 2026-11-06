@@ -141,6 +141,7 @@ export const VoiceVideoPage = memo(function VoiceVideoPage({
                 pushToTalk={Boolean(vv.pushToTalk)}
                 echoCancellation={vv.echoCancellation !== false}
                 noiseSuppression={vv.noiseSuppression !== false}
+                rnnoise={vv.rnnoise === true}
                 autoGainControl={vv.autoGainControl !== false}
                 onAutoChange={(checked) => saveVoice({ autoSensitivity: checked })}
                 onThresholdChange={(db) => saveSettingsPatchDebounced({ voiceVideo: { inputSensitivity: db } }, "voice-video")}
@@ -238,6 +239,14 @@ export const VoiceVideoPage = memo(function VoiceVideoPage({
                 checked={vv.noiseSuppression !== false}
                 onCheckedChange={(checked) => saveVoice({ noiseSuppression: checked })}
               />
+              {vv.noiseSuppression !== false && (
+                <SettingsToggleRow
+                  label={gt("Use RNNoise")}
+                  description={gt("A small AI model that removes more background noise, like keyboards, fans and traffic, than the standard suppression. Runs on your device and uses a little more CPU. Try it with the mic test above.")}
+                  checked={vv.rnnoise === true}
+                  onCheckedChange={(checked) => saveVoice({ rnnoise: checked })}
+                />
+              )}
               <SettingsToggleRow
                 label={gt("Automatic Gain Control")}
                 description={gt("Automatically adjust microphone volume")}

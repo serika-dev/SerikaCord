@@ -54,6 +54,7 @@
     "@radix-ui/react-slot": "^1.2.4",
     "@radix-ui/react-tabs": "^1.1.13",
     "@radix-ui/react-tooltip": "^1.2.8",
+    "@sapphi-red/web-noise-suppressor": "0.4.1",
     "@tauri-apps/plugin-process": "^2",
     "@tauri-apps/plugin-updater": "^2",
     "@twemoji/api": "^17.0.2",

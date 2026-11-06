@@ -78,6 +78,12 @@ describe("voice call settings", () => {
     });
   });
 
+  test("the RNNoise choice is read only when it is a boolean", () => {
+    expect(readVoiceCallSettings({ noiseSuppression: true, rnnoise: true })).toEqual({ constraints: { noiseSuppression: true }, rnnoise: true });
+    expect(readVoiceCallSettings({ rnnoise: false })).toEqual({ constraints: {}, rnnoise: false });
+    expect(readVoiceCallSettings({ rnnoise: "on" })).toEqual({ constraints: {} });
+  });
+
   test("normalizePttKey falls back to V", () => {
     expect(normalizePttKey("")).toBe("V");
     expect(normalizePttKey(undefined)).toBe("V");

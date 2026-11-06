@@ -20,6 +20,8 @@ export type VoiceCallSettings = {
   autoSensitivity?: boolean;
   /** Manual voice activity threshold, dBFS (-100..0). */
   inputSensitivity?: number;
+  /** Noise suppression uses RNNoise instead of the browser's own (when noise suppression is on). */
+  rnnoise?: boolean;
 };
 
 export const DEFAULT_PTT_KEY = "V";
@@ -57,6 +59,7 @@ export function readVoiceCallSettings(voiceVideo: unknown): VoiceCallSettings {
   const output = clampPercent(v.outputVolume);
   if (output !== undefined) out.outputVolume = output;
   if (typeof v.autoSensitivity === "boolean") out.autoSensitivity = v.autoSensitivity;
+  if (typeof v.rnnoise === "boolean") out.rnnoise = v.rnnoise;
   if (typeof v.inputSensitivity === "number" && Number.isFinite(v.inputSensitivity)) {
     out.inputSensitivity = clampSensitivityDb(v.inputSensitivity);
   }
