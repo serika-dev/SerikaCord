@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.6.2.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.7.0.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.7.0 — 2026-11-06
+
+**Tag:** `v2.7.0` · **Commit:** `fe02555b`
 
 ### Features
 - **Stage channels** — create a Stage channel to host events: stage moderators (Mute Members, Move Members or Manage Channels) speak, everyone else joins the audience and can raise a hand with Request to speak; moderators invite people to speak, and anyone can move themself back to the audience
@@ -21,12 +39,6 @@
 - discord.py bots can log in: the bot API now answers with the exact JSON content type discord.py expects.
 - People already in a voice channel hear a bot again on their own after it reconnects, without leaving and rejoining (CORD-93).
 - Status dots show on top of avatars again instead of slipping behind them on profile cards.
-
-### Performance
-
-### Security
-
-### Removed
 
 ---
 
