@@ -229,19 +229,19 @@ export const VoiceVideoPage = memo(function VoiceVideoPage({
               <SettingsToggleRow
                 label={gt("Echo Cancellation")}
                 description={gt("Prevent echo from speakers into your microphone")}
-                checked={Boolean(vv.echoCancellation)}
+                checked={vv.echoCancellation !== false}
                 onCheckedChange={(checked) => saveVoice({ echoCancellation: checked })}
               />
               <SettingsToggleRow
                 label={gt("Noise Suppression")}
                 description={gt("Reduce background noise from your microphone")}
-                checked={Boolean(vv.noiseSuppression)}
+                checked={vv.noiseSuppression !== false}
                 onCheckedChange={(checked) => saveVoice({ noiseSuppression: checked })}
               />
               <SettingsToggleRow
                 label={gt("Automatic Gain Control")}
                 description={gt("Automatically adjust microphone volume")}
-                checked={Boolean(vv.autoGainControl)}
+                checked={vv.autoGainControl !== false}
                 onCheckedChange={(checked) => saveVoice({ autoGainControl: checked })}
               />
             </SettingsCard>

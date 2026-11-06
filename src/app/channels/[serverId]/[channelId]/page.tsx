@@ -11,7 +11,7 @@ import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { MembersDrawer } from "@/components/chat/MembersDrawer";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, X, Sparkles, ArrowLeft, Rocket, Radio } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, Sparkles, ArrowLeft, Rocket, Radio } from "lucide-react";
 import { StageBar } from "@/components/voice/StageBar";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
@@ -58,7 +58,7 @@ function sameParticipants(a: VoiceParticipant[], b: VoiceParticipant[]): boolean
 }
 
 function VoiceChannelView({ channelId, channelName, serverId, stage = false }: { channelId: string; channelName: string; serverId?: string; stage?: boolean }) {
-  const { user } = useAuth();
+  const { user, updateUser } = useAuth();
   const router = useRouter();
   const gt = useGT();
   const [participants, setParticipants] = useState<VoiceParticipant[]>([]);
@@ -224,10 +224,20 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false }: {
     }
   }, [isScreenSharing]);
 
+  // The browser's noise suppression, the same setting as Voice & Video >
+  // Noise Suppression: applied to the call now and saved for the next one.
   const handleToggleNoiseSuppression = useCallback(() => {
-    const enabled = voiceService.toggleNoiseSuppression();
+    const enabled = voiceService.setNoiseSuppression(!voiceService.noiseSuppressionEnabled);
     setNoiseSuppression(enabled);
-  }, []);
+    void fetch("/api/users/me/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ settings: { voiceVideo: { noiseSuppression: enabled } } }),
+    })
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => { if (data?.settings) updateUser({ settings: data.settings }); })
+      .catch(() => { /* applied to this call either way */ });
+  }, [updateUser]);
 
   const handlePlaySound = useCallback(async (sound: SoundboardSound) => {
     if (!isConnected) return;

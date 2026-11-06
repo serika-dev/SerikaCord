@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- Noise suppression works properly in calls: the call button now turns your browser's noise suppression on or off (the same setting as in Voice & Video), instead of a noise gate that cut off words, could leave you silent after turning it off, and could keep sending your mic while muted in server voice channels. Changing input volume during a call now works in server voice channels too.
 
 ### Performance
 

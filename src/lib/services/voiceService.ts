@@ -275,12 +275,21 @@ class VoiceService {
       .some((k) => this.audioConstraints[k] !== next[k]);
     this.audioConstraints = next;
     if (!changed) return;
-    // Mid-call: apply to the live mic track so the change takes effect without
-    // rejoining. Only the raw device track accepts these constraints.
-    const micTrack = this.inputRawTrack ?? (this.noiseSuppressionOn ? null : this.localStream?.getAudioTracks()[0] ?? null);
-    if (micTrack && typeof micTrack.applyConstraints === "function") {
-      void micTrack.applyConstraints(this.audioConstraints).catch(() => { /* unsupported; applies next join */ });
-    }
+    // Mid-call: browsers don't reliably change echo cancellation, noise
+    // suppression or auto gain on a live track, so reopen the mic with the new
+    // settings and swap it in everywhere (SFU and peer-to-peer).
+    if (this.localStream && this.roomId && !this.micMissing) void this.switchInputDevice();
+  }
+
+  /** The browser's built-in noise suppression on the mic (on unless turned off). */
+  get noiseSuppressionEnabled(): boolean {
+    return this.audioConstraints.noiseSuppression !== false;
+  }
+
+  /** Turn the mic's noise suppression on or off; mid-call the mic is reopened with it. */
+  setNoiseSuppression(enabled: boolean): boolean {
+    this.setAudioConstraints({ noiseSuppression: enabled });
+    return this.noiseSuppressionEnabled;
   }
 
   /** getUserMedia audio constraints: processing flags + the chosen microphone. */
@@ -308,7 +317,17 @@ class VoiceService {
    * The chosen microphone changed: mid-call, switch to it without rejoining
    * (input gain and noise suppression are rebuilt around the new device).
    */
-  async switchInputDevice(): Promise<boolean> {
+  switchInputDevice(): Promise<boolean> {
+    // One at a time, each reading the settings when it runs, so quick toggles
+    // can't land out of order.
+    const run = this.micSwitchChain.then(() => this.reopenMic(), () => this.reopenMic());
+    this.micSwitchChain = run;
+    return run;
+  }
+
+  private micSwitchChain: Promise<boolean> = Promise.resolve(true);
+
+  private async reopenMic(): Promise<boolean> {
     if (!this.localStream || !this.roomId || this.micMissing) return false;
     const roomId = this.roomId;
     let raw: MediaStreamTrack | undefined;
@@ -325,8 +344,6 @@ class VoiceService {
     }
     const stream = this.localStream;
     const old = stream.getAudioTracks()[0];
-    const hadNoiseSuppression = this.noiseSuppressionOn;
-    if (hadNoiseSuppression) this.cleanupNoiseSuppression();
     this.teardownInputGain();
     const sent = this.wrapWithInputGain(raw);
     if (old) {
@@ -341,7 +358,6 @@ class VoiceService {
       });
     }
     this.applyMicState();
-    if (hadNoiseSuppression) this.enableNoiseSuppression();
     return true;
   }
 
@@ -762,21 +778,15 @@ class VoiceService {
       this.inputGainNode.gain.value = this.inputVolume / 100;
       return;
     }
-    // Mid-call and no gain stage yet: splice one in (skipped while the noise
-    // gate owns the mic path; it applies on the next join).
-    if (!this.localStream || this.inputVolume === 100 || this.noiseSuppressionOn) return;
+    // Mid-call and no gain stage yet: splice one in.
+    if (!this.localStream || this.inputVolume === 100) return;
     const old = this.localStream.getAudioTracks()[0];
     if (!old) return;
     const wrapped = this.wrapWithInputGain(old);
     if (wrapped === old) return;
+    this.replaceSentTrack(old, wrapped, this.localStream);
     this.localStream.removeTrack(old);
     this.localStream.addTrack(wrapped);
-    this.peers.forEach((peer) => {
-      try {
-        (peer as unknown as { replaceTrack: (o: MediaStreamTrack, n: MediaStreamTrack, s: MediaStream) => void })
-          .replaceTrack(old, wrapped, this.localStream!);
-      } catch { /* ignore */ }
-    });
     this.applyMicState();
   }
 
@@ -851,16 +861,6 @@ class VoiceService {
       this.soundboardVolume = Math.min(Math.max(percent, 0), 200);
     }
   }
-
-  // Noise suppression chain
-  private noiseSuppressionOn = false;
-  private noiseCtx: AudioContext | null = null;
-  private noiseHighPass: BiquadFilterNode | null = null;
-  private noiseGate: GainNode | null = null;
-  private noiseAnalyser: AnalyserNode | null = null;
-  private noiseInterval: NodeJS.Timeout | null = null;
-  private processedStream: MediaStream | null = null;
-  private noiseSourceTrack: MediaStreamTrack | null = null;
 
   private myUserId: string = "";
 
@@ -1930,7 +1930,6 @@ class VoiceService {
     this.sfu = null;
     if (this.sfuRetryTimer) { clearTimeout(this.sfuRetryTimer); this.sfuRetryTimer = null; }
     this.stopSpeakingDetection();
-    this.cleanupNoiseSuppression();
 
     // Stop local stream
     this.detachPttListeners();
@@ -2131,175 +2130,6 @@ class VoiceService {
     }
     this.emit({ type: "deafen_toggled", deafened: this.isDeafened });
     return this.isDeafened;
-  }
-
-  get noiseSuppressionEnabled(): boolean {
-    return this.noiseSuppressionOn;
-  }
-
-  toggleNoiseSuppression(): boolean {
-    if (this.noiseSuppressionOn) {
-      this.disableNoiseSuppression();
-    } else {
-      this.enableNoiseSuppression();
-    }
-    return this.noiseSuppressionOn;
-  }
-
-  private enableNoiseSuppression() {
-    if (!this.localStream || this.noiseSuppressionOn) return;
-    try {
-      const audioTracks = this.localStream.getAudioTracks();
-      if (audioTracks.length === 0) return;
-
-      this.noiseCtx = new AudioContext();
-      const source = this.noiseCtx.createMediaStreamSource(this.localStream);
-
-      // High-pass filter at 85Hz — removes low-frequency hum/rumble
-      this.noiseHighPass = this.noiseCtx.createBiquadFilter();
-      this.noiseHighPass.type = "highpass";
-      this.noiseHighPass.frequency.value = 85;
-
-      // Noise gate — a GainNode that we dynamically control based on input level
-      this.noiseGate = this.noiseCtx.createGain();
-      this.noiseGate.gain.value = 0;
-
-      // Analyser to measure input level for the noise gate
-      this.noiseAnalyser = this.noiseCtx.createAnalyser();
-      this.noiseAnalyser.fftSize = 512;
-
-      // Chain: source -> highpass -> analyser -> gate -> (stream destination
-      // below). Never connect it to ctx.destination: that played your own mic
-      // back through your speakers (self-echo, and feedback into the call).
-      source.connect(this.noiseHighPass);
-      this.noiseHighPass.connect(this.noiseAnalyser);
-      this.noiseAnalyser.connect(this.noiseGate);
-
-      // Noise gate loop: open gate when signal above threshold, close when below
-      const GATE_OPEN = 1.0;
-      const GATE_CLOSED = 0.0;
-      const OPEN_THRESHOLD = 8;
-      const CLOSE_THRESHOLD = 3;
-      let gateOpen = false;
-
-      this.noiseInterval = setInterval(() => {
-        if (!this.noiseAnalyser || !this.noiseGate || !this.noiseCtx) return;
-        const data = new Uint8Array(this.noiseAnalyser.frequencyBinCount);
-        this.noiseAnalyser.getByteFrequencyData(data);
-        const avg = data.reduce((a, b) => a + b, 0) / data.length;
-
-        if (!gateOpen && avg > OPEN_THRESHOLD) {
-          gateOpen = true;
-          this.noiseGate.gain.setTargetAtTime(GATE_OPEN, this.noiseCtx.currentTime, 0.01);
-        } else if (gateOpen && avg < CLOSE_THRESHOLD) {
-          gateOpen = false;
-          this.noiseGate.gain.setTargetAtTime(GATE_CLOSED, this.noiseCtx.currentTime, 0.05);
-        }
-      }, 30);
-
-      // Create a processed stream from the AudioContext destination
-      const dest = this.noiseCtx.createMediaStreamDestination();
-      this.noiseGate.connect(dest);
-      this.processedStream = dest.stream;
-
-      // Replace the audio track in localStream with the processed one
-      const processedTrack = this.processedStream.getAudioTracks()[0];
-      if (processedTrack) {
-        const oldTrack = audioTracks[0];
-        this.localStream.removeTrack(oldTrack);
-        this.localStream.addTrack(processedTrack);
-
-        // Update all peers with the new track
-        this.peers.forEach((peer) => {
-          try {
-            (peer as unknown as { replaceTrack: (oldT: MediaStreamTrack, newT: MediaStreamTrack, stream: MediaStream) => void })
-              .replaceTrack(oldTrack, processedTrack, this.localStream!);
-          } catch {
-            // Fallback: addTrack/removeTrack
-            try { peer.addTrack(processedTrack, this.localStream!); } catch { /* ignore */ }
-          }
-        });
-
-        // Keep the old track alive and enabled: it feeds the gate chain
-        // above. Mute/push-to-talk act on the processed track that is sent.
-        oldTrack.enabled = true;
-        this.noiseSourceTrack = oldTrack;
-        this.applyMicState();
-      }
-
-      this.noiseSuppressionOn = true;
-    } catch {
-      // AudioContext or Web Audio API not available
-      this.cleanupNoiseSuppression();
-    }
-  }
-
-  private disableNoiseSuppression() {
-    if (!this.noiseSuppressionOn || !this.localStream) {
-      this.cleanupNoiseSuppression();
-      return;
-    }
-
-    try {
-      // We need the original track back — re-acquire it from getUserMedia
-      // since we can't easily reverse the Web Audio processing
-      navigator.mediaDevices.getUserMedia({
-        audio: this.micConstraints(),
-        video: false,
-      }).then((origStream) => {
-        const rawTrack = origStream.getAudioTracks()[0];
-        const origTrack = rawTrack ? this.wrapWithInputGain(rawTrack) : rawTrack;
-        if (origTrack && this.localStream) {
-          const stream = this.localStream;
-          const sent = stream.getAudioTracks()[0];
-          // Swap the sent track in place. Adding a second audio track instead
-          // made the other side treat it as a screen share and keep playing
-          // the old one.
-          if (sent) {
-            this.peers.forEach((peer) => {
-              try {
-                (peer as unknown as { replaceTrack: (o: MediaStreamTrack, n: MediaStreamTrack, s: MediaStream) => void })
-                  .replaceTrack(sent, origTrack, stream);
-              } catch { /* ignore */ }
-            });
-          }
-          stream.getAudioTracks().forEach((t) => {
-            stream.removeTrack(t);
-            t.stop();
-          });
-          stream.addTrack(origTrack);
-
-          // Apply current mute / push-to-talk state
-          this.applyMicState();
-        }
-        this.cleanupNoiseSuppression();
-      }).catch(() => {
-        this.cleanupNoiseSuppression();
-      });
-    } catch {
-      this.cleanupNoiseSuppression();
-    }
-  }
-
-  private cleanupNoiseSuppression() {
-    if (this.noiseInterval) {
-      clearInterval(this.noiseInterval);
-      this.noiseInterval = null;
-    }
-    if (this.noiseCtx) {
-      try { this.noiseCtx.close(); } catch { /* ignore */ }
-      this.noiseCtx = null;
-    }
-    this.noiseHighPass = null;
-    this.noiseGate = null;
-    this.noiseAnalyser = null;
-    this.processedStream = null;
-    this.noiseSuppressionOn = false;
-    // The mic track that fed the gate; leaving it running kept the mic on.
-    if (this.noiseSourceTrack) {
-      this.noiseSourceTrack.stop();
-      this.noiseSourceTrack = null;
-    }
   }
 
   /**
