@@ -499,14 +499,31 @@ function StageTileView({
           )}
         />
       ) : (
-        <div className="flex h-full w-full items-center justify-center bg-[var(--bg-sidebar-elevated)]">
+        // Avatar card: a soft, blurred wash of the person's own avatar behind
+        // it (Discord tints the tile with the profile colour), and an avatar
+        // that grows with the tile.
+        <div className="relative flex h-full w-full items-center justify-center overflow-hidden bg-[var(--bg-sidebar-elevated)]" style={{ containerType: "inline-size" }}>
+          {info.avatar && mode !== "strip" && (
+            // eslint-disable-next-line @next/next/no-img-element -- decorative backdrop, already a CDN thumbnail
+            <img
+              src={cdnImage(info.avatar, { still: true })}
+              alt=""
+              aria-hidden
+              draggable={false}
+              className="pointer-events-none absolute inset-0 h-full w-full scale-125 object-cover opacity-35 blur-2xl"
+            />
+          )}
+          <div aria-hidden className="pointer-events-none absolute inset-0 bg-gradient-to-b from-black/10 to-black/40" />
           <div
             className={cn(
-              "rounded-full transition-shadow duration-100",
-              showRing && "ring-[3px] ring-[#23a55a] ring-offset-2 ring-offset-[var(--bg-sidebar-elevated)]",
+              "relative rounded-full transition-shadow duration-100",
+              showRing && "ring-[3px] ring-[#23a55a] ring-offset-2 ring-offset-[var(--bg-sidebar-elevated)] shadow-[0_0_24px_rgba(35,165,90,0.45)]",
             )}
           >
-            <Avatar className={cn(mode === "strip" ? "h-10 w-10" : mode === "spotlight" ? "h-28 w-28" : "h-16 w-16 sm:h-20 sm:w-20")}>
+            <Avatar
+              className={cn(mode === "strip" && "h-10 w-10", "shadow-lg")}
+              style={mode === "strip" ? undefined : { width: "clamp(56px, 18cqw, 136px)", height: "clamp(56px, 18cqw, 136px)" }}
+            >
               <AvatarImage src={cdnImage(info.avatar ?? undefined)} alt="" />
               <AvatarFallback className="bg-[var(--app-accent)] text-lg font-semibold text-[var(--text-on-accent)]">
                 {info.name.charAt(0).toUpperCase()}
@@ -519,6 +536,9 @@ function StageTileView({
       <div className="absolute bottom-1.5 left-1.5 flex max-w-[calc(100%-12px)] items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] text-white sm:bottom-2 sm:left-2 sm:text-xs">
         {isScreen && <Monitor className="h-3 w-3 shrink-0" aria-hidden />}
         <span className="truncate">{label}</span>
+        {!isScreen && info.participant?.isBot && (
+          <span className="shrink-0 rounded bg-[var(--app-accent)] px-1 text-[9px] font-bold leading-[14px] text-[var(--text-on-accent)]">{gt("BOT")}</span>
+        )}
         {!isScreen && (info.serverMute || info.muted) && (
           <MicOff
             className={cn("h-3 w-3 shrink-0", info.serverMute ? "text-[#f23f43]" : "text-white/80")}

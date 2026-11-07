@@ -9,7 +9,7 @@ import { useAuth } from "@/contexts/AuthContext";
 import { ChatArea } from "@/components/chat/ChatArea";
 import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { MembersDrawer } from "@/components/chat/MembersDrawer";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
 import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, Sparkles, ArrowLeft, Rocket, Radio, MessageSquare } from "lucide-react";
 import { StageBar } from "@/components/voice/StageBar";
@@ -57,6 +57,9 @@ function sameParticipants(a: VoiceParticipant[], b: VoiceParticipant[]): boolean
   if (a.length !== b.length) return false;
   return a.every((p, i) => JSON.stringify(p) === JSON.stringify(b[i]));
 }
+
+/** Avatars on the join screen before the rest fold into "+N". */
+const MAX_PREVIEW_AVATARS = 8;
 
 function VoiceChannelView({ channelId, channelName, serverId, stage = false, chatOpen = false, onToggleChat }: { channelId: string; channelName: string; serverId?: string; stage?: boolean; chatOpen?: boolean; onToggleChat?: () => void }) {
   const { user, updateUser } = useAuth();
@@ -302,7 +305,7 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false, cha
           /* Not joined — show join screen */
           <div className="flex-1 flex flex-col items-center justify-center text-center">
             <div className="w-24 h-24 rounded-full bg-gradient-to-b from-[var(--app-accent)]/20 to-[var(--app-surface-alt)] ring-1 ring-[var(--app-accent)]/20 shadow-[0_0_40px_color-mix(in_srgb,var(--app-accent)_25%,transparent)] flex items-center justify-center mb-5">
-              <Volume2 className="w-11 h-11 text-[var(--app-accent)]" />
+              {stage ? <Radio className="w-11 h-11 text-[var(--app-accent)]" /> : <Volume2 className="w-11 h-11 text-[var(--app-accent)]" />}
             </div>
             <h2 className="text-lg font-semibold text-[var(--text-primary)] mb-1">{channelName}</h2>
             <p className="text-sm text-[var(--app-muted-2)] mb-4">
@@ -311,30 +314,31 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false, cha
                 : gt("No one is here yet")}
             </p>
             {participants.length > 0 && (
-              <div className="flex flex-wrap justify-center gap-2 mb-6 max-w-md">
-                {participants.map((p) => (
-                  <div
-                    key={p.userId}
-                    className="flex flex-col items-center gap-1 w-16"
-                    onContextMenu={(e) => openVoiceUserMenu(e, p)}
-                  >
-                    <Avatar className="w-12 h-12">
-                      {p.avatar && <AvatarImage src={cdnImage(p.avatar)} alt={p.username} />}
-                      <AvatarFallback className="bg-[var(--app-accent)]/20 text-[var(--app-accent)]">
-                        {(p.displayName || p.username || "?").charAt(0).toUpperCase()}
-                      </AvatarFallback>
-                    </Avatar>
-                    <span className="text-[10px] text-[var(--text-primary)] truncate max-w-full">
-                      {p.displayName || p.username}
-                    </span>
-                    {(p.serverMute || !p.audio) && (
-                      <MicOff
-                        className={cn("w-3 h-3", p.serverMute ? "text-[#f23f43]" : "text-red-400")}
-                        aria-label={p.serverMute ? gt("Server Muted") : gt("Muted")}
-                      />
-                    )}
-                  </div>
-                ))}
+              <div className="mb-6 flex max-w-md flex-col items-center gap-2">
+                {/* Who's in here, overlapping like Discord's pre-join card */}
+                <AvatarGroup className="-space-x-3 [--avatar-group-ring:var(--bg-app)]">
+                  {participants.slice(0, MAX_PREVIEW_AVATARS).map((p) => {
+                    const name = p.displayName || p.username || "?";
+                    return (
+                      <Avatar
+                        key={p.userId}
+                        className="size-12 ring-[3px]"
+                        title={name}
+                        onContextMenu={(e) => openVoiceUserMenu(e, p)}
+                      >
+                        {p.avatar && <AvatarImage src={cdnImage(p.avatar)} alt={name} />}
+                        <AvatarFallback className="bg-[var(--app-accent)]/20 text-[var(--app-accent)]">{name.charAt(0).toUpperCase()}</AvatarFallback>
+                      </Avatar>
+                    );
+                  })}
+                  {participants.length > MAX_PREVIEW_AVATARS && (
+                    <AvatarGroupCount className="size-12 text-sm ring-[3px]">+{participants.length - MAX_PREVIEW_AVATARS}</AvatarGroupCount>
+                  )}
+                </AvatarGroup>
+                <p className="max-w-xs truncate text-xs text-[var(--app-muted)]">
+                  {participants.slice(0, 3).map((p) => p.displayName || p.username).join(", ")}
+                  {participants.length > 3 ? ` ${gt("and {count} more", { count: participants.length - 3 })}` : ""}
+                </p>
               </div>
             )}
             <button

@@ -255,6 +255,13 @@ describe("device pickers", () => {
 });
 
 describe("fitGrid", () => {
+  test("two people sit side by side in a wide, short call area (not stacked)", () => {
+    expect(fitGrid(2, 1150, 740, 12)?.cols).toBe(2);
+    // A phone held upright still stacks them.
+    expect(fitGrid(2, 360, 600, 8)?.cols).toBe(1);
+    // Four people in a wide area: 2 x 2, not a strip of four.
+    expect(fitGrid(4, 1150, 740, 12)?.cols).toBe(2);
+  });
   test("one tile is limited by a short area, not stretched to full width", () => {
     // 1600x400 area: a full-width 16:9 tile would be 900px tall; fit by height.
     expect(fitGrid(1, 1600, 400, 8)).toEqual({ cols: 1, tileWidth: Math.floor(400 * 16 / 9) });

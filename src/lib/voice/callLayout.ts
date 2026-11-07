@@ -87,13 +87,21 @@ export function fitGrid(
   aspect = 16 / 9,
 ): { cols: number; tileWidth: number } | null {
   if (count <= 0 || width <= 0 || height <= 0) return null;
-  let best: { cols: number; tileWidth: number } | null = null;
+  const options: { cols: number; tileWidth: number }[] = [];
   for (let cols = 1; cols <= count; cols++) {
     const rows = Math.ceil(count / cols);
     const byWidth = (width - gap * (cols - 1)) / cols;
     const byHeight = ((height - gap * (rows - 1)) / rows) * aspect;
     const tileWidth = Math.floor(Math.min(byWidth, byHeight));
-    if (tileWidth > 0 && (!best || tileWidth > best.tileWidth)) best = { cols, tileWidth };
+    if (tileWidth > 0) options.push({ cols, tileWidth });
   }
-  return best;
+  if (options.length === 0) return null;
+  const largest = Math.max(...options.map((o) => o.tileWidth));
+  // Like Discord, people sit side by side rather than stacked: the most
+  // columns whose tiles are still at least SIDE_BY_SIDE of the largest fit
+  // (two people in a wide, short window get two columns, not two rows).
+  return options.filter((o) => o.tileWidth >= largest * SIDE_BY_SIDE).reduce((a, b) => (b.cols > a.cols ? b : a));
 }
+
+/** How much smaller tiles may get to stay side by side instead of stacking. */
+const SIDE_BY_SIDE = 0.75;
