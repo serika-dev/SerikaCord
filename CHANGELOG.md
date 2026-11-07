@@ -8,6 +8,7 @@
 
 ### Features
 - RNNoise noise suppression: turn on Use RNNoise under Voice & Video > Noise Suppression for a small on-device AI model that removes more background noise (keyboards, fans, traffic) than the standard suppression. The mic test lets you hear it before a call.
+- Text chat in voice channels: the chat button in a voice or stage channel opens its own text chat next to the call, like Discord (it remembers whether you left it open).
 
 ### Changes
 

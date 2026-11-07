@@ -12104,5 +12104,8 @@
   "bdaee24c9bb0b708": "Play text-to-speech from others",
   "cbe4f5d564521b2b": "Read /tts messages other people send aloud",
   "7a965699727d7121": "TTS sound effects",
-  "e64c7bc2cab86067": "Play sound triggers and loud effects like [vol:EAR] and [vol:BASS]. When off, trigger words are spoken and volume is capped at 100%."
+  "e64c7bc2cab86067": "Play sound triggers and loud effects like [vol:EAR] and [vol:BASS]. When off, trigger words are spoken and volume is capped at 100%.",
+  "162b538eb28b15ad": "Hide Chat",
+  "eaa1b96968b100e1": "Show Chat",
+  "afda415d2d75a5d3": "Chat"
 }

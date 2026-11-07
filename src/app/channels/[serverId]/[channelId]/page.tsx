@@ -11,8 +11,9 @@ import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { MembersDrawer } from "@/components/chat/MembersDrawer";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, Sparkles, ArrowLeft, Rocket, Radio } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, Sparkles, ArrowLeft, Rocket, Radio, MessageSquare } from "lucide-react";
 import { StageBar } from "@/components/voice/StageBar";
+import { VoiceChatPanel, useVoiceChatOpen } from "@/components/voice/VoiceChatPanel";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { voiceErrorText } from "@/components/voice/IncomingCall";
@@ -57,7 +58,7 @@ function sameParticipants(a: VoiceParticipant[], b: VoiceParticipant[]): boolean
   return a.every((p, i) => JSON.stringify(p) === JSON.stringify(b[i]));
 }
 
-function VoiceChannelView({ channelId, channelName, serverId, stage = false }: { channelId: string; channelName: string; serverId?: string; stage?: boolean }) {
+function VoiceChannelView({ channelId, channelName, serverId, stage = false, chatOpen = false, onToggleChat }: { channelId: string; channelName: string; serverId?: string; stage?: boolean; chatOpen?: boolean; onToggleChat?: () => void }) {
   const { user, updateUser } = useAuth();
   const router = useRouter();
   const gt = useGT();
@@ -270,9 +271,28 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false }: {
           {stage ? <Radio className="w-5 h-5 text-[var(--app-accent)] flex-shrink-0" /> : <Volume2 className="w-5 h-5 text-[var(--app-accent)] flex-shrink-0" />}
           <span className="font-semibold text-[var(--text-primary)] truncate">{channelName}</span>
         </div>
-        <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--app-surface-alt)] text-xs text-[var(--app-muted)] ring-1 ring-white/5">
-          <span className={cn("w-1.5 h-1.5 rounded-full", participants.length > 0 ? "bg-green-500" : "bg-[#3a4459]")} />
-          {participants.length} {participants.length === 1 ? gt("participant") : gt("participants")}
+        <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--app-surface-alt)] text-xs text-[var(--app-muted)] ring-1 ring-white/5">
+            <span className={cn("w-1.5 h-1.5 rounded-full", participants.length > 0 ? "bg-green-500" : "bg-[#3a4459]")} />
+            {participants.length} {participants.length === 1 ? gt("participant") : gt("participants")}
+          </div>
+          {onToggleChat && (
+            <button
+              type="button"
+              onClick={onToggleChat}
+              title={chatOpen ? gt("Hide Chat") : gt("Show Chat")}
+              aria-label={chatOpen ? gt("Hide Chat") : gt("Show Chat")}
+              aria-pressed={chatOpen}
+              className={cn(
+                "flex h-8 w-8 items-center justify-center rounded-lg transition-colors",
+                chatOpen
+                  ? "bg-[var(--app-surface-alt)] text-[var(--text-primary)]"
+                  : "text-[var(--app-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]",
+              )}
+            >
+              <MessageSquare className="w-5 h-5" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -516,6 +536,10 @@ export default function ChannelPage() {
   const { servers, setCurrentServer, channels, channelsServerId, setCurrentChannel, isLoading, fetchChannels, currentServer, currentChannel } = useServer();
   // Discord's thread side panel, next to a text / announcement channel.
   const threadPanel = useThreadPanel(currentChannel && canHostThreads(currentChannel.type) ? currentChannel.id : null);
+  // Text chat in voice channels: remembered on desktop; on phones (full
+  // screen) it opens per visit.
+  const [voiceChatPinned, setVoiceChatPinned] = useVoiceChatOpen();
+  const [mobileVoiceChatFor, setMobileVoiceChatFor] = useState<string | null>(null);
   // The member list starts open only where it has its own column (1024px+).
   const [showMembers, setShowMembers] = useState(() =>
     typeof window !== "undefined" ? window.innerWidth >= 1024 : true
@@ -524,6 +548,11 @@ export default function ChannelPage() {
   // Tablets / narrow windows (768–1023px): the member list slides over the chat.
   const isCompact = useIsMobile(1024);
   const drawerMembers = isMobile || isCompact;
+  const voiceChatOpen = isMobile ? mobileVoiceChatFor === currentChannel?.id : voiceChatPinned;
+  const setVoiceChatOpen = (open: boolean) => {
+    if (isMobile) setMobileVoiceChatFor(open && currentChannel ? currentChannel.id : null);
+    else setVoiceChatPinned(open);
+  };
 
   // Member list rendering: inline sidebar on desktop, slide-in drawer on mobile.
   const renderMembers = (mobile: boolean) => {
@@ -825,8 +854,11 @@ export default function ChannelPage() {
           channelName={currentChannel.name}
           serverId={currentServer?.id}
           stage={currentChannel.type === "stage"}
+          chatOpen={voiceChatOpen}
+          onToggleChat={() => setVoiceChatOpen(!voiceChatOpen)}
         />
-        {renderMembers(drawerMembers)}
+        {/* The chat takes the member list's place (Discord). */}
+        {voiceChatOpen ? <VoiceChatPanel channel={currentChannel} onClose={() => setVoiceChatOpen(false)} /> : renderMembers(drawerMembers)}
       </>
     );
   }

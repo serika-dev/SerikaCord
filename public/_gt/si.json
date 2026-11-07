@@ -12745,5 +12745,7 @@
   "1c35e801ebe5a4b1": "The Android app isn't on Google Play yet",
   "77413dcc2b639bab": "Yes. SerikaCord is free on the App Store for iPhone and iPad with iOS 15 or newer.",
   "6b88b4a805e8d89b": "Use RNNoise",
-  "457b67348e04b179": "A small AI model that removes more background noise, like keyboards, fans and traffic, than the standard suppression. Runs on your device and uses a little more CPU. Try it with the mic test above."
+  "457b67348e04b179": "A small AI model that removes more background noise, like keyboards, fans and traffic, than the standard suppression. Runs on your device and uses a little more CPU. Try it with the mic test above.",
+  "162b538eb28b15ad": "Hide Chat",
+  "eaa1b96968b100e1": "Show Chat"
 }

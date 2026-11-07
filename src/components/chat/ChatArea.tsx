@@ -39,6 +39,9 @@ import {
   Archive,
   Lock,
   Info,
+  Volume2,
+  Radio,
+  X,
 } from "lucide-react";
 import { cn, getTimeoutRemaining } from "@/lib/utils";
 import { toast } from "sonner";
@@ -161,6 +164,12 @@ interface ChatAreaProps {
   variant?: "main" | "panel";
   /** Panel: close it (X). */
   onClosePanel?: () => void;
+  /**
+   * Panel that is the only chat on screen (a voice channel's chat next to the
+   * call): its list reports reading and answers the chat hotkeys like the
+   * main view's.
+   */
+  primary?: boolean;
 }
 
 // Per-server SWR caches so bouncing between servers paints emojis/roles instantly
@@ -169,7 +178,7 @@ type ServerEmoji = { id: string; name: string; url: string; serverId: string; an
 const serverEmojiCache = new Map<string, ServerEmoji[]>();
 const serverRoleCache = new Map<string, MentionRole[]>();
 
-export function ChatArea({ onToggleMembers, showMembers, channelOverride, variant = "main", onClosePanel }: ChatAreaProps) {
+export function ChatArea({ onToggleMembers, showMembers, channelOverride, variant = "main", onClosePanel, primary = false }: ChatAreaProps) {
   const { currentChannel: selectedChannel, currentServer, channels } = useServer();
   // The thread side panel renders its thread through this same view.
   const currentChannel = channelOverride ?? selectedChannel;
@@ -1403,6 +1412,10 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             />
           ) : currentChannel.type === "announcement" ? (
             <Megaphone className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
+          ) : currentChannel.type === "voice" ? (
+            <Volume2 className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
+          ) : currentChannel.type === "stage" ? (
+            <Radio className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
           ) : (
             <Hash className="w-5 sm:w-6 h-5 sm:h-6 text-[var(--app-muted-2)] flex-shrink-0" />
           )}
@@ -1447,6 +1460,17 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
               }
               onClose={isPanel ? onClosePanel : undefined}
             />
+          )}
+          {isPanel && !isThread && onClosePanel && (
+            <button
+              type="button"
+              onClick={onClosePanel}
+              title={gt("Close")}
+              aria-label={gt("Close")}
+              className="rounded-lg flex items-center justify-center hover:text-[var(--text-primary)] transition-colors p-2.5 -m-1.5 sm:p-0 sm:m-0"
+            >
+              <X className="w-5 h-5" />
+            </button>
           )}
           {hostsThreads && (
             <button
@@ -1637,7 +1661,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
         onCreateThread={canCreateThreads ? handleCreateThread : undefined}
         onOpenThread={hostsThreads ? handleOpenThread : undefined}
         onSeeAllThreads={hostsThreads ? handleSeeAllThreads : undefined}
-        secondary={isPanel}
+        secondary={isPanel && !primary}
         onMarkUnread={(plan) => {
           if (openChannelId) getUnread().markChannelUnread(openChannelId, plan);
         }}
@@ -1712,7 +1736,7 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
       <MessageBar
         ref={messageBarRef}
         disabled={selfTimeout.active || !canSendInCurrentChannel || lockedOut || verificationBlocked || screeningBlocked}
-        secondary={isPanel}
+        secondary={isPanel && !primary}
         placeholder={
           selfTimeout.active
             ? gt("You're timed out — {time} remaining", { time: selfTimeout.label })
