@@ -26,7 +26,10 @@ type UdpSock = {
   close(): void;
   port: number;
 };
-type UdpOpts = { port?: number; socket: { data(sock: UdpSock, buf: Buffer, port: number, address: string): void } };
+type UdpOpts = {
+  port?: number;
+  socket: { data(sock: UdpSock, buf: Buffer, port: number, address: string): void; error?(sock: UdpSock, err: Error): void };
+};
 const udpSocket = (opts: UdpOpts) => (globalThis as unknown as { Bun: { udpSocket(o: UdpOpts): Promise<UdpSock> } }).Bun.udpSocket(opts);
 
 const SECRET = process.env.RELAY_SECRET ?? '';
@@ -35,6 +38,7 @@ const MAGIC = 'SRLY1 ';
 const UPSTREAM_TTL_MS = 6_000;
 const CLIENT_IDLE_MS = 120_000;
 const MAX_CLIENTS = 2_000;
+const MAX_QUEUE = 64;
 
 if (SECRET.length < 16) throw new Error('RELAY_SECRET (16+ characters) is required');
 if (PORTS.length === 0) throw new Error('RELAY_PORTS is empty');
@@ -42,7 +46,15 @@ if (PORTS.length === 0) throw new Error('RELAY_PORTS is empty');
 const registration = Buffer.from(MAGIC + SECRET);
 
 interface Upstream { address: string; port: number; seen: number }
-interface Client { address: string; port: number; seen: number; sock: UdpSock | null; queue: Uint8Array[] }
+/**
+ * One socket per (bot flow, app instance). Not one per flow: after an
+ * instance is removed by a deploy, ICMP "port unreachable" leaves an error
+ * pending on the socket that sent to it, and Linux then fails the next send
+ * on that socket whatever its destination, which would silence the new
+ * instance too.
+ */
+interface Pair { sock: UdpSock | null; queue: Uint8Array[] }
+interface Client { address: string; port: number; seen: number; pairs: Map<string, Pair> }
 
 async function relay(listenPort: number) {
   const upstreams = new Map<string, Upstream>();
@@ -51,8 +63,43 @@ async function relay(listenPort: number) {
     const now = Date.now();
     return [...upstreams.values()].filter((u) => now - u.seen < UPSTREAM_TTL_MS);
   };
+
+  const openPair = (c: Client, upKey: string, pair: Pair) => {
+    void udpSocket({
+      socket: {
+        data(_s, reply, upPort, upAddress) {
+          if (`${upAddress}:${upPort}` !== upKey) return;
+          c.seen = Date.now();
+          try { listen.send(new Uint8Array(reply), c.port, c.address); } catch { /* the bot's side went away */ }
+        },
+        // ICMP errors from a removed instance: only this pair is affected.
+        error() {},
+      },
+    }).then((sock) => {
+      if (c.pairs.get(upKey) !== pair) return sock.close();
+      pair.sock = sock;
+      const u = upstreams.get(upKey);
+      if (u) for (const queued of pair.queue) send(pair, u, queued);
+      pair.queue = [];
+    }, (err) => {
+      console.warn(`[relay:${listenPort}] socket failed:`, (err as Error)?.message ?? err);
+      c.pairs.delete(upKey);
+    });
+  };
+  const send = (pair: Pair, u: Upstream, data: Uint8Array) => {
+    try { pair.sock?.send(data, u.port, u.address); } catch { /* a pending ICMP error from a removed instance */ }
+  };
   const forward = (c: Client, data: Uint8Array) => {
-    for (const u of live()) c.sock?.send(data, u.port, u.address);
+    for (const u of live()) {
+      const upKey = `${u.address}:${u.port}`;
+      let pair = c.pairs.get(upKey);
+      if (!pair) {
+        pair = { sock: null, queue: [data] };
+        c.pairs.set(upKey, pair);
+        openPair(c, upKey, pair);
+      } else if (pair.sock) send(pair, u, data);
+      else if (pair.queue.length < MAX_QUEUE) pair.queue.push(data);
+    }
   };
 
   const listen = await udpSocket({
@@ -70,37 +117,16 @@ async function relay(listenPort: number) {
           }
           return;
         }
-        const data = new Uint8Array(buf);
         let c = clients.get(key);
-        if (c) {
-          c.seen = Date.now();
-          if (c.sock) forward(c, data);
-          else if (c.queue.length < 64) c.queue.push(data);
-          return;
+        if (!c) {
+          if (clients.size >= MAX_CLIENTS) return;
+          c = { address, port, seen: Date.now(), pairs: new Map() };
+          clients.set(key, c);
         }
-        if (clients.size >= MAX_CLIENTS) return;
-        c = { address, port, seen: Date.now(), sock: null, queue: [data] };
-        clients.set(key, c);
-        const client = c;
-        // Replies from a live upstream go back to this client.
-        void udpSocket({
-          socket: {
-            data(_s, reply, upPort, upAddress) {
-              if (!upstreams.has(`${upAddress}:${upPort}`)) return;
-              client.seen = Date.now();
-              listen.send(new Uint8Array(reply), client.port, client.address);
-            },
-          },
-        }).then((sock) => {
-          if (clients.get(key) !== client) return sock.close();
-          client.sock = sock;
-          for (const queued of client.queue) forward(client, queued);
-          client.queue = [];
-        }, (err) => {
-          console.warn(`[relay:${listenPort}] socket for ${key} failed:`, (err as Error)?.message ?? err);
-          clients.delete(key);
-        });
+        c.seen = Date.now();
+        forward(c, new Uint8Array(buf));
       },
+      error() {},
     },
   });
 
@@ -113,14 +139,22 @@ async function relay(listenPort: number) {
       }
     }
     for (const [key, c] of clients) {
-      if (now - c.seen >= CLIENT_IDLE_MS) {
-        c.sock?.close();
-        clients.delete(key);
+      const idle = now - c.seen >= CLIENT_IDLE_MS;
+      for (const [upKey, pair] of c.pairs) {
+        if (idle || !upstreams.has(upKey)) {
+          pair.sock?.close();
+          c.pairs.delete(upKey);
+        }
       }
+      if (idle) clients.delete(key);
     }
   }, 2_000);
 
   console.log(`[relay] listening on udp :${listenPort}`);
 }
+
+// Last line of defence: log and keep relaying rather than exit mid-call.
+process.on('uncaughtException', (err) => console.warn('[relay] uncaught:', err?.message ?? err));
+process.on('unhandledRejection', (err) => console.warn('[relay] unhandled:', (err as Error)?.message ?? err));
 
 await Promise.all(PORTS.map(relay));
