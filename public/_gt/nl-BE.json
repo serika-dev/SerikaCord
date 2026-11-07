@@ -12747,5 +12747,7 @@
   "6b88b4a805e8d89b": "Use RNNoise",
   "457b67348e04b179": "A small AI model that removes more background noise, like keyboards, fans and traffic, than the standard suppression. Runs on your device and uses a little more CPU. Try it with the mic test above.",
   "162b538eb28b15ad": "Hide Chat",
-  "eaa1b96968b100e1": "Show Chat"
+  "eaa1b96968b100e1": "Show Chat",
+  "415d99b0b6631563": "Welcome to {channel}!",
+  "de0a6cf011dad976": "This is the start of the {channel} chat. Messages here stay with the channel, for everyone who can see it."
 }

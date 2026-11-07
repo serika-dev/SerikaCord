@@ -12107,5 +12107,7 @@
   "e64c7bc2cab86067": "Play sound triggers and loud effects like [vol:EAR] and [vol:BASS]. When off, trigger words are spoken and volume is capped at 100%.",
   "162b538eb28b15ad": "Hide Chat",
   "eaa1b96968b100e1": "Show Chat",
-  "afda415d2d75a5d3": "Chat"
+  "afda415d2d75a5d3": "Chat",
+  "415d99b0b6631563": "Welcome to {channel}!",
+  "de0a6cf011dad976": "This is the start of the {channel} chat. Messages here stay with the channel, for everyone who can see it."
 }

@@ -1368,12 +1368,24 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
   ) : (
     <div className="px-4 pb-4 mb-4 border-b border-[var(--app-border)]">
       <div className="w-16 h-16 mb-2 rounded-2xl bg-[var(--app-surface-alt)] flex items-center justify-center border border-[var(--app-border)]">
-        <Hash className="w-10 h-10 text-[var(--text-primary)]" />
+        {currentChannel.type === "voice" ? (
+          <Volume2 className="w-10 h-10 text-[var(--text-primary)]" />
+        ) : currentChannel.type === "stage" ? (
+          <Radio className="w-10 h-10 text-[var(--text-primary)]" />
+        ) : (
+          <Hash className="w-10 h-10 text-[var(--text-primary)]" />
+        )}
       </div>
       <h1 className="text-2xl sm:text-3xl font-bold text-[var(--text-primary)] mb-2 break-words">
-        {gt("Welcome to #{channel}!", { channel: currentChannel.name })}
+        {currentChannel.type === "voice" || currentChannel.type === "stage"
+          ? gt("Welcome to {channel}!", { channel: currentChannel.name })
+          : gt("Welcome to #{channel}!", { channel: currentChannel.name })}
       </h1>
-      <p className="text-[var(--app-muted)]">{gt("This is the start of the #{channel} channel.", { channel: currentChannel.name })}</p>
+      <p className="text-[var(--app-muted)]">
+        {currentChannel.type === "voice" || currentChannel.type === "stage"
+          ? gt("This is the start of the {channel} chat. Messages here stay with the channel, for everyone who can see it.", { channel: currentChannel.name })
+          : gt("This is the start of the #{channel} channel.", { channel: currentChannel.name })}
+      </p>
     </div>
   );
 
@@ -1750,6 +1762,8 @@ export function ChatArea({ onToggleMembers, showMembers, channelOverride, varian
             ? gt("You don't have permission to send messages here")
             : isThread
             ? `${gt("Message")} ${threadName}`
+            : currentChannel?.type === "voice" || currentChannel?.type === "stage"
+            ? `${gt("Message")} ${currentChannel.name}`
             : `${gt("Message")} #${currentChannel?.name ?? ""}`
         }
         ariaLabel={
