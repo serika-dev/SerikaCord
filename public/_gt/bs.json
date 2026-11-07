@@ -12110,5 +12110,8 @@
   "afda415d2d75a5d3": "Chat",
   "415d99b0b6631563": "Welcome to {channel}!",
   "de0a6cf011dad976": "This is the start of the {channel} chat. Messages here stay with the channel, for everyone who can see it.",
-  "a6062b7441bb7855": "BOT"
+  "a6062b7441bb7855": "BOT",
+  "7d0d67857381195c": "Show call",
+  "01299f2a11d3d70f": "Hide call",
+  "b1569a00e4c40cef": "Leave"
 }

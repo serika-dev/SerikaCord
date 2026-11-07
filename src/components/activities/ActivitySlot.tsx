@@ -4,13 +4,15 @@
  * Activity docks at the top of the chat, a call Activity fills the call stage.
  * "Hide chat" (the chevron) lets a text-chat Activity cover the conversation
  * below the chat header, with the app's name above it, until it is shown again.
+ * In a call the same chevron is "Hide call": the participant tiles make way
+ * and the Activity fills the call area (the call controls stay).
  * The slot only reserves the space and draws the bars; the frame itself is
  * rendered once by ActivityHost and laid over the registered area, so it
  * keeps running while you navigate. Desktop only; phones show it full screen.
  */
 import { useEffect, useRef } from "react";
 import { useGT } from "gt-next";
-import { ChevronDown, ChevronUp, ExternalLink, Maximize, Minimize2, PhoneOff, Undo2 } from "lucide-react";
+import { ChevronDown, ChevronUp, ExternalLink, LogOut, Maximize, Minimize2, Undo2 } from "lucide-react";
 import { toast } from "sonner";
 import { cdnImage, cn } from "@/lib/utils";
 import { useIsMobile } from "@/hooks/useIsMobile";
@@ -97,9 +99,14 @@ function SlotBody({ open, channelId, voice, className }: { open: OpenActivity; c
   );
 }
 
-/** Participants on the left; hide chat / minimize / leave in the middle; pop-out on the right. */
+/** Participants on the left; hide chat or call / minimize / leave in the middle; pop-out on the right. */
 export function ActivityBar({ open, voice, chatHidden }: { open: OpenActivity; voice: boolean; chatHidden: boolean }) {
   const gt = useGT();
+  // In a call the flag hides the participant tiles instead of the chat.
+  const hidden = voice ? open.chatHidden : chatHidden;
+  const toggleLabel = voice
+    ? hidden ? gt("Show call") : gt("Hide call")
+    : hidden ? gt("Show chat") : gt("Hide chat");
   const view = useInstanceView(open.instanceId);
   const participants = view?.participants ?? [];
   const btn = "p-2 rounded-lg hover:opacity-80";
@@ -113,17 +120,24 @@ export function ActivityBar({ open, voice, chatHidden }: { open: OpenActivity; v
         ))}
       </div>
       <div className="flex items-center gap-1 rounded-xl px-1 py-1" style={{ background: "var(--app-surface)", color: "var(--app-text)" }}>
-        {!voice && (
-          <button type="button" onClick={toggleChatHidden} className={btn} title={chatHidden ? gt("Show chat") : gt("Hide chat")} aria-label={chatHidden ? gt("Show chat") : gt("Hide chat")}>
-            {chatHidden ? <ChevronUp className="size-5" /> : <ChevronDown className="size-5" />}
-          </button>
-        )}
+        <button type="button" onClick={toggleChatHidden} className={btn} title={toggleLabel} aria-label={toggleLabel} aria-pressed={hidden}>
+          {hidden ? <ChevronUp className="size-5" /> : <ChevronDown className="size-5" />}
+        </button>
         <button type="button" onClick={() => setActivityLayout("mini")} className={btn} title={gt("Minimize")} aria-label={gt("Minimize")}>
           <Minimize2 className="size-5" />
         </button>
       </div>
-      <button type="button" onClick={closeActivity} className="px-4 py-2 rounded-xl text-white" style={{ background: "#ef4444" }} title={gt("Leave Activity")} aria-label={gt("Leave Activity")}>
-        <PhoneOff className="size-5" />
+      {/* A door, not the hang-up phone: leaving the Activity keeps you in the call. */}
+      <button
+        type="button"
+        onClick={closeActivity}
+        className="flex items-center gap-1.5 rounded-xl px-3 py-2 text-sm font-semibold transition-colors hover:brightness-110"
+        style={{ background: "color-mix(in srgb, #ef4444 16%, transparent)", color: "#f87171" }}
+        title={gt("Leave Activity")}
+        aria-label={gt("Leave Activity")}
+      >
+        <LogOut className="size-5" />
+        <span className="hidden sm:inline">{gt("Leave")}</span>
       </button>
       <div className="flex-1 flex justify-end gap-1">
         {canFullscreenActivity() && open.layout === "inline" && (

@@ -41,6 +41,7 @@ const ThreadPanel = dynamic(() => import("@/components/chat/ThreadPanel").then((
 import { useVoiceUserMenu } from "@/components/voice/VoiceUserMenu";
 import { StreamQualityPicker } from "@/components/voice/StreamQualityPicker";
 import { ActivitySlot } from "@/components/activities/ActivitySlot";
+import { useOpenActivityAt } from "@/lib/activities/clientStore";
 
 // The call stage (video grid, spotlight, pop-out) only loads once you join.
 const CallStage = dynamic(() => import("@/components/voice/CallStage").then((m) => m.CallStage), { ssr: false });
@@ -64,6 +65,8 @@ const MAX_PREVIEW_AVATARS = 8;
 
 function VoiceChannelView({ channelId, channelName, serverId, stage = false, chatOpen = false, onToggleChat }: { channelId: string; channelName: string; serverId?: string; stage?: boolean; chatOpen?: boolean; onToggleChat?: () => void }) {
   const { user, updateUser } = useAuth();
+  // "Hide call" in a running Activity's bar: the tiles make way for it.
+  const callHidden = useOpenActivityAt(channelId, true)?.chatHidden === true;
   const router = useRouter();
   const gt = useGT();
   const [participants, setParticipants] = useState<VoiceParticipant[]>([]);
@@ -374,7 +377,8 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false, cha
               popOutInHeader
               serverId={serverId}
               channelId={channelId}
-              className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4"
+              // Hidden, not unmounted: a popped-out call keeps its window.
+              className={cn("flex-1 min-h-0 overflow-y-auto p-3 sm:p-4", callHidden && "hidden")}
               aloneHint={gt("You're the only one here. Invite others to join!")}
             />
 
