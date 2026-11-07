@@ -11,9 +11,10 @@ import { MemberSidebar } from "@/components/chat/MemberSidebar";
 import { MembersDrawer } from "@/components/chat/MembersDrawer";
 import { Avatar, AvatarFallback, AvatarGroup, AvatarGroupCount, AvatarImage } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
-import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, Sparkles, ArrowLeft, Rocket, Radio, MessageSquare } from "lucide-react";
+import { Mic, MicOff, Video, VideoOff, Volume2, PhoneOff, MonitorOff, Headphones, HeadphoneOff, ScreenShare, Music, Sparkles, ArrowLeft, Rocket, Radio, MessageSquare, ExternalLink } from "lucide-react";
 import { StageBar } from "@/components/voice/StageBar";
 import { VoiceChatPanel, useVoiceChatOpen } from "@/components/voice/VoiceChatPanel";
+import { canPopOutCall, popOutCall } from "@/lib/voice/callPopOut";
 import { toast } from "sonner";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { voiceErrorText } from "@/components/voice/IncomingCall";
@@ -274,11 +275,7 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false, cha
           {stage ? <Radio className="w-5 h-5 text-[var(--app-accent)] flex-shrink-0" /> : <Volume2 className="w-5 h-5 text-[var(--app-accent)] flex-shrink-0" />}
           <span className="font-semibold text-[var(--text-primary)] truncate">{channelName}</span>
         </div>
-        <div className="flex items-center gap-2">
-          <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[var(--app-surface-alt)] text-xs text-[var(--app-muted)] ring-1 ring-white/5">
-            <span className={cn("w-1.5 h-1.5 rounded-full", participants.length > 0 ? "bg-green-500" : "bg-[#3a4459]")} />
-            {participants.length} {participants.length === 1 ? gt("participant") : gt("participants")}
-          </div>
+        <div className="flex items-center gap-1">
           {onToggleChat && (
             <button
               type="button"
@@ -294,6 +291,17 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false, cha
               )}
             >
               <MessageSquare className="w-5 h-5" />
+            </button>
+          )}
+          {isConnected && !isMobile && canPopOutCall() && (
+            <button
+              type="button"
+              onClick={popOutCall}
+              title={gt("Pop Out")}
+              aria-label={gt("Pop Out")}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-[var(--app-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--text-primary)]"
+            >
+              <ExternalLink className="w-5 h-5" />
             </button>
           )}
         </div>
@@ -363,6 +371,7 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false, cha
                 Click to spotlight, right-click for volume / moderation. */}
             <CallStage
               variant="channel"
+              popOutInHeader
               serverId={serverId}
               channelId={channelId}
               className="flex-1 min-h-0 overflow-y-auto p-3 sm:p-4"

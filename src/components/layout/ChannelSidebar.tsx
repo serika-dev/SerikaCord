@@ -868,12 +868,6 @@ export function ChannelSidebar({
               )} />
             )}
             <span className="truncate text-sm flex-1 text-left min-w-0" title={decodeHtmlEntities(channel.name)}>{decodeHtmlEntities(channel.name)}</span>
-            {channelParticipants.length > 0 && (
-              <span className="flex items-center gap-1 shrink-0">
-                <span className={cn("inline-block w-1.5 h-1.5 rounded-full", isActive ? "bg-green-500 animate-pulse" : "bg-green-500/60")} />
-                <span className={cn("text-[10px]", isActive ? "text-green-400" : "text-green-400/70")}>{channelParticipants.length}</span>
-              </span>
-            )}
             {canManageChannels && (
               <Settings
                 onClick={(e) => {

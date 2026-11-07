@@ -193,3 +193,29 @@ describe("application objects", () => {
     expect(parseApplicationPatch({ interactions_endpoint_url: null })).toEqual({ ok: true, updates: {}, interactionsEndpointUrl: null });
   });
 });
+
+describe("gateway sessions saved for RESUME on another instance", () => {
+  test("a saved session comes back with its guilds, seq and newest replay frames", async () => {
+    const { newSession, toPersistedSession, fromPersistedSession } = await import("@/lib/gateway/core");
+    const { pushReplay } = await import("@/lib/gateway/session");
+    const s = newSession();
+    Object.assign(s, { authenticated: true, botId: "bot-1", applicationId: "app-1", intents: 513, seq: 3, idFormat: "snowflake" });
+    s.guildIds.add("g1");
+    s.dmChannelIds.add("dm1");
+    for (let i = 1; i <= 3; i++) pushReplay(s.replay, i, `{"s":${i}}`);
+    const saved = JSON.parse(JSON.stringify(toPersistedSession(s)));
+    const back = fromPersistedSession(saved);
+    expect(back.sessionId).toBe(s.sessionId);
+    expect(back.authenticated).toBe(true);
+    expect([...back.guildIds]).toEqual(["g1"]);
+    expect([...back.dmChannelIds]).toEqual(["dm1"]);
+    expect(back.seq).toBe(3);
+    expect(back.idFormat).toBe("snowflake");
+    expect(back.replay.frames.map((f) => f.s)).toEqual([1, 2, 3]);
+  });
+
+  test("an unauthenticated socket is not saved", async () => {
+    const { newSession, toPersistedSession } = await import("@/lib/gateway/core");
+    expect(toPersistedSession(newSession())).toBeNull();
+  });
+});

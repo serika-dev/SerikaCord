@@ -12,9 +12,11 @@
 
 ### Changes
 - Voice channels look and lay out better: two people sit side by side instead of stacked, avatar tiles get a soft backdrop from each person's avatar with an avatar that grows with the tile and a BOT tag for bots, and the join screen shows who's in the channel as a row of overlapping avatars.
+- Voice calls: tiles keep a margin and never touch the edges, the last row is centred, tiles have a softer edge and frosted name tags, the pop-out button sits next to the chat button, and the participant counts are gone from the header and channel list.
 
 ### Bug Fixes
 - Noise suppression works properly in calls: the call button now turns your browser's noise suppression on or off (the same setting as in Voice & Video), instead of a noise gate that cut off words, could leave you silent after turning it off, and could keep sending your mic while muted in server voice channels. Changing input volume during a call now works in server voice channels too.
+- Bots stay in voice through our deploys and restarts: their voice and gateway connections resume on the new server instead of dropping, so music bots keep playing.
 
 ### Performance
 

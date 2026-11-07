@@ -137,6 +137,78 @@ export function newSession(opts?: { compress?: GatewayCompression; encoding?: st
   };
 }
 
+/**
+ * What a session needs to RESUME on another instance (a deploy replaces this
+ * one): sent to Redis on shutdown, read back by whichever instance the bot
+ * reconnects to. Keeps the newest replay frames, so a bot that missed a few
+ * dispatches just before the restart still gets them.
+ */
+export interface PersistedGatewaySession {
+  sessionId: string;
+  botId: string;
+  applicationId: string | null;
+  intents: number;
+  guildIds: string[];
+  dmChannelIds: string[];
+  seq: number;
+  idFormat: IdFormat;
+  shard: [number, number] | null;
+  largeThreshold: number;
+  presence: Session['presence'];
+  replay: Array<{ s: number; text: string }>;
+}
+
+const PERSIST_REPLAY_FRAMES = 200;
+const PERSIST_REPLAY_BYTES = 256 * 1024;
+
+export function toPersistedSession(s: Session): PersistedGatewaySession | null {
+  if (!s.authenticated || !s.botId) return null;
+  const replay: Array<{ s: number; text: string }> = [];
+  let bytes = 0;
+  for (let i = s.replay.frames.length - 1; i >= 0 && replay.length < PERSIST_REPLAY_FRAMES; i--) {
+    const f = s.replay.frames[i];
+    if (bytes + f.text.length > PERSIST_REPLAY_BYTES) break;
+    bytes += f.text.length;
+    replay.unshift(f);
+  }
+  return {
+    sessionId: s.sessionId,
+    botId: s.botId,
+    applicationId: s.applicationId,
+    intents: s.intents,
+    guildIds: [...s.guildIds],
+    dmChannelIds: [...s.dmChannelIds],
+    seq: s.seq,
+    idFormat: s.idFormat,
+    shard: s.shard,
+    largeThreshold: s.largeThreshold,
+    presence: s.presence,
+    replay,
+  };
+}
+
+export function fromPersistedSession(p: PersistedGatewaySession): Session {
+  const s = newSession();
+  Object.assign(s, {
+    authenticated: true,
+    sessionId: p.sessionId,
+    botId: p.botId,
+    applicationId: p.applicationId,
+    intents: p.intents,
+    guildIds: new Set(p.guildIds),
+    dmChannelIds: new Set(p.dmChannelIds),
+    seq: p.seq,
+    idFormat: p.idFormat,
+    shard: p.shard,
+    largeThreshold: p.largeThreshold,
+    presence: p.presence,
+    replay: { frames: p.replay, bytes: p.replay.reduce((n, f) => n + f.text.length, 0) },
+  });
+  return s;
+}
+
+const resumeKey = (sessionId: string) => `gateway:resume:${sessionId}`;
+
 /** Verbose per-connection gateway logging (set GATEWAY_DEBUG=1). */
 const GATEWAY_DEBUG =
   typeof process !== 'undefined' &&
@@ -385,6 +457,12 @@ export class GatewayHub {
   reconnectAll(closeDelayMs = 1000) {
     this.shuttingDown = true;
     const conns = [...this.connections];
+    // Every live and resumable session goes to Redis first, so the bots can
+    // RESUME on the next instance instead of starting over.
+    if (this.persistPresence) {
+      const all = [...conns.map((c) => c.data), ...[...this.detached.values()].map((e) => e.session)];
+      void this.persistResumable(all);
+    }
     for (const conn of conns) this.send(conn, OP.RECONNECT, null);
     const t = setTimeout(() => {
       for (const conn of conns) {
@@ -393,6 +471,46 @@ export class GatewayHub {
     }, closeDelayMs);
     (t as { unref?: () => void }).unref?.();
     return conns.length;
+  }
+
+  private async persistResumable(sessions: Session[]) {
+    try {
+      const { getRedis } = await import('@/lib/db/redis');
+      const r = getRedis();
+      if (!r) return;
+      const multi = r.multi();
+      let n = 0;
+      for (const s of sessions) {
+        const p = toPersistedSession(s);
+        if (!p) continue;
+        multi.set(resumeKey(p.sessionId), JSON.stringify(p), 'EX', Math.round(RESUME_WINDOW_MS / 1000));
+        n++;
+      }
+      if (n) await multi.exec();
+      if (n) console.log(`[gateway] saved ${n} session(s) for RESUME on the next instance`);
+    } catch (err) {
+      console.warn('[gateway] could not save sessions for resume:', (err as Error)?.message ?? err);
+    }
+  }
+
+  /** A session another instance saved when it shut down (single use). */
+  private async loadResumable(sessionId: string): Promise<Session | null> {
+    if (!/^[0-9a-f]{8,64}$/i.test(sessionId)) return null;
+    try {
+      const { getRedis } = await import('@/lib/db/redis');
+      const r = getRedis();
+      if (!r) return null;
+      // The old instance writes while it sends RECONNECT: give a racing resume a moment.
+      let raw: string | null = null;
+      for (let i = 0; i < 3 && !raw; i++) {
+        raw = await r.getdel(resumeKey(sessionId));
+        if (!raw && i < 2) await new Promise((res) => setTimeout(res, 250));
+      }
+      if (!raw) return null;
+      return fromPersistedSession(JSON.parse(raw) as PersistedGatewaySession);
+    } catch {
+      return null;
+    }
   }
 
   /** Drop a bot's oldest resumable sessions beyond `keep`. */
@@ -675,7 +793,12 @@ export class GatewayHub {
       return;
     }
     const sessionId = String(d?.session_id ?? '');
-    const entry = this.detached.get(sessionId);
+    let entry = this.detached.get(sessionId);
+    if (!entry && this.persistPresence) {
+      // Not ours: maybe saved by an instance that shut down (a deploy).
+      const restored = await this.loadResumable(sessionId);
+      if (restored) entry = { session: restored, expiresAt: Date.now() + RESUME_WINDOW_MS };
+    }
     if (!entry || entry.expiresAt < Date.now() || entry.session.botId !== app.botId) {
       gwlog(conn.data.sessionId.slice(0, 8), 'resume rejected: unknown session');
       this.send(conn, OP.INVALID_SESSION, false);
@@ -826,7 +949,7 @@ export class GatewayHub {
       deaf: p.serverDeaf === true,
       suppress: p.suppress === true,
     });
-    const token = await createVoiceGrant({ botId, serverId: known, roomId: joined.roomId, sessionId: voiceSession, idFormat: conn.data.idFormat, selfDeaf });
+    const token = await createVoiceGrant({ botId, serverId: known, roomId: joined.roomId, sessionId: voiceSession, idFormat: conn.data.idFormat, selfDeaf, selfMute, gatewaySessionId: conn.data.sessionId });
     await this.dispatchTo(conn, 'VOICE_SERVER_UPDATE', { token, guild_id: known, endpoint });
   }
 

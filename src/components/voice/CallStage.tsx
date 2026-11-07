@@ -20,6 +20,7 @@ import { useIsMobile } from "@/hooks/useIsMobile";
 import { useSpeakingUsers } from "@/hooks/useSpeakingUsers";
 import { voiceService, type VoiceParticipant } from "@/lib/services/voiceService";
 import { buildStageTiles, fitGrid, gridColumns, resolveFocusedTile, type StageTile } from "@/lib/voice/callLayout";
+import { onPopOutRequest } from "@/lib/voice/callPopOut";
 import {
   getServerUserVoicePrefs,
   getUserVoicePref,
@@ -148,9 +149,12 @@ export function CallStage({
   channelId,
   className,
   aloneHint,
+  popOutInHeader = false,
 }: {
   /** "channel": everyone gets a tile. "dm": only cameras and screens (avatars are in the call header). */
   variant: "channel" | "dm";
+  /** The page header has the Pop Out button (popOutCall): no button over the stage. */
+  popOutInHeader?: boolean;
   serverId?: string | null;
   channelId?: string | null;
   className?: string;
@@ -239,6 +243,11 @@ export function CallStage({
     }
   }, []);
 
+  useEffect(() => {
+    if (!popOutInHeader) return;
+    return onPopOutRequest(() => void popOut());
+  }, [popOutInHeader, popOut]);
+
   const infoFor = (userId: string): TileInfo => {
     const p = byId.get(userId.toLowerCase());
     const pref = getUserVoicePref(prefs, userId);
@@ -303,9 +312,14 @@ export function CallStage({
   const cols = gridColumns(tiles.length, isMobile && !pipWindow);
   // Like Discord: tiles are as large as possible while every one of them fits
   // in the call area, instead of full-width tiles that overflow and get cropped.
-  const gridGap = isMobile ? 8 : 12;
-  const fit = fitGrid(tiles.length, gridArea.width, gridArea.height, gridGap);
-  const canPopOut = !pipWindow && !!getDocumentPip() && !isMobile;
+  const gridGap = isMobile ? 8 : 16;
+  // Breathing room around the grid: tiles never touch the edges, and the
+  // speaking glow isn't clipped by them.
+  const edge = isMobile ? 4 : 12;
+  const fit = fitGrid(tiles.length, gridArea.width - edge * 2, gridArea.height - edge * 2, gridGap);
+  // One person shouldn't fill a huge window edge to edge.
+  const tileWidth = fit ? Math.min(fit.tileWidth, tiles.length === 1 ? 960 : 1280) : 0;
+  const canPopOut = !pipWindow && !!getDocumentPip() && !isMobile && !popOutInHeader;
 
   const stage = (
     <div className={cn("relative flex min-h-0 flex-1 flex-col", pipWindow && "h-screen bg-[var(--bg-app)] p-2")}>
@@ -349,20 +363,26 @@ export function CallStage({
         </div>
       ) : (
         <div ref={gridAreaRef} className="flex min-h-0 flex-1 items-center justify-center overflow-hidden">
-          <div
-            className={cn("mx-auto grid", !fit && "w-full")}
-            style={
-              fit
-                ? { gap: gridGap, gridTemplateColumns: `repeat(${fit.cols}, ${fit.tileWidth}px)` }
-                : {
-                    gap: gridGap,
-                    gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-                    maxWidth: tiles.length === 1 ? "56rem" : undefined,
-                  }
-            }
-          >
-            {tiles.map((t) => renderTile(t, "grid"))}
-          </div>
+          {fit ? (
+            // Rows of equal tiles, the last one centred (Discord), all inside the area.
+            <div
+              className="flex flex-wrap content-center justify-center"
+              style={{ gap: gridGap, width: fit.cols * tileWidth + (fit.cols - 1) * gridGap }}
+            >
+              {tiles.map((t) => (
+                <div key={t.id} style={{ width: tileWidth }}>
+                  {renderTile(t, "grid")}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              className="mx-auto grid w-full"
+              style={{ gap: gridGap, gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`, maxWidth: tiles.length === 1 ? "56rem" : undefined }}
+            >
+              {tiles.map((t) => renderTile(t, "grid"))}
+            </div>
+          )}
         </div>
       )}
 
@@ -475,13 +495,13 @@ function StageTileView({
       }}
       onContextMenu={onContextMenu}
       className={cn(
-        "group relative cursor-pointer overflow-hidden rounded-xl bg-[var(--bg-card)] outline-none transition-shadow duration-100",
+        "group relative cursor-pointer overflow-hidden rounded-2xl bg-[var(--bg-card)] outline-none ring-1 ring-white/[0.06] transition-[box-shadow,transform] duration-150 hover:ring-white/[0.14]",
         "focus-visible:ring-2 focus-visible:ring-[var(--app-accent)]",
         mode === "grid" && "aspect-video w-full",
         mode === "spotlight" && "h-full max-h-full w-full",
         mode === "strip" && "aspect-video h-24 shrink-0 sm:h-28",
         fullscreen && "rounded-none",
-        showRing && "ring-2 ring-[#23a55a] ring-offset-0 shadow-[0_0_14px_rgba(35,165,90,0.35)]",
+        showRing && "ring-2 ring-[#23a55a] hover:ring-[#23a55a] shadow-[0_0_18px_rgba(35,165,90,0.35)]",
       )}
     >
       {hasVideo ? (
@@ -533,7 +553,7 @@ function StageTileView({
         </div>
       )}
 
-      <div className="absolute bottom-1.5 left-1.5 flex max-w-[calc(100%-12px)] items-center gap-1 rounded-md bg-black/60 px-1.5 py-0.5 text-[11px] text-white sm:bottom-2 sm:left-2 sm:text-xs">
+      <div className="absolute bottom-2 left-2 flex max-w-[calc(100%-16px)] items-center gap-1.5 rounded-lg bg-black/45 px-2 py-1 text-[11px] font-medium text-white backdrop-blur-md sm:bottom-2.5 sm:left-2.5 sm:text-xs">
         {isScreen && <Monitor className="h-3 w-3 shrink-0" aria-hidden />}
         <span className="truncate">{label}</span>
         {!isScreen && info.participant?.isBot && (
