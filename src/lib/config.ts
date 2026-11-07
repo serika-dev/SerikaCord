@@ -95,6 +95,11 @@ export const config = {
   VOICE_UDP_HOST: process.env.VOICE_UDP_HOST || '',
   VOICE_UDP_PORT: Number(process.env.VOICE_UDP_PORT || 0),
   VOICE_UDP_PUBLIC_PORT: Number(process.env.VOICE_UDP_PUBLIC_PORT || process.env.VOICE_UDP_PORT || 0),
+  // The UDP relay (scripts/voice-udp-relay.ts) that owns the host UDP port
+  // so the app can be deployed without downtime: "host:port" to announce this
+  // instance to, and the shared secret.
+  VOICE_UDP_RELAY: process.env.VOICE_UDP_RELAY || '',
+  VOICE_UDP_RELAY_SECRET: process.env.VOICE_UDP_RELAY_SECRET || '',
 
   // JWT
   JWT_SECRET: process.env.JWT_SECRET || 'serikacord-super-secret-jwt-key-change-in-production',

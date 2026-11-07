@@ -339,6 +339,34 @@ export async function startVoiceUdp(): Promise<void> {
   });
   udp = socket;
   console.log(`[bot-voice] UDP on :${config.VOICE_UDP_PORT}`);
+  announceToRelay(socket);
+}
+
+/**
+ * Tell the UDP relay this instance is up (every 2 s, from the voice socket so
+ * the relay forwards to this address). The relay drops an instance a few
+ * seconds after it stops announcing, e.g. once a deploy has replaced it.
+ */
+function announceToRelay(sock: { send(data: Uint8Array, port: number, address: string): boolean }) {
+  const [host, portText] = config.VOICE_UDP_RELAY.split(':');
+  const port = Number(portText);
+  if (!host || !Number.isInteger(port) || config.VOICE_UDP_RELAY_SECRET.length < 16) return;
+  const hello = new TextEncoder().encode(`SRLY1 ${config.VOICE_UDP_RELAY_SECRET}`);
+  let warned = false;
+  const announce = async () => {
+    try {
+      const { lookup } = await import('node:dns/promises');
+      const { address } = await lookup(host, { family: 4 });
+      sock.send(hello, port, address);
+      warned = false;
+    } catch (err) {
+      if (!warned) console.warn('[bot-voice] relay announce failed:', (err as Error)?.message ?? err);
+      warned = true;
+    }
+  };
+  void announce();
+  setInterval(() => void announce(), 2_000);
+  console.log(`[bot-voice] announcing to relay ${config.VOICE_UDP_RELAY}`);
 }
 
 // ─── WebSocket ──────────────────────────────────────────────

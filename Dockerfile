@@ -17,6 +17,10 @@ FROM oven/bun:${BUN_VERSION}-slim AS bun
 
 # Node runs `next build` (as on Railpack); Bun installs and runs the server.
 FROM node:${NODE_VERSION}-bookworm-slim AS base
+# curl: Coolify's health check (GET /api/health) runs inside the container,
+# and it gates rolling (zero-downtime) deploys.
+RUN apt-get update && apt-get install -y --no-install-recommends curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
 COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
 RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 WORKDIR /app

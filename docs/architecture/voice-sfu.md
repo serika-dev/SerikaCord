@@ -126,6 +126,22 @@ the audio sink, speaking detection and volume controls don't change.
   agent's address; that is fine, since replies go back the same way. Until
   `VOICE_UDP_HOST` is set, `VOICE_SERVER_UPDATE` keeps `endpoint: null` and
   bots can't connect.
+- **Zero-downtime deploys:** the apps publish no host ports (Coolify can't
+  do rolling updates for an app that does, and every deploy then dropped bots
+  and calls for ~30 s). A separate Coolify service, the UDP relay
+  (`scripts/voice-udp-relay.ts`, `RELAY_PORTS` / `RELAY_SECRET`), owns
+  `127.0.0.1:50000-50001/udp` where the playit tunnel delivers, and forwards
+  to every app instance that announced itself in the last 6 s
+  (`VOICE_UDP_RELAY=<relay host>:<port>`, `VOICE_UDP_RELAY_SECRET`); only
+  the instance that owns a bot's session answers. Coolify's health check
+  (`/api/health`, needs curl in the image) gates the switch to a new
+  container.
+- **Surviving a deploy:** bot voice sessions are saved in Redis
+  (`voice:botsess:<token>`, refreshed on heartbeat) and rebuilt on Resume
+  (op 7) by whichever instance the bot reaches: same SSRC, key and mode, the
+  bot put back in the room, a new bridge; RTP from a new address is accepted
+  once it decrypts. Gateway sessions are saved on SIGTERM
+  (`gateway:resume:<sessionId>`) and restored on RESUME.
 
 ### Stage channels
 
