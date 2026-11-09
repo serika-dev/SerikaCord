@@ -10,6 +10,7 @@ import { PinInput } from "./PinInput";
 import { PIN_LENGTH, isEasyPin } from "@/lib/e2ee/pin";
 import { loadE2eeSession, openE2eeDialog } from "@/lib/e2ee/client/state";
 import { useE2ee } from "@/hooks/useE2ee";
+import { LIMITS } from "@/lib/e2ee/constants";
 
 /** How a flow renders its heading (a DialogTitle inside dialogs, an h2 inline). */
 export type TitleRenderer = (children: ReactNode) => ReactNode;
@@ -63,7 +64,7 @@ function usePinErrorText() {
       return gt("PINs aren't available right now. Use another device or your recovery passphrase.");
     }
     if (errorName(err) === "E2eeFormatError") return gt("This PIN backup doesn't match your current keys. Start over with new keys to keep using encryption.");
-    if (errorStatus(err) === 409) return gt("You can have up to 10 encrypted devices. Remove one in Settings → Encryption on another device first.");
+    if (errorStatus(err) === 409) return gt("You can have up to {limit} encrypted devices. Unused ones are removed automatically after a week; to add this one now, remove one in Settings → Encryption on another device.", { limit: LIMITS.maxDevicesPerUser });
     return gt("Something went wrong. Check your connection and try again.");
   };
 }

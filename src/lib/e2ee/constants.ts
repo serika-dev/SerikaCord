@@ -44,7 +44,7 @@ export const LIMITS = {
   /** Serialized envelope JSON accepted by the server. */
   maxEnvelopeJsonBytes: 96 * 1024,
   /** Active devices per user. */
-  maxDevicesPerUser: 10,
+  maxDevicesPerUser: 15,
   /** Passphrase backup blob (base64). */
   maxBackupBlobB64: 16 * 1024,
   /** Attachments carried by one encrypted message. */

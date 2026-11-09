@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { useE2ee } from "@/hooks/useE2ee";
 import { loadE2eeSession, openE2eeDialog, setE2eeSnapshot } from "@/lib/e2ee/client/state";
 import { PinSetupFlow, PinUnlockFlow } from "./PinFlows";
+import { LIMITS } from "@/lib/e2ee/constants";
 
 const linkButton = "text-sm font-medium text-[var(--app-accent)] hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--app-accent)] rounded disabled:opacity-50";
 
@@ -81,7 +82,7 @@ function PassphraseUnlock() {
           : name === "E2eeFormatError"
             ? gt("This backup doesn't match your current keys. Start over with new keys to keep using encryption.")
             : status === 409
-              ? gt("You can have up to 10 encrypted devices. Remove one in Settings → Encryption on another device first.")
+              ? gt("You can have up to {limit} encrypted devices. Unused ones are removed automatically after a week; to add this one now, remove one in Settings → Encryption on another device.", { limit: LIMITS.maxDevicesPerUser })
               : gt("Couldn't restore your keys. Try again."),
       );
     } finally {

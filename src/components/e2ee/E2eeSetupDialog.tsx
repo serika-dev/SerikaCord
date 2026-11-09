@@ -12,6 +12,7 @@ import { loadE2eeSession, type E2eeDialogRequest } from "@/lib/e2ee/client/state
 import { MIN_RECOVERY_PASSPHRASE_STRENGTH, passphraseStrength } from "@/lib/e2ee/passphrase";
 import { useE2ee } from "@/hooks/useE2ee";
 import { PinInput } from "./PinInput";
+import { LIMITS } from "@/lib/e2ee/constants";
 
 interface E2eeSetupDialogProps {
   mode: E2eeDialogRequest | null;
@@ -119,7 +120,7 @@ export function E2eeSetupDialog({ mode, onClose, onModeChange }: E2eeSetupDialog
           : name === "E2eeFormatError"
             ? gt("This backup doesn't match your current keys. Start over with new keys to keep using encryption.")
             : status === 409
-              ? gt("You can have up to 10 encrypted devices. Remove one in Settings → Encryption on another device first.")
+              ? gt("You can have up to {limit} encrypted devices. Unused ones are removed automatically after a week; to add this one now, remove one in Settings → Encryption on another device.", { limit: LIMITS.maxDevicesPerUser })
               : gt("Couldn't restore your keys. Try again."),
       );
       setBusy(false);

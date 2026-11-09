@@ -12,6 +12,7 @@ import { formatLinkCode, formatSas } from "@/lib/e2ee/link";
 import { useE2ee } from "@/hooks/useE2ee";
 import { PinInput } from "./PinInput";
 import type { LinkProgress, LinkRequestInfo } from "@/lib/e2ee/client/session";
+import { LIMITS } from "@/lib/e2ee/constants";
 
 const POLL_MS = 1500;
 
@@ -123,7 +124,7 @@ function NewDeviceFlow({ onDone, onUsePassphrase }: { onDone: () => void; onUseP
     const status = (err as { status?: number } | null)?.status;
     if (status === 429) return gt("Too many attempts. Wait a moment and try again.");
     if (status === 503) return gt("Linking devices is unavailable right now. Use your recovery passphrase instead.");
-    if (status === 409) return gt("You can have up to 10 encrypted devices. Remove one in Settings → Encryption on another device first.");
+    if (status === 409) return gt("You can have up to {limit} encrypted devices. Unused ones are removed automatically after a week; to add this one now, remove one in Settings → Encryption on another device.", { limit: LIMITS.maxDevicesPerUser });
     if (name === "E2eeVerifyError") return gt("The other device's answer didn't check out, so nothing was linked. Start again.");
     if (name === "E2eeFormatError") return gt("The keys from your other device don't match your account's current keys.");
     return gt("Couldn't link this device. Check your connection and try again.");

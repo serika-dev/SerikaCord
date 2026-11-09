@@ -92,6 +92,9 @@ import { PIN_PBKDF2_ITERATIONS, verifyRecoveryRemoval } from '@/lib/e2ee/pin';
 import { beginPin, clearPinBackup, commitPin, getPinRow, pinParams, pinSummary, unlockPin } from '@/lib/services/e2eePin';
 import { withoutServerTag } from '@/lib/servers/serverProfile';
 
+/** A device unseen this long is retired automatically when a new one needs its slot. */
+const DEVICE_AUTO_RETIRE_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
+
 type Cookie = Record<string, { value?: unknown }>;
 
 async function getAuth(headers: Record<string, string | undefined>, cookie: Cookie) {
@@ -402,8 +405,24 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
         .select({ value: count() })
         .from(schema.e2eeDevices)
         .where(and(eq(schema.e2eeDevices.userId, userId), isNull(schema.e2eeDevices.revokedAt)));
+      let retired: string | null = null;
       if (Number(activeCount) >= LIMITS.maxDevicesPerUser) {
-        return { status: 409, error: `You can have up to ${LIMITS.maxDevicesPerUser} encrypted devices. Remove one in Settings first.` } as const;
+        // Browsers that cleared their storage come back as new devices and
+        // leave the old ones behind. Retire the device unseen the longest,
+        // if it has been idle long enough; otherwise let the user choose.
+        const [stalest] = await tx
+          .select({ id: schema.e2eeDevices.id, lastSeenAt: schema.e2eeDevices.lastSeenAt })
+          .from(schema.e2eeDevices)
+          .where(and(eq(schema.e2eeDevices.userId, userId), isNull(schema.e2eeDevices.revokedAt)))
+          .orderBy(sql`${schema.e2eeDevices.lastSeenAt} ASC NULLS FIRST`)
+          .limit(1);
+        const idleMs = stalest?.lastSeenAt ? Date.now() - new Date(stalest.lastSeenAt).getTime() : Infinity;
+        if (!stalest || idleMs < DEVICE_AUTO_RETIRE_IDLE_MS) {
+          return { status: 409, code: 'e2ee_device_limit', error: `You can have up to ${LIMITS.maxDevicesPerUser} encrypted devices. Remove one you no longer use to continue.` } as const;
+        }
+        // Soft revoke, like DELETE /devices/:id: its old signatures still verify.
+        await tx.update(schema.e2eeDevices).set({ revokedAt: new Date() }).where(eq(schema.e2eeDevices.id, stalest.id));
+        retired = stalest.id;
       }
       const [created] = await tx.insert(schema.e2eeDevices).values({
         id: device.id,
@@ -414,14 +433,24 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
         identityPub: identity.identityPub,
         name,
       }).returning();
-      return { device: created, changed: true } as const;
+      return { device: created, changed: true, retired } as const;
     });
     if ('error' in result) {
       set.status = result.status;
+      if ('code' in result && result.code === 'e2ee_device_limit') {
+        // Give the client what it needs to offer "remove one of these".
+        const devices = await db
+          .select({ id: schema.e2eeDevices.id, name: schema.e2eeDevices.name, createdAt: schema.e2eeDevices.createdAt, lastSeenAt: schema.e2eeDevices.lastSeenAt })
+          .from(schema.e2eeDevices)
+          .where(and(eq(schema.e2eeDevices.userId, userId), isNull(schema.e2eeDevices.revokedAt)))
+          .catch(() => []);
+        return { error: result.error, code: result.code, limit: LIMITS.maxDevicesPerUser, devices };
+      }
       return { error: result.error };
     }
+    if ('retired' in result && result.retired) await revokeNotifyKeys(userId, { deviceIds: [result.retired] });
     if (result.changed) notifyE2eeKeysChanged(userId);
-    return { device: publicDevice(result.device) };
+    return { device: publicDevice(result.device), ...('retired' in result && result.retired ? { retired: result.retired } : {}) };
   }, {
     body: t.Object({
       id: t.String({ maxLength: 32 }),

@@ -18,6 +18,7 @@
 ### Bug Fixes
 - Noise suppression works properly in calls: the call button now turns your browser's noise suppression on or off (the same setting as in Voice & Video), instead of a noise gate that cut off words, could leave you silent after turning it off, and could keep sending your mic while muted in server voice channels. Changing input volume during a call now works in server voice channels too.
 - Bots stay in voice through our deploys and restarts: their voice and gateway connections resume on the new server instead of dropping, so music bots keep playing.
+- Encrypted messages now allow up to 15 devices, and a device unused for a week is retired automatically when you set up a new one, so clearing a browser's data no longer locks you out at the device limit.
 
 ### Performance
 
