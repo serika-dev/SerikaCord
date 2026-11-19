@@ -219,8 +219,8 @@ export default async function TierListPage() {
               security research. Where we couldn&apos;t verify something, we didn&apos;t count it. Every comparison page lists its sources with dates.
             </p>
             <p>
-              Matrix and XMPP are ranked as networks with their best-known apps (Element and Movim). Kloak shut down in October 2026, so it is F
-              everywhere; its page records what it offered. Things change quickly, so treat this as a snapshot.
+              Matrix and XMPP are ranked as networks with their best-known apps (Element and Movim). The Port took over Kloak&apos;s address after
+              Kloak shut down in October 2026, and is ranked on what it offers today. Things change quickly, so treat this as a snapshot.
             </p>
           </T>
           <p>{gt("Last checked: {date}", { date: checked })}</p>

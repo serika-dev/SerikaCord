@@ -67,7 +67,7 @@ describe("tier list data", () => {
   test("groupByTier keeps every app and the order inside a tier", () => {
     const grouped = groupByTier(OVERALL_RANKING);
     expect(Object.values(grouped).flat().length).toBe(ALL.length);
-    expect(tierOf(OVERALL_RANKING, "kloak")).toBe("F");
+    expect(tierOf(OVERALL_RANKING, "theport")).toBe("D");
   });
 
   test("SerikaCord is never placed above apps that are clearly better in that section", () => {
@@ -93,7 +93,8 @@ describe("tier list data", () => {
   });
 
   test("a shut-down service is F everywhere", () => {
-    for (const [, ranking] of rankings) expect(tierOf(ranking, "kloak")).toBe("F");
+    const shutDown = APPS.filter((a) => a.status === "shutdown").map((a) => a.id);
+    for (const id of shutDown) for (const [, ranking] of rankings) expect(tierOf(ranking, id)).toBe("F");
   });
 
   test("every placement has a one-line reason", async () => {

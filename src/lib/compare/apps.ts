@@ -104,17 +104,17 @@ const META: Record<AppId, Omit<AppMeta, "id">> = {
     keywords: ["SerikaCord vs Spacebar", "Spacebar chat", "Fosscord", "self-hosted Discord API", "Discord compatible server"],
     hue: 280,
   },
-  kloak: {
-    name: "Kloak",
-    short: "Kloak",
+  theport: {
+    name: "The Port",
+    short: "The Port",
     kind: "community",
-    website: "https://kloak.app",
-    status: "shutdown",
-    seoTitle: "SerikaCord vs Kloak (shut down): what happened and where to go",
+    website: "https://theport.app",
+    status: "beta",
+    seoTitle: "SerikaCord vs The Port (formerly kloak.app): an honest comparison",
     seoDescription:
-      "Kloak, a Discord alternative launched in 2026, shut down in October 2026. What it offered, what it didn't, and how SerikaCord compares, with dated sources.",
-    keywords: ["Kloak shut down", "Kloak alternative", "kloak.app", "SerikaCord vs Kloak"],
-    hue: 0,
+      "SerikaCord and The Port compared: encrypted DMs, sign-up without email, apps, bots, voice and who runs it, plus how The Port relates to Kloak, with dated sources.",
+    keywords: ["SerikaCord vs The Port", "The Port chat app", "theport.app", "Kloak", "Kloak alternative", "Kloak shut down"],
+    hue: 200,
   },
   signal: {
     name: "Signal",

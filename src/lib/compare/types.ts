@@ -20,7 +20,7 @@ export const APP_IDS = [
   "osmium",
   "valour",
   "spacebar",
-  "kloak",
+  "theport",
   "signal",
   "telegram",
   "simplex",

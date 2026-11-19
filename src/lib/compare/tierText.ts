@@ -35,7 +35,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       osmium: gt("No end-to-end encryption yet, although its Play Store listing claims it for DMs."),
       root: gt("No end-to-end encryption, US-only storage, and a privacy policy that had to be rewritten after a 2026 backlash."),
       gamevox: gt("Voice encryption claims its own privacy policy doesn't back up, plus analytics and an ad pixel."),
-      kloak: gt("Shut down. It never had end-to-end encryption, despite listings that said it did."),
+      theport: gt("Encrypted one-to-one DMs and no email or phone, but nobody is named as running it and nothing is audited."),
     },
     security: {
       signal: gt("The most studied protocol in messaging, formal verification work and automatic key verification; a serious calling bug was fixed before it was disclosed in 2026."),
@@ -61,7 +61,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       nerimity: gt("No two-factor authentication, and very short passwords are allowed."),
       spacebar: gt("High-severity permission bugs in August 2026 and a 'publicly audited' claim we couldn't back up."),
       gamevox: gt("Closed source with encryption claims nobody can check, and no audit."),
-      kloak: gt("Shut down after saying it was under constant attack; messages were never end-to-end encrypted."),
+      theport: gt("Brand new, closed source and unaudited, from an unnamed operator, at the address of an app that shut down after attacks."),
     },
     community: {
       discord: gt("The reference: servers, roles, threads, forums, onboarding, events and Stage channels."),
@@ -87,7 +87,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       simplex: gt("Small groups and broadcast channels, with no channel trees."),
       session: gt("Groups of up to 100 and single-room communities."),
       jami: gt("Group chats with admins, and that's all."),
-      kloak: gt("Shut down. While it ran it had roles, forums and several channel types."),
+      theport: gt("Servers with roles, forums, media, tasks and events channels, plus anonymous ghost channels."),
     },
     moderation: {
       discord: gt("AutoMod, audit logs, timeouts, Safety Alerts and regular transparency reports."),
@@ -113,7 +113,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       signal: gt("Admins can remove members and approve joins, and that's it."),
       session: gt("Group admins remove members; community moderators delete messages and ban."),
       jami: gt("Banning someone needs a vote of more than half the admins."),
-      kloak: gt("Shut down."),
+      theport: gt("Bans, an audit log, an automod and platform reports."),
     },
     voice: {
       discord: gt("Server-based voice that scales, Go Live up to 4K, Stage channels and audited encryption."),
@@ -139,7 +139,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       spacebar: gt("Voice and video are experimental."),
       simplex: gt("1:1 calls only."),
       session: gt("1:1 calls in beta that reveal your IP address to the other person."),
-      kloak: gt("Shut down."),
+      theport: gt("Voice channels and screen sharing on LiveKit; we couldn't confirm video, and calls aren't end-to-end encrypted."),
     },
     bots: {
       discord: gt("The biggest bot and app ecosystem, with slash commands, Activities and a Social SDK."),
@@ -165,7 +165,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       simplex: gt("A bot API through its command-line client."),
       session: gt("Only bots on self-hosted community servers."),
       signal: gt("No bot API or integrations at all."),
-      kloak: gt("Shut down; it only had no-code action bots."),
+      theport: gt("No-code action bots only, with no developer API."),
     },
     apps: {
       discord: gt("Every desktop and phone platform, the web, consoles and VR."),
@@ -191,7 +191,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       "xmpp-movim": gt("Movim is web-only, though other XMPP apps fill the gaps."),
       mumble: gt("Good desktop apps, but Mac users get 1.5.901 or an unsigned 1.6 test build, and the iPhone app dates from 2017."),
       spacebar: gt("No finished official apps; you rely on third-party clients."),
-      kloak: gt("Shut down."),
+      theport: gt("The web and a Windows app; Mac, Linux and phone apps are only promised."),
     },
     ease: {
       discord: gt("Polished, familiar and where your friends already are."),
@@ -217,7 +217,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       "xmpp-movim": gt("You need to understand addresses and pick a provider."),
       mumble: gt("Certificates and server addresses confuse newcomers."),
       spacebar: gt("You need to find an instance and a third-party client."),
-      kloak: gt("Shut down."),
+      theport: gt("Familiar, and sign-up is just a username and a password."),
     },
     openness: {
       matrix: gt("An open standard with federation, and AGPL servers and apps you can run yourself."),
@@ -243,7 +243,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       osmium: gt("An open protocol and API, but closed server and apps."),
       discord: gt("Closed and centralized; custom clients break its terms."),
       root: gt("Closed source, no self-hosting and no federation."),
-      kloak: gt("Shut down; it was closed source."),
+      theport: gt("Closed source, with no public API."),
     },
     scale: {
       telegram: gt("More than a billion monthly users."),
@@ -269,7 +269,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       sable: gt("Installs in the low thousands."),
       commet: gt("About 63,000 downloads in total since 2023."),
       valour: gt("Tiny: over 100 Android installs."),
-      kloak: gt("Shut down."),
+      theport: gt("No published user numbers; it has only just launched."),
     },
     business: {
       discourse: gt("Paid hosting funds open-source development, with no ads in the product."),
@@ -295,7 +295,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       commet: gt("Donations to essentially one developer."),
       spacebar: gt("About 307 euros a year in donations."),
       session: gt("Nearly shut down for lack of money in 2026, and tied to a crypto token."),
-      kloak: gt("Shut down."),
+      theport: gt("No named operator and no stated way of paying for itself."),
     },
     migration: {
       gamevox: gt("Imports channels, roles, emoji and more, relays both ways, and claims Discord bot support."),
@@ -320,7 +320,7 @@ export async function tierReasons(): Promise<Record<TierSectionId, Record<TierAp
       simplex: gt("Nothing for moving a community."),
       session: gt("Nothing for moving a community."),
       jami: gt("Nothing for moving a community."),
-      kloak: gt("Shut down; it used to import Discord templates."),
+      theport: gt("A familiar layout, but no import or bridge."),
       discord: gt("Not applicable: it's the app people move from."),
     },
   };
@@ -352,6 +352,6 @@ export async function overallReasons(): Promise<Record<TierAppId, string>> {
     nerimity: gt("A friendly project run by one person."),
     commet: gt("A cozy Matrix app from essentially one developer."),
     spacebar: gt("For developers and self-hosters, not everyday users."),
-    kloak: gt("Shut down in October 2026; kloak.app now redirects to a new app, The Port, which we haven't reviewed."),
+    theport: gt("Kloak's successor at the same address: encrypted DMs and no email, but very new, web and Windows only, and run by nobody named."),
   };
 }

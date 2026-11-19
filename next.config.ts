@@ -179,7 +179,11 @@ const nextConfig: NextConfig = {
   // Discord's home URL: /channels/@me would otherwise be read as a server id
   // and leave the sidebar on a server skeleton.
   async redirects() {
-    return [{ source: '/channels/@me', destination: '/channels/me', permanent: false }];
+    return [
+      { source: '/channels/@me', destination: '/channels/me', permanent: false },
+      // Kloak's address now serves The Port, so its comparison page moved too.
+      { source: '/compare/kloak', destination: '/compare/theport', permanent: true },
+    ];
   },
 
   // Security headers (server-only, ignored during static export)

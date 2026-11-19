@@ -31,6 +31,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["xmpp-movim", "C"],
     ["teamspeak", "C"],
     ["telegram", "C"],
+    ["theport", "C"],
     ["stoat", "D"],
     ["fluxer", "D"],
     ["spacebar", "D"],
@@ -40,7 +41,6 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["osmium", "D"],
     ["root", "D"],
     ["gamevox", "D"],
-    ["kloak", "F"],
   ],
   security: [
     ["signal", "S"],
@@ -66,7 +66,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["nerimity", "D"],
     ["spacebar", "D"],
     ["gamevox", "D"],
-    ["kloak", "F"],
+    ["theport", "D"],
   ],
   community: [
     ["discord", "S"],
@@ -78,6 +78,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["valour", "B"],
     ["fluxer", "B"],
     ["gamevox", "B"],
+    ["theport", "B"],
     ["rocketchat", "C"],
     ["matrix", "C"],
     ["spacebar", "C"],
@@ -92,7 +93,6 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["simplex", "D"],
     ["session", "D"],
     ["jami", "D"],
-    ["kloak", "F"],
   ],
   moderation: [
     ["discord", "S"],
@@ -106,6 +106,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["matrix", "C"],
     ["rocketchat", "C"],
     ["fluxer", "C"],
+    ["theport", "C"],
     ["teamspeak", "C"],
     ["nerimity", "C"],
     ["simplex", "C"],
@@ -118,7 +119,6 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["signal", "D"],
     ["session", "D"],
     ["jami", "D"],
-    ["kloak", "F"],
   ],
   voice: [
     ["discord", "S"],
@@ -137,6 +137,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["sable", "C"],
     ["commet", "C"],
     ["xmpp-movim", "C"],
+    ["theport", "C"],
     ["discourse", "C"],
     ["nerimity", "C"],
     ["jami", "C"],
@@ -144,7 +145,6 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["spacebar", "D"],
     ["simplex", "D"],
     ["session", "D"],
-    ["kloak", "F"],
   ],
   bots: [
     ["discord", "S"],
@@ -164,13 +164,13 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["xmpp-movim", "C"],
     ["sable", "C"],
     ["commet", "C"],
+    ["theport", "C"],
     ["teamspeak", "D"],
     ["mumble", "D"],
     ["jami", "D"],
     ["simplex", "D"],
     ["session", "D"],
     ["signal", "F"],
-    ["kloak", "F"],
   ],
   apps: [
     ["discord", "S"],
@@ -195,8 +195,8 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["commet", "C"],
     ["xmpp-movim", "C"],
     ["mumble", "D"],
+    ["theport", "D"],
     ["spacebar", "D"],
-    ["kloak", "F"],
   ],
   ease: [
     ["discord", "S"],
@@ -212,6 +212,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["nerimity", "B"],
     ["discourse", "B"],
     ["session", "B"],
+    ["theport", "B"],
     ["matrix", "C"],
     ["rocketchat", "C"],
     ["teamspeak", "C"],
@@ -222,7 +223,6 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["xmpp-movim", "D"],
     ["mumble", "D"],
     ["spacebar", "D"],
-    ["kloak", "F"],
   ],
   openness: [
     ["matrix", "S"],
@@ -248,7 +248,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["osmium", "D"],
     ["discord", "F"],
     ["root", "F"],
-    ["kloak", "F"],
+    ["theport", "F"],
   ],
   scale: [
     ["telegram", "S"],
@@ -274,7 +274,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["sable", "D"],
     ["commet", "D"],
     ["valour", "D"],
-    ["kloak", "F"],
+    ["theport", "D"],
   ],
   business: [
     ["discourse", "A"],
@@ -300,7 +300,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["commet", "D"],
     ["spacebar", "D"],
     ["session", "D"],
-    ["kloak", "F"],
+    ["theport", "D"],
   ],
   migration: [
     ["gamevox", "A"],
@@ -315,6 +315,7 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["nerimity", "C"],
     ["sable", "C"],
     ["commet", "C"],
+    ["theport", "C"],
     ["xmpp-movim", "C"],
     ["telegram", "D"],
     ["discourse", "D"],
@@ -325,7 +326,6 @@ export const TIER_RANKINGS: Record<TierSectionId, Ranking> = {
     ["simplex", "F"],
     ["session", "F"],
     ["jami", "F"],
-    ["kloak", "F"],
     ["discord", "F"],
   ],
 };
@@ -355,7 +355,7 @@ export const OVERALL_RANKING: Ranking = [
   ["nerimity", "C"],
   ["commet", "D"],
   ["spacebar", "D"],
-  ["kloak", "F"],
+  ["theport", "D"],
 ];
 
 /** Groups a ranking by tier, keeping the best-to-worst order inside each tier. */

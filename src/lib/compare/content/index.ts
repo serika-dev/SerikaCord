@@ -5,7 +5,6 @@ import * as discourse from "./discourse";
 import * as fluxer from "./fluxer";
 import * as gamevox from "./gamevox";
 import * as jami from "./jami";
-import * as kloak from "./kloak";
 import * as matrix from "./matrix";
 import * as mumble from "./mumble";
 import * as nerimity from "./nerimity";
@@ -19,6 +18,7 @@ import * as simplex from "./simplex";
 import * as spacebar from "./spacebar";
 import * as stoat from "./stoat";
 import * as teamspeak from "./teamspeak";
+import * as theport from "./theport";
 import * as telegram from "./telegram";
 import * as valour from "./valour";
 import * as xmppMovim from "./xmpp-movim";
@@ -36,7 +36,7 @@ export const CONTENT_MODULES: Record<AppId, { sources: CompareSource[]; content:
   osmium,
   valour,
   spacebar,
-  kloak,
+  theport,
   signal,
   telegram,
   simplex,
