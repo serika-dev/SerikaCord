@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { getGT } from "gt-next/server";
-import { ArrowRight, Check, Copy, ShieldCheck } from "lucide-react";
+import { ArrowRight, Check, Copy, Hash, Link2, ShieldCheck } from "lucide-react";
 import { SectionHeading } from "./SectionHeading";
+import { Av } from "./preview/parts";
 
 export async function DevelopersSection() {
   const gt = await getGT();
@@ -67,6 +68,42 @@ OAuth2   https://api.serika.chat/api/oauth2/authorize`}</code>
 
           {/* Discord bridge */}
           <article className="hm-card flex flex-col max-sm:!rounded-[16px]" data-reveal>
+            {/* A bridged channel, drawn like the app's chat: messages from Discord say where they came from. */}
+            <div className="hm-card-art p-3 sm:p-6" aria-hidden="true">
+              <div className="overflow-hidden rounded-xl border border-[var(--app-border)] bg-[var(--app-bg)] text-[var(--app-text)]">
+                <div className="flex h-9 items-center gap-1.5 border-b border-[var(--app-border)] px-3 text-sm font-semibold">
+                  <Hash className="h-4 w-4 text-[var(--app-muted-2)]" />
+                  {gt("general")}
+                  <span className="ms-auto flex items-center gap-1 text-xs font-normal text-[var(--app-muted)]">
+                    <Link2 className="h-3.5 w-3.5" />
+                    {gt("Bridged with Discord")}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-3 p-3 sm:p-4">
+                  <div className="flex gap-2.5">
+                    <Av name="Theo" className="h-8 w-8" fallbackClassName="text-xs" />
+                    <div className="min-w-0">
+                      <div className="text-[0.8rem] font-medium text-[#3BA55C]">Theo</div>
+                      <div className="text-sm">{gt("moving game night here this week 🎮")}</div>
+                    </div>
+                  </div>
+                  <div className="flex gap-2.5">
+                    <Av name="Jun" className="h-8 w-8" fallbackClassName="text-xs" />
+                    <div className="min-w-0">
+                      <div className="flex items-baseline gap-1.5 text-[0.8rem] font-medium">
+                        Jun
+                        <span className="text-[11px] font-normal text-[var(--app-muted)]">{gt("via Discord")}</span>
+                      </div>
+                      <div className="text-sm">{gt("I'll join from Discord for now, see you there!")}</div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 border-t border-[var(--app-border)] pt-2.5 text-xs text-[var(--app-muted)]">
+                    <ShieldCheck className="h-3.5 w-3.5 shrink-0" />
+                    {gt("1 message from Discord is hidden until its author agrees to the bridge.")}
+                  </div>
+                </div>
+              </div>
+            </div>
             <div className="flex flex-1 flex-col p-4 sm:p-6">
               <h3 className="hm-h3 !text-[1.02rem] sm:!text-[1.2rem]">{gt("A Discord bridge built on consent")}</h3>
               <p className="mt-1.5 text-sm leading-snug sm:text-[0.93rem] sm:leading-relaxed">

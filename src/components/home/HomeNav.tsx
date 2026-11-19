@@ -111,7 +111,7 @@ export function HomeMobileMenu({ links }: { links: HomeMenuLink[] }) {
  * visitor's OS (product names are never translated), the second button opens
  * the app, labelled for signed-in vs new visitors.
  */
-export function HomeHeroActions({ align = "center" }: { align?: "center" | "start" }) {
+export function HomeHeroActions({ align = "center", note = true }: { align?: "center" | "start" | "hero"; note?: boolean }) {
   const { user, isLoading } = useAuth();
   const gt = useGT();
   const platform = useSyncExternalStore(noopSubscribe, detectPlatform, serverPlatform);
@@ -133,8 +133,8 @@ export function HomeHeroActions({ align = "center" }: { align?: "center" | "star
   const name = user ? user.displayName || user.username : "";
 
   return (
-    <div className={cn("flex flex-col gap-3 sm:gap-4", align === "center" ? "items-center" : "items-start")}>
-      <div className={cn("flex w-full max-w-[22rem] flex-col gap-2.5 sm:w-auto sm:max-w-none sm:flex-row sm:gap-3", align === "center" && "sm:justify-center")}>
+    <div className={cn("flex flex-col gap-3 sm:gap-4", align === "center" ? "items-center" : align === "hero" ? "items-center lg:items-start" : "items-start")}>
+      <div className={cn("flex w-full max-w-[22rem] flex-col gap-2.5 sm:w-auto sm:max-w-none sm:flex-row sm:gap-3", align === "center" && "sm:justify-center", align === "hero" && "sm:justify-center lg:justify-start")}>
         <Link href="/channels/me" className="hm-btn hm-btn-primary w-full sm:w-auto sm:min-w-[200px]">
           {openLabel}
           <ArrowRight className="h-4 w-4 rtl:rotate-180" aria-hidden />
@@ -144,7 +144,7 @@ export function HomeHeroActions({ align = "center" }: { align?: "center" | "star
           {downloadLabel}
         </Link>
       </div>
-      <p className="min-h-5 text-sm text-[var(--hm-faint)]">
+      {note && <p className="min-h-5 text-sm text-[var(--hm-faint)]">
         {isLoading ? null : user ? (
           gt("Signed in as {name}", { name })
         ) : (
@@ -155,7 +155,7 @@ export function HomeHeroActions({ align = "center" }: { align?: "center" | "star
             </Link>
           </>
         )}
-      </p>
+      </p>}
     </div>
   );
 }

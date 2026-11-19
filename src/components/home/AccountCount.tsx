@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { getGT, getLocale } from "gt-next/server";
 import { getSerikaAccountCount } from "@/lib/services/accountsStats";
 import { formatCompactCount } from "@/lib/utils/formatCompactCount";
@@ -16,8 +17,11 @@ export async function AccountCount() {
 
   return (
     <p className="text-center text-sm">
-      <span className="font-semibold text-[var(--hm-ink)]">{gt("{count} people have a Serika account", { count })}</span>
-      <span className="hidden text-[var(--hm-faint)] sm:inline"> · {gt("one account for every Serika app")}</span>
+      <span className="font-semibold text-[var(--hm-ink)]">{gt("{count} people have a Serika account", { count })}.</span>
+      {" "}
+      <Link href="/register" className="hm-link">
+        {gt("Will you be next?")}
+      </Link>
     </p>
   );
 }

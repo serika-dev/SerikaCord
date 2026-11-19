@@ -1,7 +1,9 @@
 import { getGT } from "gt-next/server";
 import { Check } from "lucide-react";
 import { SectionHeading } from "./SectionHeading";
-import { CallPreview } from "./AppPreview";
+import { CallPlayground } from "./CallPlayground";
+import { AppWindow } from "./Devices";
+
 
 export async function VoiceSection() {
   const gt = await getGT();
@@ -17,9 +19,11 @@ export async function VoiceSection() {
   return (
     <section id="voice" aria-labelledby="hm-voice-title" className="scroll-mt-20 py-8 sm:py-28">
       <div className="mx-auto grid max-w-[1200px] items-center gap-6 px-4 sm:gap-12 sm:px-6 lg:grid-cols-[1.1fr_0.9fr] lg:px-10">
-        {/* The real voice channel view: a screen share in the spotlight */}
+        {/* The real voice channel view, playable: a screen share in the spotlight */}
         <div className="order-2 min-w-0 lg:order-1" data-reveal>
-          <CallPreview />
+          <AppWindow title="SerikaCord">
+            <CallPlayground />
+          </AppWindow>
         </div>
 
         <div className="order-1 min-w-0 lg:order-2">
@@ -29,7 +33,7 @@ export async function VoiceSection() {
             title={gt("Drop into voice whenever you're free.")}
             lede={gt("Voice channels are always open: join to talk, leave when you're done. Call friends one to one or in a group, with video and screen sharing.")}
           />
-          <ul className="mt-5 flex flex-col gap-2.5 text-sm sm:mt-8 sm:gap-3.5 sm:text-base" data-reveal>
+          <ul className="mt-5 flex flex-col gap-2.5 text-sm sm:mt-8 sm:gap-3.5 sm:text-base" data-reveal data-reveal-stagger>
             {points.map((p) => (
               <li key={p} className="flex gap-3 leading-snug sm:leading-relaxed">
                 <Check className="mt-1 h-4 w-4 shrink-0 text-[var(--hm-accent-text)]" aria-hidden />

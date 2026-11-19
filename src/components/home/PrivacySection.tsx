@@ -2,7 +2,7 @@ import Link from "next/link";
 import { getGT } from "gt-next/server";
 import { Check } from "lucide-react";
 import { SectionHeading } from "./SectionHeading";
-import { DmPreview, PinDialogPreview } from "./AppPreview";
+import { PhoneDmPreview } from "./AppPreview";
 
 export async function PrivacySection() {
   const gt = await getGT();
@@ -31,7 +31,7 @@ export async function PrivacySection() {
                   </>
                 }
               />
-              <ul className="mt-5 flex flex-col gap-3 text-sm sm:mt-8 sm:gap-4 sm:text-base" data-reveal>
+              <ul className="mt-5 flex flex-col gap-3 text-sm sm:mt-8 sm:gap-4 sm:text-base" data-reveal data-reveal-stagger>
                 {points.map((p) => (
                   <li key={p} className="flex gap-3 leading-snug sm:leading-relaxed">
                     <span className="hm-check mt-0.5" aria-hidden>
@@ -49,13 +49,9 @@ export async function PrivacySection() {
               </p>
             </div>
 
-            {/* The real DM header + encryption popover, and the PIN unlock dialog */}
-            <div className="relative mx-auto flex w-full max-w-[460px] flex-col gap-4" data-reveal>
-              <DmPreview />
-              {/* Phones: the DM view is enough; the PIN step is in the list above. */}
-              <div className="mx-auto hidden w-full max-w-[400px] sm:block">
-                <PinDialogPreview />
-              </div>
+            {/* The encrypted DM on a phone, unlocked with the PIN sheet as it scrolls in. */}
+            <div className="relative mx-auto w-full max-w-[340px]" data-reveal>
+              <PhoneDmPreview />
             </div>
           </div>
         </div>

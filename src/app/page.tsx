@@ -2,8 +2,9 @@ import { buildMetadata } from "@/lib/seo";
 import { JsonLd, homepageJsonLd } from "@/components/seo/JsonLd";
 import { faqPageJsonLd, serikaCordAppJsonLd } from "@/lib/jsonLd";
 import { HomeHeader } from "@/components/home/HomeHeader";
-import { HomeHero } from "@/components/home/HomeHero";
+import { HomeHero, TrySection } from "@/components/home/HomeHero";
 import { CommunitiesSection } from "@/components/home/CommunitiesSection";
+import { GamesSection } from "@/components/home/GamesSection";
 import { PrivacySection } from "@/components/home/PrivacySection";
 import { VoiceSection } from "@/components/home/VoiceSection";
 import { DevelopersSection } from "@/components/home/DevelopersSection";
@@ -14,6 +15,7 @@ import { CompareTeaser } from "@/components/home/CompareTeaser";
 import { HomeFaq, getHomeFaq } from "@/components/home/HomeFaq";
 import { HomeFinalCta, HomeFooter } from "@/components/home/HomeFooter";
 import { homeDisplayFont } from "@/components/home/displayFont";
+import { RevealObserver } from "@/components/home/RevealObserver";
 import "@/components/home/home.css";
 
 export const metadata = buildMetadata({
@@ -53,7 +55,9 @@ export default async function HomePage() {
 
       <main id="main" tabIndex={-1} className="outline-none">
         <HomeHero />
+        <TrySection />
         <CommunitiesSection />
+        <GamesSection />
         <PrivacySection />
         <VoiceSection />
         <DevelopersSection />
@@ -66,6 +70,7 @@ export default async function HomePage() {
       </main>
 
       <HomeFooter />
+      <RevealObserver />
     </div>
   );
 }

@@ -3,6 +3,7 @@ import { getGT } from "gt-next/server";
 import { cn } from "@/lib/utils";
 import { BrandMark } from "./BrandMark";
 import { HomeMobileMenu, HomeNavActions } from "./HomeNav";
+import { StatusBanner } from "./StatusBanner";
 
 /**
  * Brand-band nav (dark in every theme, so the white-and-violet wordmark always
@@ -36,6 +37,7 @@ export async function HomeHeader({ variant = "home", current }: { variant?: "hom
       <a href="#main" className="hm-skip">
         {gt("Skip to content")}
       </a>
+      <StatusBanner />
       <div className="relative mx-auto flex h-16 max-w-[1200px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-10">
         <Link href="/" aria-label={gt("SerikaCord home")} className="shrink-0">
           <BrandMark />

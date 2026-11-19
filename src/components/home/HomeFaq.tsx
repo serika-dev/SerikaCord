@@ -60,7 +60,7 @@ export async function HomeFaq({ items }: { items: FaqEntry[] }) {
             </>
           }
         />
-        <div className="flex flex-col gap-2 sm:gap-3" data-reveal>
+        <div className="flex flex-col gap-2 sm:gap-3" data-reveal data-reveal-stagger>
           {items.map((item) => (
             <details key={item.question} className="hm-faq hm-card group !rounded-[16px]">
               <summary className="flex items-center justify-between gap-4 px-4 py-3 text-[0.95rem] font-semibold leading-snug text-[var(--hm-ink)] sm:px-5 sm:py-4 sm:text-base">

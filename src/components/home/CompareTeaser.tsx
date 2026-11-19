@@ -30,7 +30,7 @@ export async function CompareTeaser() {
           lede={gt("We compare SerikaCord with Discord and other apps as fairly as we can, with sources, including where they're the better choice.")}
         />
 
-        <div className="mt-6 grid gap-3 sm:mt-12 sm:gap-4 md:grid-cols-2" data-reveal>
+        <div className="mt-6 grid gap-3 sm:mt-12 sm:gap-4 md:grid-cols-2" data-reveal data-reveal-stagger>
           <div className="hm-card !rounded-[16px] p-4 sm:!rounded-[24px] sm:p-8">
             <h3 className="hm-h3 !text-[1.02rem] sm:!text-[1.2rem]">{gt("What you get with SerikaCord")}</h3>
             <ul className="mt-3 flex flex-col gap-2 text-sm sm:mt-5 sm:gap-3 sm:text-base">

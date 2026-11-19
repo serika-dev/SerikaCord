@@ -18,7 +18,7 @@ export function SectionHeading({
   className?: string;
 }) {
   return (
-    <div className={cn("max-w-2xl", align === "center" && "mx-auto text-center", className)} data-reveal>
+    <div className={cn("max-w-2xl", align === "center" && "mx-auto text-center", className)} data-reveal data-reveal-stagger>
       <p className="hm-label mb-2 sm:mb-3">{label}</p>
       <h2 id={id} className="hm-display hm-h2">
         {title}
