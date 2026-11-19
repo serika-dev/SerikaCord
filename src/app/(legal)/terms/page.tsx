@@ -1,17 +1,21 @@
 import { buildMetadata } from "@/lib/seo";
 import { getGT } from "gt-next/server";
 import { LegalDocument } from "@/components/legal/LegalDocument";
+import { LegalAddress, ParcelAddress } from "@/components/legal/Addresses";
 
 export const metadata = buildMetadata({
   title: "Terms of Service",
   description:
-    "The SerikaCord Terms of Service: the agreement between you and Serika Company (Netherlands) covering accounts, acceptable use, content, moderation and appeals, the Digital Services Act, bots and the API, Serika+ and your consumer rights.",
+    "The SerikaCord Terms of Service: the agreement between you and Serika Company (Netherlands) covering accounts, acceptable use, client mods, reporting, content, moderation and appeals, the Digital Services Act, bots and the API, Serika+ and your consumer rights.",
   path: "/terms",
   keywords: [
     "SerikaCord terms of service",
     "Serika terms",
     "user agreement",
     "acceptable use policy",
+    "client mods",
+    "unofficial clients",
+    "vulnerability disclosure",
     "Digital Services Act",
     "notice and action",
     "appeals",
@@ -102,6 +106,32 @@ export default async function TermsPage() {
       </section>
 
       <section>
+        <H>{gt("Client mods, plugins and unofficial apps")}</H>
+        <p>
+          {gt("Our code is open source, and you're welcome to change how SerikaCord looks and works on your own device. What matters is what a mod does, not that you use one. Using a mod is at your own risk: we don't check mods, and a bad one can steal your account.")}
+        </p>
+        <p className="mt-3">{gt("These are fine:")}</p>
+        <ul className={UL}>
+          <li>{gt("themes, custom CSS and plugins that only change how the app looks or behaves for you")}</li>
+          <li>{gt("accessibility tools, screen readers, translation tools, password managers and ad blockers")}</li>
+          <li>{gt("building your own app from our code, or using an unofficial app that only does what the official app lets you do")}</li>
+          <li>{gt("automating things with a bot account through our API, never with your own account")}</li>
+        </ul>
+        <p className="mt-3">{gt("These are not allowed, with or without a mod:")}</p>
+        <ul className={UL}>
+          <li>{gt("automating your own account (self-bots), such as auto-replies, auto-joining servers or mass actions")}</li>
+          <li>{gt("getting around permissions, bans, timeouts, slow mode, age gates, upload limits or rate limits, or seeing channels or content your account can't see")}</li>
+          <li>{gt("unlocking Serika+ features without paying, or making others see badges or perks you don't have")}</li>
+          <li>{gt("keeping or showing other people's deleted or edited messages (message loggers), or collecting other users' data")}</li>
+          <li>{gt("faking which app or device you use to dodge our security checks")}</li>
+          <li>{gt("sharing mods that do any of this, that steal tokens or passwords, or that pretend to be made or approved by Serika")}</li>
+        </ul>
+        <p className="mt-3">
+          {gt("The web app can notice signs of common client mods and tell us. We keep that note on your account for 30 days so our staff can understand bug reports and look into abuse. A detected mod on its own never leads to a strike or a ban; we only act on what a mod was used to do. If something breaks, try without your mods first, and tell us you use one when you report a bug.")}
+        </p>
+      </section>
+
+      <section>
         <H>{gt("Your content stays yours")}</H>
         <p>
           {gt("You own what you post. You give us only the permission we need to store it, deliver it to the people you send it to, keep the service secure and run it. We don't sell your content, and we don't use your private messages to train AI models. Messages are encrypted when stored on our servers.")}
@@ -131,6 +161,25 @@ export default async function TermsPage() {
           {gt("Report anything illegal with the in-app report button or by emailing")}{" "}
           <Mail to="safety@serika.dev" />
           {gt(". Tell us where it is, why you think it's illegal, and (except for child abuse reports) your name and email. Authorities can use the same address. We handle reports in English and Dutch.")}
+        </p>
+      </section>
+
+      <section>
+        <H>{gt("Where to report what")}</H>
+        <ul className={UL}>
+          <li><B>{gt("Someone is in immediate danger:")}</B>{" "}{gt("call your local emergency number first, then report it to us.")}</li>
+          <li><B>{gt("Child sexual abuse material:")}</B>{" "}{gt("report it in the app or to safety@serika.dev right away, anonymously if you like. Don't download, screenshot or forward it, not even to report it; a message link is enough.")}</li>
+          <li><B>{gt("Rule-breaking messages, users, servers or bots:")}</B>{" "}{gt("use the report button on the message, profile, server or bot. For a problem that only breaks a server's own rules, talk to that server's moderators first.")}</li>
+          <li><B>{gt("Scams, malware, token grabbers and malicious mods:")}</B>{" "}{gt("report the message in the app, and email safety@serika.dev with the link or the mod's name and where it's shared.")}</li>
+          <li><B>{gt("Someone pretending to be you or Serika staff:")}</B>{" "}{gt("report their profile. Our staff will never ask for your password, login codes or recovery codes.")}</li>
+          <li><B>{gt("Your account was taken over:")}</B>{" "}{gt("change your password at accounts.serika.dev and email support@serika.dev.")}</li>
+          <li><B>{gt("Security vulnerabilities:")}</B>{" "}{gt("email safety@serika.dev privately, with the steps to reproduce it. Don't share it publicly until we've fixed it.")}</li>
+          <li><B>{gt("Copyright:")}</B>{" "}{gt("email legal@serika.dev, as explained in the Legal version.")}</li>
+          <li><B>{gt("Your personal data:")}</B>{" "}{gt("email privacy@serika.dev.")}</li>
+          <li><B>{gt("Bugs:")}</B>{" "}{gt("report them on issues.serika.dev, and say whether you use any client mods.")}</li>
+        </ul>
+        <p className="mt-3">
+          {gt("Please only report things you honestly believe break the rules. Making false reports on purpose, or reporting people over and over to harass them, is itself against the rules.")}
         </p>
       </section>
 
@@ -186,6 +235,16 @@ export default async function TermsPage() {
           <li>{gt("Privacy requests:")}{" "}<Mail to="privacy@serika.dev" /></li>
           <li>{gt("Legal notices and copyright:")}{" "}<Mail to="legal@serika.dev" /></li>
         </ul>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <div>
+            <B>{gt("Legal address")}</B>
+            <LegalAddress />
+          </div>
+          <div>
+            <B>{gt("Address for parcels")}</B>
+            <ParcelAddress />
+          </div>
+        </div>
       </section>
     </>
   );
@@ -202,15 +261,25 @@ export default async function TermsPage() {
           <B>{gt("Serika Company")}</B>{" "}
           {gt("(\"Serika\", \"we\", \"us\" or \"our\"), a company established in the Netherlands, and govern your access to and use of SerikaCord, available at serika.chat, including its websites, desktop and mobile applications, voice and video features, application programming interfaces (APIs), gateway, bots, webhooks and all related features (together, the \"Services\").")}
         </p>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div>
+            <B>{gt("Legal address")}</B>
+            <LegalAddress />
+          </div>
+          <div>
+            <B>{gt("Address for parcels")}</B>
+            <ParcelAddress />
+          </div>
+        </div>
         <p className="mt-3">
-          {gt("Our company details (registered address and Chamber of Commerce number) are available on request at")}{" "}
+          {gt("Please don't send parcels to our legal address. Our Chamber of Commerce number is available on request at")}{" "}
           <Mail to="legal@serika.dev" />.
         </p>
         <p className="mt-3">
           {gt("By creating an account or by accessing or using the Services, you agree to these Terms. Our Privacy Policy explains how we process personal data, and our Community Guidelines describe the conduct rules of the Services in more detail; the Community Guidelines form part of these Terms. If you do not agree to these Terms, you must not use the Services.")}
         </p>
         <p className="mt-3">
-          {gt("This version of the Terms was last updated on 15 October 2026. It applies to new users from the moment they accept it and to existing users from 15 November 2026. Until that date, the previous version continues to apply to existing users.")}
+          {gt("This version of the Terms was last updated on 19 November 2026. It applies to new users from the moment they accept it and to existing users from 19 December 2026. Until that date, the previous version continues to apply to existing users.")}
         </p>
       </section>
 
@@ -289,12 +358,65 @@ export default async function TermsPage() {
           <li><B>{gt("Platform manipulation:")}</B>{" "}{gt("artificially inflate member counts, reactions or other metrics, coordinate inauthentic behaviour, abuse the report or appeal systems, or automate a regular user account (\"self-bots\").")}</li>
           <li><B>{gt("Trading accounts:")}</B>{" "}{gt("buy, sell, rent or trade Accounts, usernames, Servers, Bots or invites.")}</li>
           <li><B>{gt("Scraping:")}</B>{" "}{gt("scrape, crawl, harvest or index the Services or other users' data, except through our published API within its rate limits and these Terms.")}</li>
-          <li><B>{gt("Attacks on our infrastructure:")}</B>{" "}{gt("access non-public areas of the Services or our providers' systems without authorisation, probe or test vulnerabilities without our permission, circumvent security, rate limits or other technical restrictions, or disrupt or overload the Services (for example, by denial-of-service attacks).")}</li>
+          <li><B>{gt("Attacks on our infrastructure:")}</B>{" "}{gt("access non-public areas of the Services or our providers' systems without authorisation, probe or test vulnerabilities other than as allowed in section 6.2, circumvent security, rate limits or other technical restrictions, or disrupt or overload the Services (for example, by denial-of-service attacks).")}</li>
           <li><B>{gt("Intellectual property infringement:")}</B>{" "}{gt("share content that infringes copyright, trademarks or other intellectual property rights, including pirated software, media or games.")}</li>
           <li><B>{gt("Other illegal activity:")}</B>{" "}{gt("violate any applicable law, or the rights of others, including privacy, data protection and image rights.")}</li>
         </ul>
         <p className="mt-3">
-          {gt("If you find a security vulnerability, please report it responsibly to safety@serika.dev rather than exploiting it. Servers may set additional rules for their own spaces; you must follow those rules as well, but they cannot override these Terms.")}
+          {gt("Servers may set additional rules for their own spaces; you must follow those rules as well, but they cannot override these Terms.")}
+        </p>
+
+        <H3>{gt("6.1 Client modifications, plugins and unofficial clients")}</H3>
+        <p>
+          {gt("A \"Client Modification\" is any software that changes, extends or replaces the official SerikaCord apps, including client mods, plugins, themes, custom stylesheets, userscripts, browser extensions that alter the Services and unofficial clients built from our source code or otherwise. You may use Client Modifications, subject to this section. We judge a Client Modification by what it does, not by the fact that it exists.")}
+        </p>
+        <p className="mt-3">{gt("The following are permitted:")}</p>
+        <ul className={UL}>
+          <li>{gt("Client Modifications that only change the appearance of the Services or how they behave on your own device, without sending requests to our servers that the official apps would not send;")}</li>
+          <li>{gt("assistive technologies, translation tools, password managers and content blockers;")}</li>
+          <li>{gt("unofficial clients, including ones you build from our source code, that only perform actions the official apps make available to your Account and that respect rate limits and the documented behaviour of the API;")}</li>
+          <li>{gt("automation through a Bot account and our API in accordance with section 9.")}</li>
+        </ul>
+        <p className="mt-3">{gt("You must not use, develop or distribute a Client Modification that:")}</p>
+        <ul className={UL}>
+          <li>{gt("automates a regular user account, including automatic replies, joining Servers, sending friend requests or messages, or performing actions in bulk;")}</li>
+          <li>{gt("circumvents or attempts to circumvent permissions, channel or Server access controls, bans, timeouts, slow mode, age restrictions, verification levels, upload limits, rate limits or any other restriction set by us or by a Server;")}</li>
+          <li>{gt("gives access to Serika+ or other paid features without payment, or presents badges, perks or status to other users that your Account does not have;")}</li>
+          <li>{gt("stores, displays or forwards messages, edits or attachments that other users have deleted or edited, or collects, scrapes, tracks or exports other users' data;")}</li>
+          <li>{gt("misrepresents the client, platform or device in use in order to defeat our security or abuse-prevention measures, or interferes with those measures;")}</li>
+          <li>{gt("contains malicious code, captures tokens, passwords, recovery codes or other credentials, or sends data to third parties without the user's informed consent;")}</li>
+          <li>{gt("uses the names Serika, SerikaCord or Serika+, or our logos, in a way that suggests it is made, endorsed or supported by Serika; or")}</li>
+          <li>{gt("otherwise enables conduct that these Terms prohibit.")}</li>
+        </ul>
+        <p className="mt-3">
+          {gt("Client Modifications are provided by third parties, not by us. We do not review or endorse them, you use them at your own risk, and we are not responsible for loss or damage they cause, including a compromised Account, except to the extent that we are liable under section 19. We may decline support for problems caused by a Client Modification, and we may stop a Client Modification or unofficial client from accessing the Services if it puts users or the Services at risk. Violations committed with a Client Modification are handled like any other violation of these Terms, under sections 14 and 15.")}
+        </p>
+        <p className="mt-3">
+          {gt("Client modification signals. The web app can detect signs of commonly used client mods (for example, a known mod being loaded or the app's code loader or network functions being modified) and report the type of signal to us, once per session. We do not collect extension lists, script contents or page content for this. We keep these signals with your Account for 30 days, so that our staff can understand bug reports and investigate abuse. A signal on its own never results in a Strike, Restriction or suspension, because legitimate tools can produce the same signs; any enforcement is based on how the Services were actually used.")}
+        </p>
+
+        <H3>{gt("6.2 Security research and vulnerability reports")}</H3>
+        <p>
+          {gt("We welcome reports of security vulnerabilities. Report them privately to safety@serika.dev, with enough detail for us to reproduce the issue. When researching, you must only test against your own Accounts, Servers and Bots, or with the explicit permission of their owners; access, change or keep other users' data only as far as strictly necessary to demonstrate the issue, and delete it afterwards; not degrade the Services (no denial-of-service or load testing, no spam, no social engineering of our staff or users); and give us a reasonable time to fix the issue before disclosing it, normally 90 days. If you follow these rules in good faith, we will not take legal action or act against your Account because of your research.")}
+        </p>
+
+        <H3>{gt("6.3 Where to report what")}</H3>
+        <p>{gt("Different problems are handled by different teams. Please use the right channel so your report reaches the right people quickly:")}</p>
+        <ul className={UL}>
+          <li><B>{gt("Immediate danger:")}</B>{" "}{gt("if someone's life or safety is at immediate risk, contact your local emergency services first, then report the content to us.")}</li>
+          <li><B>{gt("Child sexual abuse or exploitation:")}</B>{" "}{gt("report it with the in-app report function or to safety@serika.dev without delay; you may do so anonymously. Do not download, copy, screenshot or forward the material, not even to report it. A message link or the Server, channel and message identifiers are enough.")}</li>
+          <li><B>{gt("Illegal Content:")}</B>{" "}{gt("use the in-app report function or safety@serika.dev, as described in section 14.2.")}</li>
+          <li><B>{gt("Violations of these Terms:")}</B>{" "}{gt("use the in-app report function on the message, profile, Server or Bot concerned. Problems that only concern a Server's own rules should first be raised with that Server's Moderators.")}</li>
+          <li><B>{gt("Scams, malware and malicious Client Modifications:")}</B>{" "}{gt("report the message in the app and send safety@serika.dev the link, file or name of the software and where it is being distributed.")}</li>
+          <li><B>{gt("Impersonation:")}</B>{" "}{gt("report the impersonating profile in the app. Serika staff will never ask you for your password, login codes or recovery codes.")}</li>
+          <li><B>{gt("Compromised Accounts:")}</B>{" "}{gt("change your password with Serika Accounts and contact support@serika.dev.")}</li>
+          <li><B>{gt("Security vulnerabilities:")}</B>{" "}{gt("report them privately to safety@serika.dev as described in section 6.2.")}</li>
+          <li><B>{gt("Copyright and other intellectual property:")}</B>{" "}{gt("send a notice to legal@serika.dev as described in section 13.")}</li>
+          <li><B>{gt("Personal data:")}</B>{" "}{gt("send privacy and data protection requests to privacy@serika.dev.")}</li>
+          <li><B>{gt("Bugs:")}</B>{" "}{gt("report them on our public issue tracker at issues.serika.dev, and say whether you use any Client Modifications.")}</li>
+        </ul>
+        <p className="mt-3">
+          {gt("Reports must be made in good faith. Knowingly false reports, and repeated reports intended to harass another user, violate these Terms and may lead to the measures described in sections 14.7 and 15.")}
         </p>
       </section>
 
@@ -611,8 +733,18 @@ export default async function TermsPage() {
           <li><B>{gt("Privacy and data protection requests:")}</B>{" "}<Mail to="privacy@serika.dev" /></li>
           <li><B>{gt("Legal notices and intellectual property:")}</B>{" "}<Mail to="legal@serika.dev" /></li>
         </ul>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div>
+            <B>{gt("Legal address")}</B>
+            <LegalAddress />
+          </div>
+          <div>
+            <B>{gt("Address for parcels")}</B>
+            <ParcelAddress />
+          </div>
+        </div>
         <p className="mt-3">
-          {gt("Our company details (registered address and Chamber of Commerce number) are available on request at")}{" "}
+          {gt("Please don't send parcels to our legal address. Our Chamber of Commerce number is available on request at")}{" "}
           <Mail to="legal@serika.dev" />.
         </p>
       </section>
@@ -623,7 +755,7 @@ export default async function TermsPage() {
     <LegalDocument
       badge={gt("Legal")}
       title={gt("Terms of Service")}
-      updated={gt("Last updated: 15 October 2026 · Effective: 15 November 2026 for existing users (immediately for new users)")}
+      updated={gt("Last updated: 19 November 2026 · Effective: 19 December 2026 for existing users (immediately for new users)")}
       navLink={{ href: "/privacy", label: gt("Privacy Policy") }}
       footerLink={{ href: "/privacy", label: gt("Privacy Policy") }}
       copyright={gt("© 2026 Serika Company. All rights reserved.")}

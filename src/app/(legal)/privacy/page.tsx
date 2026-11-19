@@ -1,6 +1,7 @@
 import { buildMetadata } from "@/lib/seo";
 import { getGT } from "gt-next/server";
 import { LegalDocument } from "@/components/legal/LegalDocument";
+import { LegalAddress, ParcelAddress } from "@/components/legal/Addresses";
 
 export const metadata = buildMetadata({
   title: "Privacy Policy",
@@ -93,6 +94,16 @@ export default async function PrivacyPage() {
           {gt(", established in the Netherlands, runs SerikaCord and is responsible for your personal data (the \"controller\"). Questions or requests:")}{" "}
           <Mail to="privacy@serika.dev" />.
         </p>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div>
+            <B>{gt("Legal address")}</B>
+            <LegalAddress />
+          </div>
+          <div>
+            <B>{gt("Address for parcels")}</B>
+            <ParcelAddress />
+          </div>
+        </div>
       </section>
 
       <section>
@@ -103,6 +114,7 @@ export default async function PrivacyPage() {
           <li>{gt("Accounts you choose to connect, like Spotify, Steam or GitHub, and your online status and \"now playing\" activity.")}</li>
           <li>{gt("Technical data: IP address, device, push notification tokens and security logs.")}</li>
           <li>{gt("Who was in a voice or video call and when. We never record calls.")}</li>
+          <li>{gt("If the web app notices signs of a client mod, which kind of sign it was. Never which extensions you have, scripts or page content.")}</li>
           <li>{gt("Payment records for Serika+ (handled by SerikaPay), support requests and bug reports, and safety records such as strikes and appeals.")}</li>
         </ul>
       </section>
@@ -140,6 +152,7 @@ export default async function PrivacyPage() {
           <li>{gt("Account data: as long as you have an account.")}</li>
           <li>{gt("Things you delete: gone from our live systems within 30 days and from backups within 90 days.")}</li>
           <li>{gt("Security logs: about 90 days.")}</li>
+          <li>{gt("Client mod signs: 30 days.")}</li>
           <li>{gt("Safety records: as long as the law requires, otherwise up to 2 years after your last strike expires.")}</li>
           <li>{gt("Payment and tax records: 7 years, as Dutch tax law requires.")}</li>
         </ul>
@@ -198,8 +211,20 @@ export default async function PrivacyPage() {
         </p>
         <p className="mt-3">
           {gt("Serika Company is the controller of the personal data described in this Policy. You can contact us about privacy and data protection at")}{" "}
-          <Mail to="privacy@serika.dev" />
-          {gt(". Our company details (registered address and Chamber of Commerce number) are available on request at")}{" "}
+          <Mail to="privacy@serika.dev" />.
+        </p>
+        <div className="mt-3 grid gap-4 sm:grid-cols-2">
+          <div>
+            <B>{gt("Legal address")}</B>
+            <LegalAddress />
+          </div>
+          <div>
+            <B>{gt("Address for parcels")}</B>
+            <ParcelAddress />
+          </div>
+        </div>
+        <p className="mt-3">
+          {gt("Please don't send parcels to our legal address. Our Chamber of Commerce number is available on request at")}{" "}
           <Mail to="legal@serika.dev" />.
         </p>
         <p className="mt-3">
@@ -265,6 +290,10 @@ export default async function PrivacyPage() {
         <p>
           {gt("If you are a Developer, the applications and Bots you create, their tokens and settings, webhooks, and API usage data.")}
         </p>
+        <H3>{gt("2.15 Client modification signals")}</H3>
+        <p>
+          {gt("Once per session, the web app checks for signs that it is running with a client mod or another modification (see section 6.1 of our Terms of Service) and, if it finds any, sends us which of these signs it saw: a known client mod is loaded, the app's code loader is hooked, the app's network functions are modified, or a script from an unknown source is on the page. We store these signs with your account, together with when they were first and last seen and how many times they were reported. We do not collect which browser extensions you use, script addresses or contents, or anything on the page.")}
+        </p>
       </section>
 
       <section>
@@ -303,6 +332,12 @@ export default async function PrivacyPage() {
             title={gt("Security and fraud and abuse prevention")}
             data={gt("Log, IP and security data, account data, rate-limit counters, content metadata.")}
             basis={gt("Legitimate interests (Art. 6(1)(f)): protecting our users, the Services and our infrastructure against unauthorised access, spam, scams, fraud and attacks. We limit this to what is needed and keep security logs only for a short period, so we consider that your interests do not override ours.")}
+          />
+          <Purpose
+            labels={labels}
+            title={gt("Understanding bug reports and investigating abuse involving client mods")}
+            data={gt("Client modification signals (section 2.15).")}
+            basis={gt("Legitimate interests (Art. 6(1)(f)) in diagnosing problems caused by modified apps and investigating abuse such as self-bots or attempts to get around restrictions. Only authorised staff can see the signals, we keep them for 30 days, and a signal on its own never leads to a Strike, Restriction or suspension, because legitimate tools can produce the same signs. You can object at any time.")}
           />
           <Purpose
             labels={labels}
@@ -409,6 +444,9 @@ export default async function PrivacyPage() {
         <p className="mt-3">
           {gt("These decisions can significantly affect you, because they limit or suspend your use of the Services. We take them on the basis of Article 22(2)(a) GDPR, as they are necessary for the performance of our contract with you, which prohibits this content, and, for child sexual abuse material, also to comply with legal obligations where applicable (Article 22(2)(b)). You have the right to obtain human intervention, to express your point of view and to contest the decision: submit an appeal from your Account Standing page (a suspended account can still sign in to do so) or email privacy@serika.dev. Every appeal is reviewed by a member of our staff, and if the decision was wrong we reverse it. Apart from these checks, we do not take decisions about you based solely on automated processing that significantly affect you, and we do not use profiling for advertising.")}
         </p>
+        <p className="mt-3">
+          {gt("Client modification signals (section 2.15) are never used for automated decisions: they do not trigger Strikes, Restrictions or suspensions, and staff look at them only together with how the Services were actually used.")}
+        </p>
       </section>
 
       <section>
@@ -460,6 +498,7 @@ export default async function PrivacyPage() {
           <li><B>{gt("Connections and activity:")}</B>{" "}{gt("until you unlink the connection, turn off the feature or clear your activity history, or delete your account.")}</li>
           <li><B>{gt("Push notification tokens:")}</B>{" "}{gt("until you sign out, disable notifications or the token expires.")}</li>
           <li><B>{gt("Security logs and IP data:")}</B>{" "}{gt("approximately 90 days, unless needed longer to investigate a specific incident.")}</li>
+          <li><B>{gt("Client modification signals:")}</B>{" "}{gt("30 days after they were last reported, unless needed longer to investigate a specific incident.")}</li>
           <li><B>{gt("Trust and Safety records, including child sexual abuse material incident metadata:")}</B>{" "}{gt("as long as legally required (for example, under data preservation obligations), and otherwise up to 2 years after your last Strike expires.")}</li>
           <li><B>{gt("Payment and tax records:")}</B>{" "}{gt("7 years, as required by Dutch tax law.")}</li>
           <li><B>{gt("Support requests and bug reports:")}</B>{" "}{gt("as long as needed to handle them and any follow-up.")}</li>
@@ -583,7 +622,7 @@ export default async function PrivacyPage() {
     <LegalDocument
       badge={gt("Legal")}
       title={gt("Privacy Policy")}
-      updated={gt("Last updated: 15 October 2026 · Effective: 15 November 2026 for existing users (immediately for new users)")}
+      updated={gt("Last updated: 19 November 2026 · Effective: 19 December 2026 for existing users (immediately for new users)")}
       navLink={{ href: "/terms", label: gt("Terms of Service") }}
       footerLink={{ href: "/terms", label: gt("Terms of Service") }}
       copyright={gt("© 2026 Serika Company. All rights reserved.")}
