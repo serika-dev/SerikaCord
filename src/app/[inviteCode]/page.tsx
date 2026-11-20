@@ -64,6 +64,34 @@ interface ApplicationForm {
 
 const LEGACY_APPLY_QUESTION = "Why would you like to join?";
 
+/**
+ * `?join=1` only joins in one step when SerikaCord itself sent the visitor:
+ * they pressed Join here before signing in (sessionStorage flag, survives the
+ * login round trip in this tab), or came from the homepage partner cards
+ * (referrer is this origin's homepage, also after the serika.cc hop). A
+ * ?join=1 link from anywhere else just shows the invite and its Join button.
+ */
+const JOIN_INTENT_KEY = "serika:invite-join";
+
+function rememberJoinIntent(code: string): void {
+  try { sessionStorage.setItem(JOIN_INTENT_KEY, code.toLowerCase()); } catch { /* storage blocked */ }
+}
+
+function takeJoinIntent(code: string): boolean {
+  try {
+    if (sessionStorage.getItem(JOIN_INTENT_KEY) === code.toLowerCase()) {
+      sessionStorage.removeItem(JOIN_INTENT_KEY);
+      return true;
+    }
+  } catch { /* storage blocked */ }
+  try {
+    const ref = new URL(document.referrer);
+    return ref.origin === window.location.origin && ref.pathname === "/";
+  } catch {
+    return false;
+  }
+}
+
 import { isReservedSlug } from "@/lib/constants/reserved";
 import { Loader } from "@/components/ui/Loader";
 import { notifyServersChanged } from "@/lib/notifyServersChanged";
@@ -157,16 +185,18 @@ export default function InvitePage() {
   }, [router]);
 
   // Links like serika.cc/<code>?join=1 (homepage partner cards) join in one
-  // step for signed-in visitors instead of waiting for a click.
+  // step for signed-in visitors instead of waiting for a click, but only
+  // when SerikaCord sent them (takeJoinIntent).
   const autoJoinTried = useRef(false);
   useEffect(() => {
     if (autoJoinTried.current || !invite || isAuthenticated !== true || invite.isMember) return;
     if (typeof window === "undefined" || new URLSearchParams(window.location.search).get("join") !== "1") return;
     if (invite.server.joinMode === "apply_to_join") return;
     autoJoinTried.current = true;
+    if (!takeJoinIntent(inviteCode)) return;
     const timer = setTimeout(() => void handleJoinRef.current?.(), 0);
     return () => clearTimeout(timer);
-  }, [invite, isAuthenticated]);
+  }, [invite, isAuthenticated, inviteCode]);
   const handleJoinRef = useRef<(() => Promise<void>) | null>(null);
 
   const handleJoin = async () => {
@@ -178,6 +208,7 @@ export default function InvitePage() {
 
     if (!isAuthenticated) {
       // Come back with ?join=1 so the join finishes right after signing in.
+      rememberJoinIntent(inviteCode);
       const loginUrl = `/login?redirect=${encodeURIComponent(`/${inviteCode}?join=1`)}`;
       if (typeof window !== "undefined" && window.location.hostname !== "serika.chat") {
         window.location.href = `https://serika.chat${loginUrl}`;

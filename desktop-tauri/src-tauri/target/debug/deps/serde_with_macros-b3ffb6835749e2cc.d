@@ -1,8 +1,0 @@
-/media/pikachubolk/63d7930c-4cfb-4c68-96a6-879048200e36/Github/SerikaCord/desktop-tauri/src-tauri/target/debug/deps/serde_with_macros-b3ffb6835749e2cc.d: /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/lib.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/apply.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/lazy_bool.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/utils.rs
-
-/media/pikachubolk/63d7930c-4cfb-4c68-96a6-879048200e36/Github/SerikaCord/desktop-tauri/src-tauri/target/debug/deps/libserde_with_macros-b3ffb6835749e2cc.so: /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/lib.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/apply.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/lazy_bool.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/utils.rs
-
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/lib.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/apply.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/lazy_bool.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/serde_with_macros-3.21.0/src/utils.rs:

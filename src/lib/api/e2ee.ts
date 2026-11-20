@@ -91,6 +91,9 @@ import { getRedis } from '@/lib/db/redis';
 import { PIN_PBKDF2_ITERATIONS, verifyRecoveryRemoval } from '@/lib/e2ee/pin';
 import { beginPin, clearPinBackup, commitPin, getPinRow, pinParams, pinSummary, unlockPin } from '@/lib/services/e2eePin';
 import { withoutServerTag } from '@/lib/servers/serverProfile';
+import { dmSendDenyReason } from '@/lib/chat/dmPolicy';
+import { dmSharedServers } from '@/lib/services/dmPrivacy';
+import { isSystemUser } from '@/lib/services/systemUsers';
 
 /** A device unseen this long is retired automatically when a new one needs its slot. */
 const DEVICE_AUTO_RETIRE_IDLE_MS = 7 * 24 * 60 * 60 * 1000;
@@ -112,6 +115,23 @@ async function limited(kind: 'e2eeRead' | 'e2eeWrite' | 'e2eeEnable' | 'e2eeLink
   if (rl.success) return null;
   set.status = 429;
   return { error: 'Too many requests', retryAfter: rl.retryAfter };
+}
+
+/**
+ * Turning encryption on / off posts a notice into the conversation, so in a
+ * 1:1 DM it follows the send rule (dmSendDenyReason): a block either way, or
+ * the other person's DM privacy, refuses it. Group DMs have no per-pair rule.
+ */
+async function dmWriteDenyReason(user: { id: string; friends?: string[] | null; blockedUsers?: string[] | null }, channel: { type?: string | null; recipientIds?: string[] | null }): Promise<string | null> {
+  if (channel.type !== 'dm') return null;
+  const otherId = (channel.recipientIds || []).find((id) => normalizeId(id) !== normalizeId(user.id));
+  if (!otherId) return null;
+  const other = await User.findById(otherId);
+  if (!other) return 'You cannot message this user';
+  return dmSendDenyReason(user, other, {
+    recipientIsSystem: isSystemUser(other.id),
+    sharedServerIds: await dmSharedServers(user, other),
+  });
 }
 
 function disabled(set: Setter) {
@@ -838,6 +858,11 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       return { error: 'Conversation not found' };
     }
     if (channel.e2ee === true) return { success: true, e2ee: true, changed: false };
+    const writeDenied = await dmWriteDenyReason(user, channel);
+    if (writeDenied) {
+      set.status = 403;
+      return { error: writeDenied };
+    }
     await ensureE2eeSchema();
     const members = await User.find({ id: { in: memberIds } });
     if (members.length < 2 || members.length !== memberIds.length || !members.every(canJoinEncrypted)) {
@@ -922,6 +947,11 @@ export const e2eeRoutes = new Elysia({ prefix: '/e2ee' })
       return { error: 'Conversation not found' };
     }
     if (channel.e2ee !== true) return { success: true, e2ee: false, changed: false };
+    const writeDenied = await dmWriteDenyReason(user, channel);
+    if (writeDenied) {
+      set.status = 403;
+      return { error: writeDenied };
+    }
     await ensureE2eeSchema();
     const checked = await checkOffRecordFrom(user.id, channel, body.record);
     if (!checked.ok) {

@@ -32,6 +32,14 @@ export interface ActorRoleContext {
 const PERMISSION_INPUT_RE = /^\d{1,20}$/;
 
 /**
+ * Ids compare case-insensitively: Postgres matches uuids in any case, so an
+ * uppercase copy of a role id must not slip past a string comparison.
+ */
+function idKey(id: string): string {
+  return typeof id === 'string' ? id.toLowerCase() : id;
+}
+
+/**
  * Validate a client-supplied permission bitfield. Returns the masked bitfield
  * as a decimal string, or null when the input is not a plain non-negative
  * integer (e.g. "-1", "x", "0x8").
@@ -50,10 +58,10 @@ export function rolePosition(role: { position?: number | null } | null | undefin
 
 /** Highest non-default role position among `memberRoleIds` (0 when none). */
 export function topRolePosition(memberRoleIds: readonly string[], serverRoles: readonly HierarchyRole[]): number {
-  const held = new Set(memberRoleIds);
+  const held = new Set(memberRoleIds.map(idKey));
   let top = 0;
   for (const role of serverRoles) {
-    if (role.isDefault || !held.has(role.id)) continue;
+    if (role.isDefault || !held.has(idKey(role.id))) continue;
     top = Math.max(top, rolePosition(role));
   }
   return top;
@@ -61,10 +69,10 @@ export function topRolePosition(memberRoleIds: readonly string[], serverRoles: r
 
 /** OR of the permissions of every held role plus @everyone. */
 export function memberPermissions(memberRoleIds: readonly string[], serverRoles: readonly HierarchyRole[]): bigint {
-  const held = new Set(memberRoleIds);
+  const held = new Set(memberRoleIds.map(idKey));
   let perms = 0n;
   for (const role of serverRoles) {
-    if (role.isDefault || held.has(role.id)) perms |= parsePermissionBitfield(role.permissions);
+    if (role.isDefault || held.has(idKey(role.id))) perms |= parsePermissionBitfield(role.permissions);
   }
   return perms;
 }
@@ -87,6 +95,17 @@ export function buildActorContext(
 export function canGrantPermissions(actor: ActorRoleContext, bits: bigint): boolean {
   if (actor.isOwner || actor.isAdmin) return true;
   return (bits & ~actor.perms) === 0n;
+}
+
+/**
+ * `bits` limited to what the actor may grant: everything for the owner and
+ * administrators, otherwise only the bits the actor holds. Used where
+ * permissions arrive in bulk (e.g. a Discord import) instead of refusing.
+ */
+export function grantablePermissions(actor: ActorRoleContext, bits: bigint): bigint {
+  const masked = bits & ALL_PERMISSIONS;
+  if (actor.isOwner || actor.isAdmin) return masked;
+  return masked & actor.perms;
 }
 
 /**
@@ -124,17 +143,26 @@ export function checkMemberRoleChange(params: {
   const { actor, actorId, targetId, targetIsOwner, targetTopPosition, currentRoleIds, requestedRoleIds, rolesById } = params;
   if (actor.isOwner) return null;
   if (targetIsOwner) return 'You cannot change the roles of the server owner';
-  if (targetId !== actorId && targetTopPosition >= actor.topPosition) {
+  if (idKey(targetId) !== idKey(actorId) && targetTopPosition >= actor.topPosition) {
     return 'You cannot change the roles of a member whose highest role is at or above yours';
   }
-  const current = new Set(currentRoleIds);
-  const requested = new Set(requestedRoleIds);
-  const changed = [
-    ...requestedRoleIds.filter((id) => !current.has(id)),
-    ...currentRoleIds.filter((id) => !requested.has(id)),
-  ];
-  for (const id of changed) {
-    const role = rolesById.get(id);
+  const byKey = new Map<string, HierarchyRole>();
+  for (const [id, role] of rolesById) byKey.set(idKey(id), role);
+  const current = new Set(currentRoleIds.map(idKey));
+  const requested = new Set(requestedRoleIds.map(idKey));
+  const added = [...requested].filter((id) => !current.has(id));
+  const removed = [...current].filter((id) => !requested.has(id));
+  for (const id of added) {
+    const role = byKey.get(id);
+    // An id this server does not know cannot be granted (and must never skip
+    // the hierarchy check).
+    if (!role) return 'One or more provided role IDs are invalid for this server';
+    if (!canAssignRole(actor, role)) {
+      return 'You can only assign or remove roles below your highest role';
+    }
+  }
+  for (const id of removed) {
+    const role = byKey.get(id);
     if (!role) continue; // stale ids on the member are simply dropped
     if (!canAssignRole(actor, role)) {
       return 'You can only assign or remove roles below your highest role';
@@ -155,12 +183,12 @@ export function checkRoleReorder(
   orderedRoleIds: readonly string[],
 ): string | null {
   if (actor.isOwner) return null;
-  const byId = new Map(currentRoles.map((r) => [r.id, r]));
+  const byId = new Map(currentRoles.map((r) => [idKey(r.id), r]));
   const protectedIds = new Set(
-    currentRoles.filter((r) => !r.isDefault && rolePosition(r) >= actor.topPosition).map((r) => r.id),
+    currentRoles.filter((r) => !r.isDefault && rolePosition(r) >= actor.topPosition).map((r) => idKey(r.id)),
   );
   const k = protectedIds.size;
-  const head = orderedRoleIds.slice(0, k);
+  const head = orderedRoleIds.slice(0, k).map(idKey);
   if (head.some((id) => !protectedIds.has(id))) {
     return 'You can only reorder roles below your highest role';
   }

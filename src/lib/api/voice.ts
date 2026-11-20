@@ -35,10 +35,12 @@ import {
   groupCallChannelId,
   groupCallRingTargets,
   groupCallRoomId,
+  isCanonicalVoiceRoomId,
   isGroupCallMember,
 } from '@/lib/voice/rooms';
 import {
   describeCallGroup,
+  isDmCallRequest,
   loadGroupCallChannel,
   onDmCallDecline,
   onDmCallJoin,
@@ -265,10 +267,10 @@ function publishMembership(roomId: string, action: 'join' | 'leave' | 'update', 
 // ── DM calls ────────────────────────────────────────────────────────────────
 // Ringing goes out over each user's app-wide activity stream (not the voice
 // room's SSE, which the callee hasn't opened yet).
-function notifyCall(userIds: string[], payload: Record<string, unknown>) {
+function notifyCall(userIds: string[], payload: Record<string, unknown>, opts: { push?: boolean } = {}) {
   void fanoutToUsers({ userIds }, payload).catch(() => {});
   // Phones not in the app: native incoming-call notification (no-op without FCM).
-  if (payload.type === 'call_ring' || payload.type === 'call_cancel') {
+  if (opts.push !== false && (payload.type === 'call_ring' || payload.type === 'call_cancel')) {
     void import('@/lib/services/pushNotifications')
       .then((m) => {
         if (payload.type === 'call_ring') {
@@ -286,13 +288,19 @@ function notifyCall(userIds: string[], payload: Record<string, unknown>) {
 // the fallback when the ring went out from another instance.
 const groupRinging = processShared('voice:groupRinging', () => new Map<string, string[]>());
 
+// 1:1 call rooms whose ring was held back (a Message Request, or the
+// caller+callee ring limit): ending them doesn't push a cancel to a phone that
+// never rang. This instance's view; elsewhere the cancel goes out as before.
+const dmRingSkipped = processShared('voice:dmRingSkipped', () => new Set<string>());
+
 // Once a DM/group call room empties (the caller hung up before an answer, or
 // the call ended), stop it ringing anywhere it still is.
 function stopRingingIfEmpty(roomId: string) {
   if (roomState.get(roomId)?.size) return;
   const peers = dmCallPeers(roomId);
   if (peers) {
-    notifyCall(peers, { type: 'call_cancel', roomId, reason: 'ended' });
+    const skipped = dmRingSkipped.delete(roomId);
+    notifyCall(peers, { type: 'call_cancel', roomId, reason: 'ended' }, { push: !skipped });
     return;
   }
   const channelId = groupCallChannelId(roomId);
@@ -321,23 +329,32 @@ async function groupRingTargets(caller: CallingUser, recipientIds: string[] | nu
   const ids = groupCallRingTargets(recipientIds, caller.id);
   if (ids.length === 0) return [];
   const users = await User.find({ id: { in: ids } }).catch(() => []);
-  return users
+  const eligible = users
     .filter((u) => !u.isSystem && !isSystemUser(u.id))
     .filter((u) => !hasId(caller.blockedUsers, u.id) && !hasId(u.blockedUsers, caller.id))
     .map((u) => u.id);
+  // Re-dialing in a loop doesn't ring the same person again within the window.
+  const allowed = await Promise.all(eligible.map((id) => mayRing(caller.id, id)));
+  return eligible.filter((_, i) => allowed[i]);
+}
+
+/** The per caller+callee ring limit (callRing). Fails closed: no ring when it can't tell. */
+async function mayRing(callerId: string, calleeId: string): Promise<boolean> {
+  const limit = await checkRateLimit('callRing', `${callerId.toLowerCase()}:${calleeId.toLowerCase()}`).catch(() => null);
+  return !!limit?.success;
 }
 
 type CallingUser = { id: string; friends?: string[] | null; blockedUsers?: string[] | null };
 
 // Same rule as sending a DM (dmSendDenyReason): nobody blocked either way,
 // and either friends or the callee's DM privacy lets the caller in. Returns
-// the callee's stored id (the exact key their activity stream is registered
+// the callee (`id` is the exact key their activity stream is registered
 // under), or null.
-async function canCall(caller: CallingUser, calleeId: string): Promise<string | null> {
+async function canCall(caller: CallingUser, calleeId: string) {
   const callee = await User.findById(calleeId);
   if (!callee || callee.isSystem || isSystemUser(callee.id)) return null;
   const denied = dmSendDenyReason(caller, callee, { sharedServerIds: await dmSharedServers(caller, callee) });
-  return denied ? null : callee.id;
+  return denied ? null : callee;
 }
 
 /** Remove a user from a room and tell everyone (and stop a now-pointless ring). */
@@ -372,8 +389,37 @@ function evictFromRoom(roomId: string, userId: string, opts: { excludeUserId?: s
 export function removeFromGroupCall(channelId: string, userId: string) {
   const roomId = groupCallRoomId(channelId);
   roomAuthCache.delete(`${userId}|${roomId}`);
-  sendToUser(roomId, userId, { type: 'voice:replaced', sessionId: 'removed-from-group' });
+  const notice = { type: 'voice:replaced', sessionId: 'removed-from-group' };
+  // Their signaling streams (here and on other instances) get the notice and
+  // are then closed, so they stop hearing the room's events at once.
+  closeUserSignalingLocal(roomId, userId, notice);
+  const pub = getPublisher();
+  if (pub) {
+    pub.publish(VOICE_SSE_BUS, JSON.stringify({ originId: INSTANCE_ID, roomId, targetUserId: userId, payload: notice, close: true })).catch(() => {});
+  }
   evictFromRoom(roomId, userId);
+}
+
+/**
+ * Send a last event to a user's signaling streams for a room on this
+ * instance, close them and forget them (and their cached room access).
+ */
+function closeUserSignalingLocal(roomId: string, userId: string, payload: object) {
+  roomAuthCache.delete(`${userId}|${roomId}`);
+  cancelEviction(roomId, userId);
+  const roomConns = voiceSignalingConnections.get(roomId);
+  const controllers = roomConns?.get(userId);
+  if (!roomConns || !controllers) return;
+  roomConns.delete(userId);
+  if (roomConns.size === 0) voiceSignalingConnections.delete(roomId);
+  const encoded = sseEncoder.encode(`data: ${JSON.stringify(payload)}\n\n`);
+  for (const controller of controllers) {
+    try {
+      controller.enqueue(encoded);
+      controller.close();
+    } catch { /* already closed */ }
+  }
+  controllers.clear();
 }
 
 // ── Voice moderation ────────────────────────────────────────────────────────
@@ -766,7 +812,10 @@ export async function startVoiceBridge(): Promise<() => void> {
       const msg = JSON.parse(raw);
       if (msg.originId === INSTANCE_ID) return; // already handled locally
       if (ch === VOICE_SSE_BUS) {
-        if (msg.targetUserId) {
+        if (msg.targetUserId && msg.close === true) {
+          // Removed from the room elsewhere (removeFromGroupCall): last notice, then close.
+          closeUserSignalingLocal(msg.roomId, msg.targetUserId, msg.payload);
+        } else if (msg.targetUserId) {
           deliverToUserLocal(msg.roomId, msg.targetUserId, msg.payload);
         } else {
           deliverToRoomLocal(msg.roomId, msg.payload, msg.excludeUserId);
@@ -835,7 +884,9 @@ async function authorizeRoom(userId: string, roomId: string, opts: { fresh?: boo
 }
 
 async function computeRoomAuth(userId: string, roomId: string): Promise<RoomAuth> {
-  const room = parseVoiceRoomId(roomId);
+  // Only the canonical spelling (rooms.ts): `CHANNEL-<id>` or an unsorted DM
+  // pair would be a second room, outside moderation, user limits and the SFU.
+  const room = isCanonicalVoiceRoomId(roomId) ? parseVoiceRoomId(roomId) : null;
   if (!room) return { ok: false, status: 400, error: 'Invalid voice room' };
   if (room.kind === 'dm') {
     return isDmRoomPeer(room, userId)
@@ -965,6 +1016,18 @@ function relaySignal(
 }
 
 export const voiceRoutes = new Elysia({ prefix: '/voice' })
+  // Every route naming a room (path or body) takes its canonical id only, so
+  // a differently-spelled id can never become a separate, unmoderated room.
+  .onBeforeHandle(({ params, body, set }) => {
+    const p = params as Record<string, unknown> | undefined;
+    const b = body && typeof body === 'object' ? (body as Record<string, unknown>) : undefined;
+    for (const roomId of [p?.roomId, b?.roomId]) {
+      if (roomId !== undefined && !isCanonicalVoiceRoomId(roomId)) {
+        set.status = 400;
+        return { error: 'Invalid voice room' };
+      }
+    }
+  })
   .post('/token', async ({ headers, cookie, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) {
@@ -975,6 +1038,12 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     if (!config.FEATURE_FLAGS.voice_video_enabled) {
       set.status = 503;
       return { error: 'Voice/video is disabled' };
+    }
+    // Each call mints fresh TURN credentials (a paid Cloudflare call).
+    const tokenLimit = await checkRateLimit('voiceToken', user.id);
+    if (!tokenLimit.success) {
+      set.status = 429;
+      return { error: 'Rate limited', retryAfter: tokenLimit.retryAfter };
     }
 
     const roomId = body.roomId;
@@ -1100,7 +1169,7 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
     }
     if (usedMoveGrant) void cache.del(moveGrantKey(user.id, body.roomId)).catch(() => {});
     // DM call rooms ("dm:<a>_<b>") are only joinable by those two users.
-    let callee: string | null = null;
+    let calleeUser: Awaited<ReturnType<typeof canCall>> = null;
     if (body.roomId.startsWith('dm:')) {
       const peers = dmCallPeers(body.roomId);
       const me = user.id.toLowerCase();
@@ -1108,8 +1177,8 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
         set.status = 403;
         return { error: 'Not part of this call' };
       }
-      callee = await canCall(user, peers[0] === me ? peers[1] : peers[0]);
-      if (!callee) {
+      calleeUser = await canCall(user, peers[0] === me ? peers[1] : peers[0]);
+      if (!calleeUser) {
         set.status = 403;
         return { error: 'You cannot call this user' };
       }
@@ -1171,7 +1240,8 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
       if (prev) sendToUser(body.roomId, userId, { type: 'voice:replaced', sessionId });
     }
 
-    if (callee && !resumed) {
+    if (calleeUser && !resumed) {
+      const callee = calleeUser.id;
       // The "started a call" message in the DM (created once per call, then
       // updated as people join). Best-effort: never blocks the join.
       void onDmCallJoin(body.roomId, user, roomWasEmpty);
@@ -1181,9 +1251,13 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
         // Picked up on one device — stop it ringing on the others.
         notifyCall([userId], { type: 'call_cancel', roomId: body.roomId, reason: 'answered' });
       } else {
-        notifyCall([callee], {
+        // A stranger's call is a Message Request for the callee (like a DM):
+        // no ring, no push. Re-dialing in a loop rings once per window
+        // (callRing). Either way the join itself still works.
+        const roomId = body.roomId;
+        const ring = {
           type: 'call_ring',
-          roomId: body.roomId,
+          roomId,
           video: body.video ?? false,
           caller: {
             id: userId,
@@ -1191,7 +1265,18 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
             displayName: user.displayName || user.username,
             avatar: user.avatar || null,
           },
-        });
+        };
+        void (async () => {
+          const held = (await isDmCallRequest(user, calleeUser)) || !(await mayRing(userId, callee));
+          if (held) {
+            dmRingSkipped.add(roomId);
+            return;
+          }
+          dmRingSkipped.delete(roomId);
+          // Hung up while we checked: nothing to ring for.
+          if (!roomState.get(roomId)?.has(userId)) return;
+          notifyCall([callee], ring);
+        })().catch(() => {});
       }
     }
 
@@ -1873,6 +1958,8 @@ export const voiceRoutes = new Elysia({ prefix: '/voice' })
   .post('/speaking/:roomId', async ({ headers, cookie, params, body, set }) => {
     const { user, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!user) { set.status = 401; return { error: authError || 'Unauthorized' }; }
+    const speakingLimit = await checkRateLimit('voiceSpeaking', user.id);
+    if (!speakingLimit.success) { set.status = 429; return { error: 'Rate limited', retryAfter: speakingLimit.retryAfter }; }
 
     const room = roomState.get(params.roomId);
     const me = room?.get(user.id);

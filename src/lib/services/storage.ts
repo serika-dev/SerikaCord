@@ -157,6 +157,17 @@ function generateSecureFilename(originalFilename: string, category: UploadCatego
   return `${id}.${sanitizedExt}`;
 }
 
+/**
+ * One id segment of a storage key. Ids are UUIDs / snowflake-ish tokens; a
+ * caller-supplied value with '/', '..' or other characters would let it write
+ * outside its own prefix, so anything else is refused.
+ */
+export function keySegment(value: string): string {
+  const v = String(value);
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(v)) throw new UploadRejectedError('Invalid storage key segment', 400);
+  return v;
+}
+
 // Generate storage key
 function generateKey(options: UploadOptions, filename: string): string {
   const { category, userId, serverId, channelId, keyScope } = options;
@@ -164,12 +175,12 @@ function generateKey(options: UploadOptions, filename: string): string {
   const parts: string[] = [category];
   
   if (keyScope) {
-    parts.push(keyScope, filename);
+    parts.push(keySegment(keyScope), filename);
     return parts.join('/');
   }
-  if (serverId) parts.push(serverId);
-  if (channelId) parts.push(channelId);
-  if (userId) parts.push(userId);
+  if (serverId) parts.push(keySegment(serverId));
+  if (channelId) parts.push(keySegment(channelId));
+  if (userId) parts.push(keySegment(userId));
   
   parts.push(filename);
   

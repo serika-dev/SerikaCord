@@ -71,9 +71,12 @@ export function checkVoiceModeration(ctx: VoiceModerationContext): VoiceModerati
   return { ok: true };
 }
 
-/** The server voice channel id a room id belongs to, or null (DM/group calls). */
+/**
+ * The server voice channel id a room id belongs to, or null (DM/group calls).
+ * Canonical (lower-case) ids only, like the voice API accepts.
+ */
 export function channelIdOfRoom(roomId: string): string | null {
-  const m = /^channel-([0-9a-f-]{36})$/i.exec(roomId);
+  const m = /^channel-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/.exec(roomId);
   return m ? m[1] : null;
 }
 

@@ -12,7 +12,7 @@ import { ATTACHMENT_BLOB_NAME_RE, ATTACHMENT_BLOB_TYPE, hasAttachmentMagic } fro
 import { e2eeEnabled } from '@/lib/services/e2ee';
 import { isOwnedMediaKey } from '@/lib/utils/ownedMedia';
 import { recordProfileMediaChange } from '@/lib/services/recentProfileMedia';
-import { checkRateLimit, getClientIP } from '@/lib/security';
+import { checkRateLimit, getClientIP, isValidObjectId } from '@/lib/security';
 import { config } from '@/lib/config';
 import { getRedis } from '@/lib/db/redis';
 import { nanoid } from 'nanoid';
@@ -21,6 +21,25 @@ import { accountsSyncProfile } from '@/lib/services/accountsClient';
 import { getPlatformSettings, type IAllowedFileType } from '@/lib/models/PlatformSettings';
 
 // Helper function for auth
+/**
+ * The optional `channelId` of an attachment upload goes into the storage key
+ * (attachments/<channelId>/<uid>/...), so it must be a real channel id the
+ * caller can see (server channel, DM or group DM — checkChannelAccess covers
+ * all of them). Empty means "no channel" (DM composer uploads send none).
+ */
+async function resolveUploadChannel(
+  userId: string,
+  raw: string | undefined,
+): Promise<{ ok: true; channelId?: string } | { ok: false; status: number; error: string }> {
+  if (raw === undefined || raw === '') return { ok: true };
+  const channelId = raw.trim().toLowerCase();
+  if (!isValidObjectId(channelId)) return { ok: false, status: 400, error: 'Invalid channel' };
+  const { checkChannelAccess } = await import('@/lib/api/channels');
+  const access = await checkChannelAccess(userId, channelId);
+  if (!access.hasAccess) return { ok: false, status: 403, error: 'You do not have access to this channel' };
+  return { ok: true, channelId };
+}
+
 async function getAuth(headers: Record<string, string | undefined>, cookie: Record<string, { value?: unknown }>) {
   const authHeader = headers.authorization ?? null;
   const authToken = cookie.auth_token?.value;
@@ -694,12 +713,19 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       return { error: 'Upload rate limited', retryAfter: rateLimit.retryAfter };
     }
 
-    const { file, channelId, spoiler } = body;
+    const { file, spoiler } = body;
 
     if (!file) {
       set.status = 400;
       return { error: 'No file provided' };
     }
+
+    const channel = await resolveUploadChannel(user.id, body.channelId);
+    if (!channel.ok) {
+      set.status = channel.status;
+      return { error: channel.error };
+    }
+    const channelId = channel.channelId;
 
     const stored = await storeChatAttachment(file, {
       uploaderId: user.id,
@@ -716,7 +742,7 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
   }, {
     body: t.Object({
       file: t.File(),
-      channelId: t.Optional(t.String()),
+      channelId: t.Optional(t.String({ maxLength: 64 })),
       spoiler: t.Optional(t.String()),
     }),
   })
@@ -737,7 +763,13 @@ export const uploadRoutes = new Elysia({ prefix: '/upload' })
       set.status = 503;
       return { error: 'Large uploads are unavailable right now' };
     }
-    const { filename, size, type, channelId, spoiler } = body;
+    const { filename, size, type, spoiler } = body;
+    const channel = await resolveUploadChannel(user.id, body.channelId);
+    if (!channel.ok) {
+      set.status = channel.status;
+      return { error: channel.error };
+    }
+    const channelId = channel.channelId;
     const check = await attachmentCheck(filename, type ?? '');
     if (!check.allowed) {
       set.status = 400;

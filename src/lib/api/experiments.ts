@@ -1,5 +1,6 @@
 import { Elysia, t } from 'elysia';
 import { Experiment, getUserVariant } from '@/lib/models/Experiment';
+import { checkRateLimit, getClientIP } from '@/lib/security';
 import { Instance, isHostDomain, getCurrentInstance, verifyInstanceApiKey, generateInstanceApiKey, generateSecretKey } from '@/lib/models/Instance';
 
 export const experimentRoutes = new Elysia({ prefix: '/experiments' })
@@ -168,20 +169,41 @@ export const instanceRoutes = new Elysia({ prefix: '/instance' })
   })
 
   // Register a new self-hosted instance (public)
-  .post('/register', async ({ headers, body, set }) => {
+  .post('/register', async ({ headers, body, request, set }) => {
+    // Unauthenticated: a tight per-IP limit keeps it from filling the table.
+    const rl = await checkRateLimit('instanceRegister', getClientIP(request));
+    if (!rl.success) {
+      set.status = 429;
+      return { error: 'Too many requests', retryAfter: rl.retryAfter };
+    }
+
+    // The Host header is client-supplied, so it only ever narrows this route;
+    // the domain being registered is what must not be ours.
     const host = headers.host || '';
-    
-    // Only allow registration from non-host domains
     if (isHostDomain(host)) {
       set.status = 400;
       return { error: 'Cannot register host domain as self-hosted instance' };
     }
 
-    const { name, adminEmail, domain } = body as {
-      name: string;
-      adminEmail: string;
-      domain: string;
-    };
+    const name = body.name.trim();
+    const adminEmail = body.adminEmail.trim();
+    const domain = body.domain.trim().toLowerCase().replace(/\.$/, '');
+    if (!name) {
+      set.status = 400;
+      return { error: 'Name is required' };
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(adminEmail)) {
+      set.status = 400;
+      return { error: 'Invalid admin email' };
+    }
+    if (!/^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)) {
+      set.status = 400;
+      return { error: 'Invalid domain' };
+    }
+    if (isHostDomain(domain)) {
+      set.status = 400;
+      return { error: 'Cannot register host domain as self-hosted instance' };
+    }
 
     // Check if domain already registered
     const existing = await Instance.findOne({ domain });
@@ -219,9 +241,9 @@ export const instanceRoutes = new Elysia({ prefix: '/instance' })
     };
   }, {
     body: t.Object({
-      name: t.String(),
-      adminEmail: t.String(),
-      domain: t.String(),
+      name: t.String({ minLength: 1, maxLength: 100 }),
+      adminEmail: t.String({ minLength: 3, maxLength: 254 }),
+      domain: t.String({ minLength: 1, maxLength: 253 }),
     }),
   })
 

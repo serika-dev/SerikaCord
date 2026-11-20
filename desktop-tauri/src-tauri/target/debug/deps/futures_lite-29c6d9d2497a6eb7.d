@@ -1,9 +1,0 @@
-/media/pikachubolk/63d7930c-4cfb-4c68-96a6-879048200e36/Github/SerikaCord/desktop-tauri/src-tauri/target/debug/deps/futures_lite-29c6d9d2497a6eb7.d: /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/lib.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/future.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/prelude.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/stream.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/io.rs
-
-/media/pikachubolk/63d7930c-4cfb-4c68-96a6-879048200e36/Github/SerikaCord/desktop-tauri/src-tauri/target/debug/deps/libfutures_lite-29c6d9d2497a6eb7.rmeta: /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/lib.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/future.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/prelude.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/stream.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/io.rs
-
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/lib.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/future.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/prelude.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/stream.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/futures-lite-2.6.1/src/io.rs:

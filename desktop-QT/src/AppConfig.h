@@ -13,8 +13,9 @@ namespace SerikaConfig {
     inline constexpr const char *START_PATH = "/channels/me";
     inline constexpr const char *GITHUB_RELEASES = "https://github.com/serika-dev/SerikaCord/releases";
 
-    // Same origin as the hosted app, a *.serika.chat host, or a local dev
-    // server: these load inside the window and get the app's permissions.
+    // Same origin as the configured app, https://serika.chat, or (only when
+    // the app URL itself is local) a local dev server: these load inside the
+    // window and get the app's permissions (WebBridge, media, clipboard).
     bool isAppUrl(const QUrl &url);
 
     // Pages the main frame may navigate to without being bounced to the

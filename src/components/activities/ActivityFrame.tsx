@@ -42,6 +42,24 @@ function newFrameId(): string {
   return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 }
 
+/**
+ * The frame info comes from the server, but check its shape before the SDK host
+ * talks to it: a canonical https origin (http only for local *.localhost dev)
+ * whose first host label is `<client_id>` or `<client_id>-<override token>`,
+ * like activityHostLabel() builds it. Anything else gets no frame and no replies.
+ */
+function isRelayOrigin(origin: string, clientId: string): boolean {
+  if (!/^[0-9]{1,32}$/.test(clientId)) return false;
+  let url: URL;
+  try { url = new URL(origin); } catch { return false; }
+  if (url.origin !== origin) return false;
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== "https:" && !(url.protocol === "http:" && host.endsWith(".localhost"))) return false;
+  const dot = host.indexOf(".");
+  if (dot <= 0 || dot === host.length - 1) return false;
+  return new RegExp(`^${clientId}(?:-[a-z0-9]{8,32})?$`).test(host.slice(0, dot));
+}
+
 function screenOrientation(): 0 | 1 {
   if (typeof window === "undefined") return 0;
   return window.matchMedia?.("(orientation: landscape)").matches ? 1 : 0;
@@ -75,16 +93,19 @@ export default function ActivityFrame({
   const subscriptions = useRef(new Set<string>());
   const publicIds = useRef(new Map<string, string>());
 
+  const trusted = useMemo(() => isRelayOrigin(frame.origin, frame.clientId), [frame.origin, frame.clientId]);
+
   const src = useMemo(() => {
+    if (!trusted) return "about:blank";
     const q = new URLSearchParams({ ...frame.query, frame_id: frameId });
     return `${frame.origin}/.serika/frame?${q.toString()}`;
-  }, [frame, frameId]);
+  }, [frame, frameId, trusted]);
 
   const send = useCallback((tuple: unknown) => {
     const win = iframeRef.current?.contentWindow;
-    if (!win) return;
+    if (!win || !trusted) return;
     win.postMessage({ [RELAY_ENVELOPE]: 1, data: tuple }, frame.origin);
-  }, [frame.origin]);
+  }, [frame.origin, trusted]);
 
   const dispatch = useCallback((evt: string, data: unknown) => {
     if (subscriptions.current.has(evt)) send(dispatchFrame(evt, data));
@@ -256,7 +277,7 @@ export default function ActivityFrame({
   // ─── Message pump ───────────────────────────────────────────
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
-      if (e.source !== iframeRef.current?.contentWindow || e.origin !== frame.origin) return;
+      if (!trusted || e.source !== iframeRef.current?.contentWindow || e.origin !== frame.origin) return;
       const envelope = e.data as Record<string, unknown> | null;
       if (!envelope || envelope[RELAY_ENVELOPE] !== 1) return;
       // The relay announcing itself: answer once so it learns our origin.
@@ -283,7 +304,7 @@ export default function ActivityFrame({
     };
     window.addEventListener("message", onMessage);
     return () => window.removeEventListener("message", onMessage);
-  }, [frame.clientId, frame.origin, frameId, handleCommand, onClose, send]);
+  }, [frame.clientId, frame.origin, frameId, handleCommand, onClose, send, trusted]);
 
   // Participants changed (server), layout / orientation changed (here).
   useEffect(() => onActivityEvent((e) => {

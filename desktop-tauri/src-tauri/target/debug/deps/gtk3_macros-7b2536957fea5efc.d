@@ -1,8 +1,0 @@
-/media/pikachubolk/63d7930c-4cfb-4c68-96a6-879048200e36/Github/SerikaCord/desktop-tauri/src-tauri/target/debug/deps/gtk3_macros-7b2536957fea5efc.d: /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/lib.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/attribute_parser.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/composite_template_derive.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/util.rs
-
-/media/pikachubolk/63d7930c-4cfb-4c68-96a6-879048200e36/Github/SerikaCord/desktop-tauri/src-tauri/target/debug/deps/libgtk3_macros-7b2536957fea5efc.so: /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/lib.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/attribute_parser.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/composite_template_derive.rs /home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/util.rs
-
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/lib.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/attribute_parser.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/composite_template_derive.rs:
-/home/pikachubolk/.cargo/registry/src/index.crates.io-1949cf8c6b5b557f/gtk3-macros-0.18.2/src/util.rs:

@@ -13237,5 +13237,12 @@
   "909b66d0b189af2d": "Legitimate interests (Art. 6(1)(f)) in diagnosing problems caused by modified apps and investigating abuse such as self-bots or attempts to get around restrictions. Only authorised staff can see the signals, we keep them for 30 days, and a signal on its own never leads to a Strike, Restriction or suspension, because legitimate tools can produce the same signs. You can object at any time.",
   "901b5ae507d3c887": "Client modification signals (section 2.15) are never used for automated decisions: they do not trigger Strikes, Restrictions or suspensions, and staff look at them only together with how the Services were actually used.",
   "a84fb2fc5340d12d": "Client modification signals:",
-  "a8b7d28800c1d929": "30 days after they were last reported, unless needed longer to investigate a specific incident."
+  "a8b7d28800c1d929": "30 days after they were last reported, unless needed longer to investigate a specific incident.",
+  "f7969fe99fb230c4": "Signing in on {browser} on {os}",
+  "bc50f9c656d385df": "Signing in on {device}",
+  "d825c0cca5a0beba": "Signing in on an unknown device",
+  "01ad30dfea6cbf06": "Location: {country}",
+  "e49ce24947fb4cda": "Only approve if you're signing in yourself right now. Never approve a link someone sent you.",
+  "a74538a7917c1c96": "Play video",
+  "66335b0d22c5818d": "Embedded player"
 }

@@ -13237,5 +13237,12 @@
   "909b66d0b189af2d": "Gerechtvaardigde belangen (art. 6(1)(f)) bij het opsporen van problemen die door aangepaste apps worden veroorzaakt en het onderzoeken van misbruik, zoals self-bots of pogingen om beperkingen te omzeilen. Alleen bevoegde medewerkers kunnen de signalen zien, we bewaren ze 30 dagen en een signaal leidt op zichzelf nooit tot een Strike, Beperking of schorsing, omdat legitieme hulpmiddelen dezelfde tekenen kunnen geven. Je kunt op elk moment bezwaar maken.",
   "901b5ae507d3c887": "Signalen van clientaanpassingen (paragraaf 2.15) worden nooit gebruikt voor geautomatiseerde besluiten: ze leiden niet tot Strikes, Beperkingen of schorsingen, en medewerkers bekijken ze alleen samen met hoe de Diensten daadwerkelijk zijn gebruikt.",
   "a84fb2fc5340d12d": "Signalen van clientaanpassingen:",
-  "a8b7d28800c1d929": "30 dagen nadat ze voor het laatst zijn gemeld, tenzij ze langer nodig zijn om een specifiek incident te onderzoeken."
+  "a8b7d28800c1d929": "30 dagen nadat ze voor het laatst zijn gemeld, tenzij ze langer nodig zijn om een specifiek incident te onderzoeken.",
+  "f7969fe99fb230c4": "Signing in on {browser} on {os}",
+  "bc50f9c656d385df": "Signing in on {device}",
+  "d825c0cca5a0beba": "Signing in on an unknown device",
+  "01ad30dfea6cbf06": "Location: {country}",
+  "e49ce24947fb4cda": "Only approve if you're signing in yourself right now. Never approve a link someone sent you.",
+  "a74538a7917c1c96": "Play video",
+  "66335b0d22c5818d": "Embedded player"
 }

@@ -8,6 +8,7 @@
  * answer through `renegotiate`.
  */
 import { config } from '@/lib/config';
+import { channelIdOfRoom } from '@/lib/voice/moderation';
 
 const BASE = 'https://rtc.live.cloudflare.com/v1/apps';
 
@@ -42,8 +43,10 @@ export function realtimeConfigured(): boolean {
 
 /** Server voice / stage channels use the SFU (DM and group calls never do). */
 export function sfuEnabledForRoom(roomId: string): boolean {
-  if (!roomId.startsWith('channel-') || !realtimeConfigured()) return false;
-  return config.VOICE_SFU || config.VOICE_SFU_CHANNELS.includes(roomId.slice('channel-'.length).toLowerCase());
+  // Canonical channel room ids only (rooms.ts): the voice API refuses others.
+  const channelId = channelIdOfRoom(roomId);
+  if (!channelId || !realtimeConfigured()) return false;
+  return config.VOICE_SFU || config.VOICE_SFU_CHANNELS.includes(channelId);
 }
 
 async function call(path: string, body: unknown, method: 'POST' | 'PUT' | 'GET' = 'POST'): Promise<RealtimeResponse> {

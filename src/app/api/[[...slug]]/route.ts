@@ -1,4 +1,5 @@
 import { api, initializeAPI } from '@/lib/api';
+import { withCanonicalUuidPath } from '@/lib/security/canonicalIds';
 
 // Initialize on first request. initializeAPI() is now idempotent (returns the
 // same cached promise), so concurrent requests won't trigger duplicate init.
@@ -29,7 +30,7 @@ function handleError(err: unknown): Response {
 export const GET = async (request: Request) => {
   try {
     await ensureInit();
-    return await api.handle(request);
+    return await api.handle(withCanonicalUuidPath(request));
   } catch (err) {
     return handleError(err);
   }
@@ -38,7 +39,7 @@ export const GET = async (request: Request) => {
 export const POST = async (request: Request) => {
   try {
     await ensureInit();
-    return await api.handle(request);
+    return await api.handle(withCanonicalUuidPath(request));
   } catch (err) {
     return handleError(err);
   }
@@ -47,7 +48,7 @@ export const POST = async (request: Request) => {
 export const PUT = async (request: Request) => {
   try {
     await ensureInit();
-    return await api.handle(request);
+    return await api.handle(withCanonicalUuidPath(request));
   } catch (err) {
     return handleError(err);
   }
@@ -56,7 +57,7 @@ export const PUT = async (request: Request) => {
 export const PATCH = async (request: Request) => {
   try {
     await ensureInit();
-    return await api.handle(request);
+    return await api.handle(withCanonicalUuidPath(request));
   } catch (err) {
     return handleError(err);
   }
@@ -65,7 +66,7 @@ export const PATCH = async (request: Request) => {
 export const DELETE = async (request: Request) => {
   try {
     await ensureInit();
-    return await api.handle(request);
+    return await api.handle(withCanonicalUuidPath(request));
   } catch (err) {
     return handleError(err);
   }

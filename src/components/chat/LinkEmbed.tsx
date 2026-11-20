@@ -6,6 +6,7 @@ import { useInView } from "@/hooks/useInView";
 import { InviteEmbed, parseInviteCode } from "@/components/chat/InviteEmbed";
 import { GifFavoriteButton } from "@/components/chat/GifFavoriteButton";
 import { useChatGt } from "./ChatGtContext";
+import { isPlayerPageUrl, parseYouTubeVideoId } from "@/lib/security/embedPlayer";
 
 // `referrerPolicy` isn't in React's <video> typings, but the DOM honors it —
 // needed so hotlink-protected media (e.g. video.twimg.com) doesn't 403 on our
@@ -84,7 +85,8 @@ function parseYouTubeUrl(url: string): string | null {
     const match = url.match(pattern);
     if (match) return match[1];
   }
-  return null;
+  // watch?si=…&v=…, /live/<id>, m./music. hosts, youtube-nocookie embeds.
+  return parseYouTubeVideoId(url);
 }
 
 function getUrlType(url: string): "youtube" | "twitter" | "spotify" | "giphy" | "tenor" | "klipy" | "niconico" | "bilibili" | "serikavideo" | "vimeo" | "dailymotion" | "twitch" | "streamable" | "generic" {
@@ -965,7 +967,7 @@ function TwitterEmbed({ url }: { url: string }) {
   const nameMatch = data.title?.match(/^(.*?)\s*\((@[^)]+)\)\s*$/);
   const displayName = nameMatch?.[1] || data.author || data.title || "Twitter";
   const handle = nameMatch?.[2];
-  const hasVideo = !!data.video;
+  const hasVideo = !!data.video && !isPlayerPageUrl(data.video);
 
   return (
     <div className="mt-2 max-w-[520px] rounded-xl border border-white/10 bg-[#16181c] overflow-hidden">
@@ -1068,6 +1070,11 @@ function GenericEmbed({
     return null;
   }
 
+  // Never hand an HTML player page (e.g. a YouTube og:video) to <video>.
+  const playableVideo = preview?.video && /^https?:\/\//i.test(preview.video) && !isPlayerPageUrl(preview.video)
+    ? preview.video
+    : undefined;
+
   return (
     <div className="relative group/embed-card mt-2 max-w-[400px]">
       {onSuppress && (
@@ -1085,12 +1092,12 @@ function GenericEmbed({
       rel="noopener noreferrer"
       className="block border-l-4 border-[#8B5CF6] bg-[#1a1a1a] rounded-r-lg overflow-hidden hover:bg-[#222222] transition-colors"
     >
-      {preview?.video ? (
+      {playableVideo ? (
         <video
-          src={preview.video}
+          src={playableVideo}
           controls
           playsInline
-          poster={preview.thumbnail}
+          poster={preview?.thumbnail}
           {...NO_REFERRER}
           className="w-full max-h-72 bg-black block"
           onClick={(e) => e.stopPropagation()}

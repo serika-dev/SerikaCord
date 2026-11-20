@@ -1,9 +1,12 @@
 "use client";
 /**
  * A popped-out Activity (CORD-92): its own browser window on SerikaCord's
- * origin, opened by the main window with the frame info in the URL hash.
- * Runs the same SDK host as the main window; live updates arrive over a
- * BroadcastChannel. "Return" hands the Activity back to the main window,
+ * origin, opened by the main window with the instance id in the URL hash.
+ * The frame info (relay origin, client id, query) is never read from the URL:
+ * the main window hands it over on the same-origin BroadcastChannel, so a
+ * crafted link can't point the SDK host (and its RPC replies) at another
+ * origin. Runs the same SDK host as the main window; live updates arrive over
+ * the same channel. "Return" hands the Activity back to the main window,
  * "Leave" leaves it.
  */
 import { useEffect, useState } from "react";
@@ -11,15 +14,15 @@ import dynamic from "next/dynamic";
 import { useGT } from "gt-next";
 import { LogOut, Undo2 } from "lucide-react";
 import { cdnImage } from "@/lib/utils";
-import { postToMainWindow, useInstanceView, type PopoutPayload } from "@/lib/activities/clientStore";
+import { postToMainWindow, requestPopoutPayload, useInstanceView, type PopoutPayload } from "@/lib/activities/clientStore";
+import { isInstanceId } from "@/lib/activities/instances";
 
 const ActivityFrame = dynamic(() => import("@/components/activities/ActivityFrame"), { ssr: false });
 
-function readPayload(): PopoutPayload | null {
+function readInstanceId(): string | null {
   try {
-    const raw = decodeURIComponent(window.location.hash.slice(1));
-    const p = JSON.parse(raw) as PopoutPayload;
-    return p && typeof p.instanceId === "string" && p.frame && typeof p.frame.origin === "string" ? p : null;
+    const id = decodeURIComponent(window.location.hash.slice(1));
+    return isInstanceId(id) ? id : null;
   } catch {
     return null;
   }
@@ -30,9 +33,13 @@ export default function ActivityPopoutPage() {
   const [payload, setPayload] = useState<PopoutPayload | null>(null);
   const [missing, setMissing] = useState(false);
   useEffect(() => {
-    const p = readPayload();
-    const t = window.setTimeout(() => { if (p) setPayload(p); else setMissing(true); }, 0);
-    return () => window.clearTimeout(t);
+    const id = readInstanceId();
+    let cancelled = false;
+    void (id ? requestPopoutPayload(id) : Promise.resolve(null)).then((p) => {
+      if (cancelled) return;
+      if (p) setPayload(p); else setMissing(true);
+    });
+    return () => { cancelled = true; };
   }, []);
   const view = useInstanceView(payload?.instanceId);
 

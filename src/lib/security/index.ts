@@ -133,6 +133,13 @@ export const rateLimiters_config = {
   soundboard: { points: 5, duration: 10 }, // soundboard plays in a call, per user
   voiceState: { points: 60, duration: 10 }, // voice join / state / speaking updates, per user
   voiceSfu: { points: 120, duration: 10 }, // SFU session / publish / pull / renegotiate calls, per user
+  voiceToken: { points: 20, duration: 60 }, // TURN credential mints, per user
+  voiceSpeaking: { points: 120, duration: 10 }, // speaking indicator broadcasts, per user
+  callRing: { points: 1, duration: 10 }, // DM call rings, per caller+callee pair
+  dmPin: { points: 20, duration: 60 }, // pinning / unpinning DM messages, per user
+  oembed: { points: 60, duration: 60 }, // link-preview fetches, per user
+  oembedMedia: { points: 120, duration: 60 }, // twimg media proxy, per IP
+  instanceRegister: { points: 3, duration: 3600 }, // federated instance registrations, per IP
   audioUpload: { points: 10, duration: 60 }, // voice message / audio uploads, per user
   
   // Upload rate limits
@@ -432,15 +439,118 @@ export function validatePassword(password: string): { valid: boolean; errors: st
 // IP validation and extraction
 export function getClientIP(request: Request): string {
   const headers = request.headers;
-  
-  // Cloudflare
-  const cfConnectingIP = headers.get('cf-connecting-ip');
-  if (cfConnectingIP) return cfConnectingIP;
-  
-  return pickClientIpFromHeaders(
+  return pickClientIpFromRequestHeaders(
+    headers.get('cf-connecting-ip'),
     headers.get('x-forwarded-for'),
     headers.get('x-real-ip'),
   );
+}
+
+/**
+ * Cloudflare → Traefik → Bun. CF-Connecting-IP is only trusted when the hop
+ * that connected to our proxy (the right-most X-Forwarded-For entry, or
+ * X-Real-IP when there is no XFF) is a Cloudflare edge; anyone hitting the
+ * origin directly could otherwise pick their own IP. Exported for tests.
+ */
+export function pickClientIpFromRequestHeaders(
+  cfConnectingIP: string | null,
+  xForwardedFor: string | null,
+  xRealIP: string | null,
+): string {
+  const peer = pickClientIpFromHeaders(xForwardedFor, xRealIP);
+  const cf = cfConnectingIP?.trim();
+  if (cf && peer !== 'unknown' && isCloudflareIP(peer) && parseIP(cf)) return cf;
+  return peer;
+}
+
+// https://www.cloudflare.com/ips/ (ips-v4 / ips-v6).
+export const CLOUDFLARE_IP_RANGES: readonly string[] = [
+  '173.245.48.0/20', '103.21.244.0/22', '103.22.200.0/22', '103.31.4.0/22',
+  '141.101.64.0/18', '108.162.192.0/18', '190.93.240.0/20', '188.114.96.0/20',
+  '197.234.240.0/22', '198.41.128.0/17', '162.158.0.0/15', '104.16.0.0/13',
+  '104.24.0.0/14', '172.64.0.0/13', '131.0.72.0/22',
+  '2400:cb00::/32', '2606:4700::/32', '2803:f800::/32', '2405:b500::/32',
+  '2405:8100::/32', '2a06:98c0::/29', '2c0f:f248::/32',
+];
+
+type ParsedIP = { v: 4 | 6; n: bigint };
+
+function parseIPv4(s: string): bigint | null {
+  const parts = s.split('.');
+  if (parts.length !== 4) return null;
+  let n = BigInt(0);
+  for (const p of parts) {
+    if (!/^\d{1,3}$/.test(p)) return null;
+    const o = Number(p);
+    if (o > 255) return null;
+    n = (n << BigInt(8)) | BigInt(o);
+  }
+  return n;
+}
+
+function parseIPv6(s: string): bigint | null {
+  let str = s;
+  // Embedded IPv4 tail (::ffff:1.2.3.4) → two hextets.
+  const lastColon = str.lastIndexOf(':');
+  if (str.includes('.', lastColon)) {
+    const v4 = parseIPv4(str.slice(lastColon + 1));
+    if (v4 === null) return null;
+    str = `${str.slice(0, lastColon + 1)}${(v4 >> BigInt(16)).toString(16)}:${(v4 & BigInt(0xffff)).toString(16)}`;
+  }
+  const halves = str.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const missing = 8 - head.length - tail.length;
+  if (halves.length === 2 ? missing < 1 : missing !== 0) return null;
+  const groups = [...head, ...Array<string>(halves.length === 2 ? missing : 0).fill('0'), ...tail];
+  let n = BigInt(0);
+  for (const g of groups) {
+    if (!/^[0-9a-f]{1,4}$/i.test(g)) return null;
+    n = (n << BigInt(16)) | BigInt(parseInt(g, 16));
+  }
+  return n;
+}
+
+/** Parses an IPv4 or IPv6 address (brackets and zone ids allowed); IPv4-mapped IPv6 becomes IPv4. */
+export function parseIP(raw: string): ParsedIP | null {
+  let s = raw.trim();
+  if (s.startsWith('[') && s.endsWith(']')) s = s.slice(1, -1);
+  const zone = s.indexOf('%');
+  if (zone !== -1) s = s.slice(0, zone);
+  if (!s) return null;
+  if (!s.includes(':')) {
+    const n = parseIPv4(s);
+    return n === null ? null : { v: 4, n };
+  }
+  const n = parseIPv6(s);
+  if (n === null) return null;
+  if (n >> BigInt(32) === BigInt(0xffff)) return { v: 4, n: n & BigInt(0xffffffff) };
+  return { v: 6, n };
+}
+
+/** Whether `ip` falls inside `cidr` (e.g. "10.0.0.0/8", "2606:4700::/32"). */
+export function ipInCidr(ip: string, cidr: string): boolean {
+  const slash = cidr.indexOf('/');
+  if (slash === -1) return false;
+  const net = parseIP(cidr.slice(0, slash));
+  const addr = parseIP(ip);
+  const bits = Number(cidr.slice(slash + 1));
+  if (!net || !addr || net.v !== addr.v || !Number.isInteger(bits)) return false;
+  const width = net.v === 4 ? 32 : 128;
+  if (bits < 0 || bits > width) return false;
+  const shift = BigInt(width - bits);
+  return (addr.n >> shift) === (net.n >> shift);
+}
+
+// Extra peers allowed to vouch for CF-Connecting-IP (e.g. a cloudflared tunnel
+// container), comma-separated CIDRs. Empty by default.
+const EXTRA_CF_PEER_RANGES: readonly string[] = (process.env.TRUSTED_CF_PEER_CIDRS || '')
+  .split(',').map((c) => c.trim()).filter(Boolean);
+
+export function isCloudflareIP(ip: string): boolean {
+  return CLOUDFLARE_IP_RANGES.some((cidr) => ipInCidr(ip, cidr))
+    || EXTRA_CF_PEER_RANGES.some((cidr) => ipInCidr(ip, cidr));
 }
 
 /**

@@ -8,9 +8,11 @@
  *   IPv4-mapped/embedded forms of those).
  * - Redirects are followed manually (max 3 hops) and every hop is re-checked.
  *
- * Residual risk: a DNS-rebinding window remains between our lookup and the
- * connection fetch() opens. Closing it fully needs connection pinning or an
- * egress proxy that refuses private ranges.
+ * - DNS rebinding: under Bun, safeFetch connects to the exact address it
+ *   vetted (URL host swapped for the IP, original Host header, and for https
+ *   `tls.serverName` so SNI and certificate validation still use the real
+ *   hostname). Under Node (Next-only dev) fetch can't be pinned, so a small
+ *   lookup-to-connect window remains there.
  *
  * The address/URL checks are pure so they can be unit tested without network.
  */
@@ -179,9 +181,17 @@ export function checkUrlShape(input: string | URL): URL {
 
 /** Shape check + DNS resolution; throws UnsafeUrlError if any address is private. */
 export async function assertPublicUrl(input: string | URL): Promise<URL> {
+  return (await resolvePublicUrl(input)).url;
+}
+
+/**
+ * Like assertPublicUrl, but also returns the vetted address to connect to
+ * (undefined when the host is already an IP literal). IPv4 is preferred.
+ */
+export async function resolvePublicUrl(input: string | URL): Promise<{ url: URL; address?: string }> {
   const u = checkUrlShape(input);
   const host = u.hostname.replace(/^\[|\]$/g, '');
-  if (isIP(host)) return u; // literal already vetted by checkUrlShape
+  if (isIP(host)) return { url: u }; // literal already vetted by checkUrlShape
 
   let addrs: { address: string }[];
   try {
@@ -193,7 +203,47 @@ export async function assertPublicUrl(input: string | URL): Promise<URL> {
   for (const a of addrs) {
     if (isBlockedAddress(a.address)) throw new UnsafeUrlError('Private address');
   }
-  return u;
+  const address = (addrs.find((a) => isIP(a.address) === 4) ?? addrs[0]).address;
+  return { url: u, address };
+}
+
+/**
+ * The URL to request and the extra fetch options that make the connection go
+ * to `address` while keeping the original Host header and TLS identity.
+ * Pure (exported for tests).
+ */
+export function pinnedRequest(
+  u: URL,
+  address: string,
+  headersInit?: HeadersInit,
+): { target: string; headers: Headers; tls?: { serverName: string } } {
+  const target = new URL(u.toString());
+  target.hostname = isIP(address) === 6 ? `[${address}]` : address;
+  const headers = new Headers(headersInit);
+  headers.set('host', u.host);
+  return {
+    target: target.toString(),
+    headers,
+    tls: u.protocol === 'https:' ? { serverName: u.hostname.replace(/\.$/, '') } : undefined,
+  };
+}
+
+// Bun's fetch honours a Host header override and `tls.serverName` (SNI +
+// certificate hostname check); Node/undici does neither, so only pin on Bun.
+const CAN_PIN = typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined';
+
+async function fetchVetted(u: URL, address: string | undefined, init: RequestInit): Promise<Response> {
+  if (!address || !CAN_PIN) return fetch(u.toString(), { ...init, redirect: 'manual' });
+  const pin = pinnedRequest(u, address, init.headers);
+  const res = await fetch(pin.target, {
+    ...init,
+    headers: pin.headers,
+    redirect: 'manual',
+    ...(pin.tls ? { tls: pin.tls } : {}),
+  } as RequestInit);
+  // Callers read res.url as the page address: report the hostname, not the IP.
+  try { Object.defineProperty(res, 'url', { value: u.toString(), configurable: true }); } catch { /* ignore */ }
+  return res;
 }
 
 export interface SafeFetchOptions {
@@ -216,11 +266,12 @@ export async function safeFetch(
   const maxRedirects = opts.maxRedirects ?? 3;
   let current = input;
   for (let hop = 0; hop <= maxRedirects; hop++) {
-    const u = await assertPublicUrl(current);
+    const { url: u, address } = await resolvePublicUrl(current);
     if (opts.allowHost && !opts.allowHost(u.hostname.toLowerCase())) {
       throw new UnsafeUrlError('Host not allowed');
     }
-    const res = await fetch(u.toString(), { ...init, redirect: 'manual' });
+    // Connect to the address we just vetted (no second DNS lookup to rebind).
+    const res = await fetchVetted(u, address, init);
     if (res.status >= 300 && res.status < 400) {
       const loc = res.headers.get('location');
       try { await res.body?.cancel(); } catch { /* ignore */ }

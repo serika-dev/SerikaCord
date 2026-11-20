@@ -22,7 +22,7 @@ import { pickClientIntegrations } from '@/lib/discord/bridgeConfig';
 import { INTEGRATION_KINDS, MENTION_TYPES, MESSAGE_TEMPLATE_MAX, integrationKeys, normalizeMention, parseTwitchLogin, parseYouTubeChannelInput } from '@/lib/integrations/notifications';
 import { settingsKeepingBridge } from '@/lib/discord/bridgeStore';
 import { getRolePermissions, getActorRoleContext, hasServerPermission, invalidateRolePerms, primeRolePermissions } from '@/lib/permissions/serverPermissions';
-import { canAssignRole, canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type ActorRoleContext, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
+import { canAssignRole, canEditRole, canGrantPermissions, canModerateTarget, checkMemberRoleChange, checkRoleReorder, grantablePermissions, normalizePermissionInput, rolePosition, topRolePosition, memberPermissions, type ActorRoleContext, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
 import { addedRoleLinkTargets, expandLinkedRoles, isLinkableRole, normalizeRoleLinks, readRoleLinks, type RoleLinks } from '@/lib/roles/roleLinks';
 import { parsePermissionBitfield } from '@/lib/roles/bitfield';
 import { insertServerMember, removeServerBan, removeServerMember, upsertServerBan } from '@/lib/services/serverMembership';
@@ -44,7 +44,7 @@ import { parseSoundVolume } from '@/lib/servers/soundboardVolume';
 import { invitesPaused } from '@/lib/botapi/guildIncidentRules';
 // Bot gateway events for guild resources (GUILD_UPDATE, CHANNEL_*, GUILD_ROLE_*, GUILD_MEMBER_UPDATE, INVITE_*).
 import * as guildEvents from '@/lib/services/guildGatewayEvents';
-import { hasDiscoveryTag, isHexColor, isServerTagIcon, normalizeDiscoveryTags, normalizeServerGames, readDiscoveryTags, readServerGames, readServerTagConfig, validateServerTagText, validateTagEmoji } from '@/lib/servers/serverProfile';
+import { hasDiscoveryTag, isCdnEmojiUrl, isHexColor, isServerTagIcon, normalizeDiscoveryTags, normalizeServerGames, readDiscoveryTags, readServerGames, readServerTagConfig, validateServerTagText, validateTagEmoji } from '@/lib/servers/serverProfile';
 import { customizationWithTag, invalidateServerTag, resolveCustomization, resolveServerTags } from '@/lib/services/serverTags';
 import { memberOverridesFromRow, overriddenFields, resolveMemberProfile, sanitizeMemberProfilePatch } from '@/lib/profiles/memberProfile';
 import { storage, keyFromUrl, ContentBlockedError, UploadRejectedError } from '@/lib/services/storage';
@@ -159,7 +159,7 @@ async function getMemberBasePermissions(serverId: string, memberRoleIds: string[
 
 // Check if user can manage roles in a server (owner or has Manage Roles / Administrator)
 async function canManageRoles(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
-  if (server.ownerId === userId) return true;
+  if (sameId(server.ownerId, userId)) return true;
   const member = await ServerMember.findOne({ serverId: server.id, userId });
   if (!member) return false;
   const roleIds = (member.roles || []) as string[];
@@ -174,7 +174,7 @@ async function canManageRoles(server: { ownerId: string; id: string }, userId: s
 
 // Check if user can manage server settings (owner or has Manage Server / Administrator)
 async function canManageServer(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
-  if (server.ownerId === userId) return true;
+  if (sameId(server.ownerId, userId)) return true;
   const member = await ServerMember.findOne({ serverId: server.id, userId });
   if (!member) return false;
   const roleIds = (member.roles || []) as string[];
@@ -189,7 +189,7 @@ async function canManageServer(server: { ownerId: string; id: string }, userId: 
 
 // Check if user can ban/kick members (owner or has BAN_MEMBERS / ADMINISTRATOR)
 async function canModerateMembers(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
-  if (server.ownerId === userId) return true;
+  if (sameId(server.ownerId, userId)) return true;
   const member = await ServerMember.findOne({ serverId: server.id, userId });
   if (!member) return false;
   const roleIds = (member.roles || []) as string[];
@@ -204,7 +204,7 @@ async function canModerateMembers(server: { ownerId: string; id: string }, userI
 
 // Check if user can kick members (owner or has KICK_MEMBERS / BAN_MEMBERS / ADMINISTRATOR)
 async function canKickMembers(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
-  if (server.ownerId === userId) return true;
+  if (sameId(server.ownerId, userId)) return true;
   const member = await ServerMember.findOne({ serverId: server.id, userId });
   if (!member) return false;
   const roleIds = (member.roles || []) as string[];
@@ -220,7 +220,7 @@ async function canKickMembers(server: { ownerId: string; id: string }, userId: s
 
 // Check if user can timeout members (owner or has MODERATE_MEMBERS / ADMINISTRATOR)
 async function canTimeoutMembers(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
-  if (server.ownerId === userId) return true;
+  if (sameId(server.ownerId, userId)) return true;
   const member = await ServerMember.findOne({ serverId: server.id, userId });
   if (!member) return false;
   const roleIds = (member.roles || []) as string[];
@@ -235,7 +235,7 @@ async function canTimeoutMembers(server: { ownerId: string; id: string }, userId
 
 // Check if user can manage emojis & stickers (owner or has MANAGE_EMOJIS_AND_STICKERS / ADMINISTRATOR)
 async function canManageEmojis(server: { ownerId: string; id: string }, userId: string): Promise<boolean> {
-  if (server.ownerId === userId) return true;
+  if (sameId(server.ownerId, userId)) return true;
   const member = await ServerMember.findOne({ serverId: server.id, userId });
   if (!member) return false;
   const roleIds = (member.roles || []) as string[];
@@ -274,8 +274,8 @@ async function checkCanModerateMember(
   actorId: string,
   targetId: string,
 ): Promise<string | null> {
-  if (normalizeId(server.ownerId) === normalizeId(targetId)) return 'Cannot moderate the server owner';
-  if (normalizeId(actorId) === normalizeId(targetId)) return 'You cannot moderate yourself';
+  if (sameId(server.ownerId, targetId)) return 'Cannot moderate the server owner';
+  if (sameId(actorId, targetId)) return 'You cannot moderate yourself';
   const serverRoles = (await Role.find({ serverId: server.id })) as HierarchyRole[];
   const [actor, targetMember] = await Promise.all([
     getActorRoleContext(server, actorId, serverRoles),
@@ -426,7 +426,7 @@ async function getNormalizedRoles(serverId: string) {
  * @everyone counts even when the membership row doesn't list it.
  */
 async function canChangeOwnNickname(server: { id: string; ownerId: string }, userId: string, membership?: { roles?: string[] | null } | null): Promise<boolean> {
-  if (server.ownerId === userId) return true;
+  if (sameId(server.ownerId, userId)) return true;
   const member = membership ?? (await ServerMember.findOne({ serverId: server.id, userId }));
   if (!member) return false;
   const { getEveryoneRoleId } = await import('./channels');
@@ -491,7 +491,7 @@ function normalizeMemberDto(member: {
     isBot: Boolean(userData?.isBot),
     isSystem: Boolean(userData?.isSystem),
     isVerified: Boolean(userData?.isVerified),
-    isOwner: ownerId ? ownerId === userData?.id : false,
+    isOwner: ownerId ? sameId(ownerId, userData?.id) : false,
     customization: effective.customization,
     joinedAt: member.joinedAt || null,
     accountCreatedAt: userData?.createdAt || null,
@@ -1045,7 +1045,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id && !(await canManageServer(server, user.id))) {
+    if (!sameId(server.ownerId, user.id) && !(await canManageServer(server, user.id))) {
       set.status = 403;
       return { error: 'You do not have permission to edit this server' };
     }
@@ -1222,7 +1222,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id && !(await canManageServer(server, user.id))) {
+    if (!sameId(server.ownerId, user.id) && !(await canManageServer(server, user.id))) {
       set.status = 403;
       return { error: 'You do not have permission to edit this server' };
     }
@@ -1765,14 +1765,41 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const { name, description, icon, banner, systemChannelId, rulesChannelId, afkChannelId, afkTimeout, verificationLevel, explicitContentFilter, isAgeGated } = body;
     const beforeServer = { ...server };
 
+    // Images must come from our CDN (the upload routes put them there); an
+    // outside URL would make every viewer fetch it. The current value may be
+    // echoed back unchanged.
+    for (const [key, value, current] of [['icon', icon, server.icon], ['banner', banner, server.banner]] as const) {
+      if (value === undefined || value === null || value === '' || value === current) continue;
+      if (!isCdnEmojiUrl(value, config.CDN_URL)) {
+        set.status = 400;
+        return { error: `Invalid ${key} URL` };
+      }
+    }
+
+    // Channel references must be channels of this server.
+    const channelRefs = [systemChannelId, rulesChannelId, afkChannelId].filter((v): v is string => typeof v === 'string' && v !== '');
+    if (channelRefs.length > 0) {
+      if (!channelRefs.every((v) => isValidObjectId(v))) {
+        set.status = 400;
+        return { error: 'Invalid channel' };
+      }
+      const found = await Channel.find({ id: { in: channelRefs.map(normalizeId) }, serverId: server.id });
+      const foundIds = new Set(found.map((c) => normalizeId(c.id)));
+      if (!channelRefs.every((v) => foundIds.has(normalizeId(v)))) {
+        set.status = 400;
+        return { error: 'Channel does not belong to this server' };
+      }
+    }
+
     if (name !== undefined) server.name = sanitizeInput(name);
     if (description !== undefined) server.description = sanitizeInput(description);
-    if (icon !== undefined) server.icon = icon;
-    if (banner !== undefined) server.banner = banner;
-    if (systemChannelId !== undefined) server.systemChannelId = systemChannelId || null;
-    if (rulesChannelId !== undefined) server.rulesChannelId = rulesChannelId || null;
-    if (afkChannelId !== undefined) server.afkChannelId = afkChannelId || null;
-    if (afkTimeout !== undefined) server.afkTimeout = afkTimeout;
+    if (icon !== undefined) server.icon = icon || null;
+    if (banner !== undefined) server.banner = banner || null;
+    if (systemChannelId !== undefined) server.systemChannelId = systemChannelId ? normalizeId(systemChannelId) : null;
+    if (rulesChannelId !== undefined) server.rulesChannelId = rulesChannelId ? normalizeId(rulesChannelId) : null;
+    if (afkChannelId !== undefined) server.afkChannelId = afkChannelId ? normalizeId(afkChannelId) : null;
+    // Same range as the bulk settings route.
+    if (afkTimeout !== undefined && Number.isFinite(afkTimeout)) server.afkTimeout = Math.min(7200, Math.max(30, Math.round(afkTimeout)));
     if (verificationLevel !== undefined) server.verificationLevel = verificationLevel;
     if (explicitContentFilter !== undefined) server.explicitContentFilter = explicitContentFilter;
 
@@ -1875,7 +1902,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       set.status = 403;
       return { error: 'Only the server owner can delete the server' };
     }
@@ -2014,37 +2041,42 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Default role is missing for this server' };
     }
 
-    const requestedRoleIds = Array.from(new Set((body.roleIds || []).filter((id): id is string => isValidObjectId(id))));
-    const requestedWithEveryone = Array.from(new Set([everyoneRole.id, ...requestedRoleIds]));
+    // Canonical (lowercase) ids: Postgres matches uuids in any case, so an
+    // uppercase id would match the role in SQL but miss every string check.
+    const requestedRoleIds = Array.from(new Set((body.roleIds || []).filter((id): id is string => isValidObjectId(id)).map(normalizeId)));
+    const requestedIds = Array.from(new Set([normalizeId(everyoneRole.id), ...requestedRoleIds]));
 
     const validRoles = await Role.find({
       serverId: params.serverId,
-      id: { in: requestedWithEveryone },
+      id: { in: requestedIds },
     });
 
-    if (validRoles.length !== requestedWithEveryone.length) {
+    const validById = new Map(validRoles.map((r) => [normalizeId(r.id), r]));
+    if (validRoles.length !== requestedIds.length || !requestedIds.every((id) => validById.has(id))) {
       set.status = 400;
       return { error: 'One or more provided role IDs are invalid for this server' };
     }
+    // Save the ids exactly as the database returns them.
+    const requestedWithEveryone = requestedIds.map((id) => validById.get(id)!.id as string);
 
     // Role hierarchy: non-owners may only add/remove roles below their own
     // highest role, on members ranked below them (or themselves).
     const serverRoles = (await Role.find({ serverId: params.serverId })) as HierarchyRole[];
     let actorCtx: ActorRoleContext | null = null;
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       const actor = await getActorRoleContext(server, user.id, serverRoles);
       actorCtx = actor;
-      const currentRoleIds = (member.roles || []) as string[];
+      const currentRoleIds = ((member.roles || []) as string[]).map(normalizeId);
       const hierarchyError = actor
         ? checkMemberRoleChange({
             actor,
             actorId: normalizeId(user.id),
             targetId: normalizeId(params.memberUserId),
-            targetIsOwner: normalizeId(server.ownerId) === normalizeId(params.memberUserId),
+            targetIsOwner: sameId(server.ownerId, params.memberUserId),
             targetTopPosition: topRolePosition(currentRoleIds, serverRoles),
             currentRoleIds,
             requestedRoleIds: requestedWithEveryone,
-            rolesById: new Map(serverRoles.map((r) => [r.id, r])),
+            rolesById: new Map(serverRoles.map((r) => [normalizeId(r.id), r])),
           })
         : 'You are not a member of this server';
       if (hierarchyError) {
@@ -2247,7 +2279,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       overriddenFields: overriddenFields(overrides),
       badges: userData?.badges || [],
       communicationDisabledUntil: rawMember.communicationDisabledUntil || null,
-      isOwner: server ? server.ownerId === rawMember.userId : false,
+      isOwner: server ? sameId(server.ownerId, rawMember.userId) : false,
     };
   }, {
     params: t.Object({
@@ -2538,7 +2570,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    const isOwner = server.ownerId === user.id;
+    const isOwner = sameId(server.ownerId, user.id);
     if (isOwner) {
       // Owner implicitly has every permission.
       return { isOwner: true, permissions: ALL_PERMISSIONS.toString() };
@@ -2612,7 +2644,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     // Timed-out members cannot create invites.
-    if (server.ownerId !== user.id && membership.communicationDisabledUntil && new Date(membership.communicationDisabledUntil).getTime() > Date.now()) {
+    if (!sameId(server.ownerId, user.id) && membership.communicationDisabledUntil && new Date(membership.communicationDisabledUntil).getTime() > Date.now()) {
       set.status = 403;
       return { error: 'You cannot create invites while timed out' };
     }
@@ -2624,7 +2656,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     // CREATE_INVITE (the owner always may)
-    if (server && server.ownerId !== user.id) {
+    if (server && !sameId(server.ownerId, user.id)) {
       const basePerms = await getMemberBasePermissions(params.serverId, (membership.roles || []) as string[]);
       if ((basePerms & PERM_CREATE_INVITE) !== PERM_CREATE_INVITE) {
         set.status = 403;
@@ -2898,7 +2930,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // Role hierarchy: non-owners can only grant bits they hold, and the new
     // role is placed directly below their own highest role.
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       const actor = await getActorRoleContext(server, user.id, existingRoles as HierarchyRole[]);
       if (!actor || actor.topPosition < 1) {
         set.status = 403;
@@ -3006,7 +3038,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // Role hierarchy: non-owners can only edit roles below their highest role
     // (@everyone excepted) and can only add permission bits they hold.
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       const actor = await getActorRoleContext(server, user.id);
       if (!actor || !canEditRole(actor, role as HierarchyRole) || (role.managed && !role.isDefault)) {
         set.status = 403;
@@ -3133,8 +3165,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // Hierarchy: non-owners may only link a role they can assign, to roles
     // they can assign; links they add or remove must all be below them.
-    const actor = server.ownerId === user.id ? null : await getActorRoleContext(server, user.id, serverRoles);
-    if (server.ownerId !== user.id) {
+    const actor = sameId(server.ownerId, user.id) ? null : await getActorRoleContext(server, user.id, serverRoles);
+    if (!sameId(server.ownerId, user.id)) {
       const changed = [...requested.filter((id) => !previousTargets.includes(id)), ...previousTargets.filter((id) => !requested.includes(id))];
       if (!actor || !canAssignRole(actor, source) || changed.some((id) => !canAssignRole(actor, rolesById.get(id)!))) {
         set.status = 403;
@@ -3178,7 +3210,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       const updates: Array<{ id: string; userId: string; roles: string[] }> = [];
       for (const m of holders) {
         const current = ((m.roles || []) as string[]).map(normalizeId);
-        if (normalizeId(m.userId) === normalizeId(server.ownerId) && server.ownerId !== user.id) continue;
+        if (sameId(m.userId, server.ownerId) && !sameId(server.ownerId, user.id)) continue;
         if (actor && normalizeId(m.userId) !== normalizeId(user.id) && topRolePosition(current, serverRoles) >= actor.topPosition) continue;
         // Treat the source role as just granted so its links fire.
         const expanded = expandLinkedRoles({ current: current.filter((id) => id !== sourceId), next: current, links: after, canAdd });
@@ -3250,7 +3282,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'orderedRoleIds is required' };
     }
 
-    const uniqueRoleIds = Array.from(new Set(orderedRoleIds));
+    const uniqueRoleIds = Array.from(new Set(orderedRoleIds.map(normalizeId)));
     if (uniqueRoleIds.length !== orderedRoleIds.length) {
       set.status = 400;
       return { error: 'orderedRoleIds contains duplicates' };
@@ -3279,7 +3311,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
 
     // Role hierarchy: non-owners cannot move roles at or above their highest
     // role, nor move a role into that range.
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       const actor = await getActorRoleContext(server, user.id);
       const reorderError = actor
         ? checkRoleReorder(actor, reorderableRoles as HierarchyRole[], uniqueRoleIds)
@@ -3344,7 +3376,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     }
 
     // Role hierarchy: non-owners can only delete roles below their highest role.
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       const actor = await getActorRoleContext(server, user.id);
       if (!actor || !canEditRole(actor, role as HierarchyRole) || role.managed) {
         set.status = 403;
@@ -3356,8 +3388,8 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     const allMembers = await ServerMember.find({ serverId: params.serverId });
     await Promise.all(
       allMembers
-        .filter((m: any) => (m.roles || []).includes(params.roleId))
-        .map((m: any) => ServerMember.updateById(m.id, { roles: (m.roles || []).filter((r: string) => r !== params.roleId) }))
+        .filter((m: any) => ((m.roles || []) as string[]).some((r) => sameId(r, role.id)))
+        .map((m: any) => ServerMember.updateById(m.id, { roles: ((m.roles || []) as string[]).filter((r) => !sameId(r, role.id)) }))
     );
 
     await Role.deleteById(role.id);
@@ -3507,7 +3539,9 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       const refMsgIds = [...new Set(rawMessages.map((m: any) => m.referencedMessageId).filter(Boolean))];
       const [authors, refMsgs] = await Promise.all([
         authorIds.length > 0 ? User.find({ id: { in: authorIds } }) : [],
-        refMsgIds.length > 0 ? Message.find({ id: { in: refMsgIds } }) : [],
+        // Only live replies from this same public channel: a deleted message,
+        // or one in a gated channel, must never surface in the public widget.
+        refMsgIds.length > 0 ? Message.find({ id: { in: refMsgIds }, channelId: messageChannelId, isDeleted: false }) : [],
       ]);
       const authorMap = new Map(authors.map((a: any) => [a.id, a]));
       const refMsgMap = new Map(refMsgs.map((m: any) => [m.id, m]));
@@ -3775,6 +3809,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: `You can only have ${maxEmojis} custom emojis` };
     }
 
+    // The image must be one the upload route put on our CDN.
+    if (!isCdnEmojiUrl(body.imageUrl, config.CDN_URL)) {
+      set.status = 400;
+      return { error: 'Invalid emoji image URL' };
+    }
+
     // Only characters a `<:name:id>` token can carry (letters, digits, _ and -).
     const emojiName = normalizeCustomEmojiName(body.name);
     if (emojiName.length < 2) {
@@ -3967,6 +4007,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: `Sticker limit reached (${maxStickers})` };
     }
 
+    // The image must be one the upload route put on our CDN.
+    if (!isCdnEmojiUrl(body.imageUrl, config.CDN_URL)) {
+      set.status = 400;
+      return { error: 'Invalid sticker image URL' };
+    }
+
     const sticker = await ServerSticker.create({
       serverId: params.serverId,
       name: sanitizeInput(body.name),
@@ -4133,7 +4179,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       set.status = 403;
       return { error: 'Only the server owner can add soundboard sounds' };
     }
@@ -4143,6 +4189,12 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
     if (!name || !url) {
       set.status = 400;
       return { error: 'Name and URL are required' };
+    }
+
+    // The sound must be one the upload route put on our CDN.
+    if (!isCdnEmojiUrl(url, config.CDN_URL)) {
+      set.status = 400;
+      return { error: 'Invalid sound URL' };
     }
 
     if (((server.soundboardSounds as unknown[] | undefined)?.length ?? 0) >= 500) {
@@ -4197,7 +4249,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
     // Same managers as adding / deleting sounds.
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       set.status = 403;
       return { error: 'Only the server owner can edit soundboard sounds' };
     }
@@ -4259,7 +4311,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id) {
+    if (!sameId(server.ownerId, user.id)) {
       set.status = 403;
       return { error: 'Only the server owner can delete soundboard sounds' };
     }
@@ -4302,7 +4354,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    const isManager = server.ownerId === user.id || (await canManageServer(server, user.id));
+    const isManager = sameId(server.ownerId, user.id) || (await canManageServer(server, user.id));
 
     // Non-managers must be a member to view vanity info (needed for InviteDialog)
     if (!isManager) {
@@ -4346,7 +4398,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id && !(await canManageServer(server, user.id))) {
+    if (!sameId(server.ownerId, user.id) && !(await canManageServer(server, user.id))) {
       set.status = 403;
       return { error: 'You do not have permission to manage this server' };
     }
@@ -4431,7 +4483,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id && !(await canManageServer(server, user.id))) {
+    if (!sameId(server.ownerId, user.id) && !(await canManageServer(server, user.id))) {
       set.status = 403;
       return { error: 'You do not have permission to manage this server' };
     }
@@ -4654,7 +4706,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to ban users' };
     }
 
-    if (server.ownerId === params.userId) {
+    if (sameId(server.ownerId, params.userId)) {
       set.status = 400;
       return { error: 'You cannot ban the server owner' };
     }
@@ -4721,7 +4773,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to kick members' };
     }
 
-    if (server.ownerId === params.userId) {
+    if (sameId(server.ownerId, params.userId)) {
       set.status = 400;
       return { error: 'You cannot kick the server owner' };
     }
@@ -4785,7 +4837,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'You do not have permission to timeout members' };
     }
 
-    if (server.ownerId === params.userId) {
+    if (sameId(server.ownerId, params.userId)) {
       set.status = 400;
       return { error: 'You cannot timeout the server owner' };
     }
@@ -4974,7 +5026,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id && !(await canManageServer(server, user.id))) {
+    if (!sameId(server.ownerId, user.id) && !(await canManageServer(server, user.id))) {
       set.status = 403;
       return { error: 'You do not have permission to view applications' };
     }
@@ -5008,7 +5060,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id && !(await canManageServer(server, user.id))) {
+    if (!sameId(server.ownerId, user.id) && !(await canManageServer(server, user.id))) {
       set.status = 403;
       return { error: 'You do not have permission to view applications' };
     }
@@ -5221,7 +5273,7 @@ export const serverRoutes = new Elysia({ prefix: '/servers' })
       return { error: 'Server not found' };
     }
 
-    if (server.ownerId !== user.id && !(await canManageServer(server, user.id))) {
+    if (!sameId(server.ownerId, user.id) && !(await canManageServer(server, user.id))) {
       set.status = 403;
       return { error: 'You do not have permission to manage applications' };
     }
@@ -5592,20 +5644,14 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       set.status = 403;
       return { error: 'Forbidden' };
     }
-    const isOwner = server.ownerId === user.id;
-    let hasManageServer = isOwner;
-    if (!hasManageServer) {
-      const serverRoles = await Role.find({ serverId: server.id });
-      const myRoles = serverRoles.filter(r => (member.roles || []).includes(r.id) || r.isDefault);
-      for (const r of myRoles) {
-        const perms = parsePermissionBitfield(r.permissions || '0');
-        if ((perms & (1n << 3n)) || (perms & (1n << 5n))) {
-          hasManageServer = true;
-          break;
-        }
-      }
+    const isOwner = sameId(server.ownerId, user.id);
+    const actor = await getActorRoleContext(server, user.id);
+    if (!actor) {
+      set.status = 403;
+      return { error: 'Forbidden' };
     }
-    if (!hasManageServer) {
+    const holds = (bit: bigint) => actor.isOwner || actor.isAdmin || (actor.perms & bit) === bit;
+    if (!holds(PERMISSION_BITS.MANAGE_SERVER)) {
       set.status = 403;
       return { error: 'Forbidden' };
     }
@@ -5621,9 +5667,28 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
     // What to import besides channels (all on by default, as before).
     const importRoles = payload.roles !== false;
     const importPermissions = payload.permissions !== false;
-    const importEmojis = payload.emojis !== false;
-    const importStickers = payload.stickers !== false;
-    const importSounds = payload.sounds !== false;
+    // Expressions follow the same rules as adding them by hand: Manage Emojis and
+    // Stickers for emojis/stickers, owner-only for sounds. Skipped otherwise.
+    const canExpressions = holds(PERMISSION_BITS.MANAGE_EMOJIS_AND_STICKERS);
+    const importEmojis = payload.emojis !== false && canExpressions;
+    const importStickers = payload.stickers !== false && canExpressions;
+    const importSounds = payload.sounds !== false && isOwner;
+    // Linking needs Manage Server, but an import also writes channels, roles
+    // and permission overwrites: each needs the permission that guards it.
+    if (mode === 'delete' && !isOwner) {
+      set.status = 403;
+      return { error: 'Only the server owner can replace every channel with the Discord ones' };
+    }
+    if (!holds(PERMISSION_BITS.MANAGE_CHANNELS)) {
+      set.status = 403;
+      return { error: 'You need Manage Channels permission to import channels from Discord' };
+    }
+    if ((importRoles || importPermissions) && !holds(PERMISSION_BITS.MANAGE_ROLES)) {
+      set.status = 403;
+      return { error: 'You need Manage Roles permission to import roles and permissions from Discord' };
+    }
+    // Imported bits are limited to what this actor could grant by hand.
+    const grantable = (value: unknown) => grantablePermissions(actor, BigInt(normalizePermissionInput(typeof value === 'string' ? value : String(value ?? '0')) ?? '0')).toString();
     const currentChannels = await Channel.find({ serverId: server.id });
     const botToken = process.env.SERIKA_DISCORD_TOKEN;
     const integrations = (server.settings as IServerSettings | undefined)?.integrations || {};
@@ -5652,7 +5717,9 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
       .filter((c) => c.kind === 'text' || c.kind === 'voice' || c.kind === 'category' || c.kind === 'announcement')
       .map((c) => ({ id: c.id, name: c.name, type: c.kind as SyncedType, position: c.position, parentId: c.parentId, topic: c.topic, permissionOverwrites: c.permissionOverwrites }));
     const discordRoleMap: Record<string, string> = {};
-    const overwritesFor = (dc: { permissionOverwrites?: Array<{ id: string; type: number | string; allow?: string; deny?: string }> }) => (importPermissions ? convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap) : []);
+    const overwritesFor = (dc: { permissionOverwrites?: Array<{ id: string; type: number | string; allow?: string; deny?: string }> }) => (importPermissions
+      ? convertDiscordOverwrites(dc.permissionOverwrites || [], discordRoleMap).map((o) => ({ ...o, allow: grantable(o.allow), deny: grantable(o.deny) }))
+      : []);
 
     if (botToken) {
       if (importRoles || importPermissions) try {
@@ -5674,7 +5741,7 @@ export const partnerRoutes = new Elysia({ prefix: '/servers' })
                   color: dr.color || 0,
                   hoist: dr.hoist || false,
                   mentionable: dr.mentionable || false,
-                  permissions: dr.permissions || '0',
+                  permissions: grantable(dr.permissions),
                   isDefault: false,
                 });
               }

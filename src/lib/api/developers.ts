@@ -190,6 +190,24 @@ async function activitiesView(
   };
 }
 
+/** Largest `surfaces` / `sampleData` JSON the widget editor may store. */
+const WIDGET_JSON_MAX_BYTES = 64 * 1024;
+
+/** UTF-8 size of a value's JSON form (0 for undefined). */
+function jsonBytes(value: unknown): number {
+  if (value === undefined) return 0;
+  return Buffer.byteLength(JSON.stringify(value) ?? '', 'utf8');
+}
+
+/** Roles a team invite may grant (the portal's Admin / Developer / Viewer). Never 'owner'. */
+const INVITABLE_TEAM_ROLES = new Set(['admin', 'developer', 'viewer']);
+
+/** The invite's role, defaulting to developer; null when it is not an invitable role. */
+function parseInviteRole(role: unknown): string | null {
+  if (role === undefined || role === null || role === '') return 'developer';
+  return typeof role === 'string' && INVITABLE_TEAM_ROLES.has(role) ? role : null;
+}
+
 /** Owner, or a team owner / admin / developer (same rule as PATCH /applications/:id). */
 async function canManageApp(app: { ownerId: string; teamId?: string | null }, userId: string): Promise<boolean> {
   if (app.ownerId === userId) return true;
@@ -798,6 +816,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 .post('/applications/:id/emojis', async ({ headers, cookie, params, body, request, set }) => {
   const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
   if ('error' in access) return access.error;
+  if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
   const { app, user } = access;
 
   const ip = getClientIP(request);
@@ -827,6 +846,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 .delete('/applications/:id/emojis/:emojiId', async ({ headers, cookie, params, set }) => {
   const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
   if ('error' in access) return access.error;
+  if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
 
   const emoji = await AppEmoji.findById(params.emojiId);
   if (emoji && emoji.applicationId === params.id) {
@@ -856,6 +876,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 .post('/applications/:id/webhooks', async ({ headers, cookie, params, body, set }) => {
   const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
   if ('error' in access) return access.error;
+  if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
 
   const { name, url, events } = body as { name?: string; url?: string; events?: string[] };
   if (!name || !url) { set.status = 400; return { error: 'Name and URL are required' }; }
@@ -882,6 +903,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 .patch('/applications/:id/webhooks/:webhookId', async ({ headers, cookie, params, body, set }) => {
   const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
   if ('error' in access) return access.error;
+  if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
 
   const webhook = await AppWebhook.findById(params.webhookId);
   if (!webhook || webhook.applicationId !== params.id) {
@@ -912,6 +934,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
 .delete('/applications/:id/webhooks/:webhookId', async ({ headers, cookie, params, set }) => {
   const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
   if ('error' in access) return access.error;
+  if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
 
   const webhook = await AppWebhook.findById(params.webhookId);
   if (webhook && webhook.applicationId === params.id) {
@@ -960,7 +983,9 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'Only the owner can invite members' };
   }
 
-  const { username, role } = body as { username?: string; role?: string };
+  const { username, role: requestedRole } = body as { username?: string; role?: unknown };
+  const role = parseInviteRole(requestedRole);
+  if (!role) { set.status = 400; return { error: 'Role must be admin, developer or viewer' }; }
   const invitee = await User.findOne({ username: username?.trim() });
   if (!invitee) { set.status = 404; return { error: 'User not found' }; }
 
@@ -971,7 +996,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
       ownerId: app.ownerId,
       members: [
         { userId: app.ownerId, username: user.username, avatar: user.avatar, role: 'owner' },
-        { userId: invitee.id, username: invitee.username, avatar: invitee.avatar, role: role ?? 'developer' },
+        { userId: invitee.id, username: invitee.username, avatar: invitee.avatar, role },
       ],
     });
     await Application.updateById(app.id, { teamId: team.id });
@@ -979,7 +1004,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
       id: invitee.id,
       username: invitee.username,
       avatar: invitee.avatar,
-      role: role ?? 'developer',
+      role,
     }};
   }
 
@@ -992,7 +1017,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     userId: invitee.id,
     username: invitee.username,
     avatar: invitee.avatar,
-    role: role ?? 'developer',
+    role,
   });
   await DeveloperTeam.updateById(team!.id, { members: team!.members });
 
@@ -1000,7 +1025,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     id: invitee.id,
     username: invitee.username,
     avatar: invitee.avatar,
-    role: role ?? 'developer',
+    role,
   }};
 })
 
@@ -1022,6 +1047,11 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const requester = (team.members as ITeamMember[]).find((m) => m.userId === user.id);
   if (!requester || (requester.role !== 'owner' && requester.role !== 'admin')) {
     set.status = 403; return { error: 'You do not have permission to remove members' };
+  }
+
+  // The team's real owner (and the app's owner) stay; the member's role string is not trusted.
+  if (params.memberId === team.ownerId || params.memberId === app.ownerId) {
+    set.status = 400; return { error: 'Cannot remove the team owner' };
   }
 
   team.members = (team.members as ITeamMember[]).filter((m) => m.userId !== params.memberId);
@@ -1158,7 +1188,9 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'You do not have permission to invite members' };
   }
 
-  const { username, role } = body as { username?: string; role?: string };
+  const { username, role: requestedRole } = body as { username?: string; role?: unknown };
+  const role = parseInviteRole(requestedRole);
+  if (!role) { set.status = 400; return { error: 'Role must be admin, developer or viewer' }; }
   const invitee = await User.findOne({ username: username?.trim() });
   if (!invitee) { set.status = 404; return { error: 'User not found' }; }
 
@@ -1170,7 +1202,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     userId: invitee.id,
     username: invitee.username,
     avatar: invitee.avatar,
-    role: role ?? 'developer',
+    role,
   });
   await DeveloperTeam.updateById(team.id, { members: team.members });
 
@@ -1178,7 +1210,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     id: invitee.id,
     username: invitee.username,
     avatar: invitee.avatar,
-    role: role ?? 'developer',
+    role,
   }};
 })
 
@@ -1197,8 +1229,8 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
     set.status = 403; return { error: 'You do not have permission to remove members' };
   }
 
-  const target = (team.members as ITeamMember[]).find((m) => m.userId === params.memberId);
-  if (target?.role === 'owner') { set.status = 400; return { error: 'Cannot remove the team owner' }; }
+  // Based on the team's real owner, not on a member's role string.
+  if (params.memberId === team.ownerId) { set.status = 400; return { error: 'Cannot remove the team owner' }; }
 
   team.members = (team.members as ITeamMember[]).filter((m) => m.userId !== params.memberId);
   await DeveloperTeam.updateById(team.id, { members: team.members });
@@ -1492,6 +1524,9 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   const botUser = await User.findById(app.botId);
   if (!botUser) { return { bot: null }; }
 
+  // Same rule as GET /applications/:id: read-only team members never see the token.
+  const secrets = await appSecretsFor(app, user.id);
+
   return {
     bot: {
       id: botUser.id,
@@ -1501,7 +1536,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
       banner: botUser.banner ?? null,
       public: app.botPublic ?? false,
       require_code_grant: app.botRequireCodeGrant ?? false,
-      token: app.botToken ?? null,
+      token: secrets.botToken ? (app.botToken ?? null) : null,
     },
   };
 })
@@ -1673,7 +1708,11 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   .put('/applications/:id/widget', async ({ headers, cookie, params, body, set }) => {
     const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
     if ('error' in access) return access.error;
+    if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
     const b = body as { name?: string; surfaces?: unknown; sampleData?: unknown };
+    if (jsonBytes(b.surfaces) > WIDGET_JSON_MAX_BYTES || jsonBytes(b.sampleData) > WIDGET_JSON_MAX_BYTES) {
+      set.status = 413; return { error: 'Widget surfaces and sample data must each be 64 KB or less' };
+    }
     const saved = await WidgetConfig.upsert(params.id, {
       ...(b.name !== undefined ? { name: b.name } : {}),
       ...(b.surfaces !== undefined ? { surfaces: b.surfaces as object } : {}),
@@ -1690,6 +1729,7 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   .post('/applications/:id/widget/publish', async ({ headers, cookie, params, set }) => {
     const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
     if ('error' in access) return access.error;
+    if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
     const config = await WidgetConfig.findByApplication(params.id);
     if (!config) { set.status = 404; return { error: 'No widget to publish' }; }
     const saved = await WidgetConfig.updateByApplication(params.id, {
@@ -1700,12 +1740,14 @@ export const developerRoutes = new Elysia({ prefix: '/developers' })
   .post('/applications/:id/widget/unpublish', async ({ headers, cookie, params, set }) => {
     const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
     if ('error' in access) return access.error;
+    if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
     const saved = await WidgetConfig.updateByApplication(params.id, { status: 'draft' });
     return { widget: saved };
   })
   .delete('/applications/:id/widget', async ({ headers, cookie, params, set }) => {
     const access = await requireAppAccess(headers, cookie as Record<string, { value?: unknown }>, params.id, set);
     if ('error' in access) return access.error;
+    if (!(await canManageApp(access.app, access.user.id))) { set.status = 403; return { error: 'You do not have permission to edit this application' }; }
     await WidgetConfig.deleteByApplication(params.id);
     return { success: true };
   })

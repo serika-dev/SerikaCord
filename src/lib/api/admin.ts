@@ -4,7 +4,7 @@ import { Server } from '@/lib/models/Server';
 import { ServerMember } from '@/lib/models/ServerMember';
 import { Message } from '@/lib/models/Message';
 import { AdminLog, type AdminActionType } from '@/lib/models/AdminLog';
-import { getPlatformSettings, updatePlatformSettings } from '@/lib/models/PlatformSettings';
+import { getPlatformSettings, toPublicPlatformSettings, updatePlatformSettings } from '@/lib/models/PlatformSettings';
 import { TtsSound } from '@/lib/models/TtsSound';
 import { BugReport } from '@/lib/models/BugReport';
 import { StaffMutationError, StaffRole } from '@/lib/models/StaffRole';
@@ -794,7 +794,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
     }
 
     const settings = await getPlatformSettings();
-    return settings;
+    return toPublicPlatformSettings(settings);
   })
 
   // Update platform settings
@@ -839,7 +839,7 @@ export const adminRoutes = new Elysia({ prefix: '/admin' })
       updates
     );
 
-    return settings;
+    return toPublicPlatformSettings(settings);
   }, {
     body: t.Object({
       maintenanceMode: t.Optional(t.Boolean()),

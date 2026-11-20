@@ -192,3 +192,21 @@ export const config = {
 } as const;
 
 export type Config = typeof config;
+
+// Secrets still on their public defaults. Not fatal (production currently runs
+// without JWT_SECRET, and local tokens are only trusted together with their
+// Redis session, see services/auth.ts verifyToken), but loud: anyone can sign
+// a JWT with a known secret, and a known service key opens /api/internal/*
+// (refused while it is the default).
+if (config.NODE_ENV === 'production' && typeof window === 'undefined') {
+  const g = globalThis as typeof globalThis & { __serikaSecretWarned?: boolean };
+  if (!g.__serikaSecretWarned) {
+    g.__serikaSecretWarned = true;
+    if (!process.env.JWT_SECRET || config.JWT_SECRET === 'serikacord-super-secret-jwt-key-change-in-production') {
+      console.error('[SECURITY] JWT_SECRET is not set: local tokens are signed with the public default secret. Set JWT_SECRET (a long random value) in the environment.');
+    }
+    if (!process.env.AUTH_INTERNAL_KEY && !process.env.AUTH_SERVICE_INTERNAL_KEY) {
+      console.error('[SECURITY] AUTH_INTERNAL_KEY is not set: the accounts service key is the public default and /api/internal/* is disabled. Set AUTH_INTERNAL_KEY.');
+    }
+  }
+}

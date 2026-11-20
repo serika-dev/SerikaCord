@@ -420,7 +420,11 @@ Decisions made while building:
   "Now playing" card sits above the user panel.
 - **Pop-out (browsers):** `/activity-popout` is a SerikaCord-origin window
   that hosts the relay frame itself, so the SDK's `parent.opener` path never
-  comes into play. Live updates reach it over a BroadcastChannel, and
+  comes into play. Its URL carries only the instance id: the frame origin
+  and client id come from the main window over the same-origin
+  BroadcastChannel (never from the URL, which anyone could craft), and
+  `ActivityFrame` also refuses a relay origin that isn't the app's own
+  `<clientId>.<ACTIVITIES_DOMAIN>` host. Live updates reach it over that channel, and
   closing it returns the Activity to the main window. Not offered in the Qt
   desktop app (its popup handling sends app URLs to the main window) or on
   phones. Speaking events don't reach a popped-out frame, because voice runs

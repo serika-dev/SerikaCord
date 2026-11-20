@@ -31,14 +31,23 @@ function CallbackHandler() {
       });
     }
 
-    // Post to opener window if exists
-    if (window.opener) {
+    // Post to the opener, same-origin only: the data holds the access token
+    // or code, and "*" handed it to whatever site opened the authorize popup
+    // (public/sdk.js loaded from SerikaCord's own origin keeps working).
+    // Reading a cross-origin opener's location throws.
+    let sameOriginOpener = false;
+    try {
+      sameOriginOpener = Boolean(window.opener) && window.opener.location.origin === window.location.origin;
+    } catch {
+      sameOriginOpener = false;
+    }
+    if (sameOriginOpener) {
       window.opener.postMessage(
         {
           type: "SERIKACORD_AUTH_CALLBACK",
           data,
         },
-        "*"
+        window.location.origin
       );
       setStatus(gt("Authorization details sent. Closing window..."));
       setComplete(true);

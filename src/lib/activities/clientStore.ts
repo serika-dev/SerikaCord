@@ -348,12 +348,16 @@ let popoutTimer: number | null = null;
 
 export interface PopoutPayload { instanceId: string; frame: FrameInfo }
 
-/** Move the open Activity into its own browser window. False when the popup was blocked. */
+/**
+ * Move the open Activity into its own browser window. False when the popup was blocked.
+ * Only the instance id goes in the URL: the pop-out asks for the frame info over the
+ * (same-origin only) BroadcastChannel, and this window answers with what the server
+ * gave it. A crafted /activity-popout#... link can't pick the frame's origin.
+ */
 export function popOutActivity(): boolean {
   const o = state.open;
   if (!o || !canPopOut()) return false;
-  const payload: PopoutPayload = { instanceId: o.instanceId, frame: o.frame };
-  const w = window.open(`${POPOUT_PATH}#${encodeURIComponent(JSON.stringify(payload))}`, `serika-activity-${o.instanceId}`, "popup=yes,width=1100,height=760");
+  const w = window.open(`${POPOUT_PATH}#${encodeURIComponent(o.instanceId)}`, `serika-activity-${o.instanceId}`, "popup=yes,width=1100,height=760");
   if (!w) return false;
   popout = w;
   set({ open: { ...o, layout: "popout" } });
@@ -392,7 +396,12 @@ type ActivityStreamEvent =
   | { type: "activity_update"; instance: InstanceView }
   | { type: "activity_open"; instanceId: string };
 
-type BusMessage = ActivityStreamEvent | { type: "popout_leave"; instanceId: string } | { type: "popout_return"; instanceId: string };
+type BusMessage =
+  | ActivityStreamEvent
+  | { type: "popout_leave"; instanceId: string }
+  | { type: "popout_return"; instanceId: string }
+  | { type: "popout_hello"; instanceId: string }
+  | { type: "popout_frame"; payload: PopoutPayload };
 
 /** Let other components (the frame) react to updates of an instance. */
 export function onActivityEvent(cb: (e: ActivityStreamEvent) => void): () => void {
@@ -425,6 +434,38 @@ export function postToMainWindow(msg: BusMessage): void {
   try { getBus()?.postMessage(msg); } catch { /* gone */ }
 }
 
+/**
+ * Pop-out window: ask the main window for the frame info of `instanceId`.
+ * Resolves null when no main window has that Activity popped out (in time).
+ */
+export function requestPopoutPayload(instanceId: string, timeoutMs = 4000): Promise<PopoutPayload | null> {
+  const b = getBus();
+  if (!b) return Promise.resolve(null);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (p: PopoutPayload | null) => {
+      if (done) return;
+      done = true;
+      window.clearTimeout(timer);
+      window.clearInterval(retry);
+      b.removeEventListener("message", onMessage);
+      resolve(p);
+    };
+    const onMessage = (ev: MessageEvent) => {
+      const msg = ev.data as BusMessage | null;
+      if (!msg || typeof msg !== "object" || msg.type !== "popout_frame") return;
+      const p = msg.payload;
+      if (p && p.instanceId === instanceId && p.frame && typeof p.frame.origin === "string") finish(p);
+    };
+    b.addEventListener("message", onMessage);
+    const hello = () => postToMainWindow({ type: "popout_hello", instanceId });
+    // The main window may still be switching the Activity to "popout": ask again.
+    const retry = window.setInterval(hello, 500);
+    const timer = window.setTimeout(() => finish(null), timeoutMs);
+    hello();
+  });
+}
+
 if (typeof window !== "undefined") {
   window.addEventListener(ACTIVITY_EVENT, (ev) => {
     const detail = (ev as CustomEvent).detail as ActivityStreamEvent | undefined;
@@ -444,6 +485,14 @@ if (typeof window !== "undefined") {
       return;
     }
     if (isPopoutWindow()) return;
+    // A pop-out asking for its frame: only for the Activity this window popped out.
+    if (msg.type === "popout_hello") {
+      const o = state.open;
+      if (o && o.layout === "popout" && o.instanceId === msg.instanceId) {
+        postToMainWindow({ type: "popout_frame", payload: { instanceId: o.instanceId, frame: o.frame } });
+      }
+      return;
+    }
     if (msg.type === "popout_leave" && state.open?.instanceId === msg.instanceId) closeActivity();
     if (msg.type === "popout_return" && state.open?.instanceId === msg.instanceId) returnFromPopout();
   });

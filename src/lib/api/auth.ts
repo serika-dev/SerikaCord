@@ -10,6 +10,7 @@ import {
   handleDiscordOAuth,
   authenticateRequest,
   createSession,
+  isLoggedOutAccountsToken,
 } from '../services/auth';
 import { cache, getRedis } from '../db/redis';
 import { UserConnection, User, Server } from '../models';
@@ -92,6 +93,40 @@ function setCookies(set: { headers: unknown }, cookies: string[]): void {
   (set.headers as Record<string, string | string[]>)['set-cookie'] = cookies;
 }
 
+// ── QR login: who is asking ─────────────────────────────────────────────────
+// The approving device is shown the requesting device's browser, OS and
+// (with Cloudflare's country header) country, so a code someone forwarded
+// ("scan this to get your reward") looks like what it is.
+type QrRequester = { browser: string | null; os: string | null; country: string | null; userAgent: string | null; ip: string | null };
+
+function describeQrRequester(request: Request): QrRequester {
+  const ua = request.headers.get('user-agent') || '';
+  let browser: string | null = null;
+  if (/SerikaCord|Tauri/i.test(ua)) browser = 'SerikaCord';
+  else if (ua.includes('Edg/')) browser = 'Edge';
+  else if (ua.includes('OPR/') || ua.includes('Opera')) browser = 'Opera';
+  else if (ua.includes('Firefox/') || ua.includes('FxiOS/')) browser = 'Firefox';
+  else if (ua.includes('Chrome/') || ua.includes('CriOS/')) browser = 'Chrome';
+  else if (ua.includes('Safari/')) browser = 'Safari';
+  let os: string | null = null;
+  if (ua.includes('Android')) os = 'Android';
+  else if (/iPhone|iPad|iPod/.test(ua)) os = 'iOS';
+  else if (ua.includes('Windows')) os = 'Windows';
+  else if (ua.includes('Mac OS X') || ua.includes('Macintosh')) os = 'macOS';
+  else if (ua.includes('CrOS')) os = 'ChromeOS';
+  else if (ua.includes('Linux')) os = 'Linux';
+  const cc = (request.headers.get('cf-ipcountry') || '').trim().toUpperCase();
+  const ip = getClientIP(request);
+  return {
+    browser,
+    os,
+    // XX = unknown, T1 = Tor (Cloudflare).
+    country: /^[A-Z]{2}$/.test(cc) && cc !== 'XX' && cc !== 'T1' ? cc : null,
+    userAgent: ua ? ua.slice(0, 512) : null,
+    ip: ip && ip !== 'unknown' ? ip : null,
+  };
+}
+
 const CLEAR_AUTH_COOKIES = [
   'auth_token=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0',
   'refresh_token=; HttpOnly; Secure; SameSite=Lax; Path=/api/auth/refresh; Max-Age=0',
@@ -115,14 +150,20 @@ async function createOAuthState(provider: string, userId: string, serverId?: str
   return `${provider}:${nonce}`;
 }
 
-/** Resolve (and burn) a state cookie to the user (and server, for a server link) that initiated the flow. */
-async function consumeOAuthState(provider: string, cookieValue: unknown): Promise<OAuthTarget | null> {
+/**
+ * Resolve (and burn) a state cookie to the user (and server, for a server link)
+ * that initiated the flow. With `queryState` (OAuth2 providers, which echo the
+ * `state` we sent), the callback's state must equal the cookie's nonce too.
+ */
+async function consumeOAuthState(provider: string, cookieValue: unknown, queryState?: unknown): Promise<OAuthTarget | null> {
   const nonce = parseOAuthStateCookie(cookieValue, provider);
   if (!nonce) return null;
   const key = `oauthstate:${nonce}`;
   const entry = await cache.get<{ provider?: string; userId?: string; serverId?: unknown }>(key);
   if (!entry || entry.provider !== provider || !entry.userId) return null;
+  // Burn the nonce whatever happens next: one attempt per flow.
   await cache.del(key);
+  if (queryState !== undefined && !secureEquals(queryState, nonce)) return null;
   return { userId: entry.userId, serverId: typeof entry.serverId === 'string' ? entry.serverId : null };
 }
 
@@ -228,7 +269,8 @@ interface OAuth2Provider {
   clientId: string;
   clientSecret: string;
   scopes: string;
-  getAuthUrl: (clientId: string, redirectUri: string, scopes: string) => string;
+  /** `state` is the flow's nonce; the callback requires it back (CSRF). */
+  getAuthUrl: (clientId: string, redirectUri: string, scopes: string, state: string) => string;
   exchangeCode: (clientId: string, clientSecret: string, code: string, redirectUri: string) => Promise<{ access_token: string; refreshToken?: string }>;
   fetchUser: (accessToken: string) => Promise<{ accountId: string; username?: string; displayName?: string; avatar?: string }>;
 }
@@ -238,8 +280,8 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
     clientId: process.env.GITHUB_CLIENT_ID || '',
     clientSecret: process.env.GITHUB_CLIENT_SECRET || '',
     scopes: 'read:user',
-    getAuthUrl: (clientId, redirectUri) =>
-      `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=read:user`,
+    getAuthUrl: (clientId, redirectUri, _scopes, state) =>
+      `https://github.com/login/oauth/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&scope=read:user&state=${encodeURIComponent(state)}`,
     exchangeCode: async (_clientId, clientSecret, code, redirectUri) => {
       const resp = await fetch('https://github.com/login/oauth/access_token', {
         method: 'POST',
@@ -267,8 +309,8 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
     clientId: process.env.SPOTIFY_CLIENT_ID || '',
     clientSecret: process.env.SPOTIFY_CLIENT_SECRET || '',
     scopes: 'user-read-private user-read-email',
-    getAuthUrl: (clientId, redirectUri, scopes) =>
-      `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scopes)}`,
+    getAuthUrl: (clientId, redirectUri, scopes, state) =>
+      `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=code&redirect_uri=${redirectUri}&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`,
     exchangeCode: async (clientId, clientSecret, code, redirectUri) => {
       const resp = await fetch('https://accounts.spotify.com/api/token', {
         method: 'POST',
@@ -302,8 +344,8 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
     clientId: process.env.TWITCH_CLIENT_ID || '',
     clientSecret: process.env.TWITCH_CLIENT_SECRET || '',
     scopes: 'user:read:email',
-    getAuthUrl: (clientId, redirectUri, scopes) =>
-      `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${encodeURIComponent(scopes)}`,
+    getAuthUrl: (clientId, redirectUri, scopes, state) =>
+      `https://id.twitch.tv/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`,
     exchangeCode: async (clientId, clientSecret, code, redirectUri) => {
       const resp = await fetch('https://id.twitch.tv/oauth2/token', {
         method: 'POST',
@@ -339,6 +381,8 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
     clientId: process.env.STEAM_API_KEY || '',
     clientSecret: process.env.STEAM_API_KEY || '',
     scopes: '',
+    // OpenID 2.0: no `state`; the callback checks the signed assertion (and
+    // its return_to) with Steam instead.
     getAuthUrl: (_clientId, redirectUri) =>
       `https://steamcommunity.com/openid/login?openid.ns=http://specs.openid.net/auth/2.0&openid.mode=checkid_setup&openid.return_to=${redirectUri}&openid.realm=${redirectUri}&openid.identity=http://specs.openid.net/auth/2.0/identifier_select&openid.claimed_id=http://specs.openid.net/auth/2.0/identifier_select`,
     exchangeCode: async () => {
@@ -365,8 +409,8 @@ const OAUTH2_PROVIDERS: Record<string, OAuth2Provider> = {
     clientId: config.DISCORD_CLIENT_ID,
     clientSecret: config.DISCORD_CLIENT_SECRET,
     scopes: 'identify',
-    getAuthUrl: (clientId, redirectUri, scopes) =>
-      `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${encodeURIComponent(scopes)}`,
+    getAuthUrl: (clientId, redirectUri, scopes, state) =>
+      `https://discord.com/api/oauth2/authorize?client_id=${clientId}&redirect_uri=${redirectUri}&response_type=code&scope=${encodeURIComponent(scopes)}&state=${encodeURIComponent(state)}`,
     exchangeCode: async (clientId, clientSecret, code, redirectUri) => {
       const resp = await fetch('https://discord.com/api/oauth2/token', {
         method: 'POST',
@@ -811,6 +855,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   .post('/qr/create', async ({ set, request }) => {
     const limited = await authRateLimit(set, [['qrCreate', getClientIP(request)]]);
     if (limited) return limited;
+    const requester = describeQrRequester(request);
     const token = randomBytes(32).toString('hex');
     // Only the browser that asked for the code may collect the session: a
     // secret in an HttpOnly cookie, stored hashed with the code. Stops login
@@ -823,6 +868,9 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       status: 'pending',
       createdAt: now,
       pollHash: createHash('sha256').update(pollSecret).digest('hex'),
+      // Shown on the approve screen; the new session is recorded as this
+      // device's, not the approver's. Kept only for the code's 2 minutes.
+      requester,
     }, ttlSeconds);
     // One cookie per code (its own path), so a second login tab doesn't void the first's.
     setCookies(set, [`qr_poll=${pollSecret}; HttpOnly; Secure; SameSite=Strict; Path=/api/auth/qr/${token}; Max-Age=${ttlSeconds}`]);
@@ -870,10 +918,19 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     return { status: entry.status };
   })
 
-  // Mark the QR token as "scanned" (optional UX ping so the waiting device can
-  // show "Scanned — confirm on your other device"). No auth required; it only
-  // moves pending → scanned and never leaks anything.
-  .post('/qr/:token/scan', async ({ params, set }) => {
+  // Mark the QR token as "scanned" (so the waiting device can show "Scanned —
+  // confirm on your other device") and tell the approving device which device
+  // is asking. Signed-in users only: the answer describes the requester.
+  .post('/qr/:token/scan', async ({ params, headers, cookie, set }) => {
+    const cookieToken = cookie.auth_token?.value;
+    const auth = await authenticateRequest(
+      headers.authorization ?? null,
+      typeof cookieToken === 'string' ? { auth_token: cookieToken } : {}
+    );
+    if (!auth.user) {
+      set.status = 401;
+      return { error: 'Not authenticated' };
+    }
     const key = `qrlogin:${params.token}`;
     const entry = await cache.get<any>(key);
     if (!entry) {
@@ -884,7 +941,15 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       const ttl = Math.max(1, Math.ceil((entry.createdAt + 120000 - Date.now()) / 1000));
       await cache.set(key, { ...entry, status: 'scanned' }, ttl);
     }
-    return { status: entry.status === 'pending' ? 'scanned' : entry.status };
+    const requester = (entry.requester ?? {}) as Partial<QrRequester>;
+    return {
+      status: entry.status === 'pending' ? 'scanned' : entry.status,
+      device: {
+        browser: requester.browser ?? null,
+        os: requester.os ?? null,
+        country: requester.country ?? null,
+      },
+    };
   })
 
   // Approve a QR login. Called by the AUTHENTICATED device. Mints a fresh
@@ -912,10 +977,12 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
       return { error: 'This QR code was already used.' };
     }
 
-    // Mint a fresh, independent session for the new device.
+    // Mint a fresh, independent session for the new device, recorded with
+    // the requesting device's details (not the approver's).
+    const requester = (entry.requester ?? {}) as Partial<QrRequester>;
     const { tokens } = await createSession(auth.user.id, {
-      userAgent: headers['user-agent'],
-      ipAddress: headers['x-forwarded-for'] || headers['x-real-ip'],
+      userAgent: requester.userAgent ?? undefined,
+      ipAddress: requester.ip ?? undefined,
     });
 
     const ttl = Math.max(1, Math.ceil((entry.createdAt + 120000 - Date.now()) / 1000));
@@ -938,8 +1005,22 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
   })
 
   // Reject a QR login from the authenticated device (user tapped "This wasn't me").
-  .post('/qr/:token/deny', async ({ params }) => {
-    await cache.del(`qrlogin:${params.token}`);
+  // Signed-in users only, so nobody can cancel other people's codes in bulk.
+  .post('/qr/:token/deny', async ({ params, headers, cookie, set }) => {
+    const cookieToken = cookie.auth_token?.value;
+    const auth = await authenticateRequest(
+      headers.authorization ?? null,
+      typeof cookieToken === 'string' ? { auth_token: cookieToken } : {}
+    );
+    if (!auth.user) {
+      set.status = 401;
+      return { error: 'Not authenticated' };
+    }
+    const key = `qrlogin:${params.token}`;
+    const entry = await cache.get<{ status?: string }>(key);
+    // An approved code is the waiting device's to collect; denying it now
+    // would only strand the session that was already minted.
+    if (entry && entry.status !== 'approved') await cache.del(key);
     return { success: true };
   })
 
@@ -1119,6 +1200,15 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     if (!refreshToken) {
       set.status = 401;
       return { error: 'No refresh token provided' };
+    }
+
+    // A device logged out from Settings → Devices still holds its access
+    // token: refuse to refresh it (this also revokes it at accounts).
+    const currentAccess = cookie.auth_token?.value;
+    if (typeof currentAccess === 'string' && currentAccess && await isLoggedOutAccountsToken(currentAccess).catch(() => false)) {
+      setCookies(set, CLEAR_AUTH_COOKIES);
+      set.status = 401;
+      return { error: 'Session expired or invalid' };
     }
 
     try {
@@ -1315,7 +1405,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     let connectionUserId: string | null = null;
     let linkServerId: string | null = null;
     if (isConnection) {
-      const target = await consumeOAuthState('discord', connectionState);
+      const target = await consumeOAuthState('discord', connectionState, (query as Record<string, unknown>).state ?? '');
       if (!target) {
         return oauthRedirect(`${redirectBase}&error=discord_state_missing`, 'oauth2_state=; Path=/; Max-Age=0');
       }
@@ -1328,7 +1418,7 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     } else {
       const expected = cookies.discord_login_state?.value;
       const got = (query as Record<string, unknown>).state;
-      if (typeof expected !== 'string' || !expected || typeof got !== 'string' || got !== expected) {
+      if (!secureEquals(got, expected)) {
         set.status = 400;
         set.headers['Set-Cookie'] = clearLoginState;
         return { error: 'Invalid or missing OAuth state' };
@@ -1554,7 +1644,9 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
     const state = await createOAuthState(provider, userId, linkServerId ?? undefined);
     const stateCookie = `oauth2_state=${encodeURIComponent(state)}; HttpOnly; Secure; Path=/; Max-Age=600; SameSite=Lax`;
     const callbackUrl = encodeURIComponent(`${base}/api/auth/${provider}/callback`);
-    const authUrl = prov.getAuthUrl(prov.clientId, callbackUrl, prov.scopes);
+    // The nonce also goes to the provider as `state`; the callback requires it
+    // back, so a code from someone else's flow can't be replayed into ours.
+    const authUrl = prov.getAuthUrl(prov.clientId, callbackUrl, prov.scopes, parseOAuthStateCookie(state, provider) ?? '');
     return oauthRedirect(authUrl, stateCookie);
   })
 
@@ -1750,7 +1842,12 @@ export const authRoutes = new Elysia({ prefix: '/auth' })
 
     const code = (query as Record<string, string>).code as string | undefined;
 
-    const target = await consumeOAuthState(provider, (cookie as Record<string, { value?: unknown }>).oauth2_state?.value);
+    // A callback with a code must echo our state; a denial (no code) needn't.
+    const target = await consumeOAuthState(
+      provider,
+      (cookie as Record<string, { value?: unknown }>).oauth2_state?.value,
+      code ? ((query as Record<string, unknown>).state ?? '') : undefined,
+    );
     const clearState = 'oauth2_state=; Path=/; Max-Age=0';
     if (!code) {
       if (target?.serverId) return serverLinkRedirect(target.serverId, { error: 'denied' }, clearState);

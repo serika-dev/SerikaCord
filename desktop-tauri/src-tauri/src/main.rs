@@ -346,22 +346,33 @@ fn build_main_window(app: &tauri::AppHandle) {
         .initialization_script(PRESENCE_REPORTER_JS)
         .initialization_script(DESKTOP_ENHANCEMENTS_JS)
         .on_navigation(move |url| {
-            let target = url.as_str();
-            // Allow the main app URL, localhost (dev), and first-party domains
-            // (e.g. music.serika.dev embeds loaded in iframes).
-            let allowed = target.starts_with(APP_URL)
-                || target.starts_with("http://localhost")
-                || FIRST_PARTY_DOMAINS.iter().any(|d| {
-                    let prefix = format!("https://{d}");
-                    let prefix_sub = format!("https://*.{d}");
-                    target.starts_with(&prefix) || target.starts_with(&prefix_sub)
-                });
-            if !allowed {
-                let _ = opener_handle.opener().open_url(target, None::<&str>);
+            let allowed = is_in_app_url(url);
+            // Anything else goes to the system browser, but only web and mail
+            // links: no file:, custom schemes or other handlers.
+            if !allowed && matches!(url.scheme(), "http" | "https" | "mailto") {
+                let _ = opener_handle.opener().open_url(url.as_str(), None::<&str>);
             }
             allowed
         })
         .build();
+}
+
+/// Whether `url` may load inside the webview: https on a first-party domain
+/// (the exact host or a subdomain of it, e.g. music.serika.dev embeds), or a
+/// local dev server in debug builds. Compares the parsed host, so
+/// `https://serika.chat.evil.example` doesn't pass.
+fn is_in_app_url(url: &tauri::Url) -> bool {
+    let host = match url.host_str() {
+        Some(h) => h.trim_end_matches('.').to_ascii_lowercase(),
+        None => return false,
+    };
+    match url.scheme() {
+        "https" => FIRST_PARTY_DOMAINS
+            .iter()
+            .any(|d| host == *d || host.ends_with(&format!(".{d}"))),
+        "http" => cfg!(debug_assertions) && (host == "localhost" || host == "127.0.0.1"),
+        _ => false,
+    }
 }
 
 fn show_main_window(app: &tauri::AppHandle) {

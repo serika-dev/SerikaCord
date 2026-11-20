@@ -16,6 +16,7 @@ import { AuditLogEvent, CHANNEL_AUDIT_KEYS, diffChanges, diffOverwrites, snapsho
 import { childrenToResync, normalizeOverwrites, overwritesInSync, type EditableOverwrite } from '@/lib/permissions/overwriteEditor';
 import { captureChannelViewers, emitChannelDelete, emitChannelUpdates } from '@/lib/services/guildGatewayEvents';
 import { channelsToMarkNsfw } from '@/lib/servers/channelRules';
+import { deleteChildThreads } from '@/lib/services/threads';
 
 type ChannelRow = typeof schema.channels.$inferSelect;
 
@@ -130,8 +131,8 @@ export async function updateGuildChannel(opts: {
 }
 
 /**
- * Delete a guild channel like the web route: soft-delete its messages, move
- * a category's channels out of it, remove the row, notify, audit, and send
+ * Delete a guild channel like the web route: soft-delete its messages, delete
+ * its threads, move a category's channels out of it, remove the row, notify, audit, and send
  * CHANNEL_DELETE to the bots that could see it (CHANNEL_UPDATE for the
  * channels that left the category). Threads go through the thread routes.
  */
@@ -143,6 +144,17 @@ export async function deleteGuildChannel(opts: { channel: ChannelRow; actorId: s
   await db.update(schema.messages)
     .set({ isDeleted: true, deletedAt: new Date() })
     .where(and(eq(schema.messages.channelId, channel.id), eq(schema.messages.isDeleted, false)));
+  // The bulk update skips the Message model's search index hook.
+  await import('@/lib/services/messageSearch')
+    .then((m) => m.removeChannelsFromSearchIndex([channel.id]))
+    .catch(() => { /* orphaned rows never match: search joins live messages */ });
+
+  // Its threads go with it; left behind they lost the overwrites they inherit
+  // (the access checks also fail closed on a missing parent).
+  const deletedThreadIds = await deleteChildThreads(channel).catch((err: Error) => {
+    console.error('[guildOps] Deleting child threads failed:', err?.message ?? err);
+    return [] as string[];
+  });
 
   const orphaned = channel.type === 'category'
     ? await db.update(schema.channels)
@@ -152,7 +164,7 @@ export async function deleteGuildChannel(opts: { channel: ChannelRow; actorId: s
     : [];
 
   await db.delete(schema.channels).where(eq(schema.channels.id, channel.id));
-  channelAccessChanged(serverId, { channelIds: [channel.id] });
+  channelAccessChanged(serverId, { channelIds: [channel.id, ...deletedThreadIds] });
 
   for (const child of orphaned) await publishTopic('channel:update', { channelId: child.id, serverId, updates: { parentId: null } });
   await publishTopic('channel:delete', { channelId: channel.id, serverId });

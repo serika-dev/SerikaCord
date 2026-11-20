@@ -96,9 +96,17 @@ export const DevicesPage = memo(function DevicesPage({
     if (!ok) return;
     setBusyAll(true);
     try {
-      const results = await Promise.all(others.map((d) => revoke(d, true)));
-      if (results.every(Boolean)) toast.success(gt("Logged out of all other devices"));
-      else toast.error(gt("Failed to revoke device"));
+      // One server call revokes every other session, including devices that
+      // never opened this page (they have no row here).
+      const response = await fetch("/api/users/me/devices/logout-others", { method: "POST" });
+      if (response.ok) {
+        setDevices((prev) => prev.filter((item) => item.current));
+        toast.success(gt("Logged out of all other devices"));
+      } else {
+        toast.error(gt("Failed to revoke device"));
+      }
+    } catch {
+      toast.error(gt("Failed to revoke device"));
     } finally {
       setBusyAll(false);
     }

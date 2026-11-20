@@ -18,16 +18,44 @@ export type VoiceRoom =
   | { kind: "dm"; peers: [string, string] }
   | { kind: "group"; channelId: string };
 
-/** Parse a voice room id, or null when it isn't a recognised format. */
+/**
+ * Parse a voice room id, or null when it isn't a recognised format. Ids are
+ * normalised (lower-case uuids, DM peers sorted the way `dmCallRoomId` builds
+ * them), so `voiceRoomIdOf(parseVoiceRoomId(x))` is the canonical spelling of
+ * `x`. The voice API only accepts ids that already are canonical
+ * (`isCanonicalVoiceRoomId`): a differently-cased `CHANNEL-<id>` would
+ * otherwise be a second, hidden room for the same channel.
+ */
 export function parseVoiceRoomId(roomId: string): VoiceRoom | null {
   if (typeof roomId !== "string") return null;
   const ch = CHANNEL_ROOM.exec(roomId);
-  if (ch) return { kind: "channel", channelId: ch[1] };
+  if (ch) return { kind: "channel", channelId: ch[1].toLowerCase() };
   const dm = DM_PAIR_ROOM.exec(roomId);
-  if (dm) return { kind: "dm", peers: [dm[1].toLowerCase(), dm[2].toLowerCase()] };
+  if (dm) {
+    const peers = [dm[1].toLowerCase(), dm[2].toLowerCase()].sort();
+    return { kind: "dm", peers: [peers[0], peers[1]] };
+  }
   const group = GROUP_DM_ROOM.exec(roomId);
   if (group) return { kind: "group", channelId: group[1].toLowerCase() };
   return null;
+}
+
+/** The canonical room id of a parsed room. */
+export function voiceRoomIdOf(room: VoiceRoom): string {
+  if (room.kind === "channel") return `channel-${room.channelId}`;
+  if (room.kind === "dm") return `dm:${room.peers[0]}_${room.peers[1]}`;
+  return `gdm:${room.channelId}`;
+}
+
+/** The canonical spelling of a voice room id, or null when it isn't one. */
+export function canonicalVoiceRoomId(roomId: string): string | null {
+  const room = parseVoiceRoomId(roomId);
+  return room ? voiceRoomIdOf(room) : null;
+}
+
+/** Whether `roomId` is a valid voice room id spelled exactly the canonical way. */
+export function isCanonicalVoiceRoomId(roomId: unknown): roomId is string {
+  return typeof roomId === "string" && canonicalVoiceRoomId(roomId) === roomId;
 }
 
 /** The voice room of a group DM's call. */

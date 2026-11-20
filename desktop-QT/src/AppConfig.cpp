@@ -43,15 +43,20 @@ bool isAppUrl(const QUrl &url) {
     if (!isHttpUrl(url)) return false;
     const QString host = url.host().toLower();
     const QUrl app(appUrl());
-    if (host == app.host().toLower() && url.port(-1) == app.port(-1)
-        && url.scheme() == app.scheme()) {
+    const QString appHost = app.host().toLower();
+    // The configured app (serika.chat, or what --app-url / SERIKA_APP_URL set,
+    // e.g. canary.serika.chat), exactly: scheme, host and port.
+    if (host == appHost && url.port(-1) == app.port(-1) && url.scheme() == app.scheme()) {
         return true;
     }
-    if (url.scheme() == QLatin1String("https")
-        && (host == QLatin1String("serika.chat") || host.endsWith(QLatin1String(".serika.chat")))) {
+    // The production app, from a shell pointed at canary or a dev server.
+    if (url.scheme() == QLatin1String("https") && url.port(-1) == -1
+        && host == QLatin1String("serika.chat")) {
         return true;
     }
-    return isLocalHost(host);
+    // Local dev servers only when the shell itself runs against one; release
+    // users never trust whatever listens on localhost.
+    return isLocalHost(appHost) && isLocalHost(host);
 }
 
 bool isInAppNavigation(const QUrl &url) {

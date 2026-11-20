@@ -5,10 +5,10 @@ import { acceptsFriendRequests, activityHiddenByStatus, activitySharing, friendR
 import { cors } from '@elysiajs/cors';
 import { jwt } from '@elysiajs/jwt';
 import { config } from '@/lib/config';
-import { isCrossSiteWrite } from '@/lib/security/csrf';
+import { CORS_SUBDOMAIN_BASES, hostOf, isAllowedCorsOrigin, isCrossSiteWrite } from '@/lib/security/csrf';
 import { readServerTheme, sanitizeAppearanceSettingsPatch } from '@/lib/appearance/customization';
 import { connectDB, cache } from '@/lib/db';
-import { authenticateRequest, invalidateUserCache } from '@/lib/services/auth';
+import { authenticateRequest, invalidateUserCache, isValidServiceKey, linkDeviceCredential, revokeDeviceCredentials, revokeOtherUserSessions } from '@/lib/services/auth';
 import { checkRateLimit, getClientIP, isGlobalRateLimitExempt, isValidObjectId, rejectInvalidObjectIdParams, decryptFromStorage } from '@/lib/security';
 import { botApiTokenFromRequest, rateLimitedResponse } from '@/lib/security/botRateLimit';
 import { anonymizeIp } from '@/lib/security/ipPrivacy';
@@ -525,8 +525,7 @@ const rateLimitPlugin = new Elysia({ name: 'rateLimit' })
 // Internal service routes (communication from accounts.serika.dev)
 const internalRoutes = new Elysia({ prefix: '/internal' })
   .post('/sync-user', async ({ headers, body, set }) => {
-    const serviceKey = headers['x-service-key'];
-    if (!config.ACCOUNTS_SERVICE_KEY || serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+    if (!isValidServiceKey(headers['x-service-key'])) {
       set.status = 401;
       return { error: 'Invalid service key', success: false };
     }
@@ -649,8 +648,7 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
     }, { additionalProperties: true }),
   })
   .post('/update-profile', async ({ headers, body, set }) => {
-    const serviceKey = headers['x-service-key'];
-    if (!config.ACCOUNTS_SERVICE_KEY || serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+    if (!isValidServiceKey(headers['x-service-key'])) {
       set.status = 401;
       return { error: 'Invalid service key', success: false };
     }
@@ -749,8 +747,7 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
     }, { additionalProperties: true }),
   })
   .post('/update-password', async ({ headers, body, set }) => {
-    const serviceKey = headers['x-service-key'];
-    if (!config.ACCOUNTS_SERVICE_KEY || serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+    if (!isValidServiceKey(headers['x-service-key'])) {
       set.status = 401;
       return { error: 'Invalid service key', success: false };
     }
@@ -769,7 +766,10 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
       }
 
       await User.updateById(user.id, { passwordHash: password || null });
-      const { invalidateUserCache } = await import('@/lib/services/auth');
+      const { invalidateUserCache, revokeAllUserSessions } = await import('@/lib/services/auth');
+      // A password change signs out every local session (QR / Discord logins);
+      // accounts tokens are revoked by the accounts service itself.
+      await revokeAllUserSessions(user.id).catch(() => 0);
       await invalidateUserCache(user.id);
 
       return { success: true };
@@ -785,8 +785,7 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
     }, { additionalProperties: true }),
   })
   .post('/delete-user', async ({ headers, body, set }) => {
-    const serviceKey = headers['x-service-key'];
-    if (!config.ACCOUNTS_SERVICE_KEY || serviceKey !== config.ACCOUNTS_SERVICE_KEY) {
+    if (!isValidServiceKey(headers['x-service-key'])) {
       set.status = 401;
       return { error: 'Invalid service key', success: false };
     }
@@ -2248,7 +2247,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
     }),
   })
   .get('/me/devices', async ({ headers, cookie, set, request }) => {
-    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user: authUser, error: authError, credential } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
@@ -2297,7 +2296,9 @@ const userRoutes = new Elysia({ prefix: '/users' })
     // Unset any previous "current" sessions for this user
     await UserDeviceSession.updateMany({ userId, current: true }, { current: false });
 
+    let deviceRowId: string | undefined;
     if (existing) {
+      deviceRowId = existing.id;
       await UserDeviceSession.updateById(existing.id, {
         current: true,
         lastActiveAt: new Date(),
@@ -2307,7 +2308,7 @@ const userRoutes = new Elysia({ prefix: '/users' })
         ipAddress: anonymizeIp(getClientIP(request)),
       });
     } else {
-      await UserDeviceSession.create({
+      const created = await UserDeviceSession.create({
         userId,
         deviceName,
         platform,
@@ -2316,14 +2317,34 @@ const userRoutes = new Elysia({ prefix: '/users' })
         current: true,
         lastActiveAt: new Date(),
       });
+      deviceRowId = created?.id;
     }
+    // Remember what this device signed in with, so "Log out" can revoke it.
+    if (deviceRowId) await linkDeviceCredential(normalizeId(deviceRowId), credential);
 
     const devices = await UserDeviceSession.find({ userId });
     devices.sort((a, b) => new Date(b.lastActiveAt ?? 0).getTime() - new Date(a.lastActiveAt ?? 0).getTime());
     return { devices };
   })
+  // Log out every other device: revokes all of the user's sessions except the
+  // one making the request and forgets the other device rows.
+  .post('/me/devices/logout-others', async ({ headers, cookie, set }) => {
+    const { user: authUser, error: authError, credential } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    if (!authUser) {
+      set.status = 401;
+      return { error: authError || 'Unauthorized' };
+    }
+    const devices = await UserDeviceSession.find({ userId: authUser.id });
+    for (const device of devices) {
+      if (device.current) continue;
+      await revokeDeviceCredentials(authUser.id, normalizeId(device.id), credential);
+      await UserDeviceSession.deleteByIdForUser(device.id, authUser.id);
+    }
+    const revoked = await revokeOtherUserSessions(authUser.id, credential);
+    return { success: true, revoked };
+  })
   .delete('/me/devices/:deviceId', async ({ headers, cookie, params, set }) => {
-    const { user: authUser, error: authError } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
+    const { user: authUser, error: authError, credential } = await getAuth(headers, cookie as Record<string, { value?: unknown }>);
     if (!authUser) {
       set.status = 401;
       return { error: authError || 'Unauthorized' };
@@ -2335,6 +2356,8 @@ const userRoutes = new Elysia({ prefix: '/users' })
       set.status = 404;
       return { error: 'Device not found' };
     }
+    // The row is only a label: revoke what actually signed in on that device.
+    await revokeDeviceCredentials(authUser.id, normalizeId(params.deviceId), credential);
     return { success: true };
   }, {
     params: t.Object({
@@ -3344,12 +3367,14 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       return { error: 'Too many friend requests', retryAfter: rateLimit.retryAfter };
     }
 
-    // Find user by username (case insensitive - Drizzle doesn't support regex, so try exact then lowercased)
+    // Find user by username: exact match first, then one case-insensitive row
+    // (never load the whole users table).
     let foundUser = await User.findOne({ username });
-    if (!foundUser) {
-      // Try case-insensitive by fetching all and filtering
-      const allUsers = await User.find({});
-      const found = allUsers.find(u => u.username.toLowerCase() === username.toLowerCase());
+    if (!foundUser && username.length <= 64) {
+      const { sql } = await import('drizzle-orm');
+      const [found] = await db.select().from(schema.users)
+        .where(sql`lower(${schema.users.username}) = lower(${username})`)
+        .limit(1);
       if (found) foundUser = found;
     }
 
@@ -4288,12 +4313,17 @@ export const api = new Elysia({ prefix: '/api' })
     return { error: 'Internal server error' };
   })
   .use(cors({
+    // Exact ALLOWED_ORIGINS matches, plus https subdomains of first-party app
+    // hosts (never the CDN, which serves user uploads); localhost only in dev.
     origin: (request): boolean => {
       const origin = request.headers.get('origin');
       if (!origin) return true;
-      return config.ALLOWED_ORIGINS.some(allowed => 
-        origin === allowed || origin.endsWith(`.${new URL(allowed).hostname}`)
-      );
+      return isAllowedCorsOrigin(origin, {
+        allowedOrigins: config.ALLOWED_ORIGINS,
+        subdomainBases: CORS_SUBDOMAIN_BASES,
+        blockedHosts: [hostOf(config.CDN_URL)],
+        allowLocalhost: process.env.NODE_ENV !== 'production',
+      });
     },
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'x-auth-token'],

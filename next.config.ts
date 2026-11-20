@@ -68,6 +68,12 @@ const CONTENT_SECURITY_POLICY = [
   "report-to csp",
 ].join('; ');
 
+/**
+ * The public server widget (/widget/<id>) is meant to be embedded on other
+ * sites: the same policy, framable by anyone.
+ */
+const WIDGET_CONTENT_SECURITY_POLICY = CONTENT_SECURITY_POLICY.replace("frame-ancestors 'self'", 'frame-ancestors *');
+
 const nextConfig: NextConfig = {
   // Dev only: extra hosts (e.g. a Tailscale name / IP) allowed to load dev
   // assets, as a comma-separated DEV_ALLOWED_ORIGINS. Unset = Next's default.
@@ -234,14 +240,21 @@ const nextConfig: NextConfig = {
           },
         ],
       },
+      // Widget: the full policy in production (scripts, styles, connections
+      // stay restricted), only frame-ancestors in dev (dev needs eval + HMR).
       {
         source: '/widget/:path*',
-        headers: [
-          {
-            key: 'Content-Security-Policy',
-            value: 'frame-ancestors *',
-          },
-        ],
+        headers: process.env.NODE_ENV === 'production'
+          ? [
+              { key: 'Reporting-Endpoints', value: 'csp="/api/csp-report"' },
+              { key: 'Content-Security-Policy', value: WIDGET_CONTENT_SECURITY_POLICY },
+            ]
+          : [
+              {
+                key: 'Content-Security-Policy',
+                value: 'frame-ancestors *',
+              },
+            ],
       },
     ];
   },

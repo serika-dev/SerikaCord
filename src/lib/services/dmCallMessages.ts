@@ -14,8 +14,9 @@
 // create two messages for the same call, and a resume (same session re-joining
 // after a blip) never creates a new one.
 import { randomUUID } from 'crypto';
-import { sql } from 'drizzle-orm';
-import { db } from '@/lib/db/postgres';
+import { and, eq, sql } from 'drizzle-orm';
+import { db, schema } from '@/lib/db/postgres';
+import { normalizeId } from '@/lib/db/normalizeId';
 import { getRedis } from '@/lib/db/redis';
 import { Channel, Message, User } from '@/lib/models';
 import { dmCallPeers, groupDisplayName, type CallGroup, type CallMissed } from '@/lib/chat/dmCall';
@@ -32,6 +33,9 @@ import {
   type CallMessageData,
 } from '@/lib/voice/callMessage';
 import { withoutServerTag } from '@/lib/servers/serverProfile';
+import { decideOnSend } from '@/lib/chat/messageRequests';
+import { messageRequestsEnabled } from '@/lib/settings/privacy';
+import { getRequest, recordDmSend } from '@/lib/services/messageRequests';
 
 /** Which conversation a call room belongs to. */
 type CallTarget = { kind: 'dm'; peers: [string, string] } | { kind: 'group'; channelId: string };
@@ -75,7 +79,61 @@ export type CallJoiner = {
   badges?: string[] | null;
   isPremium?: boolean | null;
   customization?: unknown;
+  /** For the Message Request decision (a stranger's call is a request, like a DM). */
+  friends?: string[] | null;
+  isBot?: boolean | null;
+  isSystem?: boolean | null;
+  settings?: unknown;
 };
+
+/** The callee as the Message Request decision needs them. */
+export type CallRequestParty = {
+  id: string;
+  friends?: string[] | null;
+  isBot?: boolean | null;
+  isSystem?: boolean | null;
+  settings?: unknown;
+};
+
+/**
+ * Whether a 1:1 call from `caller` is a Message Request for `callee` (the same
+ * decision a DM send makes, lib/chat/messageRequests decideOnSend, without
+ * recording anything): such a call doesn't ring or push, and its call message
+ * lands in the callee's Message Requests. Friends, bots and system accounts
+ * never are; for anyone else a failed lookup counts as a request (no ring).
+ */
+export async function isDmCallRequest(caller: CallRequestParty, callee: CallRequestParty): Promise<boolean> {
+  const calleeId = normalizeId(callee.id);
+  const areFriends = (caller.friends || []).some((f) => normalizeId(f) === calleeId);
+  const involvesBotOrSystem = Boolean(caller.isBot || caller.isSystem || callee.isBot || callee.isSystem);
+  const recipientRequestsEnabled = messageRequestsEnabled(callee.settings as Parameters<typeof messageRequestsEnabled>[0]);
+  if (areFriends || involvesBotOrSystem || !recipientRequestsEnabled) return false;
+  try {
+    const { findDMChannel } = await import('@/lib/api/dms');
+    const channel = await findDMChannel(caller.id, callee.id);
+    // No DM yet: the call message would start one, as a request.
+    if (!channel) return true;
+    const existing = await getRequest(channel.id, callee.id);
+    let recipientHasPosted = false;
+    if (!existing) {
+      const [m] = await db
+        .select({ id: schema.messages.id })
+        .from(schema.messages)
+        .where(and(eq(schema.messages.channelId, normalizeId(channel.id)), eq(schema.messages.authorId, calleeId)))
+        .limit(1);
+      recipientHasPosted = Boolean(m);
+    }
+    return decideOnSend({
+      areFriends,
+      recipientRequestsEnabled,
+      involvesBotOrSystem,
+      existing: existing?.status ?? null,
+      recipientHasPosted,
+    }) === 'request';
+  } catch {
+    return true;
+  }
+}
 
 // ─── Boot-time schema ensure ──────────────────────────────────────────────────
 // Mirrors drizzle/manual_call_messages.sql. Additive + idempotent. ADD VALUE
@@ -217,6 +275,9 @@ async function createCallMessage(target: CallTarget, caller: CallJoiner, message
   let recipients: string[];
   let call: CallMessageData;
   let group: CallGroup | null = null;
+  // 1:1 calls from a stranger are Message Requests for the callee, like a DM
+  // (no DM-list bump, badge or notification; only a `message_request` signal).
+  let requestRecipientIds: string[] = [];
   if (target.kind === 'dm') {
     const peers = target.peers;
     const callee = peers[0] === caller.id.toLowerCase() ? peers[1] : peers[0];
@@ -224,6 +285,10 @@ async function createCallMessage(target: CallTarget, caller: CallJoiner, message
     channel = await getOrCreateDMChannel(caller.id, callee);
     recipients = [caller.id, callee];
     call = newCallData(caller.id);
+    const calleeUser = await User.findById(callee).catch(() => null);
+    if (calleeUser && (await recordDmSend(channel.id, caller, calleeUser).catch(() => false))) {
+      requestRecipientIds = [callee];
+    }
   } else {
     const groupChannel = await loadGroupCallChannel(target.channelId);
     if (!groupChannel) throw new Error('Group DM not found');
@@ -281,12 +346,24 @@ async function createCallMessage(target: CallTarget, caller: CallJoiner, message
     createdAt: message.createdAt,
     isCall: true,
     group,
+    requestRecipientIds,
   });
+}
+
+/** Whether this 1:1 DM is (still) a pending / ignored Message Request for `userId`. */
+async function isOpenRequestFor(channelId: string, userId: string): Promise<boolean> {
+  const row = await getRequest(channelId, userId).catch(() => null);
+  return row?.status === 'pending' || row?.status === 'ignored';
 }
 
 /** Tell everyone who was rung and never picked up (or declined) that they missed it. */
 async function notifyMissed(roomId: string, target: CallTarget, messageId: string, channelId: string, call: CallMessageData) {
-  const missed = missedCallRecipients(call, target.kind === 'dm' ? target.peers : undefined);
+  let missed = missedCallRecipients(call, target.kind === 'dm' ? target.peers : undefined);
+  // A stranger's call (a Message Request) never rang: no missed-call notice either.
+  if (target.kind === 'dm' && missed.length > 0) {
+    const open = await Promise.all(missed.map((id) => isOpenRequestFor(channelId, id)));
+    missed = missed.filter((_, i) => !open[i]);
+  }
   if (missed.length === 0) return;
   const caller = await User.findById(call.callerId).catch(() => null);
   if (!caller) return;

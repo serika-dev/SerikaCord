@@ -746,7 +746,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 404;
       return { error: 'Message not found' };
     }
-    const reply = await setDmPinned(channel, params.messageId, true);
+    const reply = await setDmPinned(channel, params.messageId, true, user);
     set.status = reply.status;
     return reply.body;
   }, { params: t.Object({ channelId: t.String(), messageId: t.String() }) })
@@ -761,7 +761,7 @@ export const groupDmRoutes = new Elysia({ prefix: '/group-dms' })
       set.status = 404;
       return { error: 'Message not found' };
     }
-    const reply = await setDmPinned(channel, params.messageId, false);
+    const reply = await setDmPinned(channel, params.messageId, false, user);
     set.status = reply.status;
     return reply.body;
   }, { params: t.Object({ channelId: t.String(), messageId: t.String() }) });

@@ -10,6 +10,7 @@ import { authenticateRequest } from '@/lib/services/auth';
 import { checkRateLimit } from '@/lib/security';
 import { setParticipantSfu, voiceParticipantIn } from '@/lib/api/voice';
 import { closeTracks, newSession, publishTracks, pullTracks, RealtimeError, renegotiate, sfuEnabledForRoom } from '@/lib/voice/realtime';
+import { isCanonicalVoiceRoomId } from '@/lib/voice/rooms';
 import { forgetPulls, isTrackKind, pullDecision, recordPull, trackNameFor, type TrackKind } from '@/lib/voice/sfu';
 
 type Cookies = Record<string, { value?: unknown }>;
@@ -25,6 +26,8 @@ const SDP = t.Object({ type: t.Union([t.Literal('offer'), t.Literal('answer')]),
 async function inRoom(headers: Record<string, string | undefined>, cookie: Cookies, roomId: string, set: { status?: number | string }) {
   const { user } = await caller(headers, cookie);
   if (!user) { set.status = 401; return { error: 'Unauthorized' } as const; }
+  // Canonical room ids only, like the rest of the voice API (rooms.ts).
+  if (!isCanonicalVoiceRoomId(roomId)) { set.status = 400; return { error: 'Invalid voice room' } as const; }
   if (!sfuEnabledForRoom(roomId)) { set.status = 409; return { error: 'This room does not use the SFU' } as const; }
   const limit = await checkRateLimit('voiceSfu', user.id);
   if (!limit.success) { set.status = 429; return { error: 'Rate limited', retryAfter: limit.retryAfter } as const; }

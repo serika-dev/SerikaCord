@@ -94,6 +94,9 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "Playback speed": gt("Playback speed"),
       // LinkEmbed
       "Remove embed": gt("Remove embed"),
+      // RichEmbed — provider video player
+      "Embedded player": gt("Embedded player"),
+      "Play video": gt("Play video"),
       "View GIF on Tenor": gt("View GIF on Tenor"),
       "View GIF on Klipy": gt("View GIF on Klipy"),
       // InviteEmbed

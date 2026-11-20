@@ -12113,5 +12113,13 @@
   "a6062b7441bb7855": "BOT",
   "7d0d67857381195c": "Show call",
   "01299f2a11d3d70f": "Hide call",
-  "b1569a00e4c40cef": "Leave"
+  "b1569a00e4c40cef": "Leave",
+  "f7969fe99fb230c4": "Signing in on {browser} on {os}",
+  "bc50f9c656d385df": "Signing in on {device}",
+  "d825c0cca5a0beba": "Signing in on an unknown device",
+  "01ad30dfea6cbf06": "Location: {country}",
+  "e49ce24947fb4cda": "Only approve if you're signing in yourself right now. Never approve a link someone sent you.",
+  "a1d8b817c0ab1673": "Logged out of all other devices",
+  "a74538a7917c1c96": "Play video",
+  "66335b0d22c5818d": "Embedded player"
 }

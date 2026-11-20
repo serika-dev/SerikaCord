@@ -167,8 +167,18 @@ background proxy in `auth.ts`).
 
 ## Transport and headers
 
-- CORS for `/api` allows `config.ALLOWED_ORIGINS` and their subdomains, with
-  credentials.
+- CORS for `/api` (with credentials) allows exact `config.ALLOWED_ORIGINS`
+  entries (scheme, host and port) plus https subdomains of `serika.chat`, never
+  the CDN host, and localhost only outside production
+  (`isAllowedCorsOrigin` in `src/lib/security/csrf.ts`).
+- UUIDs in `/api` paths are lowercased before routing
+  (`src/lib/security/canonicalIds.ts`) and `normalizeId` lowercases them:
+  Postgres matches uuids in any case, so string comparisons of ids (owner
+  checks, role sets) must too. Ids from request bodies still need
+  `canonicalUuid` / `normalizeId` before comparing.
+- Client IPs: `cf-connecting-ip` is only trusted when the hop that reached
+  Traefik is a Cloudflare address (`getClientIP`); `TRUSTED_CF_PEER_CIDRS`
+  adds other trusted peers.
 - Security headers (`X-Frame-Options`, `X-Content-Type-Options`,
   `Referrer-Policy`, `Permissions-Policy`) are set in `next.config.ts`
   `headers()`. They apply to pages served by Next; `/api` responses come

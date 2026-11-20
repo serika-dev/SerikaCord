@@ -18,15 +18,19 @@
 - The Kloak comparison is now a comparison with The Port, the app kloak.app turned into: what it offers today (encrypted DMs, sign-up with just a username and password, web and Windows apps), how it relates to Kloak, and a new place on the tier list. serika.chat/compare/kloak now opens the new page.
 - Dutch and Japanese translations are up to date: every new string is translated, along with text that still showed in English.
 - Updated Terms of Service (in effect for existing users on 19 December 2026): clear rules on client mods, plugins and unofficial apps (what is fine, what is not, and that detecting a mod never leads to a strike by itself), a safe harbour for good-faith security research, a guide to where each kind of problem should be reported, and our legal and parcel addresses. The Privacy Policy now lists the same addresses and explains the client mod signs the web app can send us (what they are, why, and that they are kept for 30 days). The Dutch and Japanese versions were translated by hand.
+- The QR sign-in approval screen now shows which browser, system and country is asking to sign in, with a warning never to approve a link someone sent you.
 
 ### Bug Fixes
 - Noise suppression works properly in calls: the call button now turns your browser's noise suppression on or off (the same setting as in Voice & Video), instead of a noise gate that cut off words, could leave you silent after turning it off, and could keep sending your mic while muted in server voice channels. Changing input volume during a call now works in server voice channels too.
 - Bots stay in voice through our deploys and restarts: their voice and gateway connections resume on the new server instead of dropping, so music bots keep playing.
 - Encrypted messages now allow up to 15 devices, and a device unused for a week is retired automatically when you set up a new one, so clearing a browser's data no longer locks you out at the device limit.
+- Logging out a device (or all other devices) in Settings → Devices now really signs it out; before, the device stayed signed in.
+- YouTube videos in messages bridged from Discord now show a click-to-play YouTube player instead of a blank video player.
 
 ### Performance
 
 ### Security
+- Fixed a set of permission and sign-in issues found in a security review, including role and moderation checks, developer team access, and stricter checks on links, uploads and embeds.
 
 ### Removed
 

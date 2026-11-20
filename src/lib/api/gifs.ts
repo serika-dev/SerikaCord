@@ -338,9 +338,9 @@ export const gifRoutes = new Elysia({ prefix: '/gifs' })
     return { favorites: dbUser.gifFavorites };
   }, {
     body: t.Object({
-      url: t.String(),
-      title: t.Optional(t.String()),
-      source: t.Optional(t.String()),
+      url: t.String({ maxLength: 2048 }),
+      title: t.Optional(t.String({ maxLength: 256 })),
+      source: t.Optional(t.String({ maxLength: 64 })),
     }),
   })
   .delete('/favorites', async ({ headers, cookie, body, set }) => {

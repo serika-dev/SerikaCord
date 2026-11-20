@@ -1,7 +1,7 @@
 import { config } from '../config';
 import { User, type IUser } from '../models';
-import { cache } from '../db';
-import { accountsInternalVerify } from './accountsClient';
+import { cache, getRedis } from '../db';
+import { accountsInternalVerify, accountsLogout } from './accountsClient';
 import { BoundedMap } from '../utils/boundedMap';
 import { canAdoptLocalUser, dedupeUsername } from './authPolicy';
 import { anonymizeIp } from '../security/ipPrivacy';
@@ -53,13 +53,52 @@ interface TokenPair {
   expiresAt: Date;
 }
 
+/**
+ * Which credential authenticated a request: a local session (Redis
+ * `session:<sid>`) or an accounts.serika.dev token (known here only by its
+ * hash). Used to link a device row to what it signed in with, so "Log out"
+ * on the Devices page can revoke it.
+ */
+export type AuthCredential =
+  | { kind: 'local'; sessionId: string }
+  | { kind: 'accounts'; tokenHash: string };
+
 // Auth result
 interface AuthResult {
   user: IUser | null;
   error?: string;
   session?: Session;
+  credential?: AuthCredential;
   /** Set when the account is suspended (the error is then 'Account banned'). */
   banned?: boolean;
+}
+
+/** Same user id, ignoring case and surrounding whitespace (UUIDs may arrive upper-cased). */
+function sameUserId(a: unknown, b: unknown): boolean {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  const x = a.trim().toLowerCase();
+  return x.length > 0 && x === b.trim().toLowerCase();
+}
+
+/** Key for an accounts token in the verify cache and the revocation list. */
+function accountsTokenHash(token: string): string {
+  return crypto.createHash('sha256').update(token).digest('hex').slice(0, 32);
+}
+
+const SERVICE_KEY_DEFAULT = 'serika-internal-auth-key-change-in-production';
+
+/**
+ * Constant-time check of an `x-service-key` header against the configured
+ * accounts service key. Refuses everything while the key is unset or still the
+ * public default, so a deployment without AUTH_INTERNAL_KEY has no internal API.
+ */
+export function isValidServiceKey(given: unknown): boolean {
+  const expected = config.ACCOUNTS_SERVICE_KEY;
+  if (!expected || expected === SERVICE_KEY_DEFAULT) return false;
+  if (typeof given !== 'string' || !given) return false;
+  const a = crypto.createHash('sha256').update(given).digest();
+  const b = crypto.createHash('sha256').update(expected).digest();
+  return crypto.timingSafeEqual(a, b);
 }
 
 // Generate JWT secret from config
@@ -122,23 +161,33 @@ export async function createTokenPair(userId: string, sessionId: string): Promis
 }
 
 // Verify JWT token
-export async function verifyToken(token: string): Promise<{ valid: boolean; payload?: JWTPayload; error?: string; accountsUser?: any }> {
+export async function verifyToken(token: string): Promise<{ valid: boolean; payload?: JWTPayload; error?: string; accountsUser?: any; local?: boolean }> {
   // First try local verification
+  let localError: unknown;
   try {
     const secret = getJWTSecret();
-    const { payload } = await jose.jwtVerify(token, secret);
-    
-    return {
-      valid: true,
-      payload: payload as unknown as JWTPayload,
-    };
-  } catch (localError) {
+    const { payload } = await jose.jwtVerify(token, secret, { algorithms: ['HS256'] });
+    const local = payload as unknown as JWTPayload;
+    // A local token is only ever minted by createTokenPair, always with a
+    // session id. JWT_SECRET may be the public default (it is unset on some
+    // deployments), so a valid signature proves nothing by itself: callers
+    // must still find the Redis session and check it belongs to `sub`. A
+    // token without `sid` is never trusted locally; only the accounts
+    // service can vouch for it.
+    if (typeof local.sid === 'string' && local.sid && typeof local.sub === 'string' && local.sub) {
+      return { valid: true, payload: local, local: true };
+    }
+    localError = new Error('Local token without a session');
+  } catch (err) {
+    localError = err;
+  }
+  {
     // Local verification failed - try accounts API fallback.
     // Two cache layers keep the slow (5–10s worst case) external verify off the
     // hot path: L1 in-memory (per process) and L2 Redis (shared across all app
     // instances under load balancing). Both use the same short TTL so the
     // token-revocation window is unchanged.
-    const tokenHash = crypto.createHash('sha256').update(token).digest('hex').slice(0, 32);
+    const tokenHash = accountsTokenHash(token);
     const cached = tokenVerifyCache.get(tokenHash);
     if (cached && cached.expiresAt > Date.now()) {
       return cached.result;
@@ -175,7 +224,7 @@ export async function verifyToken(token: string): Promise<{ valid: boolean; payl
  * cache window.
  */
 export async function invalidateTokenVerifyCache(token: string): Promise<void> {
-  const tokenHash = crypto.createHash('sha256').update(token).digest('hex').slice(0, 32);
+  const tokenHash = accountsTokenHash(token);
   tokenVerifyCache.delete(tokenHash);
   tokenVerifyInflight.delete(tokenHash);
   await cache.del(`tokenverify:${tokenHash}`);
@@ -209,11 +258,16 @@ async function verifyWithAccounts(
             // Use defaults
           }
         }
+        // Local-session claims mean nothing on an accounts token: drop them so
+        // nothing downstream mistakes it for a local session or reads the
+        // user from `sub` instead of what accounts vouched for.
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { sid: _sid, sub: _sub, type: _type, ...claims } = payload;
         
         const result = {
           valid: true,
           payload: {
-            ...payload,
+            ...claims,
             user: { id: data.user.id, email: data.user.email },
             userId: data.user.id,
             username: data.user.username,
@@ -294,6 +348,163 @@ export async function revokeAllUserSessions(userId: string): Promise<number> {
   return cache.revokeUserSessions(userId);
 }
 
+// ── Device logout (Settings → Devices) ─────────────────────────────────────
+// Device rows (user_device_sessions) are not tied to a credential in the
+// schema, so the link lives in Redis: `device:creds:<deviceId>` holds
+// `s:<sid>` for local sessions and `t:<tokenHash>` for accounts tokens seen
+// on that device. Accounts tokens can't be deleted here, so a logged-out one
+// goes on a revocation list (`revokedtoken:<hash>`), and "log out all other
+// devices" sets a per-user cut-off (`authcutoff:<userId>`): accounts tokens
+// issued before it stop working here, except the one that asked. A revoked
+// token that is used again is also revoked at accounts (retireAccountsToken),
+// which kills its refresh token there.
+const DEVICE_LINK_TTL = 90 * 24 * 60 * 60;
+// Accounts access tokens live at most 30 days.
+const ACCOUNTS_TOKEN_REVOKE_TTL = 30 * 24 * 60 * 60;
+// A cut-off has to outlive the refresh tokens (90 days) issued before it.
+const AUTH_CUTOFF_TTL = 90 * 24 * 60 * 60;
+
+function credentialMember(credential: AuthCredential): string {
+  return credential.kind === 'local' ? `s:${credential.sessionId}` : `t:${credential.tokenHash}`;
+}
+
+/** Remember which credential signed in on a device row (called when the row is created/touched). */
+export async function linkDeviceCredential(deviceId: string, credential: AuthCredential | undefined): Promise<void> {
+  const redis = getRedis();
+  if (!redis || !credential || !deviceId) return;
+  try {
+    const key = `device:creds:${deviceId}`;
+    await redis.multi().sadd(key, credentialMember(credential)).expire(key, DEVICE_LINK_TTL).exec();
+  } catch (error) {
+    console.error('linkDeviceCredential error:', error);
+  }
+}
+
+/**
+ * Revoke everything that signed in on a device row: its local sessions (only
+ * ones belonging to `userId`) and its accounts tokens. Never the credential of
+ * the request doing it.
+ */
+export async function revokeDeviceCredentials(userId: string, deviceId: string, keep?: AuthCredential): Promise<number> {
+  const redis = getRedis();
+  if (!redis) return 0;
+  const key = `device:creds:${deviceId}`;
+  const keepMember = keep ? credentialMember(keep) : null;
+  let revoked = 0;
+  try {
+    const members = await redis.smembers(key);
+    for (const member of members) {
+      if (member === keepMember) continue;
+      if (member.startsWith('s:')) {
+        const sid = member.slice(2);
+        const session = await getSession(sid);
+        if (session && sameUserId(session.userId, userId)) {
+          await deleteSession(sid, session.userId);
+          revoked++;
+        }
+      } else if (member.startsWith('t:')) {
+        await redis.setex(`revokedtoken:${member.slice(2)}`, ACCOUNTS_TOKEN_REVOKE_TTL, '1');
+        revoked++;
+      }
+    }
+    if (keepMember && members.includes(keepMember)) {
+      await redis.multi().del(key).sadd(key, keepMember).expire(key, DEVICE_LINK_TTL).exec();
+    } else {
+      await redis.del(key);
+    }
+  } catch (error) {
+    console.error('revokeDeviceCredentials error:', error);
+  }
+  return revoked;
+}
+
+/**
+ * "Log out all other devices": delete every local session of the user except
+ * the current one, and cut off every accounts token issued before now except
+ * the current one.
+ */
+export async function revokeOtherUserSessions(userId: string, keep?: AuthCredential): Promise<number> {
+  const redis = getRedis();
+  if (!redis) return 0;
+  const keepSid = keep?.kind === 'local' ? keep.sessionId : null;
+  let revoked = 0;
+  try {
+    const sessionIds = await redis.smembers(`user:sessions:${userId}`);
+    const others = sessionIds.filter((sid) => sid !== keepSid);
+    if (others.length > 0) {
+      await redis.del(...others.map((sid) => `session:${sid}`));
+      await redis.srem(`user:sessions:${userId}`, ...others);
+      revoked += others.length;
+    }
+    await redis.setex(`authcutoff:${userId}`, AUTH_CUTOFF_TTL, JSON.stringify({
+      at: Date.now(),
+      keep: keep?.kind === 'accounts' ? keep.tokenHash : null,
+    }));
+  } catch (error) {
+    console.error('revokeOtherUserSessions error:', error);
+  }
+  return revoked;
+}
+
+/**
+ * Has this accounts token been logged out from the Devices page (by itself or
+ * by a "log out all other devices" cut-off)? Fails open when Redis is down,
+ * like the rest of the cache layer.
+ */
+async function isAccountsTokenRevoked(tokenHash: string, userId: string, iat: unknown): Promise<boolean> {
+  const redis = getRedis();
+  if (!redis) return false;
+  try {
+    const [denied, cutoffRaw] = await redis.mget(`revokedtoken:${tokenHash}`, `authcutoff:${userId}`);
+    if (denied) return true;
+    if (!cutoffRaw) return false;
+    const cutoff = JSON.parse(cutoffRaw) as { at?: number; keep?: string | null };
+    if (typeof cutoff.at !== 'number' || cutoff.keep === tokenHash) return false;
+    // iat is whole seconds: a token from the cut-off's own second survives, so
+    // the device that asked can refresh right away.
+    const issuedAt = typeof iat === 'number' ? iat : 0;
+    return issuedAt < Math.floor(cutoff.at / 1000);
+  } catch (error) {
+    console.error('isAccountsTokenRevoked error:', error);
+    return false;
+  }
+}
+
+/** Revoke a logged-out accounts token at accounts too (once), so its refresh token dies with it. */
+async function retireAccountsToken(token: string): Promise<void> {
+  const redis = getRedis();
+  if (!redis) return;
+  try {
+    const first = await redis.set(`revokedtoken:retired:${accountsTokenHash(token)}`, '1', 'EX', 3600, 'NX');
+    if (first !== 'OK') return;
+    await accountsLogout(token).catch(() => {});
+    await invalidateTokenVerifyCache(token);
+  } catch (error) {
+    console.error('retireAccountsToken error:', error);
+  }
+}
+
+/**
+ * For /auth/refresh: is the access token this browser still holds one that was
+ * logged out from the Devices page? Then it must not be refreshed. The claims
+ * are read unverified, which is fine here: the answer can only refuse.
+ */
+export async function isLoggedOutAccountsToken(token: string): Promise<boolean> {
+  let claims: { userId?: unknown; user?: { id?: unknown }; iat?: unknown; sid?: unknown } = {};
+  try {
+    claims = JSON.parse(Buffer.from(token.split('.')[1] ?? '', 'base64url').toString());
+  } catch {
+    return false;
+  }
+  if (claims.sid) return false;
+  const rawId = typeof claims.user?.id === 'string' ? claims.user.id : (typeof claims.userId === 'string' ? claims.userId : '');
+  if (!rawId) return false;
+  const userId = rawId.length === 24 && /^[0-9a-f]{24}$/i.test(rawId) ? mongoIdToUUID(rawId) : rawId;
+  const revoked = await isAccountsTokenRevoked(accountsTokenHash(token), userId, claims.iat);
+  if (revoked) await retireAccountsToken(token);
+  return revoked;
+}
+
 // Convert MongoDB ObjectId (24 hex chars) to UUID format (36 chars with hyphens)
 function mongoIdToUUID(mongoId: string): string {
   // Pad with zeros to 32 hex chars, then format as UUID
@@ -327,10 +538,14 @@ export async function authenticateRequest(
     return { user: null, error: verification.error || 'Invalid token' };
   }
 
-  // Support both local tokens (sub, sid) and accounts.serika.dev tokens (user.id, userId)
-  let userId = verification.payload.sub || verification.payload.user?.id || verification.payload.userId;
-  const sessionId = verification.payload.sid;
-  const type = verification.payload.type;
+  // Local tokens carry (sub, sid); accounts.serika.dev tokens are identified
+  // by what the accounts service vouched for (user.id / userId).
+  const local = verification.local === true;
+  const tokenSub = verification.payload.sub;
+  let userId = local
+    ? tokenSub
+    : (verification.accountsUser?.id || verification.payload.user?.id || verification.payload.userId);
+  const sessionId = local ? verification.payload.sid : undefined;
 
   if (!userId) {
     return { user: null, error: 'Invalid token: no user ID' };
@@ -341,22 +556,32 @@ export async function authenticateRequest(
     userId = mongoIdToUUID(userId);
   }
 
-  // For local tokens, verify session exists
-  // For accounts.serika.dev tokens, skip session check (they manage their own sessions)
-  if (sessionId && type && type !== 'access') {
+  // Local tokens must be access tokens backed by a live session of the same
+  // user (see verifyToken). Accounts tokens are checked against our own
+  // revocation list (Devices page "Log out").
+  if (local && verification.payload.type !== 'access') {
     return { user: null, error: 'Invalid token type' };
   }
+  const tokenHash = local ? undefined : accountsTokenHash(token);
 
-  // Session check and the cached-user read are independent Redis GETs: run
-  // them together so every authenticated request pays one round-trip, not two.
+  // Session check, revocation check and the cached-user read are independent
+  // Redis GETs: run them together so every request pays one round-trip.
   const cacheKey = `user:${userId}`;
-  const [session, cachedUser] = await Promise.all([
+  const [session, cachedUser, revoked] = await Promise.all([
     sessionId ? getSession(sessionId) : Promise.resolve(null),
     cache.get<IUser>(cacheKey),
+    tokenHash ? isAccountsTokenRevoked(tokenHash, userId, verification.payload.iat) : Promise.resolve(false),
   ]);
-  if (sessionId && !session) {
+  if (local && (!session || !sameUserId(session.userId, tokenSub))) {
     return { user: null, error: 'Session expired or invalid' };
   }
+  if (revoked) {
+    void retireAccountsToken(token);
+    return { user: null, error: 'Session expired or invalid' };
+  }
+  const credential: AuthCredential = sessionId
+    ? { kind: 'local', sessionId }
+    : { kind: 'accounts', tokenHash: tokenHash as string };
 
   // Get user from cache or database
   let user = cachedUser;
@@ -439,7 +664,7 @@ export async function authenticateRequest(
     };
   }
 
-  return { user: user as IUser, session: undefined };
+  return { user: user as IUser, session: session ?? undefined, credential };
 }
 
 
@@ -451,28 +676,17 @@ export async function refreshAccessToken(refreshToken: string): Promise<{ tokens
     return { error: verification.error || 'Invalid refresh token' };
   }
 
-  let userId = verification.payload.sub || verification.payload.user?.id || verification.payload.userId;
-  const sessionId = verification.payload.sid;
-  const type = verification.payload.type;
-
-  if (!userId) {
-    return { error: 'Invalid token: no user ID' };
-  }
-
-  // Convert MongoDB ObjectId to UUID if needed (24 hex chars = MongoDB ObjectId)
-  if (userId.length === 24 && /^[0-9a-f]{24}$/i.test(userId)) {
-    userId = mongoIdToUUID(userId);
-  }
-
-  // Only check type for local tokens
-  if (type && type !== 'refresh') {
-    return { error: 'Invalid token type' };
-  }
-
-  // Verify session still exists (only for local tokens)
-  if (sessionId) {
+  // Only local session tokens are refreshed here (accounts tokens refresh at
+  // accounts.serika.dev). Same rule as authenticateRequest: a refresh token
+  // backed by a live session that belongs to its `sub`.
+  if (verification.local) {
+    const userId = verification.payload.sub as string;
+    const sessionId = verification.payload.sid as string;
+    if (verification.payload.type !== 'refresh') {
+      return { error: 'Invalid token type' };
+    }
     const session = await getSession(sessionId);
-    if (!session) {
+    if (!session || !sameUserId(session.userId, userId)) {
       return { error: 'Session expired' };
     }
     // Generate new token pair

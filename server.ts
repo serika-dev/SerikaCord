@@ -29,6 +29,7 @@ import { activityFrameSource, isActivitiesHost } from '@/lib/activities/settings
 import { handleActivityRequest, withActivitySockets } from '@/lib/activities/proxy';
 import { isVoiceGatewayRequest, startVoiceUdp, upgradeVoiceGateway, withVoiceSockets } from '@/lib/voice/botVoiceServer';
 import { getClientIP } from '@/lib/security';
+import { withCanonicalUuidPath } from '@/lib/security/canonicalIds';
 
 const port = parseInt(process.env.PORT || '3000', 10);
 const dev = process.env.NODE_ENV !== 'production';
@@ -142,7 +143,9 @@ async function main() {
   Bun.serve<GatewaySocketData>({
     port,
     idleTimeout: 120,
-    fetch(req, server) {
+    fetch(incoming, server) {
+      // Lowercase UUIDs in the path before any route sees them (canonicalIds.ts).
+      const req = incoming.url.includes('/api') ? withCanonicalUuidPath(incoming) : incoming;
       const url = new URL(req.url);
       const pathname = url.pathname;
 

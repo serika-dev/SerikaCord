@@ -2,7 +2,8 @@ import { Elysia, t } from 'elysia';
 import { getPlatformSettings } from '@/lib/models/PlatformSettings';
 import { authenticateRequest } from '@/lib/services/auth';
 import { safeFetch, checkUrlShape } from '@/lib/security/ssrf';
-import { sanitizePlayerUrl } from '@/lib/security/embedPlayer';
+import { sanitizePlayerUrl, isPlayerPageUrl } from '@/lib/security/embedPlayer';
+import { checkRateLimit, getClientIP } from '@/lib/security';
 
 interface OEmbedResponse {
   title?: string;
@@ -136,11 +137,13 @@ export function extractMetaTags(html: string, pageUrl?: string): OEmbedResponse 
   // an HTML iframe player (those are handled by dedicated provider embeds).
   const candidateVideo = twitterStream || ogVideo;
   const canonical = html.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["']/i)?.[1];
-  const looksLikeFile = candidateVideo && (
+  // YouTube & co. publish og:video as their iframe player (text/html): that is
+  // never a file, whatever the extension/type claims.
+  const looksLikeFile = candidateVideo && /^https?:\/\//i.test(candidateVideo) && !isPlayerPageUrl(candidateVideo) && (
     /\.(mp4|webm|mov|m4v)(\?.*)?$/i.test(candidateVideo)
     // A claimed video/* type only counts when the "video" isn't the page
     // itself (bilibili.tv points og:video at its own HTML page).
-    || (/video\/(mp4|webm)/i.test(ogVideoType || '') && !isSamePage(candidateVideo, [ogUrl, canonical, pageUrl]))
+    || (/^\s*video\//i.test(ogVideoType || '') && !isSamePage(candidateVideo, [ogUrl, canonical, pageUrl]))
   );
   if (looksLikeFile) {
     data.video = candidateVideo;
@@ -436,6 +439,58 @@ const MEDIA_PROXY_HOSTS = new Set([
   'ton.twimg.com',
 ]);
 
+const MEDIA_HEADER_TIMEOUT_MS = 20_000;
+/** Whole-response deadline: long enough to stream a clip, never unbounded. */
+const MEDIA_TOTAL_TIMEOUT_MS = 10 * 60_000;
+const MEDIA_MAX_BYTES = 100 * 1024 * 1024;
+
+/** Only raster images and video may be served from our origin (no SVG/HTML). */
+export function isProxyableMediaType(contentType: string): boolean {
+  const ct = contentType.split(';')[0].trim().toLowerCase();
+  if (/^video\/[a-z0-9.+-]+$/.test(ct)) return true;
+  return /^image\/[a-z0-9.+-]+$/.test(ct) && !ct.includes('svg');
+}
+
+/**
+ * Pass `body` through, aborting the upstream fetch once it exceeds
+ * MEDIA_MAX_BYTES or MEDIA_TOTAL_TIMEOUT_MS elapses.
+ */
+function capMediaStream(body: ReadableStream<Uint8Array>, controller: AbortController): ReadableStream<Uint8Array> {
+  const reader = body.getReader();
+  let total = 0;
+  const deadline = setTimeout(() => controller.abort(), MEDIA_TOTAL_TIMEOUT_MS);
+  const stop = () => {
+    clearTimeout(deadline);
+    controller.abort();
+  };
+  return new ReadableStream<Uint8Array>({
+    async pull(out) {
+      try {
+        const { done, value } = await reader.read();
+        if (done) {
+          clearTimeout(deadline);
+          out.close();
+          return;
+        }
+        total += value.byteLength;
+        if (total > MEDIA_MAX_BYTES) {
+          stop();
+          out.error(new Error('Media too large'));
+          return;
+        }
+        out.enqueue(value);
+      } catch (err) {
+        stop();
+        out.error(err);
+      }
+    },
+    cancel(reason) {
+      stop();
+      reader.cancel(reason).catch(() => {});
+    },
+  });
+}
+
 function isProxyableMediaHost(url: string): boolean {
   try {
     return MEDIA_PROXY_HOSTS.has(new URL(url).hostname.toLowerCase());
@@ -580,6 +635,13 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
       return { error: 'Unauthorized' };
     }
 
+    const limit = await checkRateLimit('oembed', String(user.id));
+    if (!limit.success) {
+      set.status = 429;
+      if (limit.retryAfter) set.headers['retry-after'] = String(limit.retryAfter);
+      return { error: 'Too many requests', retryAfter: limit.retryAfter };
+    }
+
     if (!url) {
       set.status = 400;
       return { error: 'URL is required' };
@@ -702,6 +764,8 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
   })
   // Media proxy for hotlink-protected CDNs (twimg). Streams the upstream
   // response server-side, forwarding Range requests so video seeking works.
+  // Unauthenticated (it's a <video>/<img> src), so it is rate limited per IP,
+  // only passes image/video bodies, and caps both bytes and total time.
   .get('/media', async ({ query, set, request }) => {
     const url = query.url;
     if (!url || !isProxyableMediaHost(url)) {
@@ -709,40 +773,61 @@ export const oembedRoutes = new Elysia({ prefix: '/oembed' })
       return { error: 'Unsupported media host' };
     }
 
+    const limit = await checkRateLimit('oembedMedia', getClientIP(request));
+    if (!limit.success) {
+      set.status = 429;
+      if (limit.retryAfter) set.headers['retry-after'] = String(limit.retryAfter);
+      return { error: 'Too many requests' };
+    }
+
+    const controller = new AbortController();
+    const headerTimeout = setTimeout(() => controller.abort(), MEDIA_HEADER_TIMEOUT_MS);
     try {
       const upstreamHeaders: Record<string, string> = {
         'User-Agent': 'Mozilla/5.0 (compatible; SerikaCord/1.0)',
-        Accept: '*/*',
+        Accept: 'image/*,video/*',
       };
       const range = request.headers.get('range');
-      if (range) upstreamHeaders.Range = range;
+      if (range && /^bytes=\d*-\d*(,\s*\d*-\d*)*$/i.test(range.trim())) upstreamHeaders.Range = range.trim();
 
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 20000);
       const upstream = await safeFetch(
         url,
         { headers: upstreamHeaders, signal: controller.signal },
         { allowHost: (h) => MEDIA_PROXY_HOSTS.has(h) },
       );
-      clearTimeout(timeout);
+      clearTimeout(headerTimeout);
 
-      if (!upstream.ok && upstream.status !== 206) {
+      const contentType = (upstream.headers.get('content-type') || '').split(';')[0].trim().toLowerCase();
+      const declaredLength = Number(upstream.headers.get('content-length') || '0');
+      if (
+        (!upstream.ok && upstream.status !== 206)
+        || !isProxyableMediaType(contentType)
+        || !upstream.body
+        || (Number.isFinite(declaredLength) && declaredLength > MEDIA_MAX_BYTES)
+      ) {
+        controller.abort();
+        try { await upstream.body?.cancel(); } catch { /* ignore */ }
         set.status = 502;
         return { error: 'Upstream fetch failed' };
       }
 
       const headers = new Headers();
-      const passthrough = ['content-type', 'content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified'];
+      const passthrough = ['content-length', 'content-range', 'accept-ranges', 'etag', 'last-modified'];
       for (const h of passthrough) {
         const v = upstream.headers.get(h);
         if (v) headers.set(h, v);
       }
+      headers.set('content-type', contentType);
       if (!headers.has('accept-ranges')) headers.set('accept-ranges', 'bytes');
       headers.set('cache-control', 'public, max-age=86400');
       headers.set('access-control-allow-origin', '*');
+      headers.set('x-content-type-options', 'nosniff');
+      headers.set('content-security-policy', "sandbox; default-src 'none'");
 
-      return new Response(upstream.body, { status: upstream.status, headers });
+      return new Response(capMediaStream(upstream.body, controller), { status: upstream.status, headers });
     } catch {
+      clearTimeout(headerTimeout);
+      controller.abort();
       set.status = 502;
       return { error: 'Media proxy error' };
     }

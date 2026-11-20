@@ -87,6 +87,11 @@ export interface LaunchCheckInput {
   /** The client's platform family (web, desktop, ios, android). */
   platform: string;
   domainConfigured: boolean;
+  /**
+   * 1:1 DMs: a block either way, or the other person's DM privacy, stops the
+   * user writing there (dmSendDenyReason), and so launching or joining too.
+   */
+  dmWriteDenied?: boolean;
 }
 
 /**
@@ -101,6 +106,7 @@ export function checkLaunch(input: LaunchCheckInput, mode: 'launch' | 'join'): {
   const ch = input.channel;
   const isDm = ch.type === 'dm' || ch.type === 'group_dm';
   if (!isDm && !ch.serverId) return { ok: false, reason: 'channel_type' };
+  if (ch.type === 'dm' && input.dmWriteDenied) return { ok: false, reason: 'no_access' };
   if (input.voice) {
     if (!isDm && !VOICE_TYPES.has(ch.type)) return { ok: false, reason: 'channel_type' };
     if (!input.inVoiceRoom) return { ok: false, reason: 'not_in_call' };

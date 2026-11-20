@@ -12,6 +12,32 @@ import { getStaffAuth } from '@/lib/services/staffAuth';
 const KEEP_DAYS = 14;
 const MAX_BODY = 64 * 1024;
 const MAX_FIELDS_PER_DAY = 1000;
+/** The request body as text, or null when it exceeds `max` bytes. */
+async function readCapped(request: Request, max: number): Promise<string | null> {
+  const reader = request.body?.getReader();
+  if (!reader) return '';
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > max) {
+        reader.cancel().catch(() => {});
+        return null;
+      }
+      chunks.push(value);
+    }
+  } catch {
+    return null;
+  }
+  const buf = new Uint8Array(total);
+  let off = 0;
+  for (const c of chunks) { buf.set(c, off); off += c.byteLength; }
+  return new TextDecoder().decode(buf);
+}
+
 const dayKey = (d: Date) => `csp:violations:${d.toISOString().slice(0, 10)}`;
 
 export const cspReportRoutes = new Elysia()
@@ -19,7 +45,12 @@ export const cspReportRoutes = new Elysia()
     set.status = 204;
     const limit = await checkRateLimit('cspReport', getClientIP(request));
     if (!limit.success) return;
-    const text = (await request.text().catch(() => '')).slice(0, MAX_BODY);
+    // Refuse oversized reports before reading, and never buffer more than
+    // MAX_BODY bytes even when Content-Length is absent or wrong.
+    const declared = Number(request.headers.get('content-length') || '0');
+    if (Number.isFinite(declared) && declared > MAX_BODY) return;
+    const text = await readCapped(request, MAX_BODY);
+    if (text === null) return;
     let body: unknown = null;
     try { body = JSON.parse(text); } catch { return; }
     const violations = parseCspReports(body);

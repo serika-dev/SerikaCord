@@ -1163,8 +1163,18 @@ export async function listDmPins(channelId: string) {
   });
 }
 
-/** Pin or unpin a message (anyone in the conversation may, like Discord). */
-export async function setDmPinned(channel: DmChannelRef, messageId: string, pinned: boolean): Promise<DmReply> {
+/**
+ * Pin or unpin a message (anyone in the conversation may, like Discord).
+ * With `user`: rate limited (dmPin), and in a 1:1 DM a block or the other
+ * person's DM privacy stops it like a send (the pin shows up in their chat).
+ */
+export async function setDmPinned(channel: DmChannelRef, messageId: string, pinned: boolean, user?: AuthUser): Promise<DmReply> {
+  if (user) {
+    const limit = await checkRateLimit('dmPin', user.id);
+    if (!limit.success) return fail(429, 'You are pinning too fast', { retryAfter: limit.retryAfter });
+    const blocked = await dmWriteDenial(channel, user);
+    if (blocked) return blocked;
+  }
   const message = await findLiveMessage(channel.id, messageId);
   if (!message) return fail(404, 'Message not found');
   await Message.updateById(message.id, { pinned, pinnedAt: pinned ? new Date() : null });
@@ -2127,7 +2137,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       set.status = 404;
       return { error: 'Message not found' };
     }
-    const reply = await setDmPinned(channel, params.messageId, true);
+    const reply = await setDmPinned(channel, params.messageId, true, user);
     set.status = reply.status;
     return reply.body;
   }, {
@@ -2148,7 +2158,7 @@ export const dmRoutes = new Elysia({ prefix: '/dms' })
       set.status = 404;
       return { error: 'Message not found' };
     }
-    const reply = await setDmPinned(channel, params.messageId, false);
+    const reply = await setDmPinned(channel, params.messageId, false, user);
     set.status = reply.status;
     return reply.body;
   }, {

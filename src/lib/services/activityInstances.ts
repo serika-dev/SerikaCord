@@ -249,6 +249,28 @@ async function inVoiceRoom(roomId: string | null, userId: string): Promise<boole
 
 type Access = { ok: true; channel: IChannel; permissions: bigint } | { ok: false; reason: LaunchDenied };
 
+/**
+ * A 1:1 DM the user may not write into (blocked either way, or the other
+ * person's DM privacy): same rule as a send (dmSendDenyReason). Launching or
+ * joining an Activity there posts and broadcasts into the DM, so it's refused.
+ */
+async function dmWriteDenied(userId: string, channel: IChannel): Promise<boolean> {
+  if (channel.type !== 'dm') return false;
+  const otherId = (channel.recipientIds || []).find((r) => !same(r, userId));
+  if (!otherId) return false;
+  const [user, other] = await Promise.all([User.findById(userId), User.findById(otherId)]);
+  if (!user || !other) return true;
+  const [{ dmSendDenyReason }, { dmSharedServers }, { isSystemUser }] = await Promise.all([
+    import('@/lib/chat/dmPolicy'),
+    import('@/lib/services/dmPrivacy'),
+    import('@/lib/services/systemUsers'),
+  ]);
+  return dmSendDenyReason(user, other, {
+    recipientIsSystem: isSystemUser(other.id),
+    sharedServerIds: await dmSharedServers(user, other),
+  }) !== null;
+}
+
 async function channelAccess(userId: string, channelId: string): Promise<Access> {
   const { checkChannelAccess, getMemberChannelPermissions } = await import('@/lib/api/channels');
   const access = await checkChannelAccess(userId, channelId);
@@ -314,6 +336,7 @@ export async function launchActivity(opts: LaunchOptions): Promise<ActivityResul
     // 'any': an interaction launch (the server doesn't know the device); joining re-checks it.
     platform: opts.platform === 'any' ? app.settings.supportedPlatforms[0] ?? 'web' : opts.platform,
     domainConfigured: Boolean(config.ACTIVITIES_DOMAIN) && Boolean(activityHostLabel(app.clientId)),
+    dmWriteDenied: await dmWriteDenied(opts.user.id, channel),
   }, 'launch');
   if (!check.ok) return denied(check.reason);
 
@@ -425,6 +448,7 @@ export async function joinActivity(user: { id: string }, instanceId: string, pla
     app: { enabled: app.settings.enabled, ageGated: app.settings.ageGated, supportedPlatforms: app.settings.supportedPlatforms },
     platform,
     domainConfigured: Boolean(config.ACTIVITIES_DOMAIN),
+    dmWriteDenied: await dmWriteDenied(user.id, access.channel),
   }, 'join');
   if (!check.ok) return denied(check.reason);
   const r = redisOrThrow();

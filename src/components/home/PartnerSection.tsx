@@ -89,7 +89,13 @@ export function PartnerSection() {
                 : `/channels/${server.id}`;
               return (
                 <li key={server.id}>
-                  <Link href={href} className="hm-card group flex h-full items-start gap-3 !rounded-[16px] p-4 sm:gap-4 sm:!rounded-[24px] sm:p-5">
+                  <Link
+                    href={href}
+                    onClick={() => {
+                      // Marks this as a first-party one-click join for the invite page.
+                      if (code) { try { sessionStorage.setItem("serika:invite-join", code.toLowerCase()); } catch { /* storage blocked */ } }
+                    }}
+                    className="hm-card group flex h-full items-start gap-3 !rounded-[16px] p-4 sm:gap-4 sm:!rounded-[24px] sm:p-5">
                     <ServerAvatar name={server.name} icon={server.icon} />
                     <div className="min-w-0 flex-1">
                       <div className="mb-1 flex items-center gap-1.5">

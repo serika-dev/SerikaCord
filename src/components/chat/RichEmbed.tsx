@@ -1,12 +1,14 @@
 "use client";
 
-import { memo } from "react";
-import { ExternalLink } from "lucide-react";
+import { memo, useState } from "react";
+import { ExternalLink, Play } from "lucide-react";
 import type { MessageEmbed } from "@/lib/chat/types";
 import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { isGifUrl } from "@/lib/chat/media";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { AppAnchor } from "@/components/chat/AppAnchor";
+import { embedPlayerSrc, isDirectVideoUrl } from "@/lib/security/embedPlayer";
+import { useChatGt } from "./ChatGtContext";
 
 /** Message-level data needed so embed text supports the same features as
  *  normal message content: mentions, custom emoji, spoilers, `<t:...>`
@@ -65,14 +67,71 @@ function EmbedText({
   );
 }
 
+/**
+ * Click-to-play provider player (YouTube, Vimeo, ...) for an embed whose
+ * video is an iframe player page, e.g. Discord's own YouTube unfurls on
+ * bridged messages (`video.url` = youtube.com/embed/<id>). Shows the poster
+ * with a play button and only mounts the iframe after a click.
+ */
+function EmbedPlayer({ src, poster, title }: { src: string; poster?: string; title?: string }) {
+  const gt = useChatGt();
+  const [playing, setPlaying] = useState(false);
+  if (playing) {
+    return (
+      <div className="aspect-video w-full rounded-md overflow-hidden bg-black">
+        <iframe
+          src={src}
+          title={title || gt("Embedded player")}
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
+          allowFullScreen
+          referrerPolicy="strict-origin-when-cross-origin"
+          className="w-full h-full border-0"
+        />
+      </div>
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setPlaying(true)}
+      aria-label={gt("Play video")}
+      className="group relative block aspect-video w-full rounded-md overflow-hidden bg-black cursor-pointer"
+    >
+      {poster && <img src={poster} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />}
+      <span className="absolute inset-0 flex items-center justify-center bg-black/20 group-hover:bg-black/40 transition-colors">
+        <span className="w-14 h-14 rounded-full bg-black/70 flex items-center justify-center shadow-2xl group-hover:scale-110 transition-transform">
+          <Play className="w-6 h-6 text-white ml-0.5" fill="white" />
+        </span>
+      </span>
+    </button>
+  );
+}
+
 function SingleEmbed({ embed, onMediaClick, ctx }: { embed: MessageEmbed; onMediaClick?: (src: string, alt?: string) => void; ctx: EmbedRenderContext }) {
   const accent = colorToHex(embed.color);
   const footerIcon = embed.footer?.icon_url || embed.footer?.iconUrl;
   const authorIcon = embed.author?.icon_url || embed.author?.iconUrl;
   const imageUrl = embed.image?.url;
   const thumbUrl = embed.thumbnail?.url;
-  const videoUrl = embed.video?.url;
+  const rawVideoUrl = embed.video?.url;
+  // Only real media files go into <video>. Provider player pages (Discord's
+  // YouTube unfurls point video.url at youtube.com/embed/<id>) get the
+  // click-to-play iframe instead; anything else falls back to the image.
+  const videoUrl = isDirectVideoUrl(rawVideoUrl) ? rawVideoUrl : undefined;
+  const playerSrc = !videoUrl && rawVideoUrl ? embedPlayerSrc(rawVideoUrl, embed.url) : undefined;
+  // The player uses the thumbnail as its poster, so don't also show it small.
+  const playerPoster = playerSrc ? (imageUrl || thumbUrl) : undefined;
+  const sideThumb = playerSrc ? undefined : thumbUrl;
   const hasBody = embed.title || embed.description || embed.author?.name || (embed.fields && embed.fields.length > 0) || embed.footer?.text;
+
+  // Body-less provider video: just the click-to-play player.
+  if (!hasBody && playerSrc) {
+    return (
+      <div className="mt-2 w-[432px] max-w-full">
+        <EmbedPlayer src={playerSrc} poster={playerPoster} title={embed.title} />
+      </div>
+    );
+  }
 
   // "image"-only embeds (e.g. attachment image embeds) render as a bare media card.
   if (!hasBody && (imageUrl || videoUrl)) {
@@ -94,7 +153,7 @@ function SingleEmbed({ embed, onMediaClick, ctx }: { embed: MessageEmbed; onMedi
       className="mt-2 w-fit min-w-0 max-w-[min(520px,100%)] rounded-md overflow-hidden flex flex-col"
       style={{ background: "var(--app-embed-bg, #1a1a1a)", borderLeft: `4px solid ${accent}` }}
     >
-      <div className="grid gap-2 p-3" style={{ gridTemplateColumns: thumbUrl ? "minmax(0,1fr) auto" : "minmax(0,1fr)" }}>
+      <div className="grid gap-2 p-3" style={{ gridTemplateColumns: sideThumb ? "minmax(0,1fr) auto" : "minmax(0,1fr)" }}>
         <div className="min-w-0">
           {embed.author?.name && (
             <div className="flex items-center gap-2 mb-1.5">
@@ -160,9 +219,9 @@ function SingleEmbed({ embed, onMediaClick, ctx }: { embed: MessageEmbed; onMedi
           )}
         </div>
 
-        {thumbUrl && (
-          <button type="button" onClick={() => onMediaClick?.(thumbUrl, embed.title)} className="shrink-0 self-start">
-            <img src={thumbUrl} alt="" className="block h-auto w-auto max-w-20 max-h-20 rounded-md cursor-pointer" loading="lazy" />
+        {sideThumb && (
+          <button type="button" onClick={() => onMediaClick?.(sideThumb, embed.title)} className="shrink-0 self-start">
+            <img src={sideThumb} alt="" className="block h-auto w-auto max-w-20 max-h-20 rounded-md cursor-pointer" loading="lazy" />
           </button>
         )}
       </div>
@@ -173,7 +232,13 @@ function SingleEmbed({ embed, onMediaClick, ctx }: { embed: MessageEmbed; onMedi
         </div>
       )}
 
-      {!videoUrl && imageUrl && (
+      {playerSrc && (
+        <div className="px-3 pb-3 w-[400px] max-w-full">
+          <EmbedPlayer src={playerSrc} poster={playerPoster} title={embed.title} />
+        </div>
+      )}
+
+      {!videoUrl && !playerSrc && imageUrl && (
         <div className="px-3 pb-3">
           {/* Like Discord: the image keeps its own shape (portrait art isn't
               cropped to a banner), capped at 400px tall and the embed's width.

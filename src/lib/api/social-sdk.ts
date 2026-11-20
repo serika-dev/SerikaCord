@@ -1,7 +1,7 @@
 import { Elysia, t } from 'elysia';
 import { resolveEffectiveStatus } from '@/lib/services/presence';
 import { authenticateRequest } from '@/lib/services/auth';
-import { User, RichPresence, WidgetConfig, WidgetUserData, Application, type IUser, type IRichPresence } from '@/lib/models';
+import { User, RichPresence, WidgetConfig, WidgetUserData, Application, DeveloperTeam, type IUser, type IRichPresence, type ITeamMember } from '@/lib/models';
 import { activityHiddenByStatus, activitySharing } from '@/lib/settings/privacy';
 import {
   getUserLibrary, getUserCategory, isValidCategory, addGame, removeGame, updateGame,
@@ -80,6 +80,65 @@ async function auth(headers: Record<string, string | undefined>, cookie: Record<
   const cookies: Record<string, string> = {};
   if (typeof token === 'string') cookies.auth_token = token;
   return authenticateRequest(authHeader, cookies);
+}
+
+/** Largest per-user widget data an application may store. */
+const WIDGET_USER_DATA_MAX_BYTES = 16 * 1024;
+/** The Social SDK scope a user grants an application to act for them (also used by lobbies). */
+const SOCIAL_SCOPE = 'sdk.social_layer';
+
+type WidgetWriter = { ok: true; userId: string } | { ok: false; status: number; error: string };
+
+/**
+ * Who may write `applicationId`'s widget data, and for which user:
+ * - an OAuth2 Bearer token issued to this application with sdk.social_layer
+ *   (not client_credentials, which acts as the app owner): the token's user;
+ * - this application's bot token: its bot user;
+ * - a session (cookie or session JWT) of the app's owner or a team member, so
+ *   developers can test their own widget: that user.
+ * Anyone else (a plain user session, another app's token) is refused.
+ */
+async function widgetDataWriter(
+  headers: Record<string, string | undefined>,
+  cookie: Record<string, { value?: unknown }>,
+  applicationId: string,
+): Promise<WidgetWriter> {
+  const appId = applicationId.toLowerCase();
+  const authorization = headers.authorization;
+  if (authorization && /^Bot\s/i.test(authorization)) {
+    const { resolveBotToken } = await import('@/lib/services/botTokens');
+    const botApp = await resolveBotToken(authorization.slice(4).trim());
+    if (!botApp?.botId) return { ok: false, status: 401, error: 'Unauthorized' };
+    if (botApp.id.toLowerCase() !== appId) return { ok: false, status: 403, error: 'This token belongs to another application' };
+    return { ok: true, userId: botApp.botId };
+  }
+  if (authorization && /^Bearer\s/i.test(authorization)) {
+    const { parseBearer } = await import('@/lib/oauth/scopes');
+    const { resolveBearerToken } = await import('@/lib/services/oauth2Tokens');
+    const token = parseBearer(authorization);
+    const grant = token ? await resolveBearerToken(token) : null;
+    if (grant) {
+      if (grant.applicationId.toLowerCase() !== appId) return { ok: false, status: 403, error: 'This token belongs to another application' };
+      if (grant.grantType === 'client_credentials' || !grant.scopes.includes(SOCIAL_SCOPE)) {
+        return { ok: false, status: 403, error: 'Missing required OAuth2 scope' };
+      }
+      const user = await User.findById(grant.userId);
+      if (!user || user.isBanned || user.isBot) return { ok: false, status: 401, error: 'Unauthorized' };
+      return { ok: true, userId: user.id };
+    }
+    // Not an OAuth2 token: maybe a session JWT, checked below.
+  }
+  const { user } = await auth(headers, cookie);
+  if (!user) return { ok: false, status: 401, error: 'Unauthorized' };
+  const app = await Application.findById(appId);
+  if (!app) return { ok: false, status: 404, error: 'Application not found' };
+  let member = app.ownerId === user.id;
+  if (!member && app.teamId) {
+    const team = await DeveloperTeam.findById(app.teamId);
+    member = (team?.members as ITeamMember[] | undefined)?.some((m) => m.userId === user.id) ?? false;
+  }
+  if (!member) return { ok: false, status: 403, error: 'Only the application can write its widget data' };
+  return { ok: true, userId: user.id };
 }
 
 function publicUser(u: any) {
@@ -262,11 +321,16 @@ export const socialSdkRoutes = new Elysia({ prefix: '/v1' })
 
   // ── Widget user-data (per-user dynamic values) ────────────────────────────
   .put('/applications/:id/users/@me/widget-data', async ({ headers, cookie, params, body, set }) => {
-    const { user } = await auth(headers, cookie as Record<string, { value?: unknown }>);
-    if (!user) { set.status = 401; return { error: 'Unauthorized' }; }
-    const app = await Application.findById(params.id);
-    if (!app) { set.status = 404; return { error: 'Application not found' }; }
-    const saved = await WidgetUserData.upsert(params.id, user.id, (body as Record<string, unknown>).data ?? body);
+    // "App-provided" data: only the application itself may write it, acting
+    // for the user (their sdk.social_layer token for this app), as its bot, or
+    // (editor testing) a session of the app's owner / team.
+    const caller = await widgetDataWriter(headers, cookie as Record<string, { value?: unknown }>, params.id);
+    if (!caller.ok) { set.status = caller.status; return { error: caller.error }; }
+    const data = (body as Record<string, unknown>).data ?? body;
+    if (Buffer.byteLength(JSON.stringify(data) ?? '', 'utf8') > WIDGET_USER_DATA_MAX_BYTES) {
+      set.status = 413; return { error: 'Widget data must be 16 KB or less' };
+    }
+    const saved = await WidgetUserData.upsert(params.id, caller.userId, data);
     return { ok: true, updated_at: saved?.updatedAt ?? null };
   }, {
     body: t.Object({

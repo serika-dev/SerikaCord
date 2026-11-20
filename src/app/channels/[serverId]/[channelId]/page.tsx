@@ -87,7 +87,7 @@ function VoiceChannelView({ channelId, channelName, serverId, stage = false, cha
   const [serverVoice, setServerVoice] = useState(() => ({ mute: voiceService.serverMute, deaf: voiceService.serverDeaf }));
   const { openVoiceUserMenu, voiceUserMenu } = useVoiceUserMenu({ serverId, channelId });
 
-  const roomId = `channel-${channelId}`;
+  const roomId = `channel-${channelId.toLowerCase()}`;
 
   useEffect(() => {
     if (user?.id) {

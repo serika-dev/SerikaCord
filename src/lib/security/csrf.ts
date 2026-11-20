@@ -26,3 +26,66 @@ export function isCrossSiteWrite(
   if (host && (origin === `https://${host}` || origin === `http://${host}`)) return false;
   return !allowedOrigins.includes(origin);
 }
+
+/**
+ * First-party app hosts whose https subdomains (canary.serika.chat,
+ * www.serika.chat, ...) may make credentialed CORS calls to the API. Other
+ * subdomains of allowed origins (other *.serika.dev apps, user-content hosts)
+ * must be listed exactly in ALLOWED_ORIGINS.
+ */
+export const CORS_SUBDOMAIN_BASES: readonly string[] = ['serika.chat'];
+
+export type CorsOriginPolicy = {
+  /** Exact origins (scheme + host + port), e.g. config.ALLOWED_ORIGINS. */
+  allowedOrigins: readonly string[];
+  /** Hosts whose https subdomains are trusted. */
+  subdomainBases: readonly string[];
+  /** Hosts never trusted, even when they match a base (the CDN serves user uploads). */
+  blockedHosts?: readonly string[];
+  /** localhost / 127.0.0.1 / [::1] origins; off in production. */
+  allowLocalhost: boolean;
+};
+
+/** Lowercased hostname of a URL, or '' when it doesn't parse. */
+export function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return '';
+  }
+}
+
+function isLocalHost(host: string): boolean {
+  return host === 'localhost' || host === '127.0.0.1' || host === '[::1]' || host.endsWith('.localhost');
+}
+
+/** Whether a browser Origin may make credentialed CORS requests to the API. */
+export function isAllowedCorsOrigin(origin: string, policy: CorsOriginPolicy): boolean {
+  let url: URL;
+  try {
+    url = new URL(origin);
+  } catch {
+    return false; // includes the opaque "null" origin
+  }
+  if (url.protocol !== 'https:' && url.protocol !== 'http:') return false;
+  const host = url.hostname.toLowerCase();
+  if (!host) return false;
+  if (policy.blockedHosts?.some((h) => h && h.toLowerCase() === host)) return false;
+  if (isLocalHost(host) && !policy.allowLocalhost) return false;
+
+  for (const allowed of policy.allowedOrigins) {
+    const trimmed = allowed.trim();
+    if (!trimmed) continue;
+    try {
+      if (new URL(trimmed).origin === url.origin) return true;
+    } catch {
+      // ignore malformed config entries
+    }
+  }
+
+  if (url.protocol !== 'https:') return false;
+  return policy.subdomainBases.some((base) => {
+    const b = base.trim().toLowerCase();
+    return b !== '' && host.endsWith(`.${b}`);
+  });
+}

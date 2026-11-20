@@ -47,6 +47,7 @@ import { signalChannelMessage } from '@/lib/services/messageSignals';
 import {
   addThreadMembers,
   broadcastThreadUpdate,
+  deleteChildThreads,
   threadCreateEvent,
   claimStarterMessage,
   loadThreadSummaries,
@@ -71,7 +72,8 @@ import { isChannelAccessibleWhilePending } from '@/lib/servers/community';
 import { containsLink, type VerificationAction } from '@/lib/servers/verification';
 import { audit } from '@/lib/services/auditLog';
 import { AuditLogEvent, CHANNEL_AUDIT_KEYS, auditReason, diffChanges, diffOverwrites, snapshotChanges } from '@/lib/audit/auditLog';
-import { childrenToResync, normalizeOverwrites, overwritesInSync } from '@/lib/permissions/overwriteEditor';
+import { childrenToResync, normalizeOverwrites, overwritesInSync, type EditableOverwrite } from '@/lib/permissions/overwriteEditor';
+import { buildActorContext, rolePosition, topRolePosition, type HierarchyRole } from '@/lib/permissions/roleHierarchy';
 import { CHANNEL_FLAGS } from '@/lib/botapi/threadRules';
 import { e2eeMismatch, storedEnvelope } from '@/lib/services/e2ee';
 
@@ -98,61 +100,54 @@ const PERM_CREATE_PRIVATE_THREADS = PERMISSION_BITS.CREATE_PRIVATE_THREADS;
 const PERM_MANAGE_THREADS = PERMISSION_BITS.MANAGE_THREADS;
 
 /**
- * Whether a user can moderate messages in a server — i.e. delete other people's
- * messages / bulk-clear. True for the server owner or anyone whose roles grant
- * MANAGE_MESSAGES or ADMINISTRATOR.
+ * A member's permission bitfield in `channel` for message moderation, with the
+ * channel's overwrites applied (a thread's parent's), so an overwrite that
+ * denies or allows MANAGE_MESSAGES / PIN_MESSAGES there counts. Owner and
+ * ADMINISTRATOR get everything; a non-member gets 0.
  */
-async function canManageMessagesInServer(
-  serverId: string | null | undefined,
+async function moderationPermissionsIn(
+  channel: PermissionChannel,
   userId: string,
   membership?: { roles?: string[] | null } | null,
-): Promise<boolean> {
-  if (!serverId) return false;
-  // Try Redis cache for server owner to avoid a DB round-trip
-  const cachedOwner = await cache.get<string>(`server:owner:${serverId}`);
-  const [server, member] = await Promise.all([
-    cachedOwner ? null : Server.findById(serverId),
-    membership ?? ServerMember.findOne({ serverId, userId }),
-  ]);
-  const serverOwnerId = cachedOwner || server?.ownerId;
-  if (serverOwnerId && compareIds(serverOwnerId, userId)) return true;
-  const roleIds = (member?.roles || []) as string[];
-  if (roleIds.length === 0) return false;
-  // Use cached role permissions instead of raw Role.find
-  const rolePerms = await getRolePermissions(roleIds, serverId);
-  for (const [, perms] of rolePerms) {
-    if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
-    if ((perms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES) return true;
+): Promise<bigint> {
+  if (!channel.serverId) return 0n;
+  const member = membership !== undefined
+    ? membership
+    : await ServerMember.findOne({ serverId: channel.serverId, userId });
+  if (!member) {
+    const ownerId = await getServerOwnerIdCached(channel.serverId);
+    if (!ownerId || !compareIds(ownerId, userId)) return 0n;
   }
-  return false;
+  return memberPermissionsIn(channel, userId, member ?? null);
 }
 
 /**
- * Whether a user can pin/unpin messages in a server — true for the server owner
- * or anyone whose roles grant PIN_MESSAGES, MANAGE_MESSAGES, or ADMINISTRATOR.
+ * Whether a user can moderate messages in a server channel — i.e. delete
+ * other people's messages / bulk-clear. True for the server owner,
+ * ADMINISTRATOR, or MANAGE_MESSAGES after the channel's overwrites.
  */
-async function canPinMessagesInServer(
-  serverId: string | null | undefined,
+async function canManageMessagesIn(
+  channel: PermissionChannel,
   userId: string,
   membership?: { roles?: string[] | null } | null,
 ): Promise<boolean> {
-  if (!serverId) return false;
-  const cachedOwner = await cache.get<string>(`server:owner:${serverId}`);
-  const [server, member] = await Promise.all([
-    cachedOwner ? null : Server.findById(serverId),
-    membership ?? ServerMember.findOne({ serverId, userId }),
-  ]);
-  const serverOwnerId = cachedOwner || server?.ownerId;
-  if (serverOwnerId && compareIds(serverOwnerId, userId)) return true;
-  const roleIds = (member?.roles || []) as string[];
-  if (roleIds.length === 0) return false;
-  const rolePerms = await getRolePermissions(roleIds, serverId);
-  for (const [, perms] of rolePerms) {
-    if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
-    if ((perms & PERM_MANAGE_MESSAGES) === PERM_MANAGE_MESSAGES) return true;
-    if ((perms & PERM_PIN_MESSAGES) === PERM_PIN_MESSAGES) return true;
-  }
-  return false;
+  if (!channel.serverId) return false;
+  return hasPermissionBit(await moderationPermissionsIn(channel, userId, membership), PERM_MANAGE_MESSAGES);
+}
+
+/**
+ * Whether a user can pin/unpin messages in a server channel — true for the
+ * server owner, ADMINISTRATOR, or PIN_MESSAGES / MANAGE_MESSAGES after the
+ * channel's overwrites.
+ */
+async function canPinMessagesIn(
+  channel: PermissionChannel,
+  userId: string,
+  membership?: { roles?: string[] | null } | null,
+): Promise<boolean> {
+  if (!channel.serverId) return false;
+  const perms = await moderationPermissionsIn(channel, userId, membership);
+  return hasPermissionBit(perms, PERM_PIN_MESSAGES) || hasPermissionBit(perms, PERM_MANAGE_MESSAGES);
 }
 
 // The @everyone (isDefault) role id per server. It never changes for a server,
@@ -188,12 +183,14 @@ type PermissionChannel = {
 
 /**
  * Threads have no overwrites of their own: they inherit the parent channel's.
- * Returns the channel whose overwrites govern `channel`.
+ * Returns the channel whose overwrites govern `channel`, or null for a thread
+ * whose parent is gone: its own (empty) overwrites would make a private
+ * channel's thread readable by everyone, so callers fail closed.
  */
-async function permissionSourceFor(channel: PermissionChannel): Promise<PermissionChannel> {
-  if ((channel.type === 'public_thread' || channel.type === 'private_thread') && channel.parentId) {
-    const parent = await Channel.findById(channel.parentId);
-    if (parent) return parent;
+async function permissionSourceFor(channel: PermissionChannel): Promise<PermissionChannel | null> {
+  if (channel.type === 'public_thread' || channel.type === 'private_thread') {
+    const parent = channel.parentId ? await Channel.findById(channel.parentId) : null;
+    return parent ?? null;
   }
   return channel;
 }
@@ -245,6 +242,7 @@ async function memberPermissionsIn(
     permissionSourceFor(channel),
     getServerOwnerIdCached(channel.serverId),
   ]);
+  if (!source) return 0n; // orphaned thread: nobody holds anything in it
   return computeMemberChannelPermissions(source, userId, membership ?? null, serverOwnerId);
 }
 
@@ -265,6 +263,7 @@ export async function getMemberChannelPermissions(
     membership !== undefined ? Promise.resolve(membership) : ServerMember.findOne({ serverId: channel.serverId, userId }),
   ]);
   if (!member && !(serverOwnerId && compareIds(serverOwnerId, userId))) return 0n;
+  if (!source) return 0n; // orphaned thread
   return computeMemberChannelPermissions(source, userId, member ?? null, serverOwnerId);
 }
 
@@ -279,6 +278,72 @@ export async function everyoneCanViewServer(serverId: string): Promise<boolean> 
   if (!everyoneRoleId) return true; // no @everyone row: the default permissions apply (they include it)
   const perms = (await getRolePermissions([everyoneRoleId], serverId)).get(everyoneRoleId);
   return perms == null || hasPermissionBit(perms, PERM_VIEW_CHANNEL);
+}
+
+/**
+ * Limits on a channel overwrite edit by someone who isn't the server owner or
+ * an administrator: every allow / deny bit they change must be one they hold in
+ * the channel, role overwrites (other than @everyone) must target roles below
+ * their highest role, and member overwrites must target members ranked below
+ * them; on their own overwrite they may only take permissions away. Returns
+ * the error to reply with, or null when the edit is allowed.
+ */
+async function checkOverwriteEditScope(opts: {
+  channel: PermissionChannel;
+  serverId: string;
+  serverOwnerId: string | null;
+  userId: string;
+  membership: { roles?: string[] | null } | null;
+  previous: EditableOverwrite[];
+  next: EditableOverwrite[];
+}): Promise<string | null> {
+  const { channel, serverId, serverOwnerId, userId, membership } = opts;
+  const serverRoles = (await Role.find({ serverId })) as IRole[];
+  const actor = buildActorContext(false, (membership?.roles || []) as string[], serverRoles as HierarchyRole[]);
+  if (actor.isAdmin) return null;
+  const channelPerms = await memberPermissionsIn(channel, userId, membership);
+  const rolesById = new Map(serverRoles.map((r) => [String(r.id).toLowerCase(), r]));
+  const toBits = (v: string | null | undefined) => {
+    try { return BigInt(v || '0'); } catch { return 0n; }
+  };
+  const keyOf = (o: EditableOverwrite) => `${o.type}:${o.id.toLowerCase()}`;
+  const before = new Map(opts.previous.map((o) => [keyOf(o), o]));
+  const after = new Map(opts.next.map((o) => [keyOf(o), o]));
+  for (const key of new Set([...before.keys(), ...after.keys()])) {
+    const o = before.get(key);
+    const n = after.get(key);
+    const target = (n ?? o) as EditableOverwrite;
+    const oa = toBits(o?.allow), od = toBits(o?.deny), na = toBits(n?.allow), nd = toBits(n?.deny);
+    const changed = (oa ^ na) | (od ^ nd);
+    if (changed === 0n) continue;
+    if ((changed & ~channelPerms) !== 0n) {
+      return 'You can only allow or deny permissions you have in this channel';
+    }
+    if (target.type === 'role') {
+      if (compareIds(target.id, serverId)) continue; // @everyone (older spelling)
+      const role = rolesById.get(target.id.toLowerCase());
+      if (!role || role.isDefault) continue; // @everyone, or a deleted role's leftover
+      if (rolePosition(role) >= actor.topPosition) {
+        return 'You can only edit permissions for roles below your highest role';
+      }
+      continue;
+    }
+    if (compareIds(target.id, userId)) {
+      // Their own overwrite: only taking permissions away (adding a deny or
+      // dropping an allow); anything else would grant themselves access.
+      if (((na & ~oa) | (od & ~nd)) !== 0n) return 'You cannot grant yourself permissions';
+      continue;
+    }
+    if (serverOwnerId && compareIds(target.id, serverOwnerId)) {
+      return 'You can only edit permissions for members below your highest role';
+    }
+    const targetMember = await ServerMember.findOne({ serverId, userId: target.id });
+    const targetTop = topRolePosition((targetMember?.roles || []) as string[], serverRoles as HierarchyRole[]);
+    if (targetTop >= actor.topPosition) {
+      return 'You can only edit permissions for members below your highest role';
+    }
+  }
+  return null;
 }
 
 /** Whether a user can view a channel (VIEW_CHANNEL after base perms + overwrites). */
@@ -345,6 +410,7 @@ export async function checkCanSpeak(
   if (restricted) return restricted;
   if (unverified) return unverified;
   if (actions.length === 0) return null;
+  if (!source) return { status: 404, body: { error: 'Channel not found' } }; // orphaned thread
   const perms = await computeMemberChannelPermissions(source, userId, membership ?? null, serverOwnerId);
   // Threads speak with SEND_MESSAGES_IN_THREADS (resolved on the parent), as in Discord.
   const inThread = channel.type === 'public_thread' || channel.type === 'private_thread';
@@ -472,59 +538,20 @@ async function loadManageableWebhook(
 
 /**
  * Whether a member may use @everyone/@here, and mention roles that aren't mentionable, in a
- * channel. Server-level permissions come from all their roles (always including the
- * server's @everyone role), then the channel's overwrites apply in Discord's order:
- * @everyone, then the member's roles together, then the member. Owners and administrators
- * always may.
+ * channel: MENTION_EVERYONE after base role permissions (always including the server's
+ * @everyone role) and the channel's overwrites in Discord's order. Threads resolve against
+ * their parent's overwrites (a thread row has none, so a parent's deny used to be skipped);
+ * an orphaned thread grants nothing. Owners and administrators always may.
  */
 export async function canMentionEveryoneInChannel(
-  channel: { permissionOverwrites?: any[]; serverId?: string | null },
+  channel: PermissionChannel,
   userId: string,
 ): Promise<boolean> {
   const serverId = channel.serverId;
   if (!serverId) return true; // DMs and group DMs have no such permission
-
-  const cachedOwner = await cache.get<string>(`server:owner:${serverId}`);
-  const [server, member, everyoneRole] = await Promise.all([
-    cachedOwner ? null : Server.findById(serverId),
-    ServerMember.findOne({ serverId, userId }),
-    Role.findOne({ serverId, isDefault: true }),
-  ]);
-  const ownerId = cachedOwner || server?.ownerId;
-  if (ownerId && compareIds(ownerId, userId)) return true;
-
-  const roleIds = Array.from(new Set([
-    ...(everyoneRole ? [everyoneRole.id as string] : []),
-    ...(((member?.roles || []) as string[])),
-  ]));
-  let perms = 0n;
-  for (const [, rolePerms] of await getRolePermissions(roleIds, serverId)) perms |= rolePerms;
-  if ((perms & PERM_ADMINISTRATOR) === PERM_ADMINISTRATOR) return true;
-
-  const overwrites = (channel.permissionOverwrites || []) as Array<{ id: string; type: string; allow?: string; deny?: string }>;
-  const apply = (allow: bigint, deny: bigint) => { perms = (perms & ~deny) | allow; };
-
-  // The @everyone overwrite is keyed by the server id in some places and the role id in others.
-  const everyoneOverwrite = overwrites.find((o) => o.type === 'role'
-    && (o.id === serverId || (everyoneRole && o.id === everyoneRole.id)));
-  if (everyoneOverwrite) apply(BigInt(everyoneOverwrite.allow || '0'), BigInt(everyoneOverwrite.deny || '0'));
-
-  let roleAllow = 0n;
-  let roleDeny = 0n;
-  for (const roleId of (member?.roles || []) as string[]) {
-    if (everyoneRole && roleId === everyoneRole.id) continue;
-    const overwrite = overwrites.find((o) => o.type === 'role' && o.id === roleId);
-    if (overwrite) {
-      roleAllow |= BigInt(overwrite.allow || '0');
-      roleDeny |= BigInt(overwrite.deny || '0');
-    }
-  }
-  apply(roleAllow, roleDeny);
-
-  const memberOverwrite = overwrites.find((o) => o.type === 'member' && o.id === userId);
-  if (memberOverwrite) apply(BigInt(memberOverwrite.allow || '0'), BigInt(memberOverwrite.deny || '0'));
-
-  return (perms & PERM_MENTION_EVERYONE) === PERM_MENTION_EVERYONE;
+  const member = await ServerMember.findOne({ serverId, userId });
+  const perms = await memberPermissionsIn(channel, userId, member);
+  return hasPermissionBit(perms, PERM_MENTION_EVERYONE);
 }
 
 /**
@@ -534,7 +561,7 @@ export async function canMentionEveryoneInChannel(
  */
 export async function limitMentionsToPermissions<T extends { mentionEveryone: boolean; mentionedRoleIds: string[] }>(
   mentions: T,
-  channel: { permissionOverwrites?: any[]; serverId?: string | null },
+  channel: PermissionChannel,
   userId: string,
 ): Promise<T> {
   if (!channel.serverId) return mentions;
@@ -907,6 +934,12 @@ export async function checkChannelAccess(userId: string, channelId: string, opts
       return { hasAccess: false, error: 'You are not a member of this server' };
     }
 
+    // A thread whose parent is gone has no overwrites to inherit: fail closed
+    // rather than fall back to its own empty list (visible to everyone).
+    if (isThread && !parent) {
+      return { hasAccess: false, error: 'Channel not found' };
+    }
+
     // Private threads / tickets: only the creator, explicit members, holders of a
     // configured ticket-access role, or server staff (owner) may view.
     if (channel.type === 'private_thread') {
@@ -985,6 +1018,7 @@ export async function listViewableServerChannels(userId: string, serverId: strin
     if (channel.type === 'category' || channel.type === 'dm' || channel.type === 'group_dm') continue;
     const isThread = channel.type === 'public_thread' || channel.type === 'private_thread';
     const parent = isThread && channel.parentId ? byId.get(channel.parentId) ?? null : null;
+    if (isThread && !parent) continue; // orphaned thread: fail closed
     if (pendingAccess && !isChannelAccessibleWhilePending(channel, parent, pendingAccess)) continue;
     if (channel.type === 'private_thread' && !isOwner) {
       const isCreator = compareIds(channel.ownerId ?? '', userId);
@@ -1033,6 +1067,7 @@ export async function filterUsersWhoCanViewChannel(
     getServerOwnerIdCached(serverId).catch(() => null),
     isThread && channel.parentId ? Channel.findById(channel.parentId).catch(() => null) : Promise.resolve(null),
   ]);
+  if (isThread && !parent) return []; // orphaned thread: fail closed
   const byUser = new Map(memberships.map((m) => [normalizeId(m.userId), m]));
   const source = parent ?? channel;
   const overwriteSource = { permissionOverwrites: (source.permissionOverwrites || []) as ChannelOverwrite[], serverId };
@@ -1146,8 +1181,9 @@ async function filterByPermissions<C extends ViewableCandidate>(
   if (missingParentIds.length > 0) {
     for (const p of await Channel.find({ id: { in: missingParentIds } })) byId.set(p.id, p);
   }
-  const sourceOf = (c: ViewableCandidate): ViewableCandidate =>
-    (isThread(c) && c.parentId ? byId.get(c.parentId) : undefined) ?? c;
+  // Null for a thread whose parent is gone: denied (fail closed), never its own empty overwrites.
+  const sourceOf = (c: ViewableCandidate): ViewableCandidate | null =>
+    isThread(c) ? (c.parentId ? byId.get(c.parentId) ?? null : null) : c;
 
   // Every server channel: a channel without overwrites still follows the
   // server-wide @everyone / role VIEW_CHANNEL (one computation per server).
@@ -1180,6 +1216,7 @@ async function filterByPermissions<C extends ViewableCandidate>(
       const serverOwnerId = ownerByServer.get(serverId) ?? null;
       const isServerOwner = Boolean(serverOwnerId && compareIds(serverOwnerId, userId));
       const source = sourceOf(channel);
+      if (!source) return false;
       if (channel.type === 'private_thread' && !isServerOwner) {
         const isCreator = compareIds(channel.ownerId ?? '', userId);
         const isMember = (channel.threadMemberIds || []).some((m) => compareIds(m, userId));
@@ -1688,6 +1725,14 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: error || 'Access denied' };
     }
 
+    // DMs and group DMs aren't edited here: every check below is server-scoped,
+    // so any recipient could change their fields silently. Group renames go
+    // through PATCH /group-dms/:id (rate limit + system notice).
+    if (channel.type === 'dm' || channel.type === 'group_dm' || !channel.serverId) {
+      set.status = 400;
+      return { error: 'Cannot edit DM channels' };
+    }
+
     const isThread = channel.type === 'public_thread' || channel.type === 'private_thread';
 
     // Check permissions (owner or manage channels). Thread owners may manage
@@ -1778,6 +1823,23 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
         if (roleIds.some((id) => !own.has(id.toLowerCase()))) {
           set.status = 400;
           return { error: 'Unknown role in permission overwrites' };
+        }
+      }
+      // Manage Roles alone doesn't let someone hand out what they don't hold
+      // or edit roles / members at or above them (Discord's rules).
+      if (overwritesChanged && !isServerOwner && channel.serverId) {
+        const scopeError = await checkOverwriteEditScope({
+          channel,
+          serverId: channel.serverId,
+          serverOwnerId: editServer?.ownerId ?? null,
+          userId: user.id,
+          membership: editorMembership ?? null,
+          previous: normalizeOverwrites(channel.permissionOverwrites),
+          next: cleaned,
+        });
+        if (scopeError) {
+          set.status = 403;
+          return { error: scopeError };
         }
       }
       updateData.permissionOverwrites = cleaned;
@@ -2022,12 +2084,13 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       }))),
       forumMode: t.Optional(t.Union([t.Literal('posts'), t.Literal('tickets')])),
       ticketAccessRoleIds: t.Optional(t.Array(t.String())),
+      // At most 20 tags, like Discord.
       availableTags: t.Optional(t.Array(t.Object({
-        id: t.Optional(t.String()),
+        id: t.Optional(t.String({ maxLength: 64 })),
         name: t.String({ minLength: 1, maxLength: 40 }),
         moderated: t.Optional(t.Boolean()),
-        emojiName: t.Optional(t.String()),
-      }))),
+        emojiName: t.Optional(t.String({ maxLength: 64 })),
+      }), { maxItems: 20 })),
       archived: t.Optional(t.Boolean()),
       locked: t.Optional(t.Boolean()),
       autoArchiveDuration: t.Optional(t.Number()),
@@ -2095,9 +2158,17 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       : [];
     await Promise.all(orphaned.map((child) => Channel.updateById(child.id, { parentId: null })));
 
+    // Its threads go with it (fail-closed access checks cover any left behind).
+    const deletedThreadIds = deletingThread
+      ? []
+      : await deleteChildThreads(channel).catch((err: Error) => {
+        console.error('[channels] Deleting child threads failed:', err?.message ?? err);
+        return [] as string[];
+      });
+
     await Channel.deleteById(channel.id);
     // Sidebars drop it live; its open streams end on the next check.
-    if (!deletingThread && channel.serverId) channelAccessChanged(channel.serverId, { channelIds: [channel.id] });
+    if (!deletingThread && channel.serverId) channelAccessChanged(channel.serverId, { channelIds: [channel.id, ...deletedThreadIds] });
 
     // A deleted thread: its starter loses the chip, members' sidebars drop it.
     if (deletingThread && channel.parentId) {
@@ -3615,7 +3686,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // DMs (no serverId): both participants can pin. Server channels: require
     // PIN_MESSAGES, MANAGE_MESSAGES, ADMINISTRATOR, or ownership.
     if (channel.serverId) {
-      const canPin = await canPinMessagesInServer(channel.serverId, user.id);
+      const canPin = await canPinMessagesIn(channel, user.id);
       if (!canPin) {
         set.status = 403;
         return { error: 'Missing Permissions' };
@@ -3680,7 +3751,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     // DMs (no serverId): both participants can unpin. Server channels: require
     // PIN_MESSAGES, MANAGE_MESSAGES, ADMINISTRATOR, or ownership.
     if (channel.serverId) {
-      const canPin = await canPinMessagesInServer(channel.serverId, user.id);
+      const canPin = await canPinMessagesIn(channel, user.id);
       if (!canPin) {
         set.status = 403;
         return { error: 'Missing Permissions' };
@@ -3931,7 +4002,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     const isAuthor = compareIds(message.authorId, user.id);
     if (!isAuthor) {
       if (channel.serverId) {
-        const canManage = await canManageMessagesInServer(channel.serverId, user.id);
+        const canManage = await canManageMessagesIn(channel, user.id);
         if (!canManage) {
           set.status = 403;
           return { error: 'You do not have permission to suppress embeds on this message' };
@@ -3993,7 +4064,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
     let hasPermission = isAuthor;
 
     if (!isAuthor && channel.serverId) {
-      hasPermission = await canManageMessagesInServer(channel.serverId, user.id);
+      hasPermission = await canManageMessagesIn(channel, user.id);
     }
 
     if (!hasPermission) {
@@ -4037,7 +4108,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: error || 'Access denied' };
     }
 
-    if (!channel.serverId || !(await canManageMessagesInServer(channel.serverId, user.id))) {
+    if (!channel.serverId || !(await canManageMessagesIn(channel, user.id))) {
       set.status = 403;
       return { error: 'You do not have permission to manage messages' };
     }
@@ -4394,7 +4465,7 @@ export const channelRoutes = new Elysia({ prefix: '/channels' })
       return { error: error || 'Access denied' };
     }
     const isSelf = compareIds(params.userId, user.id);
-    if (!isSelf && !(channel.serverId && (await canManageMessagesInServer(channel.serverId, user.id, membership)))) {
+    if (!isSelf && !(channel.serverId && (await canManageMessagesIn(channel, user.id, membership)))) {
       set.status = 403;
       return { error: 'You do not have permission to remove reactions' };
     }

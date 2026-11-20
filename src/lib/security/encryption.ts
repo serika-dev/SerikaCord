@@ -61,6 +61,7 @@ function cacheSet(cipher: string, plain: string): void {
  * Encrypt a message with the platform encryption key.
  * New format: version(1) + iv(16) + authTag(16) + ciphertext → base64
  * This uses a pre-derived SHA-256 key (microseconds) instead of scrypt (seconds).
+ * Throws when encryption is unavailable (e.g. the key can't be loaded).
  */
 export async function encryptMessage(plaintext: string): Promise<string> {
   if (!plaintext) return '';
@@ -78,8 +79,10 @@ export async function encryptMessage(plaintext: string): Promise<string> {
     const combined = Buffer.concat([Buffer.from([VERSION_BYTE]), iv, authTag, encrypted]);
     return combined.toString('base64');
   } catch (error) {
+    // Never fall back to storing plaintext: fail the write instead (the
+    // calling route answers 500 and nothing unencrypted reaches the DB).
     console.error('Failed to encrypt message:', error);
-    return plaintext;
+    throw new Error('Message encryption failed');
   }
 }
 

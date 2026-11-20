@@ -4210,9 +4210,13 @@ export const botApiRoutes = new Elysia({ prefix: '/v10' })
   if (!webhook) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
   const isCreator = !!webhook.creatorId && compareIds(webhook.creatorId, auth.botUser.id);
   if (!isCreator) {
-    const g = webhook.serverId ? await loadBotGuild(webhook.serverId, auth.botUser.id) : null;
-    if (!g || !g.ok) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
-    if (!standingHas(g.standing, P.MANAGE_WEBHOOKS)) { set.status = 403; return MISSING_PERMISSIONS; }
+    // Same rule as PATCH: MANAGE_WEBHOOKS (and VIEW_CHANNEL) in the webhook's
+    // channel, channel overwrites applied, not just the guild-level permission.
+    if (!webhook.serverId || !webhook.channelId) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+    const g = await loadBotGuild(webhook.serverId, auth.botUser.id);
+    if (!g.ok) { set.status = 404; return { code: 10015, message: 'Unknown Webhook' }; }
+    const c = await requireChannelAction(webhook.channelId, auth.botUser.id, 'manage_webhooks');
+    if (!c.ok) { set.status = c.status === 403 ? 403 : 404; return c.status === 403 ? c.body : { code: 10015, message: 'Unknown Webhook' }; }
   }
   const { removeWebhook } = await import('@/lib/services/channelWebhooks');
   await removeWebhook(webhook);

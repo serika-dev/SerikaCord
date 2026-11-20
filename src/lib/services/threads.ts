@@ -217,6 +217,63 @@ export async function releaseThreadMessages(threadId: string, parentId: string):
     ));
 }
 
+/**
+ * A deleted channel takes its threads (text-channel threads, forum posts,
+ * tickets) with it. Left behind they pointed at a missing parent, and the
+ * access checks fell back to the thread's own empty overwrites, so a private
+ * channel's threads became readable by every member. Soft-deletes their
+ * messages (the retention purge erases them later), drops their search index
+ * rows, removes the rows, and tells the members of active threads (sidebars)
+ * and the bots that could see them (THREAD_DELETE). Call it before the parent
+ * row goes: bot audiences resolve through the parent. Returns the deleted ids.
+ */
+export async function deleteChildThreads(parent: { id: string; serverId?: string | null; type?: string | null }): Promise<string[]> {
+  if (isThreadType(parent.type)) return [];
+  const c = schema.channels;
+  const threads = await db
+    .select()
+    .from(c)
+    .where(and(eq(c.parentId, normalizeId(parent.id)), inArray(c.type, ['public_thread', 'private_thread'])));
+  if (threads.length === 0) return [];
+  const ids = threads.map((t) => t.id);
+  const serverId = parent.serverId ?? null;
+  // Bots only track active threads; capture who sees them while the parent exists.
+  const active = threads.filter((t) => !t.archived);
+  const viewersBefore = serverId && active.length > 0
+    ? await import('@/lib/services/guildGatewayEvents')
+      .then((m) => m.captureChannelViewers(serverId, active.map((t) => t.id)))
+      .catch(() => undefined)
+    : undefined;
+
+  const now = new Date();
+  for (let i = 0; i < ids.length; i += 500) {
+    const chunk = ids.slice(i, i + 500);
+    await db
+      .update(schema.messages)
+      .set({ isDeleted: true, deletedAt: now })
+      .where(and(inArray(schema.messages.channelId, chunk), sql`${schema.messages.isDeleted} IS NOT TRUE`));
+  }
+  // The bulk update skips the Message model's index hook, so drop them here.
+  await import('@/lib/services/messageSearch')
+    .then((m) => m.removeChannelsFromSearchIndex(ids))
+    .catch(() => { /* orphaned rows never match: search joins live messages */ });
+  for (let i = 0; i < ids.length; i += 500) {
+    await db.delete(c).where(inArray(c.id, ids.slice(i, i + 500)));
+  }
+
+  void import('@/lib/botapi/threadMemberJoins')
+    .then((m) => Promise.all(ids.map((id) => m.clearThreadJoins(id))))
+    .catch(() => {});
+  if (active.length > 0) {
+    const { emitThreadDelete } = await import('@/lib/services/gatewayEvents');
+    for (const t of active) {
+      void emitThreadDelete(t, viewersBefore).catch(() => {});
+      notifyThreadMembership(serverId, t.id, (t.threadMemberIds || []) as string[]);
+    }
+  }
+  return ids;
+}
+
 // ─── Membership ───────────────────────────────────────────────────────────────
 /**
  * Bot gateway side of a membership change (every add / remove goes through
