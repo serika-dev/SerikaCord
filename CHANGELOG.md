@@ -25,7 +25,7 @@
 - Bots stay in voice through our deploys and restarts: their voice and gateway connections resume on the new server instead of dropping, so music bots keep playing.
 - Encrypted messages now allow up to 15 devices, and a device unused for a week is retired automatically when you set up a new one, so clearing a browser's data no longer locks you out at the device limit.
 - Logging out a device (or all other devices) in Settings → Devices now really signs it out; before, the device stayed signed in.
-- YouTube videos in messages bridged from Discord now show a click-to-play YouTube player instead of a blank video player.
+- YouTube links in messages bridged from Discord now show the same YouTube embed as links posted on SerikaCord, instead of Discord's card with a blank video player.
 
 ### Performance
 

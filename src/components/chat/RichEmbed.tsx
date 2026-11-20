@@ -7,8 +7,22 @@ import { decodeHtmlEntities } from "@/lib/chat/messages";
 import { isGifUrl } from "@/lib/chat/media";
 import { MessageContent } from "@/components/chat/MessageContent";
 import { AppAnchor } from "@/components/chat/AppAnchor";
-import { embedPlayerSrc, isDirectVideoUrl } from "@/lib/security/embedPlayer";
+import dynamic from "next/dynamic";
+import { embedPlayerSrc, isDirectVideoUrl, parseYouTubeVideoId } from "@/lib/security/embedPlayer";
 import { useChatGt } from "./ChatGtContext";
+
+// SerikaCord's own link preview (its chunk loads with the first one shown).
+const LinkPreview = dynamic(() => import("@/components/chat/LinkEmbed").then((m) => m.LinkPreview), { ssr: false });
+
+/**
+ * The YouTube video id of a link unfurl (Discord's own YouTube card, e.g. on
+ * messages bridged from Discord), or null. Bot-authored rich embeds keep their
+ * own layout; only unfurls are swapped for SerikaCord's YouTube embed.
+ */
+function youTubeUnfurlId(embed: MessageEmbed): string | null {
+  if (embed.type !== "video" && embed.type !== "link") return null;
+  return parseYouTubeVideoId(embed.url) ?? parseYouTubeVideoId(embed.video?.url);
+}
 
 /** Message-level data needed so embed text supports the same features as
  *  normal message content: mentions, custom emoji, spoilers, `<t:...>`
@@ -313,9 +327,14 @@ export const RichEmbed = memo(function RichEmbed({ embeds, onMediaClick, ...ctx 
   // Cap the number of rendered embeds to match Discord (max 10).
   return (
     <div className="flex flex-col">
-      {filtered.slice(0, 10).map((embed, i) => (
-        <SingleEmbed key={i} embed={embed} onMediaClick={onMediaClick} ctx={ctx} />
-      ))}
+      {filtered.slice(0, 10).map((embed, i) => {
+        // A YouTube unfurl looks and plays exactly like a YouTube link posted here.
+        const youTubeId = youTubeUnfurlId(embed);
+        if (youTubeId) {
+          return <LinkPreview key={i} url={`https://www.youtube.com/watch?v=${youTubeId}`} onMediaClick={onMediaClick} />;
+        }
+        return <SingleEmbed key={i} embed={embed} onMediaClick={onMediaClick} ctx={ctx} />;
+      })}
     </div>
   );
 });
