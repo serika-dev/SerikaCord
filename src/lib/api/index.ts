@@ -66,6 +66,7 @@ import { getServerBuildTime } from '@/lib/versionServer';
 import { filterVisibleConnections, isSelfDeclarableProvider, toOwnConnection } from '@/lib/connections/policy';
 import { MAX_DOMAINS_PER_USER, createDomainToken, filterUnverifiedDomains, newDomainMetadata, normalizeDomain, ownDomainStatus, readDomainVerification, verifiedDomainMetadata } from '@/lib/connections/domain';
 import { mutateFriendPair, type FriendPairOutcome } from '@/lib/services/friendPairLock';
+import { reconcileFriendGraph } from '@/lib/services/friendGraph';
 import { addId, dedupeIds, hasId, removeId } from '@/lib/social/friendLists';
 import { normalizeDisplayName } from '@/lib/utils/normalizeDisplayName';
 import { db, schema } from '@/lib/db/postgres';
@@ -341,17 +342,24 @@ function finishFriendMutation(
     set.status = 404;
     return { error: 'User not found' };
   }
-  if (outcome.changed) {
-    emitFriendEvent([normalizeId(meId), normalizeId(targetId)], { type: 'friends:update', timestamp: Date.now() });
-    // Every open session (any instance) refreshes its friends / blocked lists,
-    // which drive the user menus, blocked-message rows and message requests.
-    void import('@/lib/api/activity')
-      .then(({ fanoutToUsers }) => fanoutToUsers({ userIds: [normalizeId(meId), normalizeId(targetId)] }, { type: 'relationships_changed' }))
-      .catch(() => {});
-  }
+  if (outcome.changed) notifyRelationshipsChanged([meId, targetId]);
   if (outcome.status) set.status = outcome.status;
   return outcome.body;
 }
+
+/** Tell these users' friend streams and open sessions that their friend lists changed. */
+function notifyRelationshipsChanged(userIds: string[]): void {
+  const ids = [...new Set(userIds.map(normalizeId))];
+  emitFriendEvent(ids, { type: 'friends:update', timestamp: Date.now() });
+  // Every open session (any instance) refreshes its friends / blocked lists,
+  // which drive the user menus, blocked-message rows and message requests.
+  void import('@/lib/api/activity')
+    .then(({ fanoutToUsers }) => fanoutToUsers({ userIds: ids }, { type: 'relationships_changed' }))
+    .catch(() => {});
+}
+
+/** How long GET /friends waits for the Serika Accounts graph merge before answering anyway. */
+const FRIEND_GRAPH_READ_WAIT_MS = 1500;
 
 // ─── Custom status (emoji + "Clear after") ───────────────────────────────────
 // Text stays in users.custom_status; emoji + expiry live in customization (see
@@ -3185,6 +3193,14 @@ const friendsRoutes = new Elysia({ prefix: '/friends' })
       set.status = 401;
       return { error: authError || 'Unauthorized' };
     }
+    // Pull in friendships / requests made in other Serika apps (and re-push
+    // anything a failed mirror missed). Throttled per user; a slow or down
+    // accounts service only delays this response by FRIEND_GRAPH_READ_WAIT_MS,
+    // and anything imported later reaches the client as relationships_changed.
+    await Promise.race([
+      reconcileFriendGraph(authUser.id, { onLocalChange: notifyRelationshipsChanged }),
+      new Promise((resolve) => setTimeout(resolve, FRIEND_GRAPH_READ_WAIT_MS)),
+    ]);
     // Read the friend lists fresh: the auth user is a 5-minute cached copy.
     const user = (await User.findById(authUser.id).catch(() => null)) || authUser;
 

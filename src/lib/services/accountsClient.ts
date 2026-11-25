@@ -272,3 +272,39 @@ export async function accountsSyncProfile(
     console.error('Failed to sync profile to accounts service:', error);
   }
 }
+
+// ---------------------------------------------------------------------------
+// Friend graph (shared with SerikaTrack, Social and serika.dev)
+// ---------------------------------------------------------------------------
+// Ids are accounts user ids (Mongo ObjectId strings), never SerikaCord uuids.
+// See src/lib/social/friendGraphSync.ts for the id mapping and sync rules.
+
+/** `{friends, incoming, outgoing}` of one accounts user. */
+export function accountsGraphFriends(accountsId: string) {
+  return accountsFetch<{ friends?: string[]; incoming?: string[]; outgoing?: string[] }>(
+    `/internal/graph/friends/${encodeURIComponent(accountsId)}`,
+    { method: 'GET', internal: true },
+  );
+}
+
+/**
+ * Upsert a friend request from `requestedBy`. The graph accepts it when the
+ * other side already asked; `status: 1` makes the pair friends outright.
+ * Idempotent, so the one retry in accountsFetch is safe.
+ */
+export function accountsGraphUpsertFriend(body: { a: string; b: string; requestedBy: string; status?: 1 }) {
+  return accountsFetch<{ status?: string }>('/internal/graph/friends', {
+    method: 'POST',
+    internal: true,
+    body: JSON.stringify(body),
+  });
+}
+
+/** Remove the pair (friendship or request in either direction). Idempotent. */
+export function accountsGraphDeleteFriend(a: string, b: string) {
+  return accountsFetch<{ status?: string }>('/internal/graph/friends', {
+    method: 'DELETE',
+    internal: true,
+    body: JSON.stringify({ a, b }),
+  });
+}
