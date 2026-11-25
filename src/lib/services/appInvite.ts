@@ -23,6 +23,7 @@ import {
   appInviteMarker,
   appInvitePairKey,
   appInvitePreview,
+  appInviteText,
   type AppInviteApp,
 } from '@/lib/social/appInvite';
 
@@ -60,25 +61,26 @@ async function postInviteRow(app: AppInviteApp, inviter: IUser, invitee: IUser):
     import('@/lib/services/messageSignals'),
   ]);
   const preview = appInvitePreview(app);
+  const text = appInviteText(app, inviter.displayName || inviter.username);
   const channel = await getOrCreateDMChannel(inviter.id, invitee.id);
-  // content carries the plain preview for DM-list reads; the DTO shows the row instead.
+  // content carries the full sentence for older clients and DM-list reads; current clients draw the card.
   const message = await Message.create({
     channelId: channel.id,
     authorId: inviter.id,
-    content: await encryptForStorage(preview),
+    content: await encryptForStorage(text),
     type: 'system',
     interaction: appInviteMarker(app),
   });
   await Channel.updateById(channel.id, { lastMessageId: message.id, updatedAt: new Date() });
 
-  const { name, url } = APP_INVITE_APPS[app];
+  const { name, url, tagline } = APP_INVITE_APPS[app];
   publishToDm(channel.id, {
     type: 'message',
     message: {
       id: message.id,
       type: 'app_invite',
-      content: '',
-      appInvite: { app, name, url },
+      content: text,
+      appInvite: { app, name, url, tagline },
       authorId: inviter.id,
       author: {
         id: inviter.id,

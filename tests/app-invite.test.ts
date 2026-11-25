@@ -4,6 +4,7 @@ import {
   appInviteEmail,
   appInviteFromMessage,
   appInviteMarker,
+  appInviteText,
   isAppInviteApp,
 } from "../src/lib/social/appInvite";
 import { isStandaloneRow } from "../src/lib/chat/messages";
@@ -17,13 +18,17 @@ describe("app invites", () => {
 
   test("a stored invite row becomes an app_invite DTO with the fixed link", () => {
     const row = { type: "system", interaction: appInviteMarker("serikatrack") };
-    expect(appInviteFromMessage(row)).toEqual({ app: "serikatrack", name: "SerikaTrack", url: "https://track.serika.moe" });
-    expect(appInviteDtoFields(row)).toEqual({
-      type: "app_invite",
-      content: "",
-      interaction: undefined,
-      appInvite: { app: "serikatrack", name: "SerikaTrack", url: "https://track.serika.moe" },
-    });
+    const appInvite = { app: "serikatrack", name: "SerikaTrack", url: "https://track.serika.moe", tagline: "Track the anime and manga you watch and read, and see what your friends are into." };
+    expect(appInviteFromMessage(row)).toEqual(appInvite);
+    // content is left alone: older clients show the stored sentence.
+    expect(appInviteDtoFields(row)).toEqual({ type: "app_invite", interaction: undefined, appInvite });
+  });
+
+  test("the stored sentence names the inviter, the app, what it is and the link", () => {
+    const text = appInviteText("serikatrack", "Pika");
+    expect(text.startsWith("Pika invited you to SerikaTrack!")).toBe(true);
+    expect(text).toContain("anime and manga");
+    expect(text).toContain("https://track.serika.moe");
   });
 
   test("other rows are left alone", () => {

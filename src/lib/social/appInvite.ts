@@ -33,6 +33,7 @@ export interface AppInvitePayload {
   app: AppInviteApp;
   name: string;
   url: string;
+  tagline: string;
 }
 
 /** The `interaction` jsonb stored on the row. */
@@ -45,14 +46,18 @@ export function appInviteFromMessage(msg: { type?: string | null; interaction?: 
   if (msg.type !== 'system') return null;
   const marker = msg.interaction as { kind?: unknown; app?: unknown } | null | undefined;
   if (!marker || marker.kind !== 'app_invite' || !isAppInviteApp(marker.app)) return null;
-  const { name, url } = APP_INVITE_APPS[marker.app];
-  return { app: marker.app, name, url };
+  const { name, url, tagline } = APP_INVITE_APPS[marker.app];
+  return { app: marker.app, name, url, tagline };
 }
 
-/** DTO fields for an app invite row (spread last over the message DTO), or {}. */
+/**
+ * DTO fields for an app invite row (spread last over the message DTO), or {}.
+ * `content` keeps the stored sentence (appInviteText), so clients that don't
+ * know the row type yet still show who invited them, to what, and the link.
+ */
 export function appInviteDtoFields(msg: { type?: string | null; interaction?: unknown }) {
   const invite = appInviteFromMessage(msg);
-  return invite ? { type: 'app_invite' as const, content: '', interaction: undefined, appInvite: invite } : {};
+  return invite ? { type: 'app_invite' as const, interaction: undefined, appInvite: invite } : {};
 }
 
 /** Redis key that makes an inviter → invitee invite one-time. */
@@ -63,7 +68,17 @@ export const appInviteEmailKey = (app: AppInviteApp, inviteeId: string) => `appi
 /** How long those guards last (the inviting app also records invites for good). */
 export const APP_INVITE_GUARD_TTL_SECONDS = 400 * 24 * 60 * 60;
 
-/** Short plain preview for the DM list and notifications. */
+/**
+ * The sentence stored as the row's content: who invited them, what the app is,
+ * and the link. Older clients and anything that only reads `content` (DM list,
+ * search, replies) show this; current clients draw the card instead.
+ */
+export function appInviteText(app: AppInviteApp, inviterName: string): string {
+  const { name, url, tagline } = APP_INVITE_APPS[app];
+  return `${inviterName} invited you to ${name}! ${tagline} Sign in with your Serika account: ${url}`;
+}
+
+/** Short plain preview for notifications. */
 export function appInvitePreview(app: AppInviteApp): string {
   return `Invited you to ${APP_INVITE_APPS[app].name}`;
 }

@@ -194,7 +194,7 @@ export interface ChatMessage {
   /** Group DM system row ("X added Y to the group."): who it's about, the new name. */
   groupEvent?: GroupEventData | null;
   /** "X invited you to SerikaTrack" row (type "app_invite"): which app, its name and link. */
-  appInvite?: { app: string; name: string; url: string } | null;
+  appInvite?: { app: string; name: string; url: string; tagline?: string } | null;
   /** Thread started from this message, or announced by this "started a thread" row. */
   threadId?: string;
   /** That thread's summary (chip: name, message count, last reply); null once deleted. */

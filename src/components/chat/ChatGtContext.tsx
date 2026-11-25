@@ -213,6 +213,8 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "{actor} invited you to {app}.": gt("{actor} invited you to {app}.", { actor: "{actor}", app: "{app}" }),
       "You invited {target} to {app}.": gt("You invited {target} to {app}.", { target: "{target}", app: "{app}" }),
       "Open {app}": gt("Open {app}", { app: "{app}" }),
+      "Track the anime and manga you watch and read, and see what your friends are into.": gt("Track the anime and manga you watch and read, and see what your friends are into."),
+      "Sign in with your Serika account.": gt("Sign in with your Serika account."),
       // MessageComponents — bot buttons, select menus, components v2
       "You are doing that too fast.": gt("You are doing that too fast."),
       "This component is no longer available.": gt("This component is no longer available."),
