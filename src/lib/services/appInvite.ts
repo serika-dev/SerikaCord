@@ -54,8 +54,16 @@ function serikaFrom(from: string): string {
   return `Serika <${address}>`;
 }
 
-function mailable(email: unknown): email is string {
-  return typeof email === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) && !email.toLowerCase().endsWith('@serika.dev');
+/**
+ * A real address to mail: not the `<username>@serika.dev` placeholder SerikaCord
+ * gives accounts without an email (lib/services/auth.ts). Other @serika.dev
+ * addresses are real mailboxes.
+ */
+function mailable(email: unknown, usernames: Array<string | null | undefined>): email is string {
+  if (typeof email !== 'string' || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return false;
+  const [local, domain] = email.toLowerCase().split('@');
+  if (domain !== 'serika.dev') return true;
+  return !usernames.some((name) => !!name && name.toLowerCase() === local);
 }
 
 async function postInviteRow(app: AppInviteApp, inviter: IUser, invitee: IUser): Promise<boolean> {
@@ -154,7 +162,7 @@ export async function sendAppInvite(app: AppInviteApp, inviterAccountsId: string
     let alreadyEmailed = false;
     const address = inviteeAccount?.email;
     const transport = mailer();
-    if (!blocked && transport && mailable(address)) {
+    if (!blocked && transport && mailable(address, [invitee?.username, inviteeAccount?.username])) {
       const emailKey = appInviteEmailKey(app, normalizeId(inviteeId));
       const first = await redis.set(emailKey, String(Date.now()), 'EX', APP_INVITE_GUARD_TTL_SECONDS, 'NX').catch(() => null);
       if (first !== 'OK') alreadyEmailed = true;
