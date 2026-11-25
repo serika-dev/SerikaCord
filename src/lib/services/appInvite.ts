@@ -48,6 +48,12 @@ function mailer(): nodemailer.Transporter | null {
 }
 
 /** Placeholder addresses minted for accounts without an email: never mail them. */
+/** Invites come from "Serika <address>" like Accounts' emails, whatever name EMAIL_FROM carries. */
+function serikaFrom(from: string): string {
+  const address = /<([^>]+)>/.exec(from)?.[1] ?? from.trim();
+  return `Serika <${address}>`;
+}
+
 function mailable(email: unknown): email is string {
   return typeof email === 'string' && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email) && !email.toLowerCase().endsWith('@serika.dev');
 }
@@ -157,7 +163,7 @@ export async function sendAppInvite(app: AppInviteApp, inviterAccountsId: string
         const inviteeName = inviteeAccount?.displayName || inviteeAccount?.username || invitee?.username || 'there';
         const { subject, text, html } = appInviteEmail(app, inviterName, inviteeName);
         try {
-          await transport.sendMail({ from: config.EMAIL_FROM, to: address, subject, text, html });
+          await transport.sendMail({ from: serikaFrom(config.EMAIL_FROM), to: address, subject, text, html });
           email = true;
         } catch (error) {
           await redis.del(emailKey).catch(() => {});
