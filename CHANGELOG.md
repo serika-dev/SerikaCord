@@ -1,10 +1,28 @@
 # SerikaCord — Full Changelog
 
-**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.7.0.
+**298 commits** · Jan 22 – Jul 21, 2026 · v0.0.1 → v2.8.0.
 
 ---
 
 ## Unreleased
+
+### Features
+
+### Changes
+
+### Bug Fixes
+
+### Performance
+
+### Security
+
+### Removed
+
+---
+
+## v2.8.0 — 2026-11-25
+
+**Tag:** `v2.8.0` · **Commit:** `ef2d4d86`
 
 ### Features
 - RNNoise noise suppression: turn on Use RNNoise under Voice & Video > Noise Suppression for a small on-device AI model that removes more background noise (keyboards, fans, traffic) than the standard suppression. The mic test lets you hear it before a call.
@@ -29,12 +47,8 @@
 - Logging out a device (or all other devices) in Settings → Devices now really signs it out; before, the device stayed signed in.
 - YouTube links in messages bridged from Discord now show the same YouTube embed as links posted on SerikaCord, instead of Discord's card with a blank video player.
 
-### Performance
-
 ### Security
 - Fixed a set of permission and sign-in issues found in a security review, including role and moderation checks, developer team access, and stricter checks on links, uploads and embeds.
-
-### Removed
 
 ---
 
