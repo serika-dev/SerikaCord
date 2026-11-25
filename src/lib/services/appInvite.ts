@@ -127,11 +127,15 @@ export async function sendAppInvite(app: AppInviteApp, inviterAccountsId: string
     ]);
     const blocked = !!inviter && !!invitee && (hasId(inviter.blockedUsers, invitee.id) || hasId(invitee.blockedUsers, inviter.id));
     const inviteeAccount = accountsInvitee?.ok ? accountsInvitee.data.user : undefined;
-    if (inviteeAccount?.isBanned || invitee?.isBanned || inviter?.isBanned) return none('invalid');
+    // The inviter must be a SerikaCord user (the DM comes from them); the invitee needs at least an account.
+    if (!inviter || (!invitee && !inviteeAccount) || inviteeAccount?.isBanned || invitee?.isBanned || inviter.isBanned) {
+      await redis.del(pairKey).catch(() => {});
+      return none('invalid');
+    }
 
     let dm = false;
     // Blocks hide the invite entirely (and the inviter isn't told why).
-    if (inviter && invitee && !blocked && !inviter.isBot && !invitee.isBot && !inviter.isSystem && !invitee.isSystem) {
+    if (invitee && !blocked && !inviter.isBot && !invitee.isBot && !inviter.isSystem && !invitee.isSystem) {
       dm = await postInviteRow(app, inviter, invitee).catch((error) => {
         console.warn('[AppInvite] DM row failed:', error instanceof Error ? error.message : error);
         return false;
@@ -139,13 +143,15 @@ export async function sendAppInvite(app: AppInviteApp, inviterAccountsId: string
     }
 
     let email = false;
+    let alreadyEmailed = false;
     const address = inviteeAccount?.email;
     const transport = mailer();
     if (!blocked && transport && mailable(address)) {
       const emailKey = appInviteEmailKey(app, normalizeId(inviteeId));
       const first = await redis.set(emailKey, String(Date.now()), 'EX', APP_INVITE_GUARD_TTL_SECONDS, 'NX').catch(() => null);
-      if (first === 'OK') {
-        const inviterName = inviter?.displayName || inviter?.username || 'A friend';
+      if (first !== 'OK') alreadyEmailed = true;
+      else {
+        const inviterName = inviter.displayName || inviter.username || 'A friend';
         const inviteeName = inviteeAccount?.displayName || inviteeAccount?.username || invitee?.username || 'there';
         const { subject, text, html } = appInviteEmail(app, inviterName, inviteeName);
         try {
@@ -160,8 +166,12 @@ export async function sendAppInvite(app: AppInviteApp, inviterAccountsId: string
       console.warn('[AppInvite] email not configured (AWS_EMAIL_SMTP_USERNAME / AWS_EMAIL_PASS): DM only');
     }
 
-    // Nothing delivered for a reason that may pass (e.g. mail down): let them retry.
-    if (!dm && !email && !blocked && invitee) await redis.del(pairKey).catch(() => {});
+    // Nothing delivered for a reason that may pass (e.g. mail down): report it so the
+    // calling app frees its one-time invite, and let them retry. A block stays silent.
+    if (!dm && !email && !blocked && !alreadyEmailed) {
+      await redis.del(pairKey).catch(() => {});
+      return none('unavailable');
+    }
     return { status: 'sent', dm, email };
   } catch (error) {
     await redis.del(pairKey).catch(() => {});
