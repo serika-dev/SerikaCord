@@ -38,6 +38,7 @@ import { MessageGroup } from "@/components/chat/MessageGroup";
 import { CallMessageRow, type CallRowPeer } from "@/components/chat/CallMessageRow";
 import { GroupSystemRow } from "@/components/chat/GroupSystemRow";
 import { E2eeSystemRow } from "@/components/chat/E2eeSystemRow";
+import { AppInviteRow } from "@/components/chat/AppInviteRow";
 import { ThreadSystemRow } from "@/components/chat/ThreadRows";
 import { PollResultRow } from "@/components/chat/PollResultRow";
 import { PinSystemRow } from "@/components/chat/PinSystemRow";
@@ -1136,6 +1137,13 @@ function MessageListInner<M extends ChatMessage>(
     ) : group.messages[0].type === "e2ee_enabled" || group.messages[0].type === "e2ee_disabled" ? (
     <E2eeSystemRow
       message={group.messages[0]}
+      formattedTimestamp={formattedTimestamps[idx]}
+    />
+    ) : group.messages[0].type === "app_invite" ? (
+    <AppInviteRow
+      message={group.messages[0]}
+      currentUserId={currentUserId}
+      peerName={dmPeer?.name}
       formattedTimestamp={formattedTimestamps[idx]}
     />
     ) : isGroupDmEventType(group.messages[0].type) ? (

@@ -50,6 +50,7 @@ import {
   storedEnvelope,
 } from '@/lib/services/e2ee';
 import { backupRecipientId, envelopeForRecipients, type Envelope } from '@/lib/e2ee';
+import { appInviteDtoFields } from '@/lib/social/appInvite';
 import { withoutServerTag } from '@/lib/servers/serverProfile';
 
 function compareIds(id1: string, id2: string): boolean {
@@ -582,6 +583,8 @@ export async function loadDmMessagesPage(
       // End-to-end encrypted: the envelope (content is ''), or the
       // "turned on encryption" notice row.
       ...e2eeDtoFields(msg),
+      // "X invited you to SerikaTrack" row (lib/social/appInvite).
+      ...appInviteDtoFields(msg),
     };
   });
 }

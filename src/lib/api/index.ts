@@ -67,6 +67,8 @@ import { filterVisibleConnections, isSelfDeclarableProvider, toOwnConnection } f
 import { MAX_DOMAINS_PER_USER, createDomainToken, filterUnverifiedDomains, newDomainMetadata, normalizeDomain, ownDomainStatus, readDomainVerification, verifiedDomainMetadata } from '@/lib/connections/domain';
 import { mutateFriendPair, type FriendPairOutcome } from '@/lib/services/friendPairLock';
 import { reconcileFriendGraph } from '@/lib/services/friendGraph';
+import { sendAppInvite } from '@/lib/services/appInvite';
+import { isAppInviteApp } from '@/lib/social/appInvite';
 import { addId, dedupeIds, hasId, removeId } from '@/lib/social/friendLists';
 import { normalizeDisplayName } from '@/lib/utils/normalizeDisplayName';
 import { db, schema } from '@/lib/db/postgres';
@@ -829,6 +831,30 @@ const internalRoutes = new Elysia({ prefix: '/internal' })
     body: t.Object({
       email: t.String({ maxLength: 320 }),
     }, { additionalProperties: true }),
+  })
+  // Another Serika app (SerikaTrack) invites a friend: a one-time invite row in
+  // the inviter ↔ invitee DM plus one email. Ids are accounts ids. See
+  // src/lib/services/appInvite.ts.
+  .post('/app-invite', async ({ headers, body, set }) => {
+    if (!isValidServiceKey(headers['x-service-key'])) {
+      set.status = 401;
+      return { error: 'Invalid service key' };
+    }
+    if (!isAppInviteApp(body.app)) {
+      set.status = 400;
+      return { error: 'Unknown app' };
+    }
+    const result = await sendAppInvite(body.app, body.inviterAccountsId, body.inviteeAccountsId);
+    if (result.status === 'invalid') set.status = 400;
+    else if (result.status === 'already_invited') set.status = 409;
+    else if (result.status === 'unavailable') set.status = 503;
+    return result;
+  }, {
+    body: t.Object({
+      app: t.String({ maxLength: 32 }),
+      inviterAccountsId: t.String({ maxLength: 64 }),
+      inviteeAccountsId: t.String({ maxLength: 64 }),
+    }),
   });
 
 // User routes

@@ -209,6 +209,10 @@ export function ChatGtProvider({ children }: { children: ReactNode }) {
       "quoted by the sender": gt("quoted by the sender"),
       "Not encrypted – can't verify sender": gt("Not encrypted – can't verify sender"),
       "{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.": gt("{actor} turned on end-to-end encryption. Messages and calls here are now encrypted.", { actor: "{actor}" }),
+      // AppInviteRow — "X invited you to SerikaTrack"
+      "{actor} invited you to {app}.": gt("{actor} invited you to {app}.", { actor: "{actor}", app: "{app}" }),
+      "You invited {target} to {app}.": gt("You invited {target} to {app}.", { target: "{target}", app: "{app}" }),
+      "Open {app}": gt("Open {app}", { app: "{app}" }),
       // MessageComponents — bot buttons, select menus, components v2
       "You are doing that too fast.": gt("You are doing that too fast."),
       "This component is no longer available.": gt("This component is no longer available."),
