@@ -40,7 +40,7 @@ function RailPill({ state }: { state: "active" | "unread" | null }) {
 }
 
 const actionButton =
-  "w-12 h-12 rounded-[24px] bg-[var(--bg-sidebar-elevated)] flex items-center justify-center text-green-500 transition-all duration-200 active:scale-95 active:rounded-[16px] touch-manipulation";
+  "w-12 h-12 rounded-[24px] bg-[var(--bg-sidebar-elevated)] flex items-center justify-center text-[var(--app-accent)] transition-all active:bg-[var(--app-accent)] active:text-[var(--text-on-accent)] duration-200 active:scale-95 active:rounded-[16px] touch-manipulation";
 
 /**
  * Phone server rail (Discord mobile): home, servers with unread pills and

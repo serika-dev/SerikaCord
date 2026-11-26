@@ -12,6 +12,7 @@
 
 ### Bug Fixes
 - Discover on phones shows the server list, title and search again instead of a blank page (CORD-95)
+- The Add, Explore and Download buttons in the phone server list use your accent color instead of always green
 
 ### Performance
 
