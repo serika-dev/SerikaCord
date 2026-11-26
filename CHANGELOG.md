@@ -11,6 +11,7 @@
 ### Changes
 
 ### Bug Fixes
+- Discover on phones shows the server list, title and search again instead of a blank page (CORD-95)
 
 ### Performance
 

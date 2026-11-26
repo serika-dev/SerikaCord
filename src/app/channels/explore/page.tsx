@@ -552,7 +552,10 @@ export default function ExplorePage() {
     : selectedCat ? categoryLabel(selectedCat.id, gt) : gt("Communities");
 
   return (
-    <div className="flex-1 flex min-h-0 bg-[var(--app-bg)]">
+    // min-w-0 on the page and the scroll area: the phone category strip is
+    // one long nowrap row, and without it the page grew to the strip's full
+    // width, pushing the centred hero and the server list off screen (CORD-95).
+    <div className="flex-1 flex min-w-0 min-h-0 bg-[var(--app-bg)]">
       {/* Sidebar */}
       <aside className="w-64 hidden md:flex flex-col border-r border-[var(--border-subtle)] bg-[var(--bg-card)] flex-shrink-0">
         <div className="p-3 flex-1 overflow-y-auto">
@@ -604,7 +607,7 @@ export default function ExplorePage() {
       </aside>
 
       {/* Main Content */}
-      <ScrollArea className="flex-1 min-h-0">
+      <ScrollArea className="flex-1 min-w-0 min-h-0">
         {/* Hero */}
         <div className="relative h-[200px] md:h-[280px] overflow-hidden flex-shrink-0">
           {/* Deep dark premium background with subtle radial gradient */}
